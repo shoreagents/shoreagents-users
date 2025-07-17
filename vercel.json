@@ -1,0 +1,13 @@
+{
+  "buildCommand": "npm run build",
+  "installCommand": "npm install",
+  "framework": "nextjs",
+  "functions": {
+    "src/app/**/*.tsx": {
+      "maxDuration": 30
+    }
+  },
+  "env": {
+    "NEXT_TELEMETRY_DISABLED": "1"
+  }
+} 
