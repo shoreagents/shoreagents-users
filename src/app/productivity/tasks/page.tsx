@@ -283,7 +283,7 @@ export default function TaskTrackerPage() {
                 </Badge>
               </div>
             </CardHeader>
-            <CardContent className="p-0">
+            <CardContent className="py-0 px-4">
               <TaskTable 
                 tasks={filteredTasks} 
                 onTaskUpdate={handleTaskUpdate}

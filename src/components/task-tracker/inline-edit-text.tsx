@@ -78,9 +78,15 @@ export function InlineEditText({
   return (
     <div
       onClick={() => setIsEditing(true)}
-      className={`cursor-pointer hover:bg-muted/50 rounded px-2 py-1 min-h-[2rem] flex items-center ${className}`}
+      className={`cursor-pointer hover:bg-muted/50 rounded px-2 py-1 min-h-[2rem] ${
+        multiline ? 'items-start' : 'items-center'
+      } flex ${className}`}
     >
-      {value || (
+      {value ? (
+        <span className={multiline ? "whitespace-pre-wrap break-words w-full" : "truncate"}>
+          {value}
+        </span>
+      ) : (
         <span className="text-muted-foreground italic">{placeholder}</span>
       )}
     </div>

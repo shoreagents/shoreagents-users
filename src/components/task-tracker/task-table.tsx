@@ -21,7 +21,18 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination"
-import { Trash2 } from "lucide-react"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
+import { Trash2, ChevronDown, ChevronRight, Info, User, Clock, FileText } from "lucide-react"
 import { Task } from "@/types/task"
 import { 
   updateTask, 
@@ -36,6 +47,7 @@ import { InlineEditSelect } from "./inline-edit-select"
 import { InlineEditDate } from "./inline-edit-date"
 import { InlineEditFiles } from "./inline-edit-files"
 import { Card, CardContent } from "@/components/ui/card"
+import React from "react"
 
 interface TaskTableProps {
   tasks: Task[]
@@ -47,6 +59,8 @@ export function TaskTable({ tasks, onTaskUpdate, onTaskDelete }: TaskTableProps)
   const [availableStatuses] = useState(() => getAvailableStatuses())
   const [availableTaskTypes] = useState(() => getAvailableTaskTypes())
   const [currentPage, setCurrentPage] = useState(1)
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
+  const [hasAutoExpanded, setHasAutoExpanded] = useState(false)
   const tasksPerPage = 4
 
   // Calculate pagination
@@ -54,6 +68,14 @@ export function TaskTable({ tasks, onTaskUpdate, onTaskDelete }: TaskTableProps)
   const startIndex = (currentPage - 1) * tasksPerPage
   const endIndex = startIndex + tasksPerPage
   const currentTasks = tasks.slice(startIndex, endIndex)
+
+  // Auto-expand first row to show users the feature exists (only once)
+  useEffect(() => {
+    if (currentTasks.length > 0 && !hasAutoExpanded) {
+      setExpandedRows(new Set([currentTasks[0].id]))
+      setHasAutoExpanded(true)
+    }
+  }, [currentTasks, hasAutoExpanded])
 
   // Reset to first page when tasks change and current page is out of bounds
   useEffect(() => {
@@ -95,9 +117,19 @@ export function TaskTable({ tasks, onTaskUpdate, onTaskDelete }: TaskTableProps)
     // since this affects the available options
   }
 
+  const toggleRowExpansion = (taskId: string) => {
+    const newExpanded = new Set(expandedRows)
+    if (newExpanded.has(taskId)) {
+      newExpanded.delete(taskId)
+    } else {
+      newExpanded.add(taskId)
+    }
+    setExpandedRows(newExpanded)
+  }
+
   const formatDateTime = (dateString: string) => {
     try {
-      return format(new Date(dateString), "MMM dd, HH:mm")
+      return format(new Date(dateString), "MMM dd, yyyy HH:mm")
     } catch {
       return dateString
     }
@@ -241,7 +273,7 @@ export function TaskTable({ tasks, onTaskUpdate, onTaskDelete }: TaskTableProps)
                 />
               </div>
               
-              <div className="grid grid-cols-2 gap-3">
+              <div className="flex items-center justify-between">
                 <div>
                   <div className="text-xs font-medium text-muted-foreground mb-1">Files</div>
                   <InlineEditFiles
@@ -256,14 +288,6 @@ export function TaskTable({ tasks, onTaskUpdate, onTaskDelete }: TaskTableProps)
                   <div className="text-xs text-muted-foreground">{formatDateTime(task.createdTime)}</div>
                 </div>
               </div>
-              
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <div className="text-xs text-muted-foreground">Last edited by</div>
-                  <div className="text-xs font-medium">{task.lastEditedBy}</div>
-                  <div className="text-xs text-muted-foreground">{formatDateTime(task.lastEditedTime)}</div>
-                </div>
-              </div>
             </CardContent>
           </Card>
         ))}
@@ -271,147 +295,236 @@ export function TaskTable({ tasks, onTaskUpdate, onTaskDelete }: TaskTableProps)
 
       {/* Desktop Table Layout (hidden on mobile) */}
       <div className="hidden lg:block">
-        <div className="border rounded-lg overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow className="hover:bg-transparent">
-                <TableHead className="w-[150px] min-w-[150px]">Task Name</TableHead>
-                <TableHead className="w-[100px] min-w-[100px]">Status</TableHead>
-                <TableHead className="w-[120px] min-w-[120px]">Assignee</TableHead>
-                <TableHead className="w-[100px] min-w-[100px]">Due Date</TableHead>
-                <TableHead className="w-[80px] min-w-[80px]">Priority</TableHead>
-                <TableHead className="w-[120px] min-w-[120px]">Task Type</TableHead>
-                <TableHead className="w-[180px] min-w-[180px]">Description</TableHead>
-                <TableHead className="w-[80px] min-w-[80px]">Files</TableHead>
-                <TableHead className="w-[100px] min-w-[100px]">Created By</TableHead>
-                <TableHead className="w-[120px] min-w-[120px]">Created Time</TableHead>
-                <TableHead className="w-[100px] min-w-[100px]">Last Edited By</TableHead>
-                <TableHead className="w-[120px] min-w-[120px]">Last Edited Time</TableHead>
-                <TableHead className="w-[50px] min-w-[50px]">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {currentTasks.map((task) => (
-                <TableRow key={task.id} className="hover:bg-muted/50">
-                  <TableCell className="max-w-0 pr-2">
-                    <div className="truncate">
-                      <InlineEditText
-                        value={task.taskName}
-                        onSave={(value) => handleTaskUpdate(task.id, 'taskName', value)}
-                        placeholder="Enter task name"
-                        className="w-full"
-                      />
-                    </div>
-                  </TableCell>
-                  
-                  <TableCell className="px-1">
-                    <InlineEditSelect
-                      value={task.status}
-                      options={availableStatuses}
-                      onSave={(value) => handleTaskUpdate(task.id, 'status', value)}
-                      onAddOption={handleAddCustomStatus}
-                      variant="status"
-                      placeholder="Set status"
-                    />
-                  </TableCell>
-                  
-                  <TableCell className="max-w-0 px-1">
-                    <div className="truncate">
-                      <InlineEditText
-                        value={task.assignee}
-                        onSave={(value) => handleTaskUpdate(task.id, 'assignee', value)}
-                        placeholder="Assign to"
-                        className="w-full"
-                      />
-                    </div>
-                  </TableCell>
-                  
-                  <TableCell className="px-1">
-                    <InlineEditDate
-                      value={task.dueDate}
-                      onSave={(value) => handleTaskUpdate(task.id, 'dueDate', value)}
-                      placeholder="Set due date"
-                    />
-                  </TableCell>
-                  
-                  <TableCell className="px-1">
-                    <InlineEditSelect
-                      value={task.priority}
-                      options={['Low', 'Medium', 'High']}
-                      onSave={(value) => handleTaskUpdate(task.id, 'priority', value)}
-                      variant="priority"
-                      placeholder="Set priority"
-                    />
-                  </TableCell>
-                  
-                  <TableCell className="px-1">
-                    <InlineEditSelect
-                      value={task.taskType}
-                      options={availableTaskTypes}
-                      onSave={(value) => handleTaskUpdate(task.id, 'taskType', value)}
-                      onAddOption={handleAddCustomTaskType}
-                      variant="taskType"
-                      placeholder="Set type"
-                    />
-                  </TableCell>
-                  
-                  <TableCell className="max-w-0 px-1">
-                    <div className="truncate">
-                      <InlineEditText
-                        value={task.description}
-                        onSave={(value) => handleTaskUpdate(task.id, 'description', value)}
-                        placeholder="Add description"
-                        multiline
-                        className="w-full"
-                      />
-                    </div>
-                  </TableCell>
-                  
-                  <TableCell className="px-1">
-                    <InlineEditFiles
-                      value={task.attachedFiles}
-                      onSave={(value) => handleTaskUpdate(task.id, 'attachedFiles', value)}
-                    />
-                  </TableCell>
-                  
-                  <TableCell className="max-w-0 px-1">
-                    <div className="truncate text-sm">
-                      {task.createdBy}
-                    </div>
-                  </TableCell>
-                  
-                  <TableCell className="px-1">
-                    <div className="text-sm text-muted-foreground">
-                      {formatDateTime(task.createdTime)}
-                    </div>
-                  </TableCell>
-                  
-                  <TableCell className="max-w-0 px-1">
-                    <div className="truncate text-sm">
-                      {task.lastEditedBy}
-                    </div>
-                  </TableCell>
-                  
-                  <TableCell className="px-1">
-                    <div className="text-sm text-muted-foreground">
-                      {formatDateTime(task.lastEditedTime)}
-                    </div>
-                  </TableCell>
-                  
-                  <TableCell className="pl-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDeleteTask(task.id)}
-                      className="h-8 w-8 p-0 text-destructive hover:text-destructive"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+        <div className="border rounded-lg overflow-hidden">
+          <div className="px-4 md:px-6">
+            <TooltipProvider>
+              <Table>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className="w-[40px]">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="flex items-center justify-center cursor-help">
+                            <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p className="text-xs">Click arrows to expand task details</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TableHead>
+                    <TableHead className="w-[28%]">Task Name</TableHead>
+                    <TableHead className="w-[12%]">Status</TableHead>
+                    <TableHead className="w-[15%]">Assignee</TableHead>
+                    <TableHead className="w-[12%]">Due Date</TableHead>
+                    <TableHead className="w-[10%]">Priority</TableHead>
+                    <TableHead className="w-[13%]">Task Type</TableHead>
+                    <TableHead className="w-[8%] hidden xl:table-cell">Files</TableHead>
+                    <TableHead className="w-[60px]">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {currentTasks.map((task) => (
+                    <React.Fragment key={task.id}>
+                      <TableRow className="hover:bg-muted/50">
+                        <TableCell className="p-1">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => toggleRowExpansion(task.id)}
+                                className="h-6 w-6 p-0 hover:bg-primary/10 transition-colors"
+                              >
+                                {expandedRows.has(task.id) ? (
+                                  <ChevronDown className="h-3 w-3 text-primary" />
+                                ) : (
+                                  <ChevronRight className="h-3 w-3 text-muted-foreground hover:text-primary" />
+                                )}
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="right">
+                              <p className="text-xs">
+                                {expandedRows.has(task.id) ? 'Hide details' : 'Show description, files & audit trail'}
+                              </p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TableCell>
+
+                        <TableCell className="max-w-0 pr-2">
+                          <div className="flex items-center gap-2">
+                            <div className="truncate flex-1">
+                              <InlineEditText
+                                value={task.taskName}
+                                onSave={(value) => handleTaskUpdate(task.id, 'taskName', value)}
+                                placeholder="Enter task name"
+                                className="w-full"
+                              />
+                            </div>
+                            {task.description && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Info className="h-3 w-3 text-muted-foreground cursor-help" />
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="max-w-sm p-3">
+                                  <p className="text-xs whitespace-pre-wrap break-words">
+                                    {task.description.length > 100 
+                                      ? `${task.description.substring(0, 100)}...` 
+                                      : task.description
+                                    }
+                                  </p>
+                                  {task.description.length > 100 && (
+                                    <p className="text-xs text-muted-foreground mt-1 italic">
+                                      Click to expand for full description
+                                    </p>
+                                  )}
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
+                          </div>
+                        </TableCell>
+                        
+                        <TableCell className="px-1">
+                          <InlineEditSelect
+                            value={task.status}
+                            options={availableStatuses}
+                            onSave={(value) => handleTaskUpdate(task.id, 'status', value)}
+                            onAddOption={handleAddCustomStatus}
+                            variant="status"
+                            placeholder="Set status"
+                          />
+                        </TableCell>
+                        
+                        <TableCell className="max-w-0 px-1">
+                          <div className="truncate">
+                            <InlineEditText
+                              value={task.assignee}
+                              onSave={(value) => handleTaskUpdate(task.id, 'assignee', value)}
+                              placeholder="Assign to"
+                              className="w-full"
+                            />
+                          </div>
+                        </TableCell>
+                        
+                        <TableCell className="px-1">
+                          <InlineEditDate
+                            value={task.dueDate}
+                            onSave={(value) => handleTaskUpdate(task.id, 'dueDate', value)}
+                            placeholder="Set due date"
+                          />
+                        </TableCell>
+                        
+                        <TableCell className="px-1">
+                          <InlineEditSelect
+                            value={task.priority}
+                            options={['Low', 'Medium', 'High']}
+                            onSave={(value) => handleTaskUpdate(task.id, 'priority', value)}
+                            variant="priority"
+                            placeholder="Set priority"
+                          />
+                        </TableCell>
+                        
+                        <TableCell className="px-1">
+                          <InlineEditSelect
+                            value={task.taskType}
+                            options={availableTaskTypes}
+                            onSave={(value) => handleTaskUpdate(task.id, 'taskType', value)}
+                            onAddOption={handleAddCustomTaskType}
+                            variant="taskType"
+                            placeholder="Set type"
+                          />
+                        </TableCell>
+                        
+                        <TableCell className="hidden xl:table-cell px-1">
+                          <InlineEditFiles
+                            value={task.attachedFiles}
+                            onSave={(value) => handleTaskUpdate(task.id, 'attachedFiles', value)}
+                          />
+                        </TableCell>
+                        
+                        <TableCell className="pl-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteTask(task.id)}
+                            className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+
+                      {/* Expandable Row Details */}
+                      {expandedRows.has(task.id) && (
+                        <TableRow>
+                          <TableCell colSpan={9} className="p-0 bg-muted/25">
+                            <div className="p-4 space-y-4">
+                              <div className="grid gap-4 md:grid-cols-2">
+                                {/* Description */}
+                                <div>
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <FileText className="h-4 w-4 text-muted-foreground" />
+                                    <span className="text-sm font-medium">Description</span>
+                                  </div>
+                                  <div className="w-full">
+                                    <InlineEditText
+                                      value={task.description}
+                                      onSave={(value) => handleTaskUpdate(task.id, 'description', value)}
+                                      placeholder="Add description"
+                                      multiline
+                                      className="w-full min-h-[3rem] max-w-none"
+                                    />
+                                  </div>
+                                </div>
+
+                                {/* Files (on smaller screens) */}
+                                <div className="xl:hidden">
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <FileText className="h-4 w-4 text-muted-foreground" />
+                                    <span className="text-sm font-medium">Files</span>
+                                  </div>
+                                  <InlineEditFiles
+                                    value={task.attachedFiles}
+                                    onSave={(value) => handleTaskUpdate(task.id, 'attachedFiles', value)}
+                                  />
+                                </div>
+                              </div>
+
+                              {/* Audit Trail */}
+                              <div className="border-t pt-4">
+                                <div className="flex items-center gap-2 mb-3">
+                                  <Clock className="h-4 w-4 text-muted-foreground" />
+                                  <span className="text-sm font-medium">Audit Trail</span>
+                                </div>
+                                <div className="grid gap-2 md:grid-cols-2 text-xs text-muted-foreground">
+                                  <div className="flex items-center gap-2">
+                                    <User className="h-3 w-3" />
+                                    <span>Created by {task.createdBy}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <Clock className="h-3 w-3" />
+                                    <span>Created {formatDateTime(task.createdTime)}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <User className="h-3 w-3" />
+                                    <span>Last edited by {task.lastEditedBy}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <Clock className="h-3 w-3" />
+                                    <span>Last edited {formatDateTime(task.lastEditedTime)}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </React.Fragment>
+                  ))}
+                </TableBody>
+              </Table>
+            </TooltipProvider>
+          </div>
         </div>
       </div>
 
@@ -439,7 +552,11 @@ export function TaskTable({ tasks, onTaskUpdate, onTaskDelete }: TaskTableProps)
                     <PaginationLink
                       onClick={() => setCurrentPage(page as number)}
                       isActive={currentPage === page}
-                      className="cursor-pointer"
+                      className={`cursor-pointer ${
+                        currentPage === page 
+                          ? 'bg-primary text-primary-foreground hover:bg-primary/90' 
+                          : 'hover:bg-muted'
+                      }`}
                     >
                       {page}
                     </PaginationLink>

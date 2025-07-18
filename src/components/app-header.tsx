@@ -56,87 +56,110 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
     // Add Dashboard as root for dashboard pages
     if (pathSegments[0] === 'dashboard') {
       generatedBreadcrumbs.push({
-        title: 'Dashboard',
-        href: '/dashboard'
+        title: 'Dashboard'
       })
 
       // Add sub-pages
       if (pathSegments[1] === 'activity') {
         generatedBreadcrumbs.push({
           title: 'Activity',
-          isCurrent: true
+          href: '/dashboard/activity'
         })
       } else if (pathSegments[1] === 'analytics') {
         generatedBreadcrumbs.push({
           title: 'Analytics',
-          isCurrent: true
+          href: '/dashboard/analytics'
         })
       } else if (pathSegments.length === 1) {
-        // Dashboard home page
-        generatedBreadcrumbs[0].isCurrent = true
+        // Dashboard home page - make it clickable
+        generatedBreadcrumbs[0].href = '/dashboard'
       }
     } else if (pathSegments[0] === 'forms') {
       generatedBreadcrumbs.push({
-        title: 'Support Tickets',
-        href: '/forms'
+        title: 'Support Tickets'
       })
 
       if (pathSegments[1] === 'new') {
         generatedBreadcrumbs.push({
           title: 'New Ticket',
-          isCurrent: true
+          href: '/forms/new'
         })
       } else if (pathSegments[1] === 'my-tickets') {
         generatedBreadcrumbs.push({
           title: 'My Tickets',
-          isCurrent: true
+          href: '/forms/my-tickets'
         })
+      } else if (pathSegments.length === 1) {
+        // Forms home page - make it clickable
+        generatedBreadcrumbs[0].href = '/forms'
       }
     } else if (pathSegments[0] === 'help') {
       generatedBreadcrumbs.push({
-        title: 'Help & Support',
-        href: '/help'
+        title: 'Help & Support'
       })
 
       if (pathSegments[1] === 'faq') {
         generatedBreadcrumbs.push({
           title: 'FAQ',
-          isCurrent: true
+          href: '/help/faq'
         })
       } else if (pathSegments[1] === 'contact') {
         generatedBreadcrumbs.push({
           title: 'Contact Support',
-          isCurrent: true
+          href: '/help/contact'
         })
       } else if (pathSegments[1] === 'docs') {
         generatedBreadcrumbs.push({
           title: 'Documentation',
-          isCurrent: true
+          href: '/help/docs'
         })
+      } else if (pathSegments.length === 1) {
+        // Help home page - make it clickable
+        generatedBreadcrumbs[0].href = '/help'
       }
     } else if (pathSegments[0] === 'productivity') {
       generatedBreadcrumbs.push({
-        title: 'Productivity',
-        href: '/productivity'
+        title: 'Productivity'
       })
 
       if (pathSegments[1] === 'tasks') {
         generatedBreadcrumbs.push({
           title: 'Task Tracker',
-          isCurrent: true
+          href: '/productivity/tasks'
         })
+      } else if (pathSegments.length === 1) {
+        // Productivity home page - make it clickable
+        generatedBreadcrumbs[0].href = '/productivity'
       }
+    } else if (pathSegments[0] === 'breaks') {
+      generatedBreadcrumbs.push({
+        title: 'Breaks'
+      })
+      generatedBreadcrumbs.push({
+        title: 'Break Management',
+        href: '/breaks'
+      })
+    } else if (pathSegments[0] === 'health') {
+      generatedBreadcrumbs.push({
+        title: 'Health'
+      })
+      generatedBreadcrumbs.push({
+        title: 'Health Staff',
+        href: '/health'
+      })
     } else if (pathSegments[0] === 'settings') {
       generatedBreadcrumbs.push({
-        title: 'Settings',
-        href: '/settings'
+        title: 'Settings'
       })
 
       if (pathSegments[1] === 'profile') {
         generatedBreadcrumbs.push({
           title: 'Profile',
-          isCurrent: true
+          href: '/settings/profile'
         })
+      } else if (pathSegments.length === 1) {
+        // Settings home page - make it clickable
+        generatedBreadcrumbs[0].href = '/settings'
       }
     }
 
@@ -146,7 +169,7 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
   const currentBreadcrumbs = generateBreadcrumbs()
 
   return (
-    <header className="sticky top-0 z-50 flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12 bg-background border-b">
+    <header className="sticky top-0 z-50 flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12 bg-background/95 backdrop-blur-sm supports-[backdrop-filter]:bg-background/80 border-b border-border/40 shadow-sm">
       <div className="flex items-center gap-2 px-4">
         <SidebarTrigger className="-ml-1" />
         <Separator
