@@ -114,6 +114,18 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
           isCurrent: true
         })
       }
+    } else if (pathSegments[0] === 'productivity') {
+      generatedBreadcrumbs.push({
+        title: 'Productivity',
+        href: '/productivity'
+      })
+
+      if (pathSegments[1] === 'tasks') {
+        generatedBreadcrumbs.push({
+          title: 'Task Tracker',
+          isCurrent: true
+        })
+      }
     } else if (pathSegments[0] === 'settings') {
       generatedBreadcrumbs.push({
         title: 'Settings',
