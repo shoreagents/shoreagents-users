@@ -24,7 +24,6 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { getCurrentUserTickets, Ticket } from "@/lib/ticket-utils"
-import { ActivityStatus } from "@/components/activity-status"
 
 export default function DashboardPage() {
   const [tickets, setTickets] = useState<Ticket[]>([])
@@ -206,9 +205,6 @@ export default function DashboardPage() {
             </Card>
           </div>
 
-          {/* Activity Status Monitor */}
-          <ActivityStatus />
-
           {/* Recent Tickets */}
           <Card>
             <CardHeader>
@@ -254,10 +250,6 @@ export default function DashboardPage() {
                           <div className="flex items-center gap-1">
                             <Calendar className="h-3 w-3" />
                             <span>{formatDate(ticket.createdAt)}</span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <User className="h-3 w-3" />
-                            <span>{ticket.nickname}</span>
                           </div>
                           <div className="flex items-center gap-1">
                             <Tag className="h-3 w-3" />

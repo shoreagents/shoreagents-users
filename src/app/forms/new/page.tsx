@@ -18,11 +18,7 @@ import { Badge } from "@/components/ui/badge"
 import { ArrowLeft, Send, CheckCircle, FileText, Mail, Phone, Upload, X, AlertTriangle, MessageSquare } from "lucide-react"
 import Link from "next/link"
 import { addTicketForUser, getCurrentUser } from "@/lib/ticket-utils"
-import { Calendar } from "@/components/ui/calendar"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { CalendarIcon } from "lucide-react"
-import { format } from "date-fns"
-import { cn } from "@/lib/utils"
+import { getCurrentUserProfile } from "@/lib/user-profiles"
 
 
 export default function NewTicketPage() {
@@ -33,14 +29,18 @@ export default function NewTicketPage() {
   const [files, setFiles] = useState<File[]>([])
   const [dragActive, setDragActive] = useState(false)
   const [fileError, setFileError] = useState<string>("")
-  const [date, setDate] = useState<Date>()
+  const [userProfile, setUserProfile] = useState<any>(null)
   
   // Maximum file size: 10MB
   const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB in bytes
 
-  // Simulate loading
+  // Simulate loading and get user profile
   useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 1000)
+    const timer = setTimeout(() => {
+      const profile = getCurrentUserProfile()
+      setUserProfile(profile)
+      setLoading(false)
+    }, 1000)
     return () => clearTimeout(timer)
   }, [])
 
@@ -49,7 +49,6 @@ export default function NewTicketPage() {
     setIsSubmitted(false)
     setTicketId("")
     setFiles([])
-    setDate(undefined)
     setFileError("")
   }, [])
 
@@ -108,20 +107,24 @@ export default function NewTicketPage() {
     
     const formData = new FormData(e.currentTarget)
     const newTicketId = generateTicketId()
+    const currentDate = new Date()
+    
+    // Get user info from session/profile
+    const fullName = userProfile ? `${userProfile.first_name} ${userProfile.last_name}` : 'Unknown User'
+    const userEmail = userProfile?.email || getCurrentUser()?.email || 'unknown@email.com'
     
     const ticket = {
       id: newTicketId,
-      name: formData.get('name') as string,
-      date: date ? format(date, 'yyyy-MM-dd') : new Date().toISOString().split('T')[0],
+      name: fullName, // Auto-populated from user session
+      date: currentDate.toISOString().split('T')[0], // Auto-set to submission date
       concern: formData.get('concern') as string,
       comments: formData.get('comments') as string,
       category: formData.get('category') as string,
       details: formData.get('details') as string,
-      nickname: formData.get('nickname') as string,
-      email: formData.get('email') as string,
+      email: userEmail, // Auto-populated from user session
       files: files.map(file => file.name),
       status: 'pending' as const,
-      createdAt: new Date().toISOString()
+      createdAt: currentDate.toISOString()
     }
     
     // Save to user-specific localStorage
@@ -229,7 +232,6 @@ export default function NewTicketPage() {
                         setIsSubmitted(false)
                         setTicketId("")
                         setFiles([])
-                        setDate(undefined)
                         setFileError("")
                       }}
                       className="w-full sm:w-auto bg-primary hover:bg-primary/90"
@@ -295,41 +297,41 @@ export default function NewTicketPage() {
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <form onSubmit={handleSubmit} className="space-y-6">
-                  {/* Basic Information */}
-                  <div className="space-y-4">
-                    <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label htmlFor="name">Name *</Label>
-                        <Input id="name" name="name" placeholder="Enter your full name" required />
+                  
+                  {/* User Info Display (Read-only) */}
+                  {userProfile && (
+                    <div className="bg-muted/50 rounded-lg p-4 border">
+                      <div className="flex items-center gap-2 mb-3">
+                        <div className="p-1 bg-primary/10 rounded">
+                          <FileText className="h-4 w-4 text-primary" />
+                        </div>
+                        <h3 className="font-semibold text-sm">Ticket Information</h3>
                       </div>
-                      
-                      <div className="space-y-2">
-                        <Label htmlFor="date">Date *</Label>
-                        <Popover>
-                          <PopoverTrigger asChild>
-                            <Button
-                              variant={"outline"}
-                              className={cn(
-                                "w-full justify-start text-left font-normal",
-                                !date && "text-muted-foreground"
-                              )}
-                            >
-                              <CalendarIcon className="mr-2 h-4 w-4" />
-                              {date ? format(date, "PPP") : <span>Pick a date</span>}
-                            </Button>
-                          </PopoverTrigger>
-                          <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                              mode="single"
-                              selected={date}
-                              onSelect={setDate}
-                              initialFocus
-                            />
-                          </PopoverContent>
-                        </Popover>
+                      <div className="grid gap-2 md:grid-cols-2 text-sm">
+                        <div>
+                          <span className="text-muted-foreground">Submitted by:</span>
+                          <span className="font-medium ml-2">
+                            {userProfile.first_name} {userProfile.last_name}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Email:</span>
+                          <span className="font-medium ml-2">{userProfile.email}</span>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Submission Date:</span>
+                          <span className="font-medium ml-2">{new Date().toLocaleDateString()}</span>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Department:</span>
+                          <span className="font-medium ml-2">{userProfile.department}</span>
+                        </div>
                       </div>
                     </div>
+                  )}
 
+                  {/* Basic Information */}
+                  <div className="space-y-4">
                     <div className="space-y-2">
                       <Label htmlFor="concern">Concern *</Label>
                       <Textarea 
@@ -395,7 +397,7 @@ export default function NewTicketPage() {
                   <div className="space-y-4">
                     <Label>Supporting Information (drag and drop files, images)</Label>
                     <div
-                      className={`border-2 border-dashed rounded-lg p-4 sm:p-6 text-center transition-colors ${
+                      className={`border-2 border-dashed rounded-lg p-4 sm:p-6 text-center transition-colors cursor-pointer ${
                         dragActive 
                           ? 'border-primary bg-primary/5' 
                           : 'border-muted-foreground/25 hover:border-muted-foreground/50'
@@ -404,6 +406,7 @@ export default function NewTicketPage() {
                       onDragLeave={handleDrag}
                       onDragOver={handleDrag}
                       onDrop={handleDrop}
+                      onClick={() => document.getElementById('file-upload')?.click()}
                     >
                       <Upload className="mx-auto h-6 w-6 sm:h-8 sm:w-8 text-muted-foreground mb-2" />
                       <p className="text-xs sm:text-sm text-muted-foreground mb-2">
@@ -425,7 +428,10 @@ export default function NewTicketPage() {
                         variant="outline" 
                         size="sm"
                         className="w-full sm:w-auto"
-                        onClick={() => document.getElementById('file-upload')?.click()}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          document.getElementById('file-upload')?.click()
+                        }}
                       >
                         Choose Files
                       </Button>
@@ -469,21 +475,6 @@ export default function NewTicketPage() {
                         </div>
                       </div>
                     )}
-                  </div>
-
-                  {/* Employee Information */}
-                  <div className="space-y-4">
-                    <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label htmlFor="nickname">Employee Nickname *</Label>
-                        <Input id="nickname" name="nickname" placeholder="Enter your nickname" required />
-                      </div>
-                      
-                      <div className="space-y-2">
-                        <Label htmlFor="email">Employee Email *</Label>
-                        <Input id="email" name="email" type="email" placeholder="Enter your email address" required />
-                      </div>
-                    </div>
                   </div>
 
                   <div className="flex flex-col sm:flex-row gap-4 justify-end pt-6 border-t">
@@ -540,8 +531,6 @@ export default function NewTicketPage() {
                   </div>
                 </CardContent>
               </Card>
-
-
 
               {/* Contact Info */}
               <Card>

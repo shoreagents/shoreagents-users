@@ -6,7 +6,6 @@ export interface Ticket {
   comments: string
   category: string
   details: string
-  nickname: string
   email: string
   files: string[]
   status: 'pending' | 'in-progress' | 'resolved'

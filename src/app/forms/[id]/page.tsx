@@ -191,26 +191,18 @@ export default function TicketDetailsPage() {
               {/* Ticket Header */}
               <Card>
                 <CardHeader>
-                  <div className="flex items-start justify-between">
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-3">
-                        <h2 className="text-2xl font-bold">{ticket.name}</h2>
-                        {getStatusBadge(ticket.status)}
+                  <div className="space-y-2">
+                    <h2 className="text-2xl font-bold">{ticket.name}</h2>
+                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                      <div className="flex items-center gap-1">
+                        <Calendar className="h-3 w-3" />
+                        <span>Created: {formatDate(ticket.createdAt)}</span>
                       </div>
-                      <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                        <div className="flex items-center gap-1">
-                          <Calendar className="h-3 w-3" />
-                          <span>Created: {formatDate(ticket.createdAt)}</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <Calendar className="h-3 w-3" />
-                          <span>Date: {ticket.date}</span>
-                        </div>
+                      <div className="flex items-center gap-1">
+                        <Calendar className="h-3 w-3" />
+                        <span>Date: {ticket.date}</span>
                       </div>
                     </div>
-                    <Badge variant="outline" className="text-sm">
-                      {ticket.id}
-                    </Badge>
                   </div>
                 </CardHeader>
               </Card>
@@ -228,10 +220,6 @@ export default function TicketDetailsPage() {
                     <div>
                       <label className="text-sm font-medium text-muted-foreground">Employee Name</label>
                       <p className="text-sm mt-1">{ticket.name}</p>
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium text-muted-foreground">Employee Nickname</label>
-                      <p className="text-sm mt-1">{ticket.nickname}</p>
                     </div>
                     <div>
                       <label className="text-sm font-medium text-muted-foreground">Email Address</label>

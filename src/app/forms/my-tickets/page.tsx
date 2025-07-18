@@ -58,7 +58,6 @@ export default function MyTicketsPage() {
     if (searchTerm) {
       filtered = filtered.filter(ticket =>
         (ticket.name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-        (ticket.nickname?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
         (ticket.concern?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
         (ticket.comments?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
         (ticket.id?.toLowerCase() || '').includes(searchTerm.toLowerCase())
@@ -348,10 +347,6 @@ export default function MyTicketsPage() {
                             <div className="flex items-center gap-1">
                               <Calendar className="h-3 w-3" />
                               <span>{formatDate(ticket.createdAt)}</span>
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <User className="h-3 w-3" />
-                              <span>{ticket.nickname}</span>
                             </div>
                             {ticket.files && ticket.files.length > 0 && (
                               <div className="flex items-center gap-1">
