@@ -105,7 +105,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         isActive: pathname.startsWith("/health"),
         items: [
           {
-            title: "Health Check",
+            title: "Health Staff",
             url: "/health",
           },
         ],
@@ -156,6 +156,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         name: "Activity Dashboard",
         url: "/dashboard/activity",
         icon: Activity,
+      },
+      {
+        name: "Health Staff",
+        url: "/health",
+        icon: Heart,
       },
     ],
   }

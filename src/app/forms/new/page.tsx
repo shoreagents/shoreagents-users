@@ -307,24 +307,28 @@ export default function NewTicketPage() {
                         </div>
                         <h3 className="font-semibold text-sm">Ticket Information</h3>
                       </div>
-                      <div className="grid gap-2 md:grid-cols-2 text-sm">
-                        <div>
-                          <span className="text-muted-foreground">Submitted by:</span>
-                          <span className="font-medium ml-2">
-                            {userProfile.first_name} {userProfile.last_name}
-                          </span>
+                      <div className="grid gap-3 text-sm">
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-1">
+                            <span className="text-muted-foreground whitespace-nowrap">Submitted by:</span>
+                            <span className="font-medium">
+                              {userProfile.first_name} {userProfile.last_name}
+                            </span>
+                          </div>
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-1">
+                            <span className="text-muted-foreground whitespace-nowrap">Email:</span>
+                            <span className="font-medium break-all text-xs sm:text-sm">{userProfile.email}</span>
+                          </div>
                         </div>
-                        <div>
-                          <span className="text-muted-foreground">Email:</span>
-                          <span className="font-medium ml-2">{userProfile.email}</span>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">Submission Date:</span>
-                          <span className="font-medium ml-2">{new Date().toLocaleDateString()}</span>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">Department:</span>
-                          <span className="font-medium ml-2">{userProfile.department}</span>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-1">
+                            <span className="text-muted-foreground whitespace-nowrap">Submission Date:</span>
+                            <span className="font-medium">{new Date().toLocaleDateString()}</span>
+                          </div>
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-1">
+                            <span className="text-muted-foreground whitespace-nowrap">Department:</span>
+                            <span className="font-medium">{userProfile.department}</span>
+                          </div>
                         </div>
                       </div>
                     </div>
