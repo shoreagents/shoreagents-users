@@ -12,6 +12,7 @@ import {
   BarChart3,
   Activity,
   Coffee,
+  Heart,
 } from "lucide-react"
 
 import { NavMain } from "@/components/nav-main"
@@ -87,6 +88,17 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         ],
       },
       {
+        title: "Health",
+        icon: Heart,
+        isActive: pathname.startsWith("/health"),
+        items: [
+          {
+            title: "Health Staff",
+            url: "/health",
+          },
+        ],
+      },
+      {
         title: "Help & Support",
         icon: HelpCircle,
         isActive: pathname.startsWith("/help"),
@@ -132,6 +144,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         name: "Activity Dashboard",
         url: "/dashboard/activity",
         icon: Activity,
+      },
+      {
+        name: "Health Staff",
+        url: "/health",
+        icon: Heart,
       },
     ],
   }
