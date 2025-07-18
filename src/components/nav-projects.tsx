@@ -44,7 +44,11 @@ export function NavProjects({
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
-              <SidebarMenuButton asChild isActive={isActive}>
+              <SidebarMenuButton 
+                asChild 
+                isActive={isActive}
+                className={isActive ? "bg-primary/10 text-primary border-l-2 border-primary" : ""}
+              >
                 <Link href={item.url}>
                   <item.icon />
                         {state === "expanded" && <span>{item.name}</span>}

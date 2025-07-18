@@ -154,42 +154,54 @@ export const useActivityTracking = () => {
       return;
     }
     
+    // Don't process activity if user is not authenticated
+    const currentUser = getCurrentUser();
+    if (!currentUser) {
+      console.log('Ignoring activity update - user not authenticated');
+      return;
+    }
+    
     setLastActivity(activityData);
     setShowInactivityDialog(false);
     setInactivityData(null);
     
     // Only update last activity time, don't start new sessions on every movement
-    const currentUser = getCurrentUser();
-    if (currentUser) {
-      updateLastActivity(currentUser.email);
-    }
+    updateLastActivity(currentUser.email);
   }, []);
 
   // Handle inactivity alerts
   const handleInactivityAlert = useCallback((data: unknown) => {
+    // Don't process inactivity alerts if user is not authenticated
+    const currentUser = getCurrentUser();
+    if (!currentUser) {
+      console.log('Ignoring inactivity alert - user not authenticated');
+      return;
+    }
+    
     const alertData = data as InactivityAlert;
     setInactivityData(alertData);
     setShowInactivityDialog(true);
     
     // Start inactive session when inactivity is detected
-    const currentUser = getCurrentUser();
-    if (currentUser) {
-      startInactiveSession(currentUser.email);
-    }
+    startInactiveSession(currentUser.email);
   }, []);
 
   // Handle activity reset
   const handleActivityReset = useCallback((data: unknown) => {
+    // Don't process activity reset if user is not authenticated
+    const currentUser = getCurrentUser();
+    if (!currentUser) {
+      console.log('Ignoring activity reset - user not authenticated');
+      return;
+    }
+    
     const resetData = data as { timestamp: number };
     setLastActivity({ timestamp: resetData.timestamp, position: { x: 0, y: 0 } });
     setShowInactivityDialog(false);
     setInactivityData(null);
     
     // Just update last activity time when activity is reset
-    const currentUser = getCurrentUser();
-    if (currentUser) {
-      updateLastActivity(currentUser.email);
-    }
+    updateLastActivity(currentUser.email);
   }, []);
 
   // Handle system suspend events

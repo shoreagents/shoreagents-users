@@ -51,8 +51,14 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
       initializeUserActivity(currentUser.email)
       
       // Only set hasLoggedIn if we're not on the login page
-      if (window.location.pathname !== '/') {
+      if (window.location.pathname !== '/' && window.location.pathname !== '/login') {
         setHasLoggedIn(true)
+      }
+    } else {
+      // No user logged in, ensure tracking is stopped
+      setHasLoggedIn(false)
+      if (isTracking) {
+        stopTracking()
       }
     }
   }, [])
@@ -84,14 +90,38 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
     }
   }, [isBreakActive, hasLoggedIn, pauseTracking, resumeTracking])
 
-  // Stop tracking when user logs out
+  // Monitor authentication state continuously 
   useEffect(() => {
-    const currentUser = getCurrentUser()
-    if (!currentUser && isTracking) {
-      stopTracking()
-      setHasLoggedIn(false)
+    const checkAuthStatus = () => {
+      const currentUser = getCurrentUser()
+      const isOnLoginPage = window.location.pathname === '/' || window.location.pathname === '/login'
+      
+      if (!currentUser) {
+        // User is not logged in
+        if (hasLoggedIn || isTracking) {
+          console.log('User logged out, stopping activity tracking')
+          setHasLoggedIn(false)
+          if (isTracking) {
+            stopTracking()
+          }
+        }
+      } else {
+        // User is logged in
+        if (!hasLoggedIn && !isOnLoginPage) {
+          console.log('User logged in, enabling activity tracking')
+          setHasLoggedIn(true)
+        }
+      }
     }
-  }, [isTracking, stopTracking])
+
+    // Check auth status immediately
+    checkAuthStatus()
+
+    // Set up an interval to check auth status periodically
+    const authCheckInterval = setInterval(checkAuthStatus, 2000) // Check every 2 seconds
+
+    return () => clearInterval(authCheckInterval)
+  }, [hasLoggedIn, isTracking, stopTracking])
 
   // Listen for app closing event
   useEffect(() => {

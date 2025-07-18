@@ -13,6 +13,7 @@ import {
   Activity,
   Coffee,
   Heart,
+  CheckSquare,
 } from "lucide-react"
 
 import { NavMain } from "@/components/nav-main"
@@ -77,6 +78,17 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         ],
       },
       {
+        title: "Productivity",
+        icon: CheckSquare,
+        isActive: pathname.startsWith("/productivity"),
+        items: [
+          {
+            title: "Task Tracker",
+            url: "/productivity/tasks",
+          },
+        ],
+      },
+      {
         title: "Breaks",
         icon: Coffee,
         isActive: pathname.startsWith("/breaks"),
@@ -93,7 +105,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         isActive: pathname.startsWith("/health"),
         items: [
           {
-            title: "Health Check",
+            title: "Health Staff",
             url: "/health",
           },
         ],
@@ -144,6 +156,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         name: "Activity Dashboard",
         url: "/dashboard/activity",
         icon: Activity,
+      },
+      {
+        name: "Health Staff",
+        url: "/health",
+        icon: Heart,
       },
     ],
   }

@@ -46,14 +46,14 @@ export function NavUser({
   const { setUserLoggedOut } = useActivity()
 
   const handleLogout = () => {
-    // Stop activity tracking
-    setUserLoggedOut()
-    
-    // Clear authentication data
+    // Clear authentication data first
     localStorage.removeItem("shoreagents-auth")
     
     // Clear cookie
     document.cookie = "shoreagents-auth=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;"
+    
+    // Stop activity tracking (this will be picked up by the auth monitor)
+    setUserLoggedOut()
     
     // Redirect to login
     router.push("/login")
