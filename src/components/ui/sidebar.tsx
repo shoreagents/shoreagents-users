@@ -282,7 +282,7 @@ function SidebarInset({
 }: React.ComponentProps<"main">) {
   return (
     <main
-      className={cn("bg-background h-8 w-full shadow-none", className)}
+      className={cn("bg-background min-h-screen w-full shadow-none", className)}
       {...props}
     />
   )
