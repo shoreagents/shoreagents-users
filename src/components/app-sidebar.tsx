@@ -13,6 +13,7 @@ import {
   Activity,
   Coffee,
   Heart,
+  CheckSquare,
 } from "lucide-react"
 
 import { NavMain } from "@/components/nav-main"
@@ -73,6 +74,17 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           {
             title: "My Tickets",
             url: "/forms/my-tickets",
+          },
+        ],
+      },
+      {
+        title: "Productivity",
+        icon: CheckSquare,
+        isActive: pathname.startsWith("/productivity"),
+        items: [
+          {
+            title: "Task Tracker",
+            url: "/productivity/tasks",
           },
         ],
       },
