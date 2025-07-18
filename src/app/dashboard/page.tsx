@@ -212,7 +212,7 @@ export default function DashboardPage() {
                 <div>
                   <CardTitle>Recent Tickets</CardTitle>
                   <CardDescription>
-                    Your latest support requests
+                    Your latest support requestssssssssss
                   </CardDescription>
                 </div>
                 <Link href="/forms/my-tickets">
