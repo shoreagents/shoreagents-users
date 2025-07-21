@@ -5,6 +5,14 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { 
   Play, 
   Pause, 
@@ -40,14 +48,25 @@ interface BreakTimerProps {
 }
 
 export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, savedTimeLeft, savedStartTime, savedPauseTime, emergencyPauseUsed }: BreakTimerProps) {
-  // Calculate correct time remaining when resuming from pause
+  // Calculate correct time remaining when resuming from pause or reload
   const calculateTimeLeft = () => {
-    // Use saved state if we're resuming a paused break
-    if (savedTimeLeft && savedPauseTime && emergencyPauseUsed) {
-      // Don't subtract time since pause - the timer should be frozen during pause
+    const now = Date.now()
+    
+    // If we have saved time left from a currently paused break, use it
+    if (savedTimeLeft && emergencyPauseUsed && isPaused) {
       return savedTimeLeft
     }
-    return breakInfo.duration * 60 // Default to full duration for new breaks
+    
+    // If we have a saved start time (break was active when app closed/reloaded)
+    if (savedStartTime) {
+      const elapsedSeconds = Math.floor((now - savedStartTime) / 1000)
+      const totalDurationSeconds = breakInfo.duration * 60
+      const timeLeft = Math.max(0, totalDurationSeconds - elapsedSeconds)
+      return timeLeft
+    }
+    
+    // Default to full duration for completely new breaks
+    return breakInfo.duration * 60
   }
 
   const [timeLeft, setTimeLeft] = useState(calculateTimeLeft())
@@ -55,6 +74,7 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
   const [hasPaused, setHasPaused] = useState(emergencyPauseUsed || false) // Use stored state or local state
   const [hasEnded, setHasEnded] = useState(false) // Track if end break was clicked
   const [showPauseWarning, setShowPauseWarning] = useState(false)
+  const [showEndConfirm, setShowEndConfirm] = useState(false)
   const [startTime] = useState(savedStartTime || Date.now()) // Use saved start time or current time
   const Icon = breakInfo.icon
   const { setBreakActive } = useBreak()
@@ -139,13 +159,24 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
     }
   }, [timeLeft, onEnd, setBreakActive, breakInfo.id])
 
-  // Handle end break
+  // Handle end break confirmation
   const handleEndBreak = () => {
+    setShowEndConfirm(true)
+  }
+
+  // Confirm end break
+  const confirmEndBreak = () => {
     setHasEnded(true)
     setBreakActive(false)
     // Clear saved timer state when break ends manually
     clearBreakTimerState(breakInfo.id)
     onEnd()
+    setShowEndConfirm(false)
+  }
+
+  // Cancel end break
+  const cancelEndBreak = () => {
+    setShowEndConfirm(false)
   }
 
   return (
@@ -249,6 +280,31 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
           </CardContent>
         </Card>
       </div>
+
+      {/* End Break Confirmation Dialog */}
+      <Dialog open={showEndConfirm} onOpenChange={setShowEndConfirm}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <X className="h-5 w-5 text-destructive" />
+              End Break Early?
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to end this {breakInfo.name.toLowerCase()} early? 
+              This action cannot be undone and the break will be marked as completed.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={cancelEndBreak}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmEndBreak}>
+              <X className="mr-2 h-4 w-4" />
+              End Break
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 } 

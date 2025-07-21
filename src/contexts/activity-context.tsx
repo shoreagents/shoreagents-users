@@ -4,7 +4,7 @@ import React, { createContext, useContext, useEffect, useCallback, useState, use
 import { useActivityTracking } from '@/hooks/use-activity-tracking'
 import { InactivityDialog } from '@/components/inactivity-dialog'
 import { getCurrentUser } from '@/lib/ticket-utils'
-import { initializeUserActivity, markUserAsLoggedOut, pauseActivityForBreak, resumeActivityFromBreak, cleanupDuplicateSessions } from '@/lib/activity-storage'
+import { initializeUserActivity, markUserAsLoggedOut, markUserAsAppClosed, pauseActivityForBreak, resumeActivityFromBreak, cleanupDuplicateSessions } from '@/lib/activity-storage'
 import { useRouter } from 'next/navigation'
 import { useBreak } from './break-context'
 
@@ -90,25 +90,68 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
     }
   }, [isBreakActive, hasLoggedIn, pauseTracking, resumeTracking])
 
-  // Monitor authentication state continuously 
+    // Monitor authentication state continuously with enhanced stopping
   useEffect(() => {
-    const checkAuthStatus = () => {
+    const checkAuthStatus = async () => {
       const currentUser = getCurrentUser()
       const isOnLoginPage = window.location.pathname === '/' || window.location.pathname === '/login'
       
       if (!currentUser) {
-        // User is not logged in
+        // User is not logged in - IMMEDIATELY stop all tracking
         if (hasLoggedIn || isTracking) {
-          console.log('User logged out, stopping activity tracking')
           setHasLoggedIn(false)
-          if (isTracking) {
-            stopTracking()
+          
+          // Aggressive immediate stop
+          try {
+            await stopTracking()
+            await stopTracking() // Double stop
+            await stopTracking() // Triple stop for safety
+          } catch (error) {
+            console.error('Error in aggressive stop:', error)
+          }
+          
+          // Mark any active session as ended due to logout
+          const authData = localStorage.getItem("shoreagents-auth")
+          if (!authData) {
+            // No auth data means user logged out, find last known user and end their session
+            const allKeys = Object.keys(localStorage)
+            const activityKeys = allKeys.filter(key => key.startsWith('shoreagents-activity-'))
+            
+            activityKeys.forEach(key => {
+              const userData = localStorage.getItem(key)
+              if (userData) {
+                try {
+                  const parsed = JSON.parse(userData)
+                  if (parsed.isCurrentlyActive && parsed.currentSessionStart) {
+                    const now = Date.now()
+                    const activeDuration = now - parsed.currentSessionStart
+                    parsed.totalActiveTime += activeDuration
+                    
+                    // End the session
+                    if (parsed.activitySessions && parsed.activitySessions.length > 0) {
+                      const lastSession = parsed.activitySessions[parsed.activitySessions.length - 1]
+                      if (lastSession && lastSession.type === 'active' && !lastSession.endTime) {
+                        lastSession.endTime = now
+                        lastSession.duration = activeDuration
+                        lastSession.endReason = 'logout'
+                      }
+                    }
+                    
+                    parsed.isCurrentlyActive = false
+                    parsed.currentSessionStart = 0
+                    parsed.lastActivityTime = now
+                    localStorage.setItem(key, JSON.stringify(parsed))
+                  }
+                } catch (error) {
+                  console.error('Error cleaning up activity data:', error)
+                }
+              }
+            })
           }
         }
       } else {
         // User is logged in
         if (!hasLoggedIn && !isOnLoginPage) {
-          console.log('User logged in, enabling activity tracking')
           setHasLoggedIn(true)
         }
       }
@@ -117,8 +160,8 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
     // Check auth status immediately
     checkAuthStatus()
 
-    // Set up an interval to check auth status periodically
-    const authCheckInterval = setInterval(checkAuthStatus, 2000) // Check every 2 seconds
+    // Set up an interval to check auth status more frequently
+    const authCheckInterval = setInterval(checkAuthStatus, 1000) // Check every 1 second
 
     return () => clearInterval(authCheckInterval)
   }, [hasLoggedIn, isTracking, stopTracking])
@@ -128,8 +171,8 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
     const handleAppClosing = () => {
       const currentUser = getCurrentUser()
       if (currentUser?.email) {
-        // Mark user as logged out when app closes
-        markUserAsLoggedOut(currentUser.email)
+        // Mark user session as ended due to app closing
+        markUserAsAppClosed(currentUser.email)
         setHasLoggedIn(false)
         stopTracking()
       }
@@ -144,8 +187,8 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
     const handlePageUnload = () => {
       const currentUser = getCurrentUser()
       if (currentUser?.email) {
-        // Mark user as logged out when page unloads
-        markUserAsLoggedOut(currentUser.email)
+        // Mark user session as ended due to page unload
+        markUserAsAppClosed(currentUser.email)
       }
     }
 
@@ -258,16 +301,105 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
   }, [setShowInactivityDialog])
 
   const setUserLoggedIn = useCallback(() => {
+    console.log('User logging in - will start activity tracking')
+    
+    // Clear any stale session data when logging in
+    const currentUser = getCurrentUser()
+    if (currentUser?.email) {
+      // Initialize fresh activity data to prevent timing overlaps
+      initializeUserActivity(currentUser.email)
+    }
+    
     setHasLoggedIn(true)
   }, [])
 
   const setUserLoggedOut = useCallback(async () => {
+    // FIRST: Check current status before stopping
+    try {
+      if (window.electronAPI?.activityTracking?.getStatus) {
+        const status = await window.electronAPI.activityTracking.getStatus();
+        console.log('🔍 Activity status before logout:', status);
+      }
+    } catch (error) {
+      console.error('Error getting activity status:', error);
+    }
+    
+    // SECOND: Stop activity tracking immediately to prevent any more activity updates
+    try {
+      await stopTracking()
+    } catch (error) {
+      console.error('Error stopping tracking before logout:', error)
+    }
+    
+    // SECOND: Mark user as logged out (this will end the session)
     const currentUser = getCurrentUser()
     if (currentUser?.email) {
       markUserAsLoggedOut(currentUser.email)
     }
+    
+    // THIRD: Also force logout for ALL activity data in localStorage
+    const allKeys = Object.keys(localStorage)
+    const activityKeys = allKeys.filter(key => key.startsWith('shoreagents-activity-'))
+    activityKeys.forEach(key => {
+      try {
+        const data = localStorage.getItem(key)
+        if (data) {
+          const parsed = JSON.parse(data)
+          if (parsed.isCurrentlyActive || !parsed.isLoggedOut) {
+            console.log(`🔴 Force ending session for key: ${key}`)
+            const now = Date.now()
+            
+            // End any active session
+            if (parsed.currentSessionStart && parsed.currentSessionStart > 0) {
+              const duration = now - parsed.currentSessionStart
+              parsed.totalActiveTime += duration
+              
+              // End last session
+              if (parsed.activitySessions && parsed.activitySessions.length > 0) {
+                const lastSession = parsed.activitySessions[parsed.activitySessions.length - 1]
+                if (lastSession && !lastSession.endTime) {
+                  lastSession.endTime = now
+                  lastSession.duration = duration
+                  lastSession.endReason = 'logout'
+                }
+              }
+            }
+            
+            // Force logout state
+            parsed.isCurrentlyActive = false
+            parsed.currentSessionStart = 0
+            parsed.isLoggedOut = true
+            parsed.lastLogoutTime = now
+            parsed.isInBreak = false
+            
+            localStorage.setItem(key, JSON.stringify(parsed))
+          }
+        }
+      } catch (error) {
+        console.error('Error force ending session:', error)
+      }
+    })
+    
     setHasLoggedIn(false)
-    stopTracking()
+    
+    // THIRD: Additional safety stops to ensure tracking stays off
+    const stopAttempts = [
+      () => stopTracking(),
+      () => stopTracking()
+    ]
+    
+    for (let i = 0; i < stopAttempts.length; i++) {
+      try {
+        await stopAttempts[i]()
+      } catch (error) {
+        console.error(`Safety stop attempt ${i + 1} failed:`, error)
+      }
+      
+      // Small delay between attempts
+      if (i < stopAttempts.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
+    }
   }, [stopTracking])
 
   const value = {

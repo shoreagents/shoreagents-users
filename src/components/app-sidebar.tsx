@@ -15,6 +15,7 @@ import {
   Heart,
   CheckSquare,
 } from "lucide-react"
+import { useActivityStatus } from "@/hooks/use-activity-status"
 
 import { NavMain } from "@/components/nav-main"
 import { NavProjects } from "@/components/nav-projects"
@@ -28,10 +29,28 @@ import {
   SidebarRail,
   useSidebar,
 } from "@/components/ui/sidebar"
+import { ScrollArea } from "@/components/ui/scroll-area"
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
   const { state } = useSidebar()
+  const { isActive: isActivityActive, isLoading } = useActivityStatus()
+
+  // Activity status indicator component
+  const ActivityStatusIndicator = () => (
+    <div className="flex items-center">
+      <div 
+        className={`w-2 h-2 rounded-full ${
+          isLoading 
+            ? 'bg-gray-400 animate-pulse' 
+            : isActivityActive 
+              ? 'bg-green-500' 
+              : 'bg-red-500'
+        }`}
+        title={isLoading ? 'Loading...' : isActivityActive ? 'Active' : 'Inactive'}
+      />
+    </div>
+  )
 
   // ShoreAgents data with dynamic active state
   const data = {
@@ -59,6 +78,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           {
             title: "Activity",
             url: "/dashboard/activity",
+            statusIndicator: <ActivityStatusIndicator />,
           },
         ],
       },
@@ -171,17 +191,23 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <TeamSwitcher teams={data.teams} />
       </SidebarHeader>
       <SidebarContent>
-        <NavMain items={data.navMain} />
-        
-        {/* Leaderboard Section - Only show when not collapsed */}
-        {state === "expanded" && (
-          <div className="px-3 py-2">
-            <Leaderboard />
+        <ScrollArea className="flex-1 px-2">
+          <div className="space-y-2">
+            <NavMain items={data.navMain} />
+            
+            {/* Leaderboard Section - Only show when not collapsed */}
+            {state === "expanded" && (
+              <div className="px-1 py-2">
+                <Leaderboard />
+              </div>
+            )}
           </div>
-        )}
+        </ScrollArea>
       </SidebarContent>
       <SidebarFooter>
-        <NavProjects projects={data.quickActions} />
+        <div className="px-2 pb-2">
+          <NavProjects projects={data.quickActions} />
+        </div>
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>
