@@ -95,23 +95,36 @@ class ActivityTracker {
   }
 
   stopTracking() {
-    if (!this.isTracking) return;
+    console.log(`ActivityTracker.stopTracking() called - isTracking: ${this.isTracking}`);
+    
+    if (!this.isTracking) {
+      console.log('Already not tracking, skipping stop');
+      return;
+    }
     
     this.isTracking = false;
+    console.log('Set isTracking to false');
+    
+    let cleanupCount = 0;
     
     if (this.activityCheckInterval) {
       clearInterval(this.activityCheckInterval);
       this.activityCheckInterval = null;
+      cleanupCount++;
+      console.log('Cleared activityCheckInterval');
     }
     
     if (this.systemIdleCheckInterval) {
       clearInterval(this.systemIdleCheckInterval);
       this.systemIdleCheckInterval = null;
+      cleanupCount++;
+      console.log('Cleared systemIdleCheckInterval');
     }
     
     this.pauseMouseTracking();
+    console.log('Paused mouse tracking');
     
-    console.log('Activity tracking stopped');
+    console.log(`Activity tracking stopped - cleaned ${cleanupCount} intervals`);
   }
 
   startMouseTracking() {
@@ -148,6 +161,9 @@ class ActivityTracker {
     if (this.mouseTrackingInterval) {
       clearInterval(this.mouseTrackingInterval);
       this.mouseTrackingInterval = null;
+      console.log('Mouse tracking interval cleared');
+    } else {
+      console.log('No mouse tracking interval to clear');
     }
   }
 

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, shell, ipcMain, Notification } = require('electron');
+const { app, BrowserWindow, Menu, Tray, shell, ipcMain, Notification, dialog } = require('electron');
 const path = require('path');
 const isDev = process.env.NODE_ENV === 'development';
 const ActivityTracker = require('./activity-tracker');
@@ -7,6 +7,8 @@ const ActivityTracker = require('./activity-tracker');
 let mainWindow;
 let activityTracker;
 let inactivityNotification = null;
+let tray = null;
+let isQuitting = false;
 
 // Function to play notification sound
 function playNotificationSound() {
@@ -166,6 +168,9 @@ function createWindow() {
     } catch (error) {
       console.error('Failed to initialize activity tracker:', error);
     }
+
+    // Update tray menu after window is ready and can access localStorage
+    setTimeout(updateTrayMenu, 1000);
   });
 
   // Handle window closed
@@ -182,6 +187,226 @@ function createWindow() {
     shell.openExternal(url);
     return { action: 'deny' };
   });
+
+  // Handle window close - minimize to tray instead of quitting
+  mainWindow.on('close', (event) => {
+    if (!isQuitting) {
+      event.preventDefault();
+      mainWindow.hide();
+      
+      // Show tray notification on first minimize
+      if (tray && process.platform === 'win32') {
+        tray.displayBalloon({
+          iconType: 'info',
+          title: 'ShoreAgents Dashboard',
+          content: 'App was minimized to tray. Activity tracking continues in background.'
+        });
+      }
+    }
+  });
+}
+
+// Create system tray
+function createTray() {
+  // Use the favicon.ico for tray (better for Windows)
+  const trayIconPath = path.join(__dirname, '../src/app/favicon.ico');
+  tray = new Tray(trayIconPath);
+  
+  // Initial context menu
+  updateTrayMenu();
+  
+  tray.setToolTip('ShoreAgents Dashboard');
+  
+  // Single click to show window (more convenient)
+  tray.on('click', () => {
+    if (mainWindow) {
+      if (mainWindow.isVisible()) {
+        mainWindow.focus();
+      } else {
+        mainWindow.show();
+        mainWindow.focus();
+      }
+    }
+  });
+  
+  // Double click also works as backup
+  tray.on('double-click', () => {
+    if (mainWindow) {
+      if (mainWindow.isVisible()) {
+        mainWindow.focus();
+      } else {
+        mainWindow.show();
+        mainWindow.focus();
+      }
+    }
+  });
+}
+
+// Check if user is logged in by examining localStorage
+async function checkUserLoggedIn() {
+  try {
+    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
+      // Wait for the web contents to be ready
+      if (!mainWindow.webContents.isLoading()) {
+        // Get authentication state from renderer process (using actual auth storage)
+        const result = await mainWindow.webContents.executeJavaScript(`
+          (() => {
+            try {
+              const authData = localStorage.getItem('shoreagents-auth');
+              if (!authData) {
+                return { isLoggedIn: false, userEmail: null };
+              }
+              
+              const parsed = JSON.parse(authData);
+              const isAuthenticated = parsed.isAuthenticated === true;
+              const userEmail = parsed.user?.email || null;
+              
+              return {
+                isLoggedIn: isAuthenticated && userEmail,
+                userEmail: userEmail
+              };
+            } catch (error) {
+              return { isLoggedIn: false, userEmail: null };
+            }
+          })()
+        `);
+        return result;
+      }
+    }
+    return { isLoggedIn: false, userEmail: null };
+  } catch (error) {
+    console.error('Error checking login state:', error);
+    return { isLoggedIn: false, userEmail: null };
+  }
+}
+
+// Update tray menu based on authentication state
+async function updateTrayMenu() {
+  try {
+    if (!tray || !mainWindow || mainWindow.isDestroyed()) {
+      return;
+    }
+    
+    const authState = await checkUserLoggedIn();
+    const isLoggedIn = authState.isLoggedIn;
+  
+  const baseMenuItems = [
+    {
+      label: 'Show App',
+      click: () => {
+        if (mainWindow) {
+          if (mainWindow.isMinimized()) {
+            mainWindow.restore();
+          }
+          mainWindow.show();
+          mainWindow.focus();
+        }
+      }
+    }
+  ];
+  
+  // Add navigation options only if logged in
+  if (isLoggedIn) {
+    baseMenuItems.push(
+      {
+        label: 'Dashboard',
+        click: () => {
+          if (mainWindow) {
+            if (mainWindow.isMinimized()) {
+              mainWindow.restore();
+            }
+            mainWindow.show();
+            mainWindow.focus();
+            mainWindow.webContents.send('navigate-to', '/dashboard');
+          }
+        }
+      },
+      {
+        label: 'Activity',
+        click: () => {
+          if (mainWindow) {
+            if (mainWindow.isMinimized()) {
+              mainWindow.restore();
+            }
+            mainWindow.show();
+            mainWindow.focus();
+            mainWindow.webContents.send('navigate-to', '/dashboard/activity');
+          }
+        }
+      }
+    );
+  }
+  
+  // Add separator
+  baseMenuItems.push({ type: 'separator' });
+  
+  // Add appropriate quit option based on login state
+  if (isLoggedIn) {
+    baseMenuItems.push({
+      label: 'Logout & Quit',
+      click: async () => {
+        await handleLogoutAndQuit();
+      }
+    });
+    
+    // Update tooltip to show tracking is active
+    tray.setToolTip('ShoreAgents Dashboard - Activity Tracking Active');
+  } else {
+    baseMenuItems.push({
+      label: 'Quit',
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      }
+    });
+    
+    // Update tooltip to show no tracking
+    tray.setToolTip('ShoreAgents Dashboard');
+  }
+  
+  const contextMenu = Menu.buildFromTemplate(baseMenuItems);
+  tray.setContextMenu(contextMenu);
+  } catch (error) {
+    console.error('Error updating tray menu:', error);
+  }
+}
+
+// Handle logout and quit with confirmation dialog
+async function handleLogoutAndQuit() {
+  try {
+    // Show confirmation dialog
+    const result = await dialog.showMessageBox(mainWindow, {
+      type: 'question',
+      buttons: ['Logout & Quit', 'Cancel'],
+      defaultId: 0,
+      cancelId: 1,
+      title: 'Confirm Logout',
+      message: 'Logout and quit ShoreAgents Dashboard?',
+      detail: 'This will stop activity tracking and log you out. Are you sure?',
+      icon: path.join(__dirname, '../src/app/favicon.ico')
+    });
+    
+    if (result.response === 0) { // User clicked "Logout & Quit"
+      // Notify renderer to logout first
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('force-logout-before-quit');
+        
+        // Wait a bit for logout to complete
+        setTimeout(() => {
+          isQuitting = true;
+          app.quit();
+        }, 1000);
+      } else {
+        isQuitting = true;
+        app.quit();
+      }
+    }
+  } catch (error) {
+    console.error('Error in handleLogoutAndQuit:', error);
+    // Fallback: just quit
+    isQuitting = true;
+    app.quit();
+  }
 }
 
 // Create menu template
@@ -287,6 +512,7 @@ function createMenu() {
 app.whenReady().then(() => {
   createWindow();
   createMenu();
+  createTray();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -296,20 +522,25 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  // Mark user as logged out when all windows are closed
-  if (mainWindow) {
-    mainWindow.webContents.send('app-closing');
-  }
-  
-  if (process.platform !== 'darwin') {
+  // Don't quit on window-all-closed when we have system tray
+  // App will continue running in background
+  if (process.platform !== 'darwin' && !tray) {
     app.quit();
   }
 });
 
 // Handle app quit event
 app.on('before-quit', () => {
+  isQuitting = true;
+  
+  // Clean up tray
+  if (tray) {
+    tray.destroy();
+    tray = null;
+  }
+  
   // Mark user as logged out before app quits
-  if (mainWindow) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('app-closing');
   }
 });
@@ -339,6 +570,49 @@ process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
+// IPC handlers for logout functionality
+ipcMain.handle('confirm-logout-and-quit', async () => {
+  try {
+    await handleLogoutAndQuit();
+    return { success: true };
+  } catch (error) {
+    console.error('Error in confirm-logout-and-quit:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('logout-completed', () => {
+  // Update tray menu to show "Quit" instead of "Logout & Quit"
+  updateTrayMenu();
+  // Logout is done, now we can safely quit
+  setTimeout(() => {
+    isQuitting = true;
+    app.quit();
+  }, 500);
+  return { success: true };
+});
+
+// Handle login state changes
+ipcMain.handle('user-logged-in', async () => {
+  try {
+    await updateTrayMenu();
+    return { success: true };
+  } catch (error) {
+    console.error('Error in user-logged-in handler:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('user-logged-out', async () => {
+  try {
+    await updateTrayMenu();
+    return { success: true };
+  } catch (error) {
+    console.error('Error in user-logged-out handler:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 // IPC handlers for activity tracking
 ipcMain.handle('start-activity-tracking', () => {
   try {
@@ -356,15 +630,69 @@ ipcMain.handle('start-activity-tracking', () => {
 ipcMain.handle('stop-activity-tracking', () => {
   try {
     if (activityTracker) {
+      console.log('Main process: Attempting to stop activity tracking...');
+      
+      // Check current state before stopping
+      const wasTracking = activityTracker.isTracking;
+      console.log(`Main process: Current tracking state: ${wasTracking}`);
+      
+      // Call the stop method
       activityTracker.stopTracking();
-      return { success: true };
+      
+      // Additional manual cleanup to ensure everything stops
+      let cleanupResults = {
+        activityCheckInterval: false,
+        systemIdleCheckInterval: false,
+        mouseTrackingInterval: false,
+        trackingState: false
+      };
+      
+      try {
+        if (activityTracker.activityCheckInterval) {
+          clearInterval(activityTracker.activityCheckInterval);
+          activityTracker.activityCheckInterval = null;
+          cleanupResults.activityCheckInterval = true;
+        }
+        if (activityTracker.systemIdleCheckInterval) {
+          clearInterval(activityTracker.systemIdleCheckInterval);
+          activityTracker.systemIdleCheckInterval = null;
+          cleanupResults.systemIdleCheckInterval = true;
+        }
+        if (activityTracker.mouseTrackingInterval) {
+          clearInterval(activityTracker.mouseTrackingInterval);
+          activityTracker.mouseTrackingInterval = null;
+          cleanupResults.mouseTrackingInterval = true;
+        }
+        
+        // Force set tracking state
+        activityTracker.isTracking = false;
+        cleanupResults.trackingState = true;
+        
+        console.log('Main process: Stop completed successfully');
+        console.log(`Main process: Final tracking state: ${activityTracker.isTracking}`);
+        console.log('Main process: Cleanup results:', cleanupResults);
+        
+      } catch (cleanupError) {
+        console.error('Main process: Enhanced cleanup had issues:', cleanupError);
+        return { success: false, error: `Cleanup failed: ${cleanupError.message}` };
+      }
+      
+      return { 
+        success: true, 
+        wasTracking, 
+        finalState: activityTracker.isTracking,
+        cleanupResults 
+      };
     }
+    console.error('Main process: Activity tracker not initialized');
     return { success: false, error: 'Activity tracker not initialized' };
   } catch (error) {
     console.error('Error in stop-activity-tracking:', error);
     return { success: false, error: error.message };
   }
 });
+
+
 
 // Reset activity functionality removed to prevent cheating
 // Activity will naturally reset when user becomes active

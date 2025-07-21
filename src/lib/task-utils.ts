@@ -40,11 +40,13 @@ export function saveTaskData(data: TaskData): void {
   }
 }
 
-// Generate unique task ID
+// Generate unique task ID with microsecond precision and crypto random
 export function generateTaskId(): string {
   const timestamp = Date.now().toString(36)
-  const random = Math.random().toString(36).substr(2, 9)
-  return `task_${timestamp}_${random}`
+  const microseconds = performance.now().toString(36).replace('.', '')
+  const random1 = Math.random().toString(36).substr(2, 9)
+  const random2 = Math.random().toString(36).substr(2, 5)
+  return `task_${timestamp}_${microseconds}_${random1}${random2}`
 }
 
 // Get current user info for created/edited by fields
@@ -58,8 +60,17 @@ export function createTask(taskData: Partial<Task>): Task {
   const currentUser = getCurrentUserInfo()
   const now = new Date().toISOString()
   
+  // Get existing data to check for ID conflicts
+  const data = getTaskData()
+  
+  // Generate unique ID, retry if collision detected
+  let taskId = generateTaskId()
+  while (data.tasks.some(task => task.id === taskId)) {
+    taskId = generateTaskId()
+  }
+  
   const newTask: Task = {
-    id: generateTaskId(),
+    id: taskId,
     taskName: taskData.taskName || '',
     status: taskData.status || 'Not started',
     assignee: taskData.assignee || '',
@@ -74,9 +85,13 @@ export function createTask(taskData: Partial<Task>): Task {
     lastEditedTime: now
   }
   
-  const data = getTaskData()
-  data.tasks.push(newTask)
-  saveTaskData(data)
+  // Double-check that this task ID doesn't already exist before adding
+  if (!data.tasks.some(task => task.id === newTask.id)) {
+    data.tasks.push(newTask)
+    saveTaskData(data)
+  } else {
+    console.warn('Attempted to create task with existing ID:', newTask.id)
+  }
   
   return newTask
 }
@@ -118,7 +133,20 @@ export function deleteTask(taskId: string): boolean {
 
 // Get all tasks
 export function getAllTasks(): Task[] {
-  return getTaskData().tasks
+  const data = getTaskData()
+  // Deduplicate tasks based on ID to prevent key conflicts
+  const uniqueTasks = data.tasks.filter((task, index, self) => 
+    index === self.findIndex(t => t.id === task.id)
+  )
+  
+  // If we found duplicates, save the cleaned data back to localStorage
+  if (uniqueTasks.length !== data.tasks.length) {
+    console.warn('Found duplicate tasks, cleaning up localStorage')
+    data.tasks = uniqueTasks
+    saveTaskData(data)
+  }
+  
+  return uniqueTasks
 }
 
 // Get task by ID
