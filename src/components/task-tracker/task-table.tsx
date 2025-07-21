@@ -32,6 +32,15 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
 import { Trash2, ChevronDown, ChevronRight, Info, User, Clock, FileText } from "lucide-react"
 import { Task } from "@/types/task"
 import { 
@@ -61,6 +70,9 @@ export function TaskTable({ tasks, onTaskUpdate, onTaskDelete }: TaskTableProps)
   const [currentPage, setCurrentPage] = useState(1)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
   const [hasAutoExpanded, setHasAutoExpanded] = useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [taskToDelete, setTaskToDelete] = useState<string | null>(null)
+  const [isShaking, setIsShaking] = useState(false)
   const tasksPerPage = 4
 
   // Calculate pagination
@@ -92,10 +104,15 @@ export function TaskTable({ tasks, onTaskUpdate, onTaskDelete }: TaskTableProps)
   }
 
   const handleDeleteTask = (taskId: string) => {
-    if (window.confirm('Are you sure you want to delete this task?')) {
-      const success = deleteTask(taskId)
+    setTaskToDelete(taskId)
+    setDeleteDialogOpen(true)
+  }
+
+  const confirmDeleteTask = () => {
+    if (taskToDelete) {
+      const success = deleteTask(taskToDelete)
       if (success) {
-        onTaskDelete(taskId)
+        onTaskDelete(taskToDelete)
         // Adjust current page if we deleted the last item on a page
         const newTotalPages = Math.ceil((tasks.length - 1) / tasksPerPage)
         if (currentPage > newTotalPages && newTotalPages > 0) {
@@ -103,6 +120,21 @@ export function TaskTable({ tasks, onTaskUpdate, onTaskDelete }: TaskTableProps)
         }
       }
     }
+    setDeleteDialogOpen(false)
+    setTaskToDelete(null)
+  }
+
+  const cancelDeleteTask = () => {
+    setDeleteDialogOpen(false)
+    setTaskToDelete(null)
+    setIsShaking(false)
+  }
+
+  const handleOutsideClick = (e: Event) => {
+    e.preventDefault()
+    // Trigger shake animation
+    setIsShaking(true)
+    setTimeout(() => setIsShaking(false), 600) // Reset after animation
   }
 
   const handleAddCustomStatus = (status: string) => {
@@ -574,6 +606,31 @@ export function TaskTable({ tasks, onTaskUpdate, onTaskDelete }: TaskTableProps)
           </Pagination>
         </div>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent 
+          className={`animate-in fade-in-0 zoom-in-95 duration-200 ${
+            isShaking ? 'animate-bounce border-2 border-red-500 shadow-lg shadow-red-500/50' : ''
+          }`}
+          onPointerDownOutside={handleOutsideClick}
+        >
+          <DialogHeader>
+            <DialogTitle>Delete Task</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this task? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={cancelDeleteTask}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDeleteTask}>
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 } 

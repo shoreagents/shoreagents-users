@@ -55,13 +55,29 @@ export const useActivityTracking = () => {
     
     try {
       const result = await window.electronAPI.activityTracking.stop();
-      if (result.success) {
+      console.log('🔍 Raw stop result:', result);
+      
+      if (result && result.success) {
         setIsTracking(false);
+        console.log('✅ Activity tracking stopped successfully');
+        
+        // Check if we have enhanced diagnostics
+        if (result.wasTracking !== undefined) {
+          console.log(`   Was tracking: ${result.wasTracking}`);
+          console.log(`   Final state: ${result.finalState}`);
+          console.log(`   Intervals cleaned: ${JSON.stringify(result.cleanupResults)}`);
+        } else {
+          console.log('   (Enhanced diagnostics not available - using old Electron version)');
+        }
       } else {
-        console.error('Failed to stop activity tracking:', result.error);
+        console.error('❌ Failed to stop activity tracking:', result?.error || 'Unknown error');
+        // Force set tracking to false even if Electron call failed
+        setIsTracking(false);
       }
     } catch (error) {
-      console.error('Error stopping activity tracking:', error);
+      console.error('❌ Error stopping activity tracking:', error);
+      // Force set tracking to false even if there was an error
+      setIsTracking(false);
     }
   }, []);
 
@@ -154,10 +170,32 @@ export const useActivityTracking = () => {
       return;
     }
     
-    // Don't process activity if user is not authenticated
+    // CRITICAL: Always check authentication before processing ANY activity
     const currentUser = getCurrentUser();
-    if (!currentUser) {
-      console.log('Ignoring activity update - user not authenticated');
+    const authData = localStorage.getItem("shoreagents-auth");
+    if (!currentUser || !authData) {
+      // User not authenticated - STOP tracking immediately
+      if (isTracking) {
+        stopTracking().catch(console.error);
+      }
+      return;
+    }
+    
+    // Verify auth data is valid
+    try {
+      const parsed = JSON.parse(authData);
+      if (!parsed.isAuthenticated || !parsed.user) {
+        // Invalid auth - stop tracking
+        if (isTracking) {
+          stopTracking().catch(console.error);
+        }
+        return;
+      }
+    } catch {
+      // Corrupted auth data - stop tracking
+      if (isTracking) {
+        stopTracking().catch(console.error);
+      }
       return;
     }
     
@@ -167,14 +205,36 @@ export const useActivityTracking = () => {
     
     // Only update last activity time, don't start new sessions on every movement
     updateLastActivity(currentUser.email);
-  }, []);
+  }, [isTracking, stopTracking]);
 
   // Handle inactivity alerts
   const handleInactivityAlert = useCallback((data: unknown) => {
-    // Don't process inactivity alerts if user is not authenticated
+    // CRITICAL: Always check authentication before processing inactivity
     const currentUser = getCurrentUser();
-    if (!currentUser) {
-      console.log('Ignoring inactivity alert - user not authenticated');
+    const authData = localStorage.getItem("shoreagents-auth");
+    if (!currentUser || !authData) {
+      // User not authenticated - STOP tracking immediately
+      if (isTracking) {
+        stopTracking().catch(console.error);
+      }
+      return;
+    }
+    
+    // Verify auth data is valid
+    try {
+      const parsed = JSON.parse(authData);
+      if (!parsed.isAuthenticated || !parsed.user) {
+        // Invalid auth - stop tracking
+        if (isTracking) {
+          stopTracking().catch(console.error);
+        }
+        return;
+      }
+    } catch {
+      // Corrupted auth data - stop tracking
+      if (isTracking) {
+        stopTracking().catch(console.error);
+      }
       return;
     }
     
@@ -184,7 +244,7 @@ export const useActivityTracking = () => {
     
     // Start inactive session when inactivity is detected
     startInactiveSession(currentUser.email);
-  }, []);
+  }, [isTracking, stopTracking]);
 
   // Handle activity reset
   const handleActivityReset = useCallback((data: unknown) => {

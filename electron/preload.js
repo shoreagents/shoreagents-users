@@ -15,7 +15,7 @@ try {
   
   // Receive messages from main process
   receive: (channel, func) => {
-    const validChannels = ['new-ticket', 'ticket-saved', 'tickets-loaded', 'activity-update', 'inactivity-alert', 'activity-reset', 'app-closing', 'system-suspend', 'system-resume'];
+    const validChannels = ['new-ticket', 'ticket-saved', 'tickets-loaded', 'activity-update', 'inactivity-alert', 'activity-reset', 'app-closing', 'system-suspend', 'system-resume', 'force-logout-before-quit', 'navigate-to'];
     if (validChannels.includes(channel)) {
       try {
         // Deliberately strip event as it includes `sender` 
@@ -34,7 +34,7 @@ try {
   
   // Remove all listeners for a channel
   removeAllListeners: (channel) => {
-    const validChannels = ['new-ticket', 'ticket-saved', 'tickets-loaded', 'activity-update', 'inactivity-alert', 'activity-reset', 'app-closing'];
+    const validChannels = ['new-ticket', 'ticket-saved', 'tickets-loaded', 'activity-update', 'inactivity-alert', 'activity-reset', 'app-closing', 'force-logout-before-quit', 'navigate-to'];
     if (validChannels.includes(channel)) {
       ipcRenderer.removeAllListeners(channel);
     }
@@ -56,6 +56,14 @@ try {
     show: (data) => ipcRenderer.invoke('show-inactivity-notification', data),
     update: (data) => ipcRenderer.invoke('update-inactivity-notification', data),
     close: () => ipcRenderer.invoke('close-inactivity-notification')
+  },
+
+  // Logout and quit methods
+  app: {
+    confirmLogoutAndQuit: () => ipcRenderer.invoke('confirm-logout-and-quit'),
+    logoutCompleted: () => ipcRenderer.invoke('logout-completed'),
+    userLoggedIn: () => ipcRenderer.invoke('user-logged-in'),
+    userLoggedOut: () => ipcRenderer.invoke('user-logged-out')
   },
   
   // Get app version

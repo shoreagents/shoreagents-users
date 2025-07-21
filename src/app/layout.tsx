@@ -3,6 +3,7 @@ import { Montserrat } from "next/font/google";
 import "./globals.css";
 import { ActivityProvider } from "@/contexts/activity-context";
 import { BreakProvider } from "@/contexts/break-context";
+import ElectronLogoutHandler from "@/components/electron-logout-handler";
 
 const montserrat = Montserrat({
   subsets: ["latin"],
@@ -24,7 +25,8 @@ export default function RootLayout({
       <body className={`${montserrat.variable} antialiased`}>
         <BreakProvider>
           <ActivityProvider>
-        {children}
+            <ElectronLogoutHandler />
+            {children}
           </ActivityProvider>
         </BreakProvider>
       </body>
