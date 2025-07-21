@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { AppSidebar } from "@/components/app-sidebar"
 import { AppHeader } from "@/components/app-header"
 import {
@@ -29,6 +29,8 @@ export default function TaskTrackerPage() {
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
+  const [isCreatingTask, setIsCreatingTask] = useState(false)
+  const creatingTaskRef = useRef(false)
 
   useEffect(() => {
     loadTasksWithLoading()
@@ -36,7 +38,11 @@ export default function TaskTrackerPage() {
 
   const loadTasks = () => {
     const allTasks = getAllTasks()
-    setTasks(allTasks)
+    // Deduplicate tasks based on ID to prevent key conflicts
+    const uniqueTasks = allTasks.filter((task, index, self) => 
+      index === self.findIndex(t => t.id === task.id)
+    )
+    setTasks(uniqueTasks)
   }
 
   const handleTaskUpdate = (updatedTask: Task) => {
@@ -54,7 +60,14 @@ export default function TaskTrackerPage() {
   }
 
   const handleTaskCreate = (newTask: Task) => {
-    setTasks(currentTasks => [...currentTasks, newTask])
+    setTasks(currentTasks => {
+      // Check if task already exists to prevent duplicates
+      if (currentTasks.some(task => task.id === newTask.id)) {
+        console.warn('Task with ID already exists:', newTask.id)
+        return currentTasks
+      }
+      return [...currentTasks, newTask]
+    })
   }
 
   const loadTasksWithLoading = () => {
@@ -62,19 +75,36 @@ export default function TaskTrackerPage() {
     // Simulate loading delay only for initial load
     setTimeout(() => {
       const allTasks = getAllTasks()
-      setTasks(allTasks)
+      // Deduplicate tasks based on ID to prevent key conflicts
+      const uniqueTasks = allTasks.filter((task, index, self) => 
+        index === self.findIndex(t => t.id === task.id)
+      )
+      setTasks(uniqueTasks)
       setLoading(false)
     }, 500)
   }
 
-  const handleCreateTask = () => {
-    const newTask = createTask({
-      taskName: "New Task",
-      status: "Not started",
-      priority: "Medium",
-      taskType: "Document"
-    })
-    handleTaskCreate(newTask)
+  const handleCreateTask = async () => {
+    if (isCreatingTask || creatingTaskRef.current) return // Prevent double-clicking and React strict mode issues
+    
+    setIsCreatingTask(true)
+    creatingTaskRef.current = true
+    
+    try {
+      const newTask = createTask({
+        taskName: "New Task",
+        status: "Not started",
+        priority: "Medium",
+        taskType: "Document"
+      })
+      handleTaskCreate(newTask)
+    } finally {
+      // Reset the flags after a short delay to prevent rapid clicking
+      setTimeout(() => {
+        setIsCreatingTask(false)
+        creatingTaskRef.current = false
+      }, 500)
+    }
   }
 
   const getStatusCount = (status: string) => {
@@ -146,9 +176,13 @@ export default function TaskTrackerPage() {
               <h1 className="text-3xl font-bold text-foreground">Task Tracker</h1>
               <p className="text-muted-foreground">Manage your tasks and projects</p>
             </div>
-            <Button onClick={handleCreateTask} className="w-full sm:w-auto">
+            <Button 
+              onClick={handleCreateTask} 
+              disabled={isCreatingTask}
+              className="w-full sm:w-auto"
+            >
               <Plus className="mr-2 h-4 w-4" />
-              New Task
+              {isCreatingTask ? "Creating..." : "New Task"}
             </Button>
           </div>
 

@@ -6,6 +6,7 @@ import {
   Bell,
   ChevronsUpDown,
   LogOut,
+  Power,
 } from "lucide-react"
 
 import {
@@ -51,6 +52,22 @@ export function HeaderUser({
     router.push("/login")
   }
 
+  const handleLogoutAndQuit = async () => {
+    // Only available in Electron
+    if (typeof window !== 'undefined' && window.electronAPI?.app?.confirmLogoutAndQuit) {
+      try {
+        await window.electronAPI.app.confirmLogoutAndQuit()
+      } catch (error) {
+        console.error('Error triggering logout and quit:', error)
+        // Fallback to regular logout
+        handleLogout()
+      }
+    } else {
+      // Fallback to regular logout if not in Electron
+      handleLogout()
+    }
+  }
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -86,6 +103,12 @@ export function HeaderUser({
           <LogOut className="mr-2 h-4 w-4" />
           <span>Log out</span>
         </DropdownMenuItem>
+        {typeof window !== 'undefined' && window.electronAPI && (
+          <DropdownMenuItem onClick={handleLogoutAndQuit}>
+            <Power className="mr-2 h-4 w-4" />
+            <span>Logout & Quit App</span>
+          </DropdownMenuItem>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )

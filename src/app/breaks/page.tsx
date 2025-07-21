@@ -77,7 +77,7 @@ export default function BreaksPage() {
     lunch: { used: false, paused: false },
     afternoon: { used: false, paused: false }
   })
-  const { setBreakActive } = useBreak()
+  const { setBreakActive, isBreakActive, activeBreakId, isInitialized } = useBreak()
 
   // Load break history on mount and update every 5 seconds for real-time data
   useEffect(() => {
@@ -94,6 +94,42 @@ export default function BreaksPage() {
 
     return () => clearInterval(interval)
   }, [])
+
+  // Additional check for web browsers - manually check localStorage if context isn't initialized quickly enough
+  useEffect(() => {
+    const checkForActiveBreak = () => {
+      if (typeof window !== 'undefined' && !activeBreak) {
+        try {
+          const savedActiveBreak = localStorage.getItem('shoreagents-active-break')
+          const savedBreakState = localStorage.getItem('shoreagents-break-state')
+          
+          if (savedActiveBreak && savedBreakState === 'true' && !activeBreak) {
+            setActiveBreak(savedActiveBreak)
+            setBreakActive(true, savedActiveBreak)
+          }
+        } catch (error) {
+          console.error('Error in manual break check:', error)
+        }
+      }
+    }
+
+    // Check immediately and after delays
+    checkForActiveBreak()
+    const timeoutId1 = setTimeout(checkForActiveBreak, 500)
+    const timeoutId2 = setTimeout(checkForActiveBreak, 1000)
+
+    return () => {
+      clearTimeout(timeoutId1)
+      clearTimeout(timeoutId2)
+    }
+  }, [activeBreak, setBreakActive])
+
+  // Restore active break state when context is initialized
+  useEffect(() => {
+    if (isInitialized && isBreakActive && activeBreakId) {
+      setActiveBreak(activeBreakId)
+    }
+  }, [isInitialized, isBreakActive, activeBreakId])
 
   // Update current time every minute
   useEffect(() => {
@@ -119,14 +155,19 @@ export default function BreaksPage() {
     setActiveBreak(breakId)
     setBreakActive(true, breakId)
     
-    // If resuming a paused break, don't mark it as used again
-    if (!breakHistory[breakId].used) {
+    // Save start time if this is a new break (not resuming a paused one)
+    if (!breakHistory[breakId].used || !breakHistory[breakId].startTime) {
+      const startTime = Date.now()
       const newHistory = {
         ...breakHistory,
-        [breakId]: { ...breakHistory[breakId], used: true }
+        [breakId]: { 
+          ...breakHistory[breakId], 
+          used: true,
+          startTime: startTime
+        }
       }
       setBreakHistory(newHistory)
-      updateBreakStatus(breakId, { used: true })
+      updateBreakStatus(breakId, { used: true, startTime: startTime })
     }
   }
 
@@ -145,26 +186,36 @@ export default function BreaksPage() {
   }
 
   const handleResumeBreak = (breakId: string) => {
-    // Clear the paused state but keep the saved timer data
+    const currentBreakHistory = breakHistory[breakId]
+    const now = Date.now()
+    
+    // Calculate new start time based on remaining time
+    // If we have 14:55 left (895 seconds), set startTime so that the timer shows 14:55 remaining
+    const timeLeftInSeconds = currentBreakHistory.timeLeft || 0
+    const newStartTime = now - ((breakTypes.find(b => b.id === breakId)!.duration * 60) - timeLeftInSeconds) * 1000
+    
+    // Clear the paused state but keep emergency pause used flag, set new start time
     const newHistory = {
       ...breakHistory,
       [breakId]: { 
         ...breakHistory[breakId], 
-        paused: false
-        // Don't clear timeLeft, startTime, pauseTime, or emergencyPauseUsed
-        // We want to restore the timer from where it was paused
+        paused: false,
+        startTime: newStartTime, // New start time for continued tracking
+        timeLeft: undefined, // Clear saved time left
+        pauseTime: undefined, // Clear pause time
+        emergencyPauseUsed: true // Keep emergency pause flag (1 attempt rule)
       }
     }
     setBreakHistory(newHistory)
     updateBreakStatus(breakId, { 
-      paused: false
-      // Don't clear the saved timer state
+      paused: false,
+      startTime: newStartTime,
+      timeLeft: undefined,
+      pauseTime: undefined,
+      emergencyPauseUsed: true // Keep the flag to prevent multiple emergency pauses
     })
     
-    // Don't clear the saved timer state - we want to restore from where it was paused
-    // clearBreakTimerState(breakId)
-    
-    // Start the break immediately - timer will be restored from saved state
+    // Start the break immediately - timer will continue from new start time
     setActiveBreak(breakId)
     setBreakActive(true, breakId)
   }

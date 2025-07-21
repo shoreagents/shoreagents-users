@@ -18,6 +18,12 @@ declare global {
         update: (data: any) => Promise<any>;
         close: () => Promise<any>;
       };
+      app: {
+        confirmLogoutAndQuit: () => Promise<any>;
+        logoutCompleted: () => Promise<any>;
+        userLoggedIn: () => Promise<any>;
+        userLoggedOut: () => Promise<any>;
+      };
       getVersion: () => string;
       platform: string;
     };
