@@ -1,7 +1,14 @@
 import { Task, TaskData, TaskStatus, TaskPriority, TaskType } from '@/types/task'
 import { getCurrentUserProfile } from './user-profiles'
+import { addSmartNotification } from './notification-service'
+import { getCurrentUser } from './ticket-utils'
 
-const TASKS_STORAGE_KEY = 'shoreagents_tasks'
+// Get user-specific storage key
+function getTasksStorageKey(): string {
+  const user = getCurrentUser()
+  const userEmail = user?.email || 'anonymous'
+  return `shoreagents_tasks_${userEmail}`
+}
 
 // Initialize default task data
 const defaultTaskData: TaskData = {
@@ -15,7 +22,8 @@ export function getTaskData(): TaskData {
   if (typeof window === 'undefined') return defaultTaskData
   
   try {
-    const stored = localStorage.getItem(TASKS_STORAGE_KEY)
+    const storageKey = getTasksStorageKey()
+    const stored = localStorage.getItem(storageKey)
     if (!stored) return defaultTaskData
     
     const parsed = JSON.parse(stored)
@@ -34,7 +42,8 @@ export function saveTaskData(data: TaskData): void {
   if (typeof window === 'undefined') return
   
   try {
-    localStorage.setItem(TASKS_STORAGE_KEY, JSON.stringify(data))
+    const storageKey = getTasksStorageKey()
+    localStorage.setItem(storageKey, JSON.stringify(data))
   } catch (error) {
     console.error('Error saving task data:', error)
   }
@@ -57,28 +66,20 @@ function getCurrentUserInfo() {
 
 // Create a new task
 export function createTask(taskData: Partial<Task>): Task {
+  const data = getTaskData()
   const currentUser = getCurrentUserInfo()
   const now = new Date().toISOString()
   
-  // Get existing data to check for ID conflicts
-  const data = getTaskData()
-  
-  // Generate unique ID, retry if collision detected
-  let taskId = generateTaskId()
-  while (data.tasks.some(task => task.id === taskId)) {
-    taskId = generateTaskId()
-  }
-  
   const newTask: Task = {
-    id: taskId,
-    taskName: taskData.taskName || '',
+    id: generateTaskId(),
+    taskName: taskData.taskName || 'New Task',
+    assignee: taskData.assignee || currentUser,
     status: taskData.status || 'Not started',
-    assignee: taskData.assignee || '',
-    dueDate: taskData.dueDate || '',
     priority: taskData.priority || 'Medium',
     taskType: taskData.taskType || 'Document',
     description: taskData.description || '',
     attachedFiles: taskData.attachedFiles || [],
+    dueDate: taskData.dueDate || '',
     createdBy: currentUser,
     createdTime: now,
     lastEditedBy: currentUser,
@@ -89,6 +90,22 @@ export function createTask(taskData: Partial<Task>): Task {
   if (!data.tasks.some(task => task.id === newTask.id)) {
     data.tasks.push(newTask)
     saveTaskData(data)
+    
+    // Add smart notification for new task creation
+    addSmartNotification({
+      type: 'info',
+      title: 'New Task Created',
+      message: `Task "${newTask.taskName}" has been created and assigned to ${newTask.assignee || 'you'}`,
+      icon: 'CheckSquare',
+      category: 'task',
+      actionUrl: '/productivity/tasks',
+      actionData: { taskId: newTask.id }
+    }, 'creation')
+    
+    // Trigger notification update event
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('notifications-updated'))
+    }
   } else {
     console.warn('Attempted to create task with existing ID:', newTask.id)
   }
@@ -104,8 +121,9 @@ export function updateTask(taskId: string, updates: Partial<Task>): Task | null 
   if (taskIndex === -1) return null
   
   const currentUser = getCurrentUserInfo()
+  const originalTask = data.tasks[taskIndex]
   const updatedTask = {
-    ...data.tasks[taskIndex],
+    ...originalTask,
     ...updates,
     lastEditedBy: currentUser,
     lastEditedTime: new Date().toISOString()
@@ -113,6 +131,49 @@ export function updateTask(taskId: string, updates: Partial<Task>): Task | null 
   
   data.tasks[taskIndex] = updatedTask
   saveTaskData(data)
+  
+  // Determine event type and create smart notification
+  let eventType: 'status_change' | 'completion' | 'assignment' = 'status_change'
+  let notificationType: 'success' | 'warning' | 'info' = 'info'
+  let title = 'Task Updated'
+  let message = `Task "${updatedTask.taskName}" has been updated`
+  
+  // Check for significant changes that warrant notifications
+  if (updatedTask.status === 'Done' && originalTask.status !== 'Done') {
+    eventType = 'completion'
+    notificationType = 'success'
+    title = 'Task Completed'
+    message = `Task "${updatedTask.taskName}" has been marked as completed`
+  } else if (updatedTask.status === 'In progress' && originalTask.status === 'Not started') {
+    eventType = 'status_change'
+    notificationType = 'warning'
+    title = 'Task Started'
+    message = `Task "${updatedTask.taskName}" is now in progress`
+  } else if (updatedTask.assignee !== originalTask.assignee) {
+    eventType = 'assignment'
+    notificationType = 'info'
+    title = 'Task Reassigned'
+    message = `Task "${updatedTask.taskName}" has been reassigned to ${updatedTask.assignee}`
+  } else {
+    // Skip notification for minor updates (description, name changes, etc.)
+    return updatedTask
+  }
+  
+  // Add smart notification for significant task updates
+  addSmartNotification({
+    type: notificationType,
+    title,
+    message,
+    icon: 'CheckSquare',
+    category: 'task',
+    actionUrl: '/productivity/tasks',
+    actionData: { taskId: updatedTask.id }
+  }, eventType)
+  
+  // Trigger notification update event
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('notifications-updated'))
+  }
   
   return updatedTask
 }

@@ -1,5 +1,6 @@
 const { app, BrowserWindow, Menu, Tray, shell, ipcMain, Notification, dialog } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const isDev = process.env.NODE_ENV === 'development';
 const ActivityTracker = require('./activity-tracker');
 
@@ -9,6 +10,104 @@ let activityTracker;
 let inactivityNotification = null;
 let tray = null;
 let isQuitting = false;
+let notificationBadgeCount = 0;
+let systemNotifications = [];
+
+// Function to create a red badge with count
+function createBadgeImage(count) {
+  try {
+    const { createCanvas } = require('canvas');
+    const canvas = createCanvas(32, 32);
+    const ctx = canvas.getContext('2d');
+    
+    // Clear canvas
+    ctx.clearRect(0, 0, 32, 32);
+    
+    // Draw red circle background
+    ctx.fillStyle = '#ef4444'; // Red color
+    ctx.beginPath();
+    ctx.arc(16, 16, 14, 0, 2 * Math.PI);
+    ctx.fill();
+    
+    // Remove white border - no stroke needed
+    
+    // Draw count text with better font settings
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 14px Arial, sans-serif'; // Increased font size and added fallback
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    
+    // Add text shadow for better readability
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+    ctx.shadowBlur = 1;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 1;
+    
+    const countText = count > 99 ? '99+' : count.toString();
+    ctx.fillText(countText, 16, 16);
+    
+    return canvas.toBuffer('image/png');
+  } catch (error) {
+    console.error('Canvas not available, using fallback:', error);
+    return null;
+  }
+}
+
+// Function to save badge image to temp file
+function saveBadgeImage(count) {
+  try {
+    const badgeBuffer = createBadgeImage(count);
+    if (!badgeBuffer) {
+      return null;
+    }
+    
+    const badgePath = path.join(__dirname, `../temp/badge-${count}.png`);
+    
+    // Ensure temp directory exists
+    const tempDir = path.dirname(badgePath);
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+    
+    fs.writeFileSync(badgePath, badgeBuffer);
+    return badgePath;
+  } catch (error) {
+    console.error('Error creating badge image:', error);
+    return null;
+  }
+}
+
+// Function to get a simple red dot badge (fallback)
+function getSimpleBadgePath() {
+  try {
+    const { createCanvas } = require('canvas');
+    const canvas = createCanvas(16, 16); // Smaller size for dot
+    const ctx = canvas.getContext('2d');
+    
+    // Clear canvas
+    ctx.clearRect(0, 0, 16, 16);
+    
+    // Draw red circle background (no border)
+    ctx.fillStyle = '#ef4444'; // Red color
+    ctx.beginPath();
+    ctx.arc(8, 8, 6, 0, 2 * Math.PI);
+    ctx.fill();
+    
+    const badgePath = path.join(__dirname, '../temp/red-dot.png');
+    
+    // Ensure temp directory exists
+    const tempDir = path.dirname(badgePath);
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+    
+    fs.writeFileSync(badgePath, canvas.toBuffer('image/png'));
+    return badgePath;
+  } catch (error) {
+    console.error('Error creating simple badge:', error);
+    return null;
+  }
+}
 
 // Function to play notification sound
 function playNotificationSound() {
@@ -52,6 +151,166 @@ function createNotificationWithSound(title, body, icon) {
   });
 }
 
+// Function to update badge count on app icon and tray
+async function updateBadgeCount(count) {
+  // Get the actual notification count from the app
+  const actualCount = await getActualNotificationCount();
+  const finalCount = actualCount > 0 ? actualCount : count;
+  
+  notificationBadgeCount = finalCount;
+  
+  // Update app icon badge (Windows)
+  if (mainWindow && process.platform === 'win32') {
+    if (finalCount > 0) {
+      try {
+        // Create and use red badge with count
+        const badgePath = saveBadgeImage(finalCount);
+        if (badgePath) {
+          mainWindow.setOverlayIcon(badgePath, `${finalCount} notifications`);
+        } else {
+          // Fallback to simple red dot
+          const simpleBadgePath = getSimpleBadgePath();
+          if (simpleBadgePath) {
+            mainWindow.setOverlayIcon(simpleBadgePath, `${finalCount} notifications`);
+          } else {
+            // Final fallback to favicon
+            const overlayIconPath = path.join(__dirname, '../src/app/favicon.ico');
+            mainWindow.setOverlayIcon(overlayIconPath, `${finalCount} notifications`);
+          }
+        }
+      } catch (error) {
+        console.error('Error setting overlay icon:', error);
+        // Fallback to favicon
+        const overlayIconPath = path.join(__dirname, '../src/app/favicon.ico');
+        mainWindow.setOverlayIcon(overlayIconPath, `${finalCount} notifications`);
+      }
+      
+      // Also set the dock badge count (macOS) and taskbar badge (Windows)
+      if (process.platform === 'darwin') {
+        app.setBadgeCount(finalCount);
+      }
+    } else {
+      mainWindow.setOverlayIcon(null, '');
+      if (process.platform === 'darwin') {
+        app.setBadgeCount(0);
+      }
+    }
+  }
+  
+  // Update tray with actual notification count
+  await updateTrayWithActualCount();
+  
+  // Update tray menu to show notification count
+  updateTrayMenu();
+}
+
+// Function to show system-wide notification
+function showSystemNotification(notificationData) {
+  if (!Notification.isSupported()) {
+    console.log('System notifications not supported');
+    return;
+  }
+  
+  // Use favicon for notifications
+  const notificationIcon = path.join(__dirname, '../src/app/favicon.ico');
+  
+  const notification = new Notification({
+    title: notificationData.title || 'ShoreAgents Dashboard',
+    body: notificationData.message || 'You have a new notification',
+    icon: notificationIcon,
+    silent: false,
+    timeoutType: 'default'
+  });
+  
+  // Store notification data for click handling
+  const notificationId = `notification_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  systemNotifications.push({
+    id: notificationId,
+    data: notificationData,
+    notification: notification
+  });
+  
+  // Handle notification click
+  notification.on('click', () => {
+    handleNotificationClick(notificationId);
+  });
+  
+  // Handle notification close
+  notification.on('close', () => {
+    // Remove from system notifications array
+    systemNotifications = systemNotifications.filter(n => n.id !== notificationId);
+  });
+  
+  notification.show();
+  
+  // Update badge count
+  const currentCount = systemNotifications.length;
+  updateBadgeCount(currentCount);
+  
+  return notificationId;
+}
+
+// Function to handle notification clicks
+function handleNotificationClick(notificationId) {
+  const notification = systemNotifications.find(n => n.id === notificationId);
+  if (!notification) return;
+  
+  // Show main window if hidden
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) {
+      mainWindow.restore();
+    }
+    mainWindow.show();
+    mainWindow.focus();
+    
+    // Mark notification as read in the app using the original notification ID
+    if (notification.data.id) {
+      // Extract the original notification ID from the system notification ID
+      const originalNotificationId = notification.data.id.replace('system_', '');
+      mainWindow.webContents.send('mark-notification-read', originalNotificationId);
+    }
+    
+    // Navigate based on whether there's an action URL
+    if (notification.data.actionUrl) {
+      // If there's an action URL, go directly to that content
+      mainWindow.webContents.send('navigate-to', notification.data.actionUrl);
+    } else {
+      // If no action URL, go to notifications page
+      setTimeout(() => {
+        mainWindow.webContents.send('navigate-to', '/notifications');
+        
+        // Send the notification ID to highlight the specific notification
+        if (notification.data.id) {
+          const originalNotificationId = notification.data.id.replace('system_', '');
+          mainWindow.webContents.send('highlight-notification', originalNotificationId);
+        }
+      }, 100);
+    }
+  }
+  
+  // Remove from system notifications
+  systemNotifications = systemNotifications.filter(n => n.id !== notificationId);
+  
+  // Update badge count immediately
+  updateBadgeCount(systemNotifications.length);
+  
+  // Also trigger a notification update event to refresh the app UI
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('notifications-updated');
+  }
+}
+
+// Function to clear all system notifications
+function clearAllSystemNotifications() {
+  systemNotifications.forEach(n => {
+    if (n.notification) {
+      n.notification.close();
+    }
+  });
+  systemNotifications = [];
+  updateBadgeCount(0);
+}
+
 // IPC handlers for inactivity notifications
 ipcMain.handle('show-inactivity-notification', async (event, data) => {
   try {
@@ -68,7 +327,7 @@ ipcMain.handle('show-inactivity-notification', async (event, data) => {
     inactivityNotification = await createNotificationWithSound(
       'Inactivity Detected',
       `You've been inactive for ${timeText}. Move your mouse to resume.`,
-      path.join(__dirname, '../public/next.svg')
+      path.join(__dirname, '../src/app/favicon.ico')
     );
     
     return { success: true };
@@ -99,7 +358,7 @@ ipcMain.handle('update-inactivity-notification', async (event, data) => {
         inactivityNotification = await createNotificationWithSound(
           'Inactivity Detected',
           `You've been inactive for ${timeText}. Move your mouse to resume.`,
-          path.join(__dirname, '../public/next.svg')
+          path.join(__dirname, '../src/app/favicon.ico')
         );
       }, 100); // Increased delay for better cleanup
     }
@@ -125,6 +384,47 @@ ipcMain.handle('close-inactivity-notification', (event) => {
   }
 });
 
+// IPC handlers for system notifications
+ipcMain.handle('show-system-notification', async (event, notificationData) => {
+  try {
+    const notificationId = showSystemNotification(notificationData);
+    return { success: true, notificationId };
+  } catch (error) {
+    console.error('Error showing system notification:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('clear-system-notifications', async (event) => {
+  try {
+    clearAllSystemNotifications();
+    return { success: true };
+  } catch (error) {
+    console.error('Error clearing system notifications:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('get-notification-count', async (event) => {
+  return { count: systemNotifications.length };
+});
+
+// Handle notification count changes from renderer
+ipcMain.on('notification-count-changed', async (event, data) => {
+  try {
+    const count = data.count || 0;
+    console.log('Notification count changed:', count);
+    
+    // Update the system tray badge with the new count
+    await updateTrayWithActualCount();
+    
+    // Also update the app icon badge
+    await updateBadgeCount(count);
+  } catch (error) {
+    console.error('Error handling notification count change:', error);
+  }
+});
+
 function createWindow() {
   // Create the browser window
   const preloadPath = path.resolve(__dirname, 'preload.js');
@@ -142,7 +442,7 @@ function createWindow() {
       preload: preloadPath,
       webSecurity: true
     },
-    icon: path.join(__dirname, '../public/next.svg'),
+    icon: path.join(__dirname, '../src/app/favicon.ico'),
     show: false, // Don't show until ready
     titleBarStyle: 'default',
     autoHideMenuBar: false
@@ -208,14 +508,23 @@ function createWindow() {
 
 // Create system tray
 function createTray() {
-  // Use the favicon.ico for tray (better for Windows)
-  const trayIconPath = path.join(__dirname, '../src/app/favicon.ico');
+  // Create initial tray icon with no notifications
+  const initialTrayIconPath = createTrayIconWithIndicator(0);
+  const trayIconPath = initialTrayIconPath || path.join(__dirname, '../src/app/favicon.ico');
+  
   tray = new Tray(trayIconPath);
   
   // Initial context menu
   updateTrayMenu();
   
   tray.setToolTip('ShoreAgents Dashboard');
+  
+  // Set up periodic check for notification count sync
+  setInterval(async () => {
+    if (tray && mainWindow && !mainWindow.isDestroyed()) {
+      await updateTrayWithActualCount();
+    }
+  }, 10000); // Check every 10 seconds
   
   // Single click to show window (more convenient)
   tray.on('click', () => {
@@ -240,6 +549,147 @@ function createTray() {
       }
     }
   });
+}
+
+// Function to create a tray icon with red indicator
+function createTrayIconWithIndicator(count) {
+  try {
+    const { createCanvas } = require('canvas');
+    const canvas = createCanvas(32, 32);
+    const ctx = canvas.getContext('2d');
+    
+    // Create a simple icon that looks like the favicon
+    // Clear canvas with transparent background
+    ctx.clearRect(0, 0, 32, 32);
+    
+    // Draw a simple icon that resembles the favicon (Next.js logo style)
+    ctx.fillStyle = '#000000'; // Black background
+    ctx.fillRect(0, 0, 32, 32);
+    
+    // Draw the Next.js "N" shape in white
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(8, 8, 4, 16); // Left vertical line
+    ctx.fillRect(12, 8, 4, 4); // Top horizontal line
+    ctx.fillRect(16, 12, 4, 4); // Middle horizontal line
+    ctx.fillRect(20, 16, 4, 4); // Bottom horizontal line
+    ctx.fillRect(24, 20, 4, 4); // Right vertical line
+    
+    // Add red badge with count if there are notifications
+    if (count > 0) {
+      // Draw red circle background
+      ctx.fillStyle = '#ef4444'; // Red color
+      ctx.beginPath();
+      ctx.arc(26, 6, 8, 0, 2 * Math.PI); // Top-right corner, larger size
+      ctx.fill();
+      
+      // Draw count text
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 10px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      
+      const countText = count > 99 ? '99+' : count.toString();
+      ctx.fillText(countText, 26, 6);
+    }
+    
+    const trayIconPath = path.join(__dirname, `../temp/tray-icon-${count}.png`);
+    
+    // Ensure temp directory exists
+    const tempDir = path.dirname(trayIconPath);
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+    
+    fs.writeFileSync(trayIconPath, canvas.toBuffer('image/png'));
+    return trayIconPath;
+  } catch (error) {
+    console.error('Error creating tray icon with indicator:', error);
+    return null;
+  }
+}
+
+// Function to update tray with red indicator
+function updateTrayWithRedIndicator(count) {
+  if (!tray) return;
+  
+  try {
+    // Create tray icon with red indicator
+    const trayIconPath = createTrayIconWithIndicator(count);
+    if (trayIconPath) {
+      tray.setImage(trayIconPath);
+    }
+    
+    // Update tooltip
+    const baseTooltip = 'ShoreAgents Dashboard';
+    const tooltip = count > 0 ? `${baseTooltip} (${count} notifications)` : baseTooltip;
+    tray.setToolTip(tooltip);
+  } catch (error) {
+    console.error('Error updating tray with red indicator:', error);
+  }
+}
+
+// Function to get actual notification count from app
+async function getActualNotificationCount() {
+  try {
+    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
+      // Get the actual unread notification count from the app
+      const result = await mainWindow.webContents.executeJavaScript(`
+        (() => {
+          try {
+            // Import the notification service functions
+            const { getUnreadCount } = require('./lib/notification-service');
+            return getUnreadCount();
+          } catch (error) {
+            // Fallback to localStorage check
+            try {
+              const user = JSON.parse(localStorage.getItem('shoreagents-auth'))?.user;
+              if (!user) return 0;
+              
+              const key = 'shoreagents-notifications-' + user.email;
+              const stored = localStorage.getItem(key);
+              if (!stored) return 0;
+              
+              const data = JSON.parse(stored);
+              return data.notifications ? data.notifications.filter(n => !n.read).length : 0;
+            } catch {
+              return 0;
+            }
+          }
+        })()
+      `);
+      return result || 0;
+    }
+    return 0;
+  } catch (error) {
+    console.error('Error getting actual notification count:', error);
+    return 0;
+  }
+}
+
+// Function to update tray with actual notification count
+async function updateTrayWithActualCount() {
+  if (!tray) return;
+  
+  try {
+    // Get the actual notification count from the app
+    const actualCount = await getActualNotificationCount();
+    
+    // Create tray icon with the actual count
+    const trayIconPath = createTrayIconWithIndicator(actualCount);
+    if (trayIconPath) {
+      tray.setImage(trayIconPath);
+    }
+    
+    // Update tooltip with actual count
+    const baseTooltip = 'ShoreAgents Dashboard';
+    const tooltip = actualCount > 0 ? `${baseTooltip} (${actualCount} notifications)` : baseTooltip;
+    tray.setToolTip(tooltip);
+    
+    // Update the global notification count
+    notificationBadgeCount = actualCount;
+  } catch (error) {
+    console.error('Error updating tray with actual count:', error);
+  }
 }
 
 // Check if user is logged in by examining localStorage
@@ -305,6 +755,37 @@ async function updateTrayMenu() {
     }
   ];
   
+  // Add notification count if there are notifications
+  if (notificationBadgeCount > 0) {
+    baseMenuItems.push({
+      label: `${notificationBadgeCount} notification${notificationBadgeCount > 1 ? 's' : ''}`,
+      enabled: false
+    });
+    
+    baseMenuItems.push({
+      label: 'View All Notifications',
+      click: () => {
+        if (mainWindow) {
+          if (mainWindow.isMinimized()) {
+            mainWindow.restore();
+          }
+          mainWindow.show();
+          mainWindow.focus();
+          mainWindow.webContents.send('navigate-to', '/notifications');
+        }
+      }
+    });
+    
+    baseMenuItems.push({
+      label: 'Clear All Notifications',
+      click: () => {
+        clearAllSystemNotifications();
+      }
+    });
+    
+    baseMenuItems.push({ type: 'separator' });
+  }
+  
   // Add navigation options only if logged in
   if (isLoggedIn) {
     baseMenuItems.push(
@@ -333,6 +814,19 @@ async function updateTrayMenu() {
             mainWindow.webContents.send('navigate-to', '/dashboard/activity');
           }
         }
+      },
+      {
+        label: 'Notifications',
+        click: () => {
+          if (mainWindow) {
+            if (mainWindow.isMinimized()) {
+              mainWindow.restore();
+            }
+            mainWindow.show();
+            mainWindow.focus();
+            mainWindow.webContents.send('navigate-to', '/notifications');
+          }
+        }
       }
     );
   }
@@ -350,7 +844,11 @@ async function updateTrayMenu() {
     });
     
     // Update tooltip to show tracking is active
-    tray.setToolTip('ShoreAgents Dashboard - Activity Tracking Active');
+    const baseTooltip = 'ShoreAgents Dashboard - Activity Tracking Active';
+    const tooltip = notificationBadgeCount > 0 
+      ? `${baseTooltip} (${notificationBadgeCount} notifications)`
+      : baseTooltip;
+    tray.setToolTip(tooltip);
   } else {
     baseMenuItems.push({
       label: 'Quit',
@@ -361,7 +859,11 @@ async function updateTrayMenu() {
     });
     
     // Update tooltip to show no tracking
-    tray.setToolTip('ShoreAgents Dashboard');
+    const baseTooltip = 'ShoreAgents Dashboard';
+    const tooltip = notificationBadgeCount > 0 
+      ? `${baseTooltip} (${notificationBadgeCount} notifications)`
+      : baseTooltip;
+    tray.setToolTip(baseTooltip);
   }
   
   const contextMenu = Menu.buildFromTemplate(baseMenuItems);
@@ -754,7 +1256,7 @@ ipcMain.on('show-notification', (event, data) => {
     const notification = new Notification({
       title: data.title || 'ShoreAgents Dashboard',
       body: data.body || 'Notification',
-      icon: data.icon || path.join(__dirname, '../public/next.svg'),
+      icon: data.icon || path.join(__dirname, '../src/app/favicon.ico'),
       silent: false
     });
     

@@ -115,14 +115,29 @@ export const initializeUserActivity = (userId: string) => {
     userData.isLoggedOut = false;
     userData.lastLogoutTime = undefined;
     
-    // Clear any current session that might be left over
-    if (userData.currentSessionStart > 0 && !userData.isCurrentlyActive) {
-      userData.currentSessionStart = 0;
-    }
+    // Start fresh session for new login
+    userData.isCurrentlyActive = true;
+    userData.currentSessionStart = now;
+    userData.lastActivityTime = now;
     
     // Ensure break mode is cleared
     if (userData.isInBreak) {
       userData.isInBreak = false;
+    }
+    
+    // Add new active session for login
+    if (!userData.activitySessions) {
+      userData.activitySessions = [];
+    }
+    userData.activitySessions.push({
+      userId,
+      startTime: now,
+      type: 'active'
+    });
+    
+    // Keep only last 100 sessions to prevent localStorage from getting too large
+    if (userData.activitySessions.length > 100) {
+      userData.activitySessions = userData.activitySessions.slice(-100);
     }
     
     localStorage.setItem(key, JSON.stringify(userData));
@@ -229,8 +244,8 @@ export const startInactiveSession = (userId: string) => {
         const activeDuration = now - userData.currentSessionStart;
         userData.totalActiveTime += activeDuration;
         
-        // Record hourly data for the completed active session
-        updateHourlyActivityData(userId, 'active', activeDuration);
+        // Record today data for the completed active session
+        updateTodayActivityData(userId, 'active', activeDuration);
         
         // Update the last active session with end time and duration
         const activitySessions = userData.activitySessions || [];
@@ -340,8 +355,8 @@ export const updateLastActivity = (userId: string) => {
         const inactiveDuration = now - userData.currentSessionStart;
         userData.totalInactiveTime += inactiveDuration;
         
-        // Record hourly data for the completed inactive session
-        updateHourlyActivityData(userId, 'inactive', inactiveDuration);
+        // Record today data for the completed inactive session
+        updateTodayActivityData(userId, 'inactive', inactiveDuration);
         
         // Update the last inactive session with end time and duration
         const activitySessions = userData.activitySessions || [];
@@ -455,9 +470,9 @@ export const checkAndResetDailyData = (userId: string) => {
         
         // Record the previous day's session
         if (userData.isCurrentlyActive) {
-          updateHourlyActivityData(userId, 'active', previousDayDuration);
+          updateTodayActivityData(userId, 'active', previousDayDuration);
         } else {
-          updateHourlyActivityData(userId, 'inactive', previousDayDuration);
+          updateTodayActivityData(userId, 'inactive', previousDayDuration);
         }
         
         // Start new session for today
@@ -603,8 +618,8 @@ export const markUserAsLoggedOut = (userId: string) => {
       // Add to total active time
       userData.totalActiveTime += activeDuration;
       
-      // Record hourly and monthly data for the completed session
-      updateHourlyActivityData(userId, 'active', activeDuration);
+      // Record today and monthly data for the completed session
+      updateTodayActivityData(userId, 'active', activeDuration);
       
       // Update the last session with end time and duration
       const activitySessions = userData.activitySessions || [];
@@ -645,8 +660,8 @@ export const markUserAsAppClosed = (userId: string) => {
       const activeDuration = now - userData.currentSessionStart;
       userData.totalActiveTime += activeDuration;
       
-      // Record hourly data for the completed active session
-      updateHourlyActivityData(userId, 'active', activeDuration);
+      // Record today data for the completed active session
+      updateTodayActivityData(userId, 'active', activeDuration);
       
       // Update the last active session with end time and duration
       const activitySessions = userData.activitySessions || [];
@@ -688,8 +703,8 @@ export const pauseActivityForBreak = (userId: string) => {
       const currentSessionDuration = now - userData.currentSessionStart;
       userData.totalActiveTime += currentSessionDuration;
       
-      // Record hourly and monthly data for the completed active session
-      updateHourlyActivityData(userId, 'active', currentSessionDuration);
+      // Record today and monthly data for the completed active session
+      updateTodayActivityData(userId, 'active', currentSessionDuration);
       
       // Update the last active session with end time and duration
       const activitySessions = userData.activitySessions || [];
@@ -844,7 +859,7 @@ export const getActivitySummary = (userId: string) => {
       }
     }
   }
-
+  
   return {
     // Daily totals (reset each day)
     todayActiveTime,
@@ -955,8 +970,8 @@ export const pauseActivityForSystemSuspend = (userId: string) => {
       const inactiveDuration = now - userData.currentSessionStart;
       userData.totalInactiveTime += inactiveDuration;
       
-      // Record hourly data for the completed inactive session
-      updateHourlyActivityData(userId, 'inactive', inactiveDuration);
+              // Record today data for the completed inactive session
+        updateTodayActivityData(userId, 'inactive', inactiveDuration);
       
       const activitySessions = userData.activitySessions || [];
       const lastSession = activitySessions[activitySessions.length - 1];

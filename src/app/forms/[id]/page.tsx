@@ -191,18 +191,18 @@ export default function TicketDetailsPage() {
               {/* Ticket Header */}
               <Card>
                 <CardHeader>
-                  <div className="space-y-2">
-                    <h2 className="text-2xl font-bold">{ticket.name}</h2>
-                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                      <div className="flex items-center gap-1">
-                        <Calendar className="h-3 w-3" />
-                        <span>Created: {formatDate(ticket.createdAt)}</span>
+                    <div className="space-y-2">
+                        <h2 className="text-2xl font-bold">{ticket.name}</h2>
+                      <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                        <div className="flex items-center gap-1">
+                          <Calendar className="h-3 w-3" />
+                          <span>Created: {formatDate(ticket.createdAt)}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Calendar className="h-3 w-3" />
+                          <span>Date: {ticket.date}</span>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-1">
-                        <Calendar className="h-3 w-3" />
-                        <span>Date: {ticket.date}</span>
-                      </div>
-                    </div>
                   </div>
                 </CardHeader>
               </Card>
