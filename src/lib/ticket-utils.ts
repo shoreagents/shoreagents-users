@@ -51,15 +51,58 @@ export const addTicketForUser = (userEmail: string, ticket: Ticket) => {
   const newTicket = { ...ticket, userId: userEmail }
   tickets.push(newTicket)
   saveTicketsForUser(userEmail, tickets)
+  
+  // Add smart notification for new ticket creation
+  if (typeof window !== 'undefined') {
+    const { addSmartNotification } = require('./notification-service')
+    addSmartNotification({
+      type: 'info',
+      title: 'New Support Ticket',
+      message: `Ticket "${newTicket.name}" has been created`,
+      icon: 'FileText',
+      category: 'ticket',
+      actionUrl: `/forms/${newTicket.id}`,
+      actionData: { ticketId: newTicket.id }
+    }, 'creation')
+    
+    // Trigger notification update event
+    window.dispatchEvent(new CustomEvent('notifications-updated'))
+  }
+  
   return newTicket
 }
 
 export const updateTicketForUser = (userEmail: string, ticketId: string, updates: Partial<Ticket>) => {
   const tickets = getTicketsForUser(userEmail)
+  const ticketIndex = tickets.findIndex(t => t.id === ticketId)
+  
+  if (ticketIndex === -1) return
+  
+  const originalTicket = tickets[ticketIndex]
   const updatedTickets = tickets.map(ticket => 
     ticket.id === ticketId ? { ...ticket, ...updates } : ticket
   )
   saveTicketsForUser(userEmail, updatedTickets)
+  
+  // Only create notification for significant status changes
+  if (typeof window !== 'undefined' && updates.status === 'resolved' && originalTicket.status !== 'resolved') {
+    const updatedTicket = updatedTickets.find(t => t.id === ticketId)
+    if (updatedTicket) {
+      const { addSmartNotification } = require('./notification-service')
+      addSmartNotification({
+        type: 'success',
+        title: 'Ticket Resolved',
+        message: `Your ticket "${updatedTicket.name}" has been resolved`,
+        icon: 'CheckCircle',
+        category: 'ticket',
+        actionUrl: `/forms/${updatedTicket.id}`,
+        actionData: { ticketId: updatedTicket.id }
+      }, 'completion')
+      
+      // Trigger notification update event
+      window.dispatchEvent(new CustomEvent('notifications-updated'))
+    }
+  }
 }
 
 export const getCurrentUserTickets = (): Ticket[] => {

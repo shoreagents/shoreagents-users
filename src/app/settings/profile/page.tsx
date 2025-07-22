@@ -177,14 +177,6 @@ export default function ProfilePage() {
                         disabled={true}
                       />
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="id_number">Employee ID</Label>
-                      <Input
-                        id="id_number"
-                        value={profile.id_number}
-                        disabled={true}
-                      />
-                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -239,6 +231,14 @@ export default function ProfilePage() {
                       <Input
                         id="status"
                         value={profile.status}
+                        disabled={true}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="id_number">Employee ID</Label>
+                      <Input
+                        id="id_number"
+                        value={profile.id_number}
                         disabled={true}
                       />
                     </div>

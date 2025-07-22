@@ -14,6 +14,29 @@ import {
 import { Separator } from "@/components/ui/separator"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { getCurrentUser } from "@/lib/ticket-utils"
+import { Bell, CheckCircle, AlertCircle, Info, Clock, ArrowRight, CheckSquare, FileText } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Badge } from "@/components/ui/badge"
+import { useRouter } from "next/navigation"
+import { 
+  getNotifications, 
+  getUnreadCount, 
+  markNotificationAsRead, 
+  checkAllNotifications,
+  initializeNotificationChecking,
+  addSampleNotifications,
+  markAllNotificationsAsRead,
+  formatTimeAgo
+} from "@/lib/notification-service"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { AppSidebar } from "@/components/app-sidebar"
 
 interface BreadcrumbItem {
   title: string
@@ -28,11 +51,94 @@ interface AppHeaderProps {
 
 export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
   const pathname = usePathname()
+  const router = useRouter()
   const [user, setUser] = useState({
     name: "Agent User",
     email: "agent@shoreagents.com",
     avatar: "/avatars/agent.jpg",
   })
+
+  const [notifications, setNotifications] = useState<any[]>([])
+  const [unreadCount, setUnreadCount] = useState(0)
+
+  // Initialize notification checking
+  useEffect(() => {
+    initializeNotificationChecking()
+    
+    // Only add welcome notification if no notifications exist
+    const existingNotifications = getNotifications()
+    if (existingNotifications.length === 0) {
+      addSampleNotifications() // Add welcome notification only
+    }
+    
+    // Listen for system notification clicks
+    if (window.electronAPI) {
+      window.electronAPI.receive('mark-notification-read', (notificationId: string) => {
+        // Mark the notification as read
+        markNotificationAsRead(notificationId)
+        
+        // Update the local state immediately
+        const updatedNotifications = getNotifications()
+        setNotifications(updatedNotifications)
+        setUnreadCount(getUnreadCount())
+      })
+      
+      // Listen for general notification updates
+      window.electronAPI.receive('notifications-updated', () => {
+        const updatedNotifications = getNotifications()
+        setNotifications(updatedNotifications)
+        setUnreadCount(getUnreadCount())
+      })
+    }
+  }, [])
+
+  // Load notifications and update periodically
+  useEffect(() => {
+    const loadNotifications = () => {
+      const realNotifications = getNotifications()
+      // Show unread notifications first, then recent ones, limit to 8
+      const unreadNotifications = realNotifications.filter(n => !n.read)
+      const readNotifications = realNotifications.filter(n => n.read)
+      
+      // Combine unread first, then recent read ones
+      const recentNotifications = [
+        ...unreadNotifications,
+        ...readNotifications
+      ].slice(0, 8)
+      
+      setNotifications(recentNotifications)
+      setUnreadCount(getUnreadCount())
+    }
+
+    loadNotifications()
+    
+    // Update every 10 seconds for real-time responsiveness
+    const interval = setInterval(loadNotifications, 10000)
+    
+    // Listen for real-time notification updates
+    const handleNotificationUpdate = () => {
+      loadNotifications()
+    }
+    
+    window.addEventListener('notifications-updated', handleNotificationUpdate)
+    
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('notifications-updated', handleNotificationUpdate)
+    }
+  }, [])
+
+  // Check for new notifications periodically
+  useEffect(() => {
+    const checkNotifications = () => {
+      checkAllNotifications()
+    }
+
+    // Check every 5 minutes
+    const interval = setInterval(checkNotifications, 5 * 60 * 1000)
+    
+    return () => clearInterval(interval)
+  }, [])
 
   useEffect(() => {
     // Get user data from localStorage
@@ -168,6 +274,63 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
 
   const currentBreadcrumbs = generateBreadcrumbs()
 
+  const handleViewAllNotifications = () => {
+    router.push('/notifications')
+  }
+
+  // Update notification count and badge
+  useEffect(() => {
+    const unreadCount = getUnreadCount()
+    setUnreadCount(unreadCount)
+    
+    // Update system notification badge if Electron is available
+    if (window.electronAPI?.systemNotifications) {
+      window.electronAPI.systemNotifications.getCount().then((result: any) => {
+        // The badge count is managed by the main process
+        // This just ensures the app is aware of the current count
+      }).catch((error: any) => {
+        console.log('Could not get system notification count:', error)
+      })
+    }
+    
+    // Trigger system tray update when notification count changes
+    if (window.electronAPI?.systemNotifications) {
+      // Send notification count update to main process
+      window.electronAPI.send('notification-count-changed', { count: unreadCount });
+    }
+  }, [notifications])
+
+  // Listen for notification updates from other components
+  useEffect(() => {
+    const handleNotificationUpdate = () => {
+      const updatedNotifications = getNotifications();
+      // Show unread notifications first, then recent ones, limit to 8
+      const unreadNotifications = updatedNotifications.filter(n => !n.read)
+      const readNotifications = updatedNotifications.filter(n => n.read)
+      
+      // Combine unread first, then recent read ones
+      const recentNotifications = [
+        ...unreadNotifications,
+        ...readNotifications
+      ].slice(0, 8)
+      
+      const newUnreadCount = getUnreadCount();
+      setNotifications(recentNotifications);
+      setUnreadCount(newUnreadCount);
+      
+      // Update system tray badge
+      if (window.electronAPI?.send) {
+        window.electronAPI.send('notification-count-changed', { count: newUnreadCount });
+      }
+    };
+
+    window.addEventListener('notifications-updated', handleNotificationUpdate);
+    
+    return () => {
+      window.removeEventListener('notifications-updated', handleNotificationUpdate);
+    };
+  }, []);
+
   return (
     <header className="sticky top-0 z-50 flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12 bg-background/95 backdrop-blur-sm supports-[backdrop-filter]:bg-background/80 border-b border-border/40 shadow-sm">
       <div className="flex items-center gap-2 px-4">
@@ -197,6 +360,167 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
       </div>
       {showUser && (
         <div className="ml-auto flex items-center gap-2 px-4">
+          <DropdownMenu onOpenChange={(open) => {
+            // Mark all notifications as read when dropdown opens
+            if (open && unreadCount > 0) {
+              markAllNotificationsAsRead();
+              // Update local state immediately
+              const updatedNotifications = getNotifications();
+              setNotifications(updatedNotifications);
+              setUnreadCount(0);
+              
+              // Trigger notification update event to sync with system tray
+              window.dispatchEvent(new CustomEvent('notifications-updated'));
+              
+              // Immediately update system tray badge
+              if (window.electronAPI?.send) {
+                window.electronAPI.send('notification-count-changed', { count: 0 });
+              }
+            }
+          }}>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="relative h-8 w-8"
+              >
+                <Bell className="h-4 w-4" />
+                {unreadCount > 0 && (
+                  <Badge 
+                    variant="destructive" 
+                    className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 text-xs font-medium bg-red-500 text-white border-2 border-white shadow-sm"
+                  >
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </Badge>
+                )}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="w-80" align="end" forceMount>
+              <div className="flex items-center justify-between p-4 pb-2">
+                <h3 className="text-sm font-semibold">Notifications</h3>
+                {unreadCount > 0 && (
+                  <Badge variant="destructive" className="text-xs bg-red-500 text-white">
+                    {unreadCount} new
+                  </Badge>
+                )}
+              </div>
+              <DropdownMenuSeparator />
+              <ScrollArea className="h-96">
+                <div className="p-2">
+                  {notifications.length === 0 ? (
+                    <div className="p-4 text-center text-sm text-muted-foreground">
+                      No notifications
+                    </div>
+                  ) : (
+                    <>
+                      {notifications.map((notification) => {
+                        // Map icon string to component
+                        const getIconComponent = (iconName: string) => {
+                          switch (iconName) {
+                            case 'CheckCircle': return CheckCircle
+                            case 'AlertCircle': return AlertCircle
+                            case 'Info': return Info
+                            case 'Clock': return Clock
+                            case 'CheckSquare': return CheckSquare
+                            case 'FileText': return FileText
+                            default: return Bell
+                          }
+                        }
+                        
+                        const IconComponent = getIconComponent(notification.icon)
+                        
+                        return (
+                          <DropdownMenuItem
+                            key={notification.id}
+                            className={`p-4 cursor-pointer hover:bg-accent ${
+                              !notification.read ? 'bg-blue-50 dark:bg-blue-950/20' : ''
+                            }`}
+                            onClick={() => {
+                              // Mark as read
+                              markNotificationAsRead(notification.id)
+                              
+                              // Update local state immediately
+                              const updatedNotifications = getNotifications()
+                              const unreadNotifications = updatedNotifications.filter(n => !n.read)
+                              const readNotifications = updatedNotifications.filter(n => n.read)
+                              
+                              // Combine unread first, then recent read ones
+                              const recentNotifications = [
+                                ...unreadNotifications,
+                                ...readNotifications
+                              ].slice(0, 8)
+                              
+                              setNotifications(recentNotifications)
+                              setUnreadCount(getUnreadCount())
+                              
+                              // Navigate if actionUrl is provided
+                              if (notification.actionUrl) {
+                                router.push(notification.actionUrl)
+                              }
+                            }}
+                          >
+                            <div className="flex items-start gap-3 w-full">
+                              <div className={`mt-0.5 ${
+                                notification.type === 'success' ? 'text-green-600' :
+                                notification.type === 'warning' ? 'text-yellow-600' :
+                                notification.type === 'error' ? 'text-red-600' :
+                                'text-blue-600'
+                              }`}>
+                                <IconComponent className="h-4 w-4" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="flex-1">
+                                    <h4 className={`text-sm font-medium ${
+                                      !notification.read ? 'text-foreground' : 'text-muted-foreground'
+                                    }`}>
+                                      {notification.title}
+                                    </h4>
+                                    <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
+                                      {notification.message}
+                                    </p>
+                                    <div className="flex items-center gap-2 mt-2">
+                                      <span className="text-xs text-muted-foreground">
+                                        {formatTimeAgo(notification.time)}
+                                      </span>
+                                      {!notification.read && (
+                                        <Badge variant="destructive" className="text-xs bg-red-500 text-white">
+                                          New
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </DropdownMenuItem>
+                        )
+                      })}
+                      {getNotifications().length > 8 && (
+                        <div className="p-3 text-center text-xs text-muted-foreground border-t">
+                          Showing 8 most recent notifications
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </ScrollArea>
+              {notifications.length > 0 && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="cursor-pointer"
+                    onClick={handleViewAllNotifications}
+                  >
+                    <div className="flex items-center justify-between w-full">
+                      <span>View All Notifications</span>
+                      <ArrowRight className="h-4 w-4" />
+                    </div>
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
           <HeaderUser user={user} />
         </div>
       )}

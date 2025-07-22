@@ -144,10 +144,10 @@ export default function ActivityPage() {
   const generateChartData = useMemo(() => {
     const currentUser = getCurrentUser()
     if (!currentUser) return []
-
+    
     if (timePeriod === 'today') {
       // For today view, show cumulative totals throughout the day
-      const now = Date.now()
+    const now = Date.now()
       const today = new Date()
       const currentHour = today.getHours()
       const todayDateString = today.toISOString().split('T')[0]
@@ -214,7 +214,7 @@ export default function ActivityPage() {
                            hour === 12 ? '12 PM' : 
                            `${hour - 12} PM`
       
-        return {
+      return {
           date: hourDisplay,
           hour: hour,
           active: Math.floor(cumulativeActiveTime / 1000 / 60), // Cumulative total in minutes
@@ -574,14 +574,14 @@ export default function ActivityPage() {
       {/* Activity Overview Cards */}
       <div className="space-y-6">
         {/* Activity Summary Cards */}
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           {/* Monthly Active */}
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Monthly Active</CardTitle>
-              <TrendingUp className="h-4 w-4 text-green-600" />
-            </CardHeader>
-            <CardContent>
+            <TrendingUp className="h-4 w-4 text-green-600" />
+          </CardHeader>
+          <CardContent>
               <div className="text-2xl font-bold text-green-600">{formatDuration(monthlyTotals?.totalActiveTime || 0)}</div>
               <p className="text-xs text-muted-foreground mt-1">
                 Since {monthlyTotals?.startDate || 'N/A'}
@@ -601,38 +601,38 @@ export default function ActivityPage() {
               </div>
               <p className="text-xs text-muted-foreground mt-1">
                 Last 7 days
-              </p>
-            </CardContent>
-          </Card>
+            </p>
+          </CardContent>
+        </Card>
 
           {/* Today Active */}
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Today Active</CardTitle>
               <Activity className="h-4 w-4 text-blue-600" />
-            </CardHeader>
-            <CardContent>
+          </CardHeader>
+          <CardContent>
               <div className="text-2xl font-bold text-blue-600">{formatDuration(todaysActivity?.todayActiveTime || 0)}</div>
               <p className="text-xs text-muted-foreground mt-1">
                 Resets at midnight
-              </p>
-            </CardContent>
-          </Card>
+            </p>
+          </CardContent>
+        </Card>
 
           {/* Current Session */}
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Current Session</CardTitle>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Current Session</CardTitle>
               <Clock className="h-4 w-4 text-indigo-600" />
-            </CardHeader>
-            <CardContent>
+          </CardHeader>
+          <CardContent>
               <div className="text-2xl font-bold text-indigo-600">
-                {currentSessionStatus?.type === 'break' ? 'On Break' : formatDuration(currentSessionDuration)}
-              </div>
+              {currentSessionStatus?.type === 'break' ? 'On Break' : formatDuration(currentSessionDuration)}
+            </div>
               <p className="text-xs text-muted-foreground mt-1">
                 {currentSessionStatus?.type === 'active' ? 'Active Session' :
-                 currentSessionStatus?.type === 'inactive' ? 'Inactive Session' :
-                 currentSessionStatus?.type === 'break' ? 'Break Session' :
+               currentSessionStatus?.type === 'inactive' ? 'Inactive Session' :
+               currentSessionStatus?.type === 'break' ? 'Break Session' :
                  'No Session'}
               </p>
             </CardContent>
@@ -667,9 +667,9 @@ export default function ActivityPage() {
               </div>
               <p className="text-xs text-muted-foreground mt-1">
                 Last 7 days
-              </p>
-            </CardContent>
-          </Card>
+            </p>
+          </CardContent>
+        </Card>
 
           {/* Today Inactive */}
           <Card>
@@ -688,12 +688,12 @@ export default function ActivityPage() {
 
         {/* Status Card */}
         <div className="grid gap-4 md:grid-cols-1">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Activity Status</CardTitle>
-              <Clock className="h-4 w-4 text-red-600" />
-            </CardHeader>
-            <CardContent>
+            <Clock className="h-4 w-4 text-red-600" />
+          </CardHeader>
+          <CardContent>
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-2xl font-bold text-red-600">{activityStats.totalInactivityAlerts}</div>
@@ -705,13 +705,13 @@ export default function ActivityPage() {
                   <div className="text-sm font-medium text-muted-foreground">
                     Next reset in {timeUntilReset}
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    {activityStats.todayInactiveSessions} inactive sessions today
-                  </p>
+            <p className="text-xs text-muted-foreground">
+              {activityStats.todayInactiveSessions} inactive sessions today
+            </p>
                 </div>
               </div>
-            </CardContent>
-          </Card>
+          </CardContent>
+        </Card>
         </div>
       </div>
 

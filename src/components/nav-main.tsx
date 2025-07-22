@@ -50,14 +50,17 @@ export function NavMain({
         const saved = localStorage.getItem('sidebar-dropdown-states')
         if (saved) {
           const parsed = JSON.parse(saved)
-          setOpenItems(parsed)
+          // Ensure all items have a defined boolean value
+          const initial: Record<string, boolean> = {}
+          items.forEach(item => {
+            initial[item.title] = parsed[item.title] === true || item.isActive === true
+          })
+          setOpenItems(initial)
         } else {
           // Initialize with currently active items open if no saved state
           const initial: Record<string, boolean> = {}
           items.forEach(item => {
-            if (item.isActive) {
-              initial[item.title] = true
-            }
+            initial[item.title] = item.isActive === true
           })
           setOpenItems(initial)
         }
@@ -66,9 +69,7 @@ export function NavMain({
         // Fallback to active items open
         const initial: Record<string, boolean> = {}
         items.forEach(item => {
-          if (item.isActive) {
-            initial[item.title] = true
-          }
+          initial[item.title] = item.isActive === true
         })
         setOpenItems(initial)
       }
@@ -102,7 +103,7 @@ export function NavMain({
           <Collapsible
             key={item.title}
             asChild
-            open={openItems[item.title]}
+            open={openItems[item.title] === true}
             onOpenChange={(open) => setOpenItems(prev => ({ ...prev, [item.title]: open }))}
             className="group/collapsible"
           >
@@ -115,7 +116,7 @@ export function NavMain({
                 >
                   {item.icon && <item.icon />}
                   <span>{item.title}</span>
-                  {item.statusIndicator && !openItems[item.title] && (
+                  {item.statusIndicator && !(openItems[item.title] === true) && (
                     <span className="mr-2">
                       {item.statusIndicator}
                     </span>
