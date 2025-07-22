@@ -11,7 +11,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Activity, Clock, MousePointer, TrendingUp, TrendingDown } from "lucide-react"
 import { getCurrentUser } from "@/lib/ticket-utils"
-import { getActivitySummary, getUserActivityData, getCurrentSessionStatus, cleanupDuplicateSessions, getHourlyDataForPeriod, getDailySummariesForPeriod, getTodaysActivitySummary, getMonthlyTotalsSummary, type HourlyActivityData } from "@/lib/activity-storage"
+import { getActivitySummary, getUserActivityData, getCurrentSessionStatus, cleanupDuplicateSessions, getTodayDataForPeriod, getYesterdaySummariesForPeriod, getTodaysActivitySummary, getLast24HoursSummary, getLast7DaysSummary, getLast30DaysSummary, getMonthlyTotalsSummary, getNextResetTime, formatTimeUntilReset, setupAutomaticReset, type HourlyActivityData } from "@/lib/activity-storage"
 import {
   SidebarInset,
   SidebarProvider,
@@ -49,6 +49,9 @@ export default function ActivityPage() {
   const [hourlyData, setHourlyData] = useState<HourlyActivityData[]>([])
   const [todaysActivity, setTodaysActivity] = useState<any>(null)
   const [monthlyTotals, setMonthlyTotals] = useState<any>(null)
+  const [timeUntilReset, setTimeUntilReset] = useState<string>('')
+  const [nextResetTime, setNextResetTime] = useState<Date | null>(null)
+  const [weeklyData, setWeeklyData] = useState<any>(null)
 
   useEffect(() => {
     const loadActivityData = () => {
@@ -60,9 +63,10 @@ export default function ActivityPage() {
         const stats = getActivitySummary(currentUser.email)
         const fullData = getUserActivityData(currentUser.email)
         const sessionStatus = getCurrentSessionStatus(currentUser.email)
-        const hourlyDataForPeriod = getHourlyDataForPeriod(currentUser.email, timePeriod)
+        const hourlyDataForPeriod = getTodayDataForPeriod(currentUser.email, timePeriod)
         const todaysData = getTodaysActivitySummary(currentUser.email)
         const monthlyData = getMonthlyTotalsSummary(currentUser.email)
+        const weeklyData = getLast7DaysSummary(currentUser.email)
         
         setActivityStats(stats)
         setActivitySessions(fullData?.activitySessions || [])
@@ -70,7 +74,11 @@ export default function ActivityPage() {
         setHourlyData(hourlyDataForPeriod)
         setTodaysActivity(todaysData)
         setMonthlyTotals(monthlyData)
+        setWeeklyData(weeklyData)
         setLastUpdateTime(new Date().toLocaleTimeString())
+        
+        // Setup automatic reset for this user
+        setupAutomaticReset(currentUser.email)
       }
       setLoading(false)
     }
@@ -82,6 +90,24 @@ export default function ActivityPage() {
     
     return () => clearInterval(interval)
   }, [timePeriod])
+
+  // Update reset time display
+  useEffect(() => {
+    const updateResetTime = () => {
+      const nextReset = getNextResetTime()
+      const timeUntil = formatTimeUntilReset(nextReset.getTime() - Date.now())
+      
+      setNextResetTime(nextReset)
+      setTimeUntilReset(timeUntil)
+    }
+
+    updateResetTime()
+    
+    // Update reset time every minute
+    const interval = setInterval(updateResetTime, 60000)
+    
+    return () => clearInterval(interval)
+  }, [])
 
   // Real-time current session duration update
   const [currentSessionDuration, setCurrentSessionDuration] = useState<number>(0)
@@ -116,6 +142,9 @@ export default function ActivityPage() {
 
     // Generate chart data using cumulative totals that match the summary cards
   const generateChartData = useMemo(() => {
+    const currentUser = getCurrentUser()
+    if (!currentUser) return []
+
     if (timePeriod === 'today') {
       // For today view, show cumulative totals throughout the day
       const now = Date.now()
@@ -123,17 +152,17 @@ export default function ActivityPage() {
       const currentHour = today.getHours()
       const todayDateString = today.toISOString().split('T')[0]
       
-      // Get today's hourly data
-      const todayHourlyData = hourlyData.filter(h => h.date === todayDateString)
+      // Get today's data from localStorage
+      const todayData = getTodayDataForPeriod(currentUser.email, 'today')
       
       // Pre-calculate cumulative totals for all hours
       const cumulativeData: { [hour: number]: { activeTime: number; inactiveTime: number } } = {}
       let runningActiveTime = 0
       let runningInactiveTime = 0
       
-      // Build cumulative data hour by hour using hourly data
+      // Build cumulative data hour by hour using today's data
       for (let h = 0; h <= currentHour; h++) {
-        const hourData = todayHourlyData.find(hd => hd.hour === h)
+        const hourData = todayData.find(hd => hd.hour === h)
         
         if (hourData) {
           runningActiveTime += hourData.activeTime
@@ -146,17 +175,16 @@ export default function ActivityPage() {
         }
       }
       
-      // For the current hour, override with real-time totals from activity summary (cards)
+      // For the current hour, override with real-time totals from today's activity summary
       // This ensures perfect sync between chart and cards
       if (currentSessionStatus && currentSessionStatus.type !== 'none' && currentSessionDuration > 0) {
-        const currentUser = getCurrentUser()
-        const realtimeStats = currentUser ? getActivitySummary(currentUser.email) : null
+        const todayStats = getTodaysActivitySummary(currentUser.email)
         
-        if (realtimeStats) {
+        if (todayStats) {
           // Use the exact same totals as the cards for perfect real-time sync
           cumulativeData[currentHour] = {
-            activeTime: realtimeStats.totalActiveTime,
-            inactiveTime: realtimeStats.totalInactiveTime
+            activeTime: todayStats.todayActiveTime,
+            inactiveTime: todayStats.todayInactiveTime
           }
         } else {
           // Fallback: add current session time to the running totals
@@ -186,7 +214,7 @@ export default function ActivityPage() {
                            hour === 12 ? '12 PM' : 
                            `${hour - 12} PM`
       
-      return {
+        return {
           date: hourDisplay,
           hour: hour,
           active: Math.floor(cumulativeActiveTime / 1000 / 60), // Cumulative total in minutes
@@ -200,55 +228,13 @@ export default function ActivityPage() {
         }
       })
     } else if (timePeriod === '24hours') {
-      // For 24-hour view, show cumulative totals over the last 24 hours
+      // For 24-hour view, show hourly data for the last 24 hours (not cumulative)
       const now = Date.now()
-      const today = new Date()
-      const currentHour = today.getHours()
       
-      // Get last 24 hours of data
-      const twentyFourHoursData = hourlyData
+      // Get last 24 hours data from localStorage
+      const last24HoursData = getTodayDataForPeriod(currentUser.email, '24hours')
       
-      // Pre-calculate cumulative totals for all 24 hours
-      const cumulativeData: { [index: number]: { activeTime: number; inactiveTime: number } } = {}
-      let runningActiveTime = 0
-      let runningInactiveTime = 0
-      
-      // Build cumulative data hour by hour (chronological order)
-      for (let index = 0; index < 24; index++) {
-        const hoursBack = 23 - index
-        const targetTime = now - (hoursBack * 60 * 60 * 1000)
-        const targetDate = new Date(targetTime)
-        const targetHour = targetDate.getHours()
-        const targetDateString = targetDate.toISOString().split('T')[0]
-        
-        const isCurrentHour = hoursBack === 0
-        
-        // Find actual data for this hour
-        const hourData = twentyFourHoursData.find(h => 
-          h.hour === targetHour && h.date === targetDateString
-        )
-        
-        if (hourData) {
-          runningActiveTime += hourData.activeTime
-          runningInactiveTime += hourData.inactiveTime
-        }
-        
-        // For current hour, add ongoing session time
-        if (isCurrentHour && currentSessionStatus && currentSessionStatus.type !== 'none' && currentSessionDuration > 0) {
-          if (currentSessionStatus.type === 'active') {
-            runningActiveTime += currentSessionDuration
-          } else if (currentSessionStatus.type === 'inactive') {
-            runningInactiveTime += currentSessionDuration
-          }
-        }
-        
-        cumulativeData[index] = {
-          activeTime: runningActiveTime,
-          inactiveTime: runningInactiveTime
-        }
-      }
-      
-      // Generate 24 hours for the last 24 hours with proper cumulative data
+      // Generate 24 hours for the last 24 hours with actual hourly data
       return Array.from({ length: 24 }, (_, index) => {
         // Calculate the actual hour this index represents (going back in time)
         const hoursBack = 23 - index
@@ -261,9 +247,23 @@ export default function ActivityPage() {
         const isPastHour = hoursBack > 0
         const isFutureHour = false // No future hours in 24-hour rolling view
         
-        // Get cumulative totals up to this hour
-        const cumulativeActiveTime = cumulativeData[index]?.activeTime || 0
-        const cumulativeInactiveTime = cumulativeData[index]?.inactiveTime || 0
+        // Find actual data for this specific hour
+        const hourData = last24HoursData.find(h => 
+          h.hour === targetHour && h.date === targetDateString
+        )
+        
+        // Get hourly totals (not cumulative)
+        let activeTime = hourData ? hourData.activeTime : 0
+        let inactiveTime = hourData ? hourData.inactiveTime : 0
+        
+        // For current hour, add ongoing session time
+        if (isCurrentHour && currentSessionStatus && currentSessionStatus.type !== 'none' && currentSessionDuration > 0) {
+          if (currentSessionStatus.type === 'active') {
+            activeTime += currentSessionDuration
+          } else if (currentSessionStatus.type === 'inactive') {
+            inactiveTime += currentSessionDuration
+          }
+        }
         
         // Format hour for display
         const hourDisplay = targetHour === 0 ? '12 AM' : 
@@ -274,18 +274,128 @@ export default function ActivityPage() {
         return {
           date: hourDisplay,
           hour: targetHour,
-          active: Math.floor(cumulativeActiveTime / 1000 / 60), // Cumulative total in minutes
-          inactive: Math.floor(cumulativeInactiveTime / 1000 / 60), // Cumulative total in minutes
-          activeSessions: 0, // Not applicable for cumulative view
-          inactiveSessions: 0, // Not applicable for cumulative view
+          active: Math.floor(activeTime / 1000 / 60), // Hourly total in minutes
+          inactive: Math.floor(inactiveTime / 1000 / 60), // Hourly total in minutes
+          activeSessions: hourData ? hourData.activeSessions : 0,
+          inactiveSessions: hourData ? hourData.inactiveSessions : 0,
           isCurrentHour: isCurrentHour,
           isPastHour: isPastHour,
           isFutureHour: isFutureHour,
           hasLiveData: isCurrentHour && currentSessionStatus
         }
       })
+    } else if (timePeriod === '7days') {
+      // Show daily data for the last 7 days
+      const now = Date.now()
+      const sevenDaysAgo = now - (7 * 24 * 60 * 60 * 1000)
+      
+      // Get yesterday summaries for the last 7 days
+      const yesterdaySummaries = getYesterdaySummariesForPeriod(currentUser.email, '7days')
+      
+      // Generate 7 days of data
+      return Array.from({ length: 7 }, (_, index) => {
+        const daysBack = 6 - index
+        const targetTime = now - (daysBack * 24 * 60 * 60 * 1000)
+        const targetDate = new Date(targetTime)
+        const targetDateString = targetDate.toISOString().split('T')[0]
+        
+        const isCurrentDay = daysBack === 0
+        const isPastDay = daysBack > 0
+        const isFutureDay = false
+        
+        // Find data for this specific day
+        const dayData = yesterdaySummaries.find(d => d.date === targetDateString)
+        
+        // Get daily totals
+        let activeTime = dayData ? dayData.totalActiveTime : 0
+        let inactiveTime = dayData ? dayData.totalInactiveTime : 0
+        
+        // For current day, add ongoing session time
+        if (isCurrentDay && currentSessionStatus && currentSessionStatus.type !== 'none' && currentSessionDuration > 0) {
+          if (currentSessionStatus.type === 'active') {
+            activeTime += currentSessionDuration
+          } else if (currentSessionStatus.type === 'inactive') {
+            inactiveTime += currentSessionDuration
+          }
+        }
+        
+        // Format date for display
+        const dayDisplay = targetDate.toLocaleDateString('en-US', { 
+          weekday: 'short',
+          month: 'short', 
+          day: 'numeric'
+        })
+        
+        return {
+          date: dayDisplay,
+          hour: 0,
+          active: Math.floor(activeTime / 1000 / 60), // Daily total in minutes
+          inactive: Math.floor(inactiveTime / 1000 / 60), // Daily total in minutes
+          activeSessions: dayData ? dayData.totalSessions : 0,
+          inactiveSessions: 0,
+          isCurrentHour: isCurrentDay,
+          isPastHour: isPastDay,
+          isFutureHour: isFutureDay,
+          hasLiveData: isCurrentDay && currentSessionStatus
+        }
+      })
+    } else if (timePeriod === '30days') {
+      // Show weekly data for the last 30 days (4 weeks)
+      const now = Date.now()
+      const thirtyDaysAgo = now - (30 * 24 * 60 * 60 * 1000)
+      
+      // Get yesterday summaries for the last 30 days
+      const yesterdaySummaries = getYesterdaySummariesForPeriod(currentUser.email, '30days')
+      
+      // Group data by weeks
+      const weeklyData = []
+      for (let week = 0; week < 4; week++) {
+        const weekStart = now - ((3 - week) * 7 * 24 * 60 * 60 * 1000)
+        const weekEnd = weekStart + (7 * 24 * 60 * 60 * 1000)
+        
+        // Get data for this week
+        const weekSummaries = yesterdaySummaries.filter(d => {
+          const dayTimestamp = new Date(d.date).getTime()
+          return dayTimestamp >= weekStart && dayTimestamp < weekEnd
+        })
+        
+        // Calculate weekly totals
+        let activeTime = weekSummaries.reduce((sum, d) => sum + d.totalActiveTime, 0)
+        let inactiveTime = weekSummaries.reduce((sum, d) => sum + d.totalInactiveTime, 0)
+        const totalSessions = weekSummaries.reduce((sum, d) => sum + d.totalSessions, 0)
+        
+        // For current week, add ongoing session time
+        const isCurrentWeek = week === 3
+        if (isCurrentWeek && currentSessionStatus && currentSessionStatus.type !== 'none' && currentSessionDuration > 0) {
+          if (currentSessionStatus.type === 'active') {
+            activeTime += currentSessionDuration
+          } else if (currentSessionStatus.type === 'inactive') {
+            inactiveTime += currentSessionDuration
+          }
+        }
+        
+        // Format week for display
+        const weekStartDate = new Date(weekStart)
+        const weekEndDate = new Date(weekEnd - 24 * 60 * 60 * 1000) // End of week
+        const weekDisplay = `${weekStartDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${weekEndDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+        
+        weeklyData.push({
+          date: weekDisplay,
+          hour: 0,
+          active: Math.floor(activeTime / 1000 / 60), // Weekly total in minutes
+          inactive: Math.floor(inactiveTime / 1000 / 60), // Weekly total in minutes
+          activeSessions: totalSessions,
+          inactiveSessions: 0,
+          isCurrentHour: isCurrentWeek,
+          isPastHour: week < 3,
+          isFutureHour: false,
+          hasLiveData: isCurrentWeek && currentSessionStatus
+        })
+      }
+      
+      return weeklyData
     } else {
-      // For other periods (7d, 30d), show 24-hour periods
+      // For other periods, show 24-hour periods
       const now = Date.now()
       const periodsBack = timePeriod === '7days' ? 7 : 30
       
@@ -339,7 +449,7 @@ export default function ActivityPage() {
       
       return periodData
     }
-  }, [hourlyData, timePeriod, currentSessionStatus, currentSessionDuration])
+  }, [timePeriod, currentSessionStatus, currentSessionDuration])
 
   const formatDuration = (milliseconds: number) => {
     const totalSeconds = Math.floor(milliseconds / 1000)
@@ -463,114 +573,145 @@ export default function ActivityPage() {
 
       {/* Activity Overview Cards */}
       <div className="space-y-6">
-        {/* Monthly Total Cards Section */}
-        <div>
-          <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-            <TrendingUp className="h-5 w-5 text-green-600" />
-            Monthly Totals
-          </h3>
-          <div className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Active Time</CardTitle>
-            <TrendingUp className="h-4 w-4 text-green-600" />
-          </CardHeader>
-          <CardContent>
-                <div className="text-3xl font-bold text-green-600">{formatDuration(monthlyTotals?.totalActiveTime || 0)}</div>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Since {monthlyTotals?.startDate || 'N/A'}
-            </p>
-          </CardContent>
-        </Card>
+        {/* Activity Summary Cards */}
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {/* Monthly Active */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Monthly Active</CardTitle>
+              <TrendingUp className="h-4 w-4 text-green-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-green-600">{formatDuration(monthlyTotals?.totalActiveTime || 0)}</div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Since {monthlyTotals?.startDate || 'N/A'}
+              </p>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Inactive Time</CardTitle>
-            <TrendingDown className="h-4 w-4 text-orange-600" />
-          </CardHeader>
-          <CardContent>
-                <div className="text-3xl font-bold text-orange-600">{formatDuration(monthlyTotals?.totalInactiveTime || 0)}</div>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Since {monthlyTotals?.startDate || 'N/A'}
-                </p>
-              </CardContent>
-            </Card>
-          </div>
+          {/* Weekly Active */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Weekly Active</CardTitle>
+              <TrendingUp className="h-4 w-4 text-emerald-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-emerald-600">
+                {formatDuration(weeklyData?.activeTime || 0)}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Last 7 days
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* Today Active */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Today Active</CardTitle>
+              <Activity className="h-4 w-4 text-blue-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-blue-600">{formatDuration(todaysActivity?.todayActiveTime || 0)}</div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Resets at midnight
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* Current Session */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Current Session</CardTitle>
+              <Clock className="h-4 w-4 text-indigo-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-indigo-600">
+                {currentSessionStatus?.type === 'break' ? 'On Break' : formatDuration(currentSessionDuration)}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {currentSessionStatus?.type === 'active' ? 'Active Session' :
+                 currentSessionStatus?.type === 'inactive' ? 'Inactive Session' :
+                 currentSessionStatus?.type === 'break' ? 'Break Session' :
+                 'No Session'}
+              </p>
+            </CardContent>
+          </Card>
         </div>
 
-        {/* Today's Activity Cards Section */}
-        <div>
-          <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-            <Activity className="h-5 w-5 text-blue-600" />
-            Today's Activity
-          </h3>
-          <div className="grid gap-4 md:grid-cols-2">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Today Active</CardTitle>
-                <Activity className="h-4 w-4 text-blue-600" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold text-blue-600">{formatDuration(todaysActivity?.todayActiveTime || 0)}</div>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Resets daily at midnight
-            </p>
-          </CardContent>
-        </Card>
+        {/* Secondary Activity Cards */}
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {/* Monthly Inactive */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Monthly Inactive</CardTitle>
+              <TrendingDown className="h-4 w-4 text-orange-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-orange-600">{formatDuration(monthlyTotals?.totalInactiveTime || 0)}</div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Since {monthlyTotals?.startDate || 'N/A'}
+              </p>
+            </CardContent>
+          </Card>
 
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Today Inactive</CardTitle>
-                <MousePointer className="h-4 w-4 text-purple-600" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold text-purple-600">{formatDuration(todaysActivity?.todayInactiveTime || 0)}</div>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Resets daily at midnight
-                </p>
-              </CardContent>
-            </Card>
-          </div>
+          {/* Weekly Inactive */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Weekly Inactive</CardTitle>
+              <TrendingDown className="h-4 w-4 text-amber-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-amber-600">
+                {formatDuration(weeklyData?.inactiveTime || 0)}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Last 7 days
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* Today Inactive */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Today Inactive</CardTitle>
+              <MousePointer className="h-4 w-4 text-purple-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-purple-600">{formatDuration(todaysActivity?.todayInactiveTime || 0)}</div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Resets at midnight
+              </p>
+            </CardContent>
+          </Card>
         </div>
 
-        {/* Session & Status Cards Section */}
-        <div>
-          <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-            <Clock className="h-5 w-5 text-indigo-600" />
-            Current Status
-          </h3>
-          <div className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Current Session</CardTitle>
-                <Clock className="h-4 w-4 text-indigo-600" />
-          </CardHeader>
-          <CardContent>
-                <div className="text-3xl font-bold text-indigo-600">
-              {currentSessionStatus?.type === 'break' ? 'On Break' : formatDuration(currentSessionDuration)}
-            </div>
-                <p className="text-sm text-muted-foreground mt-1">
-              {currentSessionStatus?.type === 'active' ? 'Active Session Ongoing' :
-               currentSessionStatus?.type === 'inactive' ? 'Inactive Session' :
-               currentSessionStatus?.type === 'break' ? 'Break Session' :
-               'No Active Session'}
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Inactivity Alerts</CardTitle>
-            <Clock className="h-4 w-4 text-red-600" />
-          </CardHeader>
-          <CardContent>
-                <div className="text-3xl font-bold text-red-600">{activityStats.totalInactivityAlerts}</div>
-                <p className="text-sm text-muted-foreground mt-1">
-              {activityStats.todayInactiveSessions} inactive sessions today
-            </p>
-          </CardContent>
-        </Card>
-          </div>
+        {/* Status Card */}
+        <div className="grid gap-4 md:grid-cols-1">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Activity Status</CardTitle>
+              <Clock className="h-4 w-4 text-red-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-2xl font-bold text-red-600">{activityStats.totalInactivityAlerts}</div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Inactivity alerts
+                  </p>
+                </div>
+                <div className="text-right">
+                  <div className="text-sm font-medium text-muted-foreground">
+                    Next reset in {timeUntilReset}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {activityStats.todayInactiveSessions} inactive sessions today
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </div>
 
@@ -625,12 +766,12 @@ export default function ActivityPage() {
               </CardTitle>
           <CardDescription>
                 {timePeriod === 'today' 
-                  ? `Hourly breakdown for today (${new Date().toLocaleDateString()}) in minutes`
+                  ? `Today's activity (${new Date().toLocaleDateString()}) - Cumulative hourly totals`
                   : timePeriod === '24hours'
-                  ? 'Rolling 24-hour periods in minutes'
+                  ? 'Last 24 hours - Hourly activity data (includes yesterday)'
                   : timePeriod === '7days'
-                  ? '7 rolling 24-hour periods (168 hours total) in minutes'
-                  : '30 rolling 24-hour periods (720 hours total) in minutes'
+                  ? 'Last 7 days - Daily activity breakdown'
+                  : 'Last 30 days - Weekly activity breakdown'
                 }
                 {generateChartData.some(d => d.hasLiveData) && (
                   <span className="text-green-600"> • Real-time updates</span>
@@ -644,9 +785,9 @@ export default function ActivityPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="today">Today</SelectItem>
-                  <SelectItem value="24hours">Last 24 Hours</SelectItem>
-                  <SelectItem value="7days">Last 7 Days</SelectItem>
-                  <SelectItem value="30days">Last 30 Days</SelectItem>
+                  <SelectItem value="24hours">Yesterday + Today</SelectItem>
+                  <SelectItem value="7days">Weekly</SelectItem>
+                  <SelectItem value="30days">Monthly</SelectItem>
                 </SelectContent>
               </Select>
             </div>
