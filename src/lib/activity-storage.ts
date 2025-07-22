@@ -49,16 +49,29 @@ export const getActivityStorageKey = (userId: string) => {
   return `shoreagents-activity-${userId}`;
 };
 
-export const getHourlyDataStorageKey = (userId: string) => {
-  return `shoreagents-hourly-${userId}`;
+export const getTodayDataStorageKey = (userId: string) => {
+  return `shoreagents-today-${userId}`;
 };
 
-export const getDailySummaryStorageKey = (userId: string) => {
-  return `shoreagents-daily-${userId}`;
+export const getYesterdayDataStorageKey = (userId: string) => {
+  return `shoreagents-yesterday-${userId}`;
+};
+
+export const getWeeklyDataStorageKey = (userId: string) => {
+  return `shoreagents-weekly-${userId}`;
 };
 
 export const getMonthlyTotalsStorageKey = (userId: string) => {
   return `shoreagents-monthly-${userId}`;
+};
+
+// Legacy key functions for backward compatibility
+export const getHourlyDataStorageKey = (userId: string) => {
+  return `shoreagents-today-${userId}`;
+};
+
+export const getDailySummaryStorageKey = (userId: string) => {
+  return `shoreagents-yesterday-${userId}`;
 };
 
 export interface MonthlyTotals {
@@ -393,6 +406,9 @@ export const getUserActivityData = (userId: string): UserActivityData | null => 
 export const trackUserActivity = (userId: string) => {
   if (typeof window === 'undefined') return;
   
+  // Check for daily reset
+  checkAndResetDailyData(userId);
+  
   // Update activity immediately
   updateLastActivity(userId);
   
@@ -401,6 +417,59 @@ export const trackUserActivity = (userId: string) => {
     detail: { userId, timestamp: Date.now() }
   });
   window.dispatchEvent(event);
+};
+
+// Check and reset daily data at midnight
+export const checkAndResetDailyData = (userId: string) => {
+  if (typeof window === 'undefined') return;
+  
+  const now = Date.now();
+  const today = new Date().toISOString().split('T')[0];
+  const userData = getUserActivityData(userId);
+  
+  if (!userData) return;
+  
+  // Check if we need to reset daily data (new day)
+  const lastResetKey = `shoreagents-daily-reset-${userId}`;
+  const lastReset = localStorage.getItem(lastResetKey);
+  
+  if (lastReset !== today) {
+    // New day - reset daily tracking
+    localStorage.setItem(lastResetKey, today);
+    
+    // Update daily summary for the previous day if there was activity
+    if (userData.lastActivityTime) {
+      const lastActivityDate = new Date(userData.lastActivityTime).toISOString().split('T')[0];
+      if (lastActivityDate !== today) {
+        updateDailySummary(userId, lastActivityDate);
+      }
+    }
+    
+    // Reset current session if it started on a previous day
+    if (userData.currentSessionStart) {
+      const sessionStartDate = new Date(userData.currentSessionStart).toISOString().split('T')[0];
+      if (sessionStartDate !== today) {
+        // End the previous day's session and start a new one for today
+        const midnight = new Date(today).getTime();
+        const previousDayDuration = midnight - userData.currentSessionStart;
+        
+        // Record the previous day's session
+        if (userData.isCurrentlyActive) {
+          updateHourlyActivityData(userId, 'active', previousDayDuration);
+        } else {
+          updateHourlyActivityData(userId, 'inactive', previousDayDuration);
+        }
+        
+        // Start new session for today
+        userData.currentSessionStart = midnight;
+        userData.lastActivityTime = now;
+        
+        // Save the updated data
+        const key = getActivityStorageKey(userId);
+        localStorage.setItem(key, JSON.stringify(userData));
+      }
+    }
+  }
 };
 
 export const getCurrentUserActivityData = (): UserActivityData | null => {
@@ -928,8 +997,8 @@ export const resumeActivityFromSystemSuspend = (userId: string) => {
   }
 };
 
-// Update hourly activity data for 24-hour rolling storage
-export const updateHourlyActivityData = (userId: string, activityType: 'active' | 'inactive', duration: number) => {
+// Update today's activity data for 24-hour rolling storage
+export const updateTodayActivityData = (userId: string, activityType: 'active' | 'inactive', duration: number) => {
   if (typeof window === 'undefined') return;
   
   const now = Date.now();
@@ -938,13 +1007,13 @@ export const updateHourlyActivityData = (userId: string, activityType: 'active' 
   const currentHour = currentDate.getHours();
   const hourStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate(), currentHour).getTime();
   
-  const hourlyKey = getHourlyDataStorageKey(userId);
-  const existingHourlyData = localStorage.getItem(hourlyKey);
+  const todayKey = getTodayDataStorageKey(userId);
+  const existingTodayData = localStorage.getItem(todayKey);
   
-  let hourlyDataArray: HourlyActivityData[] = existingHourlyData ? JSON.parse(existingHourlyData) : [];
+  let todayDataArray: HourlyActivityData[] = existingTodayData ? JSON.parse(existingTodayData) : [];
   
   // Find or create current hour entry
-  let currentHourData = hourlyDataArray.find(h => h.timestamp === hourStart);
+  let currentHourData = todayDataArray.find(h => h.timestamp === hourStart);
   
   if (!currentHourData) {
     currentHourData = {
@@ -957,7 +1026,7 @@ export const updateHourlyActivityData = (userId: string, activityType: 'active' 
       inactiveSessions: 0,
       lastUpdated: now
     };
-    hourlyDataArray.push(currentHourData);
+    todayDataArray.push(currentHourData);
   }
   
   // Update the current hour data
@@ -972,17 +1041,21 @@ export const updateHourlyActivityData = (userId: string, activityType: 'active' 
   
   // Keep only last 24 hours of data (24 * 1 hour = 24 entries max)
   const twentyFourHoursAgo = now - (24 * 60 * 60 * 1000);
-  hourlyDataArray = hourlyDataArray.filter(h => h.timestamp >= twentyFourHoursAgo);
+  todayDataArray = todayDataArray.filter(h => h.timestamp >= twentyFourHoursAgo);
   
   // Sort by timestamp
-  hourlyDataArray.sort((a, b) => a.timestamp - b.timestamp);
+  todayDataArray.sort((a, b) => a.timestamp - b.timestamp);
   
-  localStorage.setItem(hourlyKey, JSON.stringify(hourlyDataArray));
+  localStorage.setItem(todayKey, JSON.stringify(todayDataArray));
   
-  // Also update daily summary and monthly totals
-  updateDailySummary(userId, dateString);
+  // Also update yesterday summary, weekly data, and monthly totals
+  updateYesterdaySummary(userId, dateString);
+  updateWeeklyData(userId, dateString);
   updateMonthlyTotals(userId, activityType, duration);
 };
+
+// Legacy function for backward compatibility
+export const updateHourlyActivityData = updateTodayActivityData;
 
 // Update monthly totals data
 export const updateMonthlyTotals = (userId: string, activityType: 'active' | 'inactive', duration: number) => {
@@ -1042,34 +1115,34 @@ export const updateMonthlyTotals = (userId: string, activityType: 'active' | 'in
   localStorage.setItem(monthlyKey, JSON.stringify(monthlyTotals));
 };
 
-// Update daily summary data
-export const updateDailySummary = (userId: string, dateString: string) => {
+// Update yesterday summary data
+export const updateYesterdaySummary = (userId: string, dateString: string) => {
   if (typeof window === 'undefined') return;
   
-  const dailyKey = getDailySummaryStorageKey(userId);
-  const existingDailyData = localStorage.getItem(dailyKey);
+  const yesterdayKey = getYesterdayDataStorageKey(userId);
+  const existingYesterdayData = localStorage.getItem(yesterdayKey);
   
-  let dailySummaries: DailyActivitySummary[] = existingDailyData ? JSON.parse(existingDailyData) : [];
+  let yesterdaySummaries: DailyActivitySummary[] = existingYesterdayData ? JSON.parse(existingYesterdayData) : [];
   
-  // Get hourly data for the day
-  const hourlyKey = getHourlyDataStorageKey(userId);
-  const hourlyData: HourlyActivityData[] = JSON.parse(localStorage.getItem(hourlyKey) || '[]');
-  const dayHourlyData = hourlyData.filter(h => h.date === dateString);
+  // Get today's data for the day
+  const todayKey = getTodayDataStorageKey(userId);
+  const todayData: HourlyActivityData[] = JSON.parse(localStorage.getItem(todayKey) || '[]');
+  const dayTodayData = todayData.filter(h => h.date === dateString);
   
   // Calculate daily totals
-  const totalActiveTime = dayHourlyData.reduce((sum, h) => sum + h.activeTime, 0);
-  const totalInactiveTime = dayHourlyData.reduce((sum, h) => sum + h.inactiveTime, 0);
-  const totalSessions = dayHourlyData.reduce((sum, h) => sum + h.activeSessions + h.inactiveSessions, 0);
+  const totalActiveTime = dayTodayData.reduce((sum, h) => sum + h.activeTime, 0);
+  const totalInactiveTime = dayTodayData.reduce((sum, h) => sum + h.inactiveTime, 0);
+  const totalSessions = dayTodayData.reduce((sum, h) => sum + h.activeSessions + h.inactiveSessions, 0);
   
-  const timestamps = dayHourlyData.map(h => h.timestamp).filter(t => t > 0);
+  const timestamps = dayTodayData.map(h => h.timestamp).filter(t => t > 0);
   const firstActivity = timestamps.length > 0 ? Math.min(...timestamps) : 0;
   const lastActivity = timestamps.length > 0 ? Math.max(...timestamps) : 0;
   
-  // Find or create daily summary
-  let dailySummary = dailySummaries.find(d => d.date === dateString);
+  // Find or create yesterday summary
+  let yesterdaySummary = yesterdaySummaries.find(d => d.date === dateString);
   
-  if (!dailySummary) {
-    dailySummary = {
+  if (!yesterdaySummary) {
+    yesterdaySummary = {
       date: dateString,
       totalActiveTime: 0,
       totalInactiveTime: 0,
@@ -1078,90 +1151,163 @@ export const updateDailySummary = (userId: string, dateString: string) => {
       lastActivity: 0,
       hourlyData: []
     };
-    dailySummaries.push(dailySummary);
+    yesterdaySummaries.push(yesterdaySummary);
   }
   
-  // Update daily summary
-  dailySummary.totalActiveTime = totalActiveTime;
-  dailySummary.totalInactiveTime = totalInactiveTime;
-  dailySummary.totalSessions = totalSessions;
-  dailySummary.firstActivity = firstActivity;
-  dailySummary.lastActivity = lastActivity;
-  dailySummary.hourlyData = dayHourlyData;
+  // Update yesterday summary
+  yesterdaySummary.totalActiveTime = totalActiveTime;
+  yesterdaySummary.totalInactiveTime = totalInactiveTime;
+  yesterdaySummary.totalSessions = totalSessions;
+  yesterdaySummary.firstActivity = firstActivity;
+  yesterdaySummary.lastActivity = lastActivity;
+  yesterdaySummary.hourlyData = dayTodayData;
   
   // Keep only last 30 days
   const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
   const thirtyDaysAgoDateString = new Date(thirtyDaysAgo).toISOString().split('T')[0];
-  dailySummaries = dailySummaries.filter(d => d.date >= thirtyDaysAgoDateString);
+  yesterdaySummaries = yesterdaySummaries.filter(d => d.date >= thirtyDaysAgoDateString);
   
   // Sort by date
-  dailySummaries.sort((a, b) => a.date.localeCompare(b.date));
+  yesterdaySummaries.sort((a, b) => a.date.localeCompare(b.date));
   
-  localStorage.setItem(dailyKey, JSON.stringify(dailySummaries));
+  localStorage.setItem(yesterdayKey, JSON.stringify(yesterdaySummaries));
 };
 
-// Get hourly data for different time periods
-export const getHourlyDataForPeriod = (userId: string, period: 'today' | '24hours' | '7days' | '30days'): HourlyActivityData[] => {
+// Legacy function for backward compatibility
+export const updateDailySummary = updateYesterdaySummary;
+
+// Update weekly data storage
+export const updateWeeklyData = (userId: string, dateString: string) => {
+  if (typeof window === 'undefined') return;
+  
+  const weeklyKey = getWeeklyDataStorageKey(userId);
+  const existingWeeklyData = localStorage.getItem(weeklyKey);
+  
+  let weeklyData: DailyActivitySummary[] = existingWeeklyData ? JSON.parse(existingWeeklyData) : [];
+  
+  // Get yesterday summaries for the week
+  const yesterdayKey = getYesterdayDataStorageKey(userId);
+  const yesterdaySummaries: DailyActivitySummary[] = JSON.parse(localStorage.getItem(yesterdayKey) || '[]');
+  
+  // Get the week's data (last 7 days)
+  const now = Date.now();
+  const sevenDaysAgo = now - (7 * 24 * 60 * 60 * 1000);
+  const sevenDaysAgoDate = new Date(sevenDaysAgo).toISOString().split('T')[0];
+  
+  const weekData = yesterdaySummaries.filter(d => d.date >= sevenDaysAgoDate);
+  
+  // Calculate weekly totals
+  const totalActiveTime = weekData.reduce((sum, d) => sum + d.totalActiveTime, 0);
+  const totalInactiveTime = weekData.reduce((sum, d) => sum + d.totalInactiveTime, 0);
+  const totalSessions = weekData.reduce((sum, d) => sum + d.totalSessions, 0);
+  
+  const timestamps = weekData.map(d => d.firstActivity).filter(t => t > 0);
+  const firstActivity = timestamps.length > 0 ? Math.min(...timestamps) : 0;
+  const lastActivity = timestamps.length > 0 ? Math.max(...timestamps) : 0;
+  
+  // Find or create weekly summary
+  let weeklySummary = weeklyData.find(w => w.date === dateString);
+  
+  if (!weeklySummary) {
+    weeklySummary = {
+      date: dateString,
+      totalActiveTime: 0,
+      totalInactiveTime: 0,
+      totalSessions: 0,
+      firstActivity: 0,
+      lastActivity: 0,
+      hourlyData: []
+    };
+    weeklyData.push(weeklySummary);
+  }
+  
+  // Update weekly summary
+  weeklySummary.totalActiveTime = totalActiveTime;
+  weeklySummary.totalInactiveTime = totalInactiveTime;
+  weeklySummary.totalSessions = totalSessions;
+  weeklySummary.firstActivity = firstActivity;
+  weeklySummary.lastActivity = lastActivity;
+  weeklySummary.hourlyData = weekData.flatMap(d => d.hourlyData);
+  
+  // Keep only last 4 weeks
+  const fourWeeksAgo = Date.now() - (4 * 7 * 24 * 60 * 60 * 1000);
+  const fourWeeksAgoDateString = new Date(fourWeeksAgo).toISOString().split('T')[0];
+  weeklyData = weeklyData.filter(w => w.date >= fourWeeksAgoDateString);
+  
+  // Sort by date
+  weeklyData.sort((a, b) => a.date.localeCompare(b.date));
+  
+  localStorage.setItem(weeklyKey, JSON.stringify(weeklyData));
+};
+
+// Get today's data for different time periods
+export const getTodayDataForPeriod = (userId: string, period: 'today' | '24hours' | '7days' | '30days'): HourlyActivityData[] => {
   if (typeof window === 'undefined') return [];
   
-  const hourlyKey = getHourlyDataStorageKey(userId);
-  const hourlyData: HourlyActivityData[] = JSON.parse(localStorage.getItem(hourlyKey) || '[]');
+  const todayKey = getTodayDataStorageKey(userId);
+  const todayData: HourlyActivityData[] = JSON.parse(localStorage.getItem(todayKey) || '[]');
   const now = Date.now();
   
   switch (period) {
     case 'today': {
       const today = new Date().toISOString().split('T')[0];
-      return hourlyData.filter(h => h.date === today);
+      return todayData.filter(h => h.date === today);
     }
     case '24hours': {
       const twentyFourHoursAgo = now - (24 * 60 * 60 * 1000);
-      return hourlyData.filter(h => h.timestamp >= twentyFourHoursAgo);
+      return todayData.filter(h => h.timestamp >= twentyFourHoursAgo);
     }
     case '7days': {
       const sevenDaysAgo = now - (7 * 24 * 60 * 60 * 1000);
-      return hourlyData.filter(h => h.timestamp >= sevenDaysAgo);
+      return todayData.filter(h => h.timestamp >= sevenDaysAgo);
     }
     case '30days': {
       const thirtyDaysAgo = now - (30 * 24 * 60 * 60 * 1000);
-      return hourlyData.filter(h => h.timestamp >= thirtyDaysAgo);
+      return todayData.filter(h => h.timestamp >= thirtyDaysAgo);
     }
     default:
-      return hourlyData;
+      return todayData;
   }
 };
 
-// Get daily summaries for different time periods
-export const getDailySummariesForPeriod = (userId: string, period: 'today' | '24hours' | '7days' | '30days'): DailyActivitySummary[] => {
+// Legacy function for backward compatibility
+export const getHourlyDataForPeriod = getTodayDataForPeriod;
+
+// Get yesterday summaries for different time periods
+export const getYesterdaySummariesForPeriod = (userId: string, period: 'today' | '24hours' | '7days' | '30days'): DailyActivitySummary[] => {
   if (typeof window === 'undefined') return [];
   
-  const dailyKey = getDailySummaryStorageKey(userId);
-  const dailySummaries: DailyActivitySummary[] = JSON.parse(localStorage.getItem(dailyKey) || '[]');
+  const yesterdayKey = getYesterdayDataStorageKey(userId);
+  const yesterdaySummaries: DailyActivitySummary[] = JSON.parse(localStorage.getItem(yesterdayKey) || '[]');
   const now = Date.now();
   
   switch (period) {
     case 'today': {
       const today = new Date().toISOString().split('T')[0];
-      return dailySummaries.filter(d => d.date === today);
+      return yesterdaySummaries.filter(d => d.date === today);
     }
     case '24hours': {
       const twentyFourHoursAgo = now - (24 * 60 * 60 * 1000);
       const twentyFourHoursAgoDate = new Date(twentyFourHoursAgo).toISOString().split('T')[0];
-      return dailySummaries.filter(d => d.date >= twentyFourHoursAgoDate);
+      return yesterdaySummaries.filter(d => d.date >= twentyFourHoursAgoDate);
     }
     case '7days': {
       const sevenDaysAgo = now - (7 * 24 * 60 * 60 * 1000);
       const sevenDaysAgoDate = new Date(sevenDaysAgo).toISOString().split('T')[0];
-      return dailySummaries.filter(d => d.date >= sevenDaysAgoDate);
+      return yesterdaySummaries.filter(d => d.date >= sevenDaysAgoDate);
     }
     case '30days': {
       const thirtyDaysAgo = now - (30 * 24 * 60 * 60 * 1000);
       const thirtyDaysAgoDate = new Date(thirtyDaysAgo).toISOString().split('T')[0];
-      return dailySummaries.filter(d => d.date >= thirtyDaysAgoDate);
+      return yesterdaySummaries.filter(d => d.date >= thirtyDaysAgoDate);
     }
     default:
-      return dailySummaries;
+      return yesterdaySummaries;
   }
 };
+
+// Legacy function for backward compatibility
+export const getDailySummariesForPeriod = getYesterdaySummariesForPeriod;
 
 // Get today's activity summary for daily cards
 export const getTodaysActivitySummary = (userId: string) => {
@@ -1170,10 +1316,13 @@ export const getTodaysActivitySummary = (userId: string) => {
   const today = new Date().toISOString().split('T')[0];
   const now = Date.now();
   
-  // Get today's hourly data
-  const hourlyKey = getHourlyDataStorageKey(userId);
-  const hourlyData: HourlyActivityData[] = JSON.parse(localStorage.getItem(hourlyKey) || '[]');
-  const todayHourlyData = hourlyData.filter(h => h.date === today);
+  // Ensure daily reset is checked
+  checkAndResetDailyData(userId);
+  
+  // Get today's data
+  const todayKey = getTodayDataStorageKey(userId);
+  const todayData: HourlyActivityData[] = JSON.parse(localStorage.getItem(todayKey) || '[]');
+  const todayHourlyData = todayData.filter(h => h.date === today);
   
   // Calculate today's totals from completed sessions
   let todayActiveTime = todayHourlyData.reduce((sum, h) => sum + h.activeTime, 0);
@@ -1182,12 +1331,17 @@ export const getTodaysActivitySummary = (userId: string) => {
   // Add current session time if user is active (but not during break)
   const userData = getUserActivityData(userId);
   if (userData && !userData.isLoggedOut && !userData.isInBreak && userData.currentSessionStart > 0) {
-    const currentSessionDuration = now - userData.currentSessionStart;
+    const sessionStartDate = new Date(userData.currentSessionStart).toISOString().split('T')[0];
     
-    if (userData.isCurrentlyActive) {
-      todayActiveTime += currentSessionDuration;
-    } else {
-      todayInactiveTime += currentSessionDuration;
+    // Only add current session time if it started today
+    if (sessionStartDate === today) {
+      const currentSessionDuration = now - userData.currentSessionStart;
+      
+      if (userData.isCurrentlyActive) {
+        todayActiveTime += currentSessionDuration;
+      } else {
+        todayInactiveTime += currentSessionDuration;
+      }
     }
   }
   
@@ -1195,6 +1349,128 @@ export const getTodaysActivitySummary = (userId: string) => {
     todayActiveTime,
     todayInactiveTime,
     date: today
+  };
+};
+
+// Get last 24 hours activity summary
+export const getLast24HoursSummary = (userId: string) => {
+  if (typeof window === 'undefined') return null;
+  
+  const now = Date.now();
+  const twentyFourHoursAgo = now - (24 * 60 * 60 * 1000);
+  
+  // Get today's data for the last 24 hours
+  const todayKey = getTodayDataStorageKey(userId);
+  const todayData: HourlyActivityData[] = JSON.parse(localStorage.getItem(todayKey) || '[]');
+  
+  // Filter data for the last 24 hours
+  const last24HoursData = todayData.filter(h => {
+    const hourTimestamp = h.timestamp;
+    return hourTimestamp >= twentyFourHoursAgo && hourTimestamp <= now;
+  });
+  
+  // Calculate totals
+  let activeTime = last24HoursData.reduce((sum, h) => sum + h.activeTime, 0);
+  let inactiveTime = last24HoursData.reduce((sum, h) => sum + h.inactiveTime, 0);
+  
+  // Add current session time if active
+  const userData = getUserActivityData(userId);
+  if (userData && !userData.isLoggedOut && !userData.isInBreak && userData.currentSessionStart > 0) {
+    const currentSessionDuration = now - userData.currentSessionStart;
+    
+    if (userData.isCurrentlyActive) {
+      activeTime += currentSessionDuration;
+    } else {
+      inactiveTime += currentSessionDuration;
+    }
+  }
+  
+  return {
+    activeTime,
+    inactiveTime,
+    period: '24hours'
+  };
+};
+
+// Get last 7 days activity summary
+export const getLast7DaysSummary = (userId: string) => {
+  if (typeof window === 'undefined') return null;
+  
+  const now = Date.now();
+  const sevenDaysAgo = now - (7 * 24 * 60 * 60 * 1000);
+  
+  // Get yesterday summaries for the last 7 days
+  const yesterdayKey = getYesterdayDataStorageKey(userId);
+  const yesterdaySummaries: DailyActivitySummary[] = JSON.parse(localStorage.getItem(yesterdayKey) || '[]');
+  
+  // Filter data for the last 7 days
+  const last7DaysData = yesterdaySummaries.filter(d => {
+    const dayTimestamp = new Date(d.date).getTime();
+    return dayTimestamp >= sevenDaysAgo && dayTimestamp <= now;
+  });
+  
+  // Calculate totals
+  let activeTime = last7DaysData.reduce((sum, d) => sum + d.totalActiveTime, 0);
+  let inactiveTime = last7DaysData.reduce((sum, d) => sum + d.totalInactiveTime, 0);
+  
+  // Add current session time if active
+  const userData = getUserActivityData(userId);
+  if (userData && !userData.isLoggedOut && !userData.isInBreak && userData.currentSessionStart > 0) {
+    const currentSessionDuration = now - userData.currentSessionStart;
+    
+    if (userData.isCurrentlyActive) {
+      activeTime += currentSessionDuration;
+    } else {
+      inactiveTime += currentSessionDuration;
+    }
+  }
+  
+  return {
+    activeTime,
+    inactiveTime,
+    period: '7days'
+  };
+};
+
+
+
+// Get last 30 days activity summary
+export const getLast30DaysSummary = (userId: string) => {
+  if (typeof window === 'undefined') return null;
+  
+  const now = Date.now();
+  const thirtyDaysAgo = now - (30 * 24 * 60 * 60 * 1000);
+  
+  // Get yesterday summaries for the last 30 days
+  const yesterdayKey = getYesterdayDataStorageKey(userId);
+  const yesterdaySummaries: DailyActivitySummary[] = JSON.parse(localStorage.getItem(yesterdayKey) || '[]');
+  
+  // Filter data for the last 30 days
+  const last30DaysData = yesterdaySummaries.filter(d => {
+    const dayTimestamp = new Date(d.date).getTime();
+    return dayTimestamp >= thirtyDaysAgo && dayTimestamp <= now;
+  });
+  
+  // Calculate totals
+  let activeTime = last30DaysData.reduce((sum, d) => sum + d.totalActiveTime, 0);
+  let inactiveTime = last30DaysData.reduce((sum, d) => sum + d.totalInactiveTime, 0);
+  
+  // Add current session time if active
+  const userData = getUserActivityData(userId);
+  if (userData && !userData.isLoggedOut && !userData.isInBreak && userData.currentSessionStart > 0) {
+    const currentSessionDuration = now - userData.currentSessionStart;
+    
+    if (userData.isCurrentlyActive) {
+      activeTime += currentSessionDuration;
+    } else {
+      inactiveTime += currentSessionDuration;
+    }
+  }
+  
+  return {
+    activeTime,
+    inactiveTime,
+    period: '30days'
   };
 };
 
@@ -1236,4 +1512,61 @@ export const getMonthlyTotalsSummary = (userId: string) => {
     totalInactiveTime: adjustedInactiveTime,
     startDate: monthlyTotals.startDate
   };
+};
+
+// Manual daily reset function for testing/debugging
+export const forceDailyReset = (userId: string) => {
+  if (typeof window === 'undefined') return;
+  
+  const lastResetKey = `shoreagents-daily-reset-${userId}`;
+  localStorage.removeItem(lastResetKey);
+  
+  // Force check and reset
+  checkAndResetDailyData(userId);
+  
+  console.log('Daily data reset forced for user:', userId);
+};
+
+// Get next reset time (12 AM)
+export const getNextResetTime = () => {
+  const now = new Date();
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  tomorrow.setHours(0, 0, 0, 0); // 12:00 AM
+  return tomorrow;
+};
+
+// Get time until next reset
+export const getTimeUntilReset = () => {
+  const now = new Date();
+  const nextReset = getNextResetTime();
+  return nextReset.getTime() - now.getTime();
+};
+
+// Format time until reset
+export const formatTimeUntilReset = (milliseconds: number) => {
+  const hours = Math.floor(milliseconds / (1000 * 60 * 60));
+  const minutes = Math.floor((milliseconds % (1000 * 60 * 60)) / (1000 * 60));
+  return `${hours}h ${minutes}m`;
+};
+
+// Setup automatic daily reset at midnight
+export const setupAutomaticReset = (userId: string) => {
+  if (typeof window === 'undefined') return;
+  
+  const scheduleReset = () => {
+    const timeUntilReset = getTimeUntilReset();
+    
+    // Schedule reset for next midnight
+    setTimeout(() => {
+      console.log('Automatic daily reset triggered for user:', userId);
+      checkAndResetDailyData(userId);
+      
+      // Schedule next reset (24 hours later)
+      scheduleReset();
+    }, timeUntilReset);
+  };
+  
+  // Start the reset scheduler
+  scheduleReset();
 }; 

@@ -16,6 +16,7 @@ import {
   CheckSquare,
 } from "lucide-react"
 import { useActivityStatus } from "@/hooks/use-activity-status"
+import { getNotStartedTaskCount } from "@/lib/task-utils"
 
 import { NavMain } from "@/components/nav-main"
 import { NavProjects } from "@/components/nav-projects"
@@ -35,6 +36,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
   const { state } = useSidebar()
   const { isActive: isActivityActive, isLoading } = useActivityStatus()
+  const [notStartedTaskCount, setNotStartedTaskCount] = React.useState(0)
 
   // Activity status indicator component
   const ActivityStatusIndicator = () => (
@@ -52,6 +54,31 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     </div>
   )
 
+  // Task notification indicator component
+  const TaskNotificationIndicator = () => (
+    <div className="flex items-center">
+      <div 
+        className="w-2 h-2 rounded-full bg-red-500"
+        title={`${notStartedTaskCount} tasks not started`}
+      />
+    </div>
+  )
+
+  // Update task count
+  React.useEffect(() => {
+    const updateTaskCount = () => {
+      const count = getNotStartedTaskCount()
+      setNotStartedTaskCount(count)
+    }
+
+    updateTaskCount()
+    
+    // Update count every 5 seconds
+    const interval = setInterval(updateTaskCount, 5000)
+    
+    return () => clearInterval(interval)
+  }, [])
+
   // ShoreAgents data with dynamic active state
   const data = {
     teams: [
@@ -66,6 +93,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         title: "Dashboard",
         icon: Home,
         isActive: pathname.startsWith("/dashboard"),
+        statusIndicator: <ActivityStatusIndicator />,
         items: [
           {
             title: "Overview",
@@ -101,10 +129,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         title: "Productivity",
         icon: CheckSquare,
         isActive: pathname.startsWith("/productivity"),
+        statusIndicator: notStartedTaskCount > 0 ? <TaskNotificationIndicator /> : undefined,
         items: [
           {
             title: "Task Tracker",
             url: "/productivity/tasks",
+            badge: notStartedTaskCount > 0 ? notStartedTaskCount.toString() : undefined,
           },
         ],
       },

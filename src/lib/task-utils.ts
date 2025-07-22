@@ -181,4 +181,10 @@ export function getAvailableStatuses(): string[] {
 // Get available task types (including custom ones)
 export function getAvailableTaskTypes(): string[] {
   return getTaskData().customTaskTypes
+}
+
+// Get count of tasks that are not started
+export function getNotStartedTaskCount(): number {
+  const tasks = getAllTasks()
+  return tasks.filter(task => task.status === 'Not started').length
 } 

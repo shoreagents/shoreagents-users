@@ -20,6 +20,7 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
 } from "@/components/ui/sidebar"
+import { Badge } from "@/components/ui/badge"
 
 export function NavMain({
   items,
@@ -34,6 +35,7 @@ export function NavMain({
       title: string
       url: string
       statusIndicator?: React.ReactNode
+      badge?: string
     }[]
   }[]
 }) {
@@ -113,7 +115,7 @@ export function NavMain({
                 >
                   {item.icon && <item.icon />}
                   <span>{item.title}</span>
-                  {item.statusIndicator && (
+                  {item.statusIndicator && !openItems[item.title] && (
                     <span className="mr-2">
                       {item.statusIndicator}
                     </span>
@@ -134,11 +136,18 @@ export function NavMain({
                         >
                           <Link href={subItem.url}>
                             <span>{subItem.title}</span>
-                            {subItem.statusIndicator && (
-                              <span className="ml-auto mr-2">
-                                {subItem.statusIndicator}
-                              </span>
-                            )}
+                            <div className="ml-auto flex items-center gap-2">
+                              {subItem.statusIndicator && (
+                                <span className="mr-2">
+                                  {subItem.statusIndicator}
+                                </span>
+                              )}
+                              {subItem.badge && (
+                                <Badge className="bg-red-500 text-white text-[10px] px-1 py-0.5 rounded-full min-w-[16px] h-4 flex items-center justify-center">
+                                  {subItem.badge}
+                                </Badge>
+                              )}
+                            </div>
                           </Link>
                         </SidebarMenuSubButton>
                       </SidebarMenuSubItem>
