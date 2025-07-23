@@ -4,7 +4,7 @@ import React, { createContext, useContext, useEffect, useCallback, useState, use
 import { useActivityTracking } from '@/hooks/use-activity-tracking'
 import { InactivityDialog } from '@/components/inactivity-dialog'
 import { getCurrentUser } from '@/lib/ticket-utils'
-import { initializeUserActivity, markUserAsLoggedOut, markUserAsAppClosed, pauseActivityForBreak, resumeActivityFromBreak, cleanupDuplicateSessions } from '@/lib/activity-storage'
+import { initializeUserActivity, markUserAsLoggedOut, markUserAsAppClosed, pauseActivityForBreak, resumeActivityFromBreak, cleanupDuplicateSessions, forceSaveAndReload } from '@/lib/activity-storage'
 import { useRouter } from 'next/navigation'
 import { useBreak } from './break-context'
 
@@ -290,13 +290,24 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
     setNotificationShown(false)
   }, [setShowInactivityDialog])
 
-  // Handle inactivity timeout - just close dialog without resetting
+  // Handle inactivity timeout - force save and reload before logout
   const handleInactivityTimeout = useCallback(async () => {
     try {
-      // Just close the dialog - activity will naturally reset when user becomes active
+      // Get current user before clearing auth
+      const currentUser = getCurrentUser()
+      
+      // Force save all activity data and reload page before logout
+      if (currentUser?.email) {
+        forceSaveAndReload(currentUser.email)
+        return // The page will reload, so don't continue with logout
+      }
+      
+      // Fallback: Just close the dialog - activity will naturally reset when user becomes active
       setShowInactivityDialog(false)
     } catch (error) {
       console.error('Error during inactivity timeout:', error)
+      // Fallback: Just close the dialog
+      setShowInactivityDialog(false)
     }
   }, [setShowInactivityDialog])
 

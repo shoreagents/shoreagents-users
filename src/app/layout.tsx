@@ -4,6 +4,7 @@ import "./globals.css";
 import { ActivityProvider } from "@/contexts/activity-context";
 import { BreakProvider } from "@/contexts/break-context";
 import ElectronLogoutHandler from "@/components/electron-logout-handler";
+import DatabaseInitializer from "@/components/database-initializer";
 
 const montserrat = Montserrat({
   subsets: ["latin"],
@@ -25,6 +26,7 @@ export default function RootLayout({
       <body className={`${montserrat.variable} antialiased`}>
         <BreakProvider>
           <ActivityProvider>
+            <DatabaseInitializer />
             <ElectronLogoutHandler />
             {children}
           </ActivityProvider>

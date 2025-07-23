@@ -11,7 +11,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Activity, Clock, MousePointer, TrendingUp, TrendingDown } from "lucide-react"
 import { getCurrentUser } from "@/lib/ticket-utils"
-import { getActivitySummary, getUserActivityData, getCurrentSessionStatus, cleanupDuplicateSessions, getTodayDataForPeriod, getYesterdaySummariesForPeriod, getTodaysActivitySummary, getLast24HoursSummary, getLast7DaysSummary, getLast30DaysSummary, getMonthlyTotalsSummary, getNextResetTime, formatTimeUntilReset, setupAutomaticReset, type HourlyActivityData } from "@/lib/activity-storage"
+import { getActivitySummary, getUserActivityData, getCurrentSessionStatus, cleanupDuplicateSessions, getTodayDataForPeriod, getYesterdaySummariesForPeriod, getTodaysActivitySummary, getLast24HoursSummary, getLast30DaysSummary, getMonthlyTotalsSummary, getWeeklyTotalsSummary, getWeeklyDailyData, getMonthlyDailyData, getNextResetTime, formatTimeUntilReset, setupAutomaticReset, type HourlyActivityData } from "@/lib/activity-storage"
 import {
   SidebarInset,
   SidebarProvider,
@@ -66,7 +66,7 @@ export default function ActivityPage() {
         const hourlyDataForPeriod = getTodayDataForPeriod(currentUser.email, timePeriod)
         const todaysData = getTodaysActivitySummary(currentUser.email)
         const monthlyData = getMonthlyTotalsSummary(currentUser.email)
-        const weeklyData = getLast7DaysSummary(currentUser.email)
+        const weeklyData = getWeeklyTotalsSummary(currentUser.email)
         
         setActivityStats(stats)
         setActivitySessions(fullData?.activitySessions || [])
@@ -103,8 +103,8 @@ export default function ActivityPage() {
 
     updateResetTime()
     
-    // Update reset time every minute
-    const interval = setInterval(updateResetTime, 60000)
+    // Update reset time every 30 seconds for more responsive display
+    const interval = setInterval(updateResetTime, 30000)
     
     return () => clearInterval(interval)
   }, [])
@@ -285,37 +285,42 @@ export default function ActivityPage() {
         }
       })
     } else if (timePeriod === '7days') {
-      // Show daily data for the last 7 days
+      // Show daily data for the current week using actual daily data
       const now = Date.now()
-      const sevenDaysAgo = now - (7 * 24 * 60 * 60 * 1000)
+      const currentDate = new Date(now)
       
-      // Get yesterday summaries for the last 7 days
-      const yesterdaySummaries = getYesterdaySummariesForPeriod(currentUser.email, '7days')
+      // Calculate week start (Sunday) using UTC to avoid timezone issues
+      const year = currentDate.getFullYear()
+      const month = currentDate.getMonth()
+      const date = currentDate.getDate()
+      const dayOfWeek = currentDate.getDay() // 0 = Sunday, 1 = Monday, etc.
       
-      // Generate 7 days of data
+      // Calculate the date of the Sunday for this week
+      const sundayDate = date - dayOfWeek
+      const weekStart = new Date(Date.UTC(year, month, sundayDate, 0, 0, 0, 0))
+      
+      // Get weekly daily data
+      const weeklyDailyData = getWeeklyDailyData(currentUser.email)
+      
+      // Generate 7 data points for the current week (Sunday to Saturday)
       return Array.from({ length: 7 }, (_, index) => {
-        const daysBack = 6 - index
-        const targetTime = now - (daysBack * 24 * 60 * 60 * 1000)
-        const targetDate = new Date(targetTime)
+        const targetDate = new Date(Date.UTC(year, month, sundayDate + index, 0, 0, 0, 0))
         const targetDateString = targetDate.toISOString().split('T')[0]
         
-        const isCurrentDay = daysBack === 0
-        const isPastDay = daysBack > 0
-        const isFutureDay = false
+        const isCurrentDay = targetDate.toDateString() === currentDate.toDateString()
+        const isPastDay = targetDate < currentDate
+        const isFutureDay = targetDate > currentDate
         
-        // Find data for this specific day
-        const dayData = yesterdaySummaries.find(d => d.date === targetDateString)
+        // Get actual daily data for this specific day
+        // The getWeeklyDailyData already includes current session time, so don't add it again
+        let activeTime = 0
+        let inactiveTime = 0
         
-        // Get daily totals
-        let activeTime = dayData ? dayData.totalActiveTime : 0
-        let inactiveTime = dayData ? dayData.totalInactiveTime : 0
-        
-        // For current day, add ongoing session time
-        if (isCurrentDay && currentSessionStatus && currentSessionStatus.type !== 'none' && currentSessionDuration > 0) {
-          if (currentSessionStatus.type === 'active') {
-            activeTime += currentSessionDuration
-          } else if (currentSessionStatus.type === 'inactive') {
-            inactiveTime += currentSessionDuration
+        if (weeklyDailyData && weeklyDailyData.dailyData) {
+          const dayData = weeklyDailyData.dailyData[targetDateString]
+          if (dayData) {
+            activeTime = dayData.activeTime
+            inactiveTime = dayData.inactiveTime
           }
         }
         
@@ -331,7 +336,7 @@ export default function ActivityPage() {
           hour: 0,
           active: Math.floor(activeTime / 1000 / 60), // Daily total in minutes
           inactive: Math.floor(inactiveTime / 1000 / 60), // Daily total in minutes
-          activeSessions: dayData ? dayData.totalSessions : 0,
+          activeSessions: 0, // Not applicable for daily data view
           inactiveSessions: 0,
           isCurrentHour: isCurrentDay,
           isPastHour: isPastDay,
@@ -340,60 +345,63 @@ export default function ActivityPage() {
         }
       })
     } else if (timePeriod === '30days') {
-      // Show weekly data for the last 30 days (4 weeks)
+      // Show daily data for the current month using actual daily data
       const now = Date.now()
-      const thirtyDaysAgo = now - (30 * 24 * 60 * 60 * 1000)
+      const currentDate = new Date(now)
       
-      // Get yesterday summaries for the last 30 days
-      const yesterdaySummaries = getYesterdaySummariesForPeriod(currentUser.email, '30days')
+      // Calculate month start (1st of month) using UTC to avoid timezone issues
+      const year = currentDate.getFullYear()
+      const month = currentDate.getMonth()
+      const monthStart = new Date(Date.UTC(year, month, 1, 0, 0, 0, 0))
+      const nextMonthStart = new Date(Date.UTC(year, month + 1, 1, 0, 0, 0, 0))
       
-      // Group data by weeks
-      const weeklyData = []
-      for (let week = 0; week < 4; week++) {
-        const weekStart = now - ((3 - week) * 7 * 24 * 60 * 60 * 1000)
-        const weekEnd = weekStart + (7 * 24 * 60 * 60 * 1000)
+      // Get the number of days in the current month
+      const daysInMonth = (nextMonthStart.getTime() - monthStart.getTime()) / (1000 * 60 * 60 * 24)
+      
+      // Get monthly daily data
+      const monthlyDailyData = getMonthlyDailyData(currentUser.email)
+      
+      // Generate data points for each day of the current month
+      return Array.from({ length: daysInMonth }, (_, index) => {
+        const targetDate = new Date(Date.UTC(year, month, 1 + index, 0, 0, 0, 0))
+        const targetDateString = targetDate.toISOString().split('T')[0]
         
-        // Get data for this week
-        const weekSummaries = yesterdaySummaries.filter(d => {
-          const dayTimestamp = new Date(d.date).getTime()
-          return dayTimestamp >= weekStart && dayTimestamp < weekEnd
-        })
+        const isCurrentDay = targetDate.toDateString() === currentDate.toDateString()
+        const isPastDay = targetDate < currentDate
+        const isFutureDay = targetDate > currentDate
         
-        // Calculate weekly totals
-        let activeTime = weekSummaries.reduce((sum, d) => sum + d.totalActiveTime, 0)
-        let inactiveTime = weekSummaries.reduce((sum, d) => sum + d.totalInactiveTime, 0)
-        const totalSessions = weekSummaries.reduce((sum, d) => sum + d.totalSessions, 0)
+        // Get actual daily data for this specific day
+        // The getMonthlyDailyData already includes current session time, so don't add it again
+        let activeTime = 0
+        let inactiveTime = 0
         
-        // For current week, add ongoing session time
-        const isCurrentWeek = week === 3
-        if (isCurrentWeek && currentSessionStatus && currentSessionStatus.type !== 'none' && currentSessionDuration > 0) {
-          if (currentSessionStatus.type === 'active') {
-            activeTime += currentSessionDuration
-          } else if (currentSessionStatus.type === 'inactive') {
-            inactiveTime += currentSessionDuration
+        if (monthlyDailyData && monthlyDailyData.dailyData) {
+          const dayData = monthlyDailyData.dailyData[targetDateString]
+          if (dayData) {
+            activeTime = dayData.activeTime
+            inactiveTime = dayData.inactiveTime
           }
         }
         
-        // Format week for display
-        const weekStartDate = new Date(weekStart)
-        const weekEndDate = new Date(weekEnd - 24 * 60 * 60 * 1000) // End of week
-        const weekDisplay = `${weekStartDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${weekEndDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
-        
-        weeklyData.push({
-          date: weekDisplay,
-          hour: 0,
-          active: Math.floor(activeTime / 1000 / 60), // Weekly total in minutes
-          inactive: Math.floor(inactiveTime / 1000 / 60), // Weekly total in minutes
-          activeSessions: totalSessions,
-          inactiveSessions: 0,
-          isCurrentHour: isCurrentWeek,
-          isPastHour: week < 3,
-          isFutureHour: false,
-          hasLiveData: isCurrentWeek && currentSessionStatus
+        // Format date for display
+        const dayDisplay = targetDate.toLocaleDateString('en-US', { 
+          month: 'short',
+          day: 'numeric'
         })
-      }
-      
-      return weeklyData
+        
+        return {
+          date: dayDisplay,
+          hour: 0,
+          active: Math.floor(activeTime / 1000 / 60), // Daily total in minutes
+          inactive: Math.floor(inactiveTime / 1000 / 60), // Daily total in minutes
+          activeSessions: 0, // Not applicable for daily data view
+          inactiveSessions: 0,
+          isCurrentHour: isCurrentDay,
+          isPastHour: isPastDay,
+          isFutureHour: isFutureDay,
+          hasLiveData: isCurrentDay && currentSessionStatus
+        }
+      })
     } else {
       // For other periods, show 24-hour periods
       const now = Date.now()
@@ -425,7 +433,7 @@ export default function ActivityPage() {
             finalActiveTime += currentSessionDuration
           } else if (currentSessionStatus.type === 'inactive') {
             finalInactiveTime += currentSessionDuration
-          }
+      }
         }
         
         // Format the period label
@@ -584,7 +592,7 @@ export default function ActivityPage() {
           <CardContent>
               <div className="text-2xl font-bold text-green-600">{formatDuration(monthlyTotals?.totalActiveTime || 0)}</div>
               <p className="text-xs text-muted-foreground mt-1">
-                Since {monthlyTotals?.startDate || 'N/A'}
+                Since {monthlyTotals?.monthStartDate || 'N/A'}
               </p>
             </CardContent>
           </Card>
@@ -597,10 +605,10 @@ export default function ActivityPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-emerald-600">
-                {formatDuration(weeklyData?.activeTime || 0)}
+                {formatDuration(weeklyData?.totalActiveTime || 0)}
               </div>
               <p className="text-xs text-muted-foreground mt-1">
-                Last 7 days
+                Since {weeklyData?.weekStartDate || 'N/A'}
             </p>
           </CardContent>
         </Card>
@@ -614,7 +622,7 @@ export default function ActivityPage() {
           <CardContent>
               <div className="text-2xl font-bold text-blue-600">{formatDuration(todaysActivity?.todayActiveTime || 0)}</div>
               <p className="text-xs text-muted-foreground mt-1">
-                Resets at midnight
+                Resets in {timeUntilReset}
             </p>
           </CardContent>
         </Card>
@@ -650,7 +658,7 @@ export default function ActivityPage() {
             <CardContent>
               <div className="text-2xl font-bold text-orange-600">{formatDuration(monthlyTotals?.totalInactiveTime || 0)}</div>
               <p className="text-xs text-muted-foreground mt-1">
-                Since {monthlyTotals?.startDate || 'N/A'}
+                Since {monthlyTotals?.monthStartDate || 'N/A'}
               </p>
             </CardContent>
           </Card>
@@ -663,10 +671,10 @@ export default function ActivityPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-amber-600">
-                {formatDuration(weeklyData?.inactiveTime || 0)}
+                {formatDuration(weeklyData?.totalInactiveTime || 0)}
               </div>
               <p className="text-xs text-muted-foreground mt-1">
-                Last 7 days
+                Since {weeklyData?.weekStartDate || 'N/A'}
             </p>
           </CardContent>
         </Card>
@@ -680,7 +688,7 @@ export default function ActivityPage() {
             <CardContent>
               <div className="text-2xl font-bold text-purple-600">{formatDuration(todaysActivity?.todayInactiveTime || 0)}</div>
               <p className="text-xs text-muted-foreground mt-1">
-                Resets at midnight
+                Resets in {timeUntilReset}
               </p>
             </CardContent>
           </Card>
