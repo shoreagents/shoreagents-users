@@ -57,9 +57,8 @@ export function InactivityDialog({
 
   const handleClose = () => {
     // Simply close the dialog - activity will naturally resume when user becomes active
-    setTimeout(() => {
-      onClose()
-    }, 0)
+    // Removed setTimeout delay for immediate response
+    onClose()
   }
 
   const formatTime = (seconds: number) => {

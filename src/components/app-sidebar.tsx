@@ -14,6 +14,7 @@ import {
   Coffee,
   Heart,
   CheckSquare,
+  Database,
 } from "lucide-react"
 import { useActivityStatus } from "@/hooks/use-activity-status"
 import { getNotStartedTaskCount } from "@/lib/task-utils"
@@ -187,6 +188,17 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           {
             title: "Profile",
             url: "/settings/profile",
+          },
+        ],
+      },
+      {
+        title: "Database",
+        icon: Database,
+        isActive: pathname.startsWith("/database-test"),
+        items: [
+          {
+            title: "Connection Test",
+            url: "/database-test",
           },
         ],
       },

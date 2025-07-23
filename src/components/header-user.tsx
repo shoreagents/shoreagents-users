@@ -6,7 +6,6 @@ import {
   Bell,
   ChevronsUpDown,
   LogOut,
-  Power,
 } from "lucide-react"
 
 import {
@@ -25,6 +24,8 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Button } from "@/components/ui/button"
 import { useActivity } from "@/contexts/activity-context"
+import { forceSaveAndReload } from "@/lib/activity-storage"
+import { getCurrentUser } from "@/lib/ticket-utils"
 
 export function HeaderUser({
   user,
@@ -39,7 +40,22 @@ export function HeaderUser({
   const { setUserLoggedOut } = useActivity()
 
   const handleLogout = () => {
-    // Clear authentication data first
+    console.log('🔄 Logout button clicked (header)')
+    
+    // Get current user before clearing auth
+    const currentUser = getCurrentUser()
+    console.log('👤 Current user (header):', currentUser)
+    
+    // Force save all activity data and reload page before logout
+    if (currentUser?.email) {
+      console.log('💾 Force saving data for user (header):', currentUser.email)
+      forceSaveAndReload(currentUser.email)
+      return // The page will reload, so don't continue with logout
+    }
+    
+    console.log('⚠️ No current user found, using fallback logout (header)')
+    
+    // Fallback: Clear authentication data first
     localStorage.removeItem("shoreagents-auth")
     
     // Clear cookie
@@ -52,21 +68,7 @@ export function HeaderUser({
     router.push("/login")
   }
 
-  const handleLogoutAndQuit = async () => {
-    // Only available in Electron
-    if (typeof window !== 'undefined' && window.electronAPI?.app?.confirmLogoutAndQuit) {
-      try {
-        await window.electronAPI.app.confirmLogoutAndQuit()
-      } catch (error) {
-        console.error('Error triggering logout and quit:', error)
-        // Fallback to regular logout
-        handleLogout()
-      }
-    } else {
-      // Fallback to regular logout if not in Electron
-      handleLogout()
-    }
-  }
+
 
   return (
     <DropdownMenu>
@@ -99,12 +101,6 @@ export function HeaderUser({
           <LogOut className="mr-2 h-4 w-4" />
           <span>Log out</span>
         </DropdownMenuItem>
-        {typeof window !== 'undefined' && window.electronAPI && (
-          <DropdownMenuItem onClick={handleLogoutAndQuit}>
-            <Power className="mr-2 h-4 w-4" />
-            <span>Logout & Quit App</span>
-          </DropdownMenuItem>
-        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )

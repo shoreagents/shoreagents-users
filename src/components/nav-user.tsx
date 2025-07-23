@@ -31,6 +31,8 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 import { useActivity } from "@/contexts/activity-context"
+import { forceSaveAndReload } from "@/lib/activity-storage"
+import { getCurrentUser } from "@/lib/ticket-utils"
 
 export function NavUser({
   user,
@@ -46,7 +48,22 @@ export function NavUser({
   const { setUserLoggedOut } = useActivity()
 
   const handleLogout = () => {
-    // Clear authentication data first
+    console.log('🔄 Logout button clicked')
+    
+    // Get current user before clearing auth
+    const currentUser = getCurrentUser()
+    console.log('👤 Current user:', currentUser)
+    
+    // Force save all activity data and reload page before logout
+    if (currentUser?.email) {
+      console.log('💾 Force saving data for user:', currentUser.email)
+      forceSaveAndReload(currentUser.email)
+      return // The page will reload, so don't continue with logout
+    }
+    
+    console.log('⚠️ No current user found, using fallback logout')
+    
+    // Fallback: Clear authentication data first
     localStorage.removeItem("shoreagents-auth")
     
     // Clear cookie

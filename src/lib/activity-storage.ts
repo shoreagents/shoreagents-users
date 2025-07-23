@@ -62,7 +62,7 @@ export const getWeeklyDataStorageKey = (userId: string) => {
 };
 
 export const getMonthlyTotalsStorageKey = (userId: string) => {
-  return `shoreagents-monthly-${userId}`;
+  return `shoreagents-monthly-totals-${userId}`;
 };
 
 // Legacy key functions for backward compatibility
@@ -78,7 +78,7 @@ export interface MonthlyTotals {
   userId: string;
   totalActiveTime: number; // Total active time for the month in milliseconds
   totalInactiveTime: number; // Total inactive time for the month in milliseconds
-  startDate: string; // YYYY-MM-DD when tracking started
+  monthStartDate: string; // YYYY-MM-DD format (e.g., 2025-07-01)
   lastUpdated: number; // Timestamp of last update
 }
 
@@ -141,6 +141,32 @@ export const initializeUserActivity = (userId: string) => {
     }
     
     localStorage.setItem(key, JSON.stringify(userData));
+  }
+  
+  // Start real-time session saving
+  startRealTimeSaving(userId);
+};
+
+// Start automatic real-time saving of session progress
+export const startRealTimeSaving = (userId: string) => {
+  if (typeof window === 'undefined') return;
+  
+  // Clear any existing interval
+  if (realTimeSaveInterval) {
+    clearInterval(realTimeSaveInterval);
+  }
+  
+  // Save session progress every 5 seconds
+  realTimeSaveInterval = setInterval(() => {
+    saveCurrentSessionProgress(userId);
+  }, 5000);
+};
+
+// Stop real-time saving
+export const stopRealTimeSaving = () => {
+  if (realTimeSaveInterval) {
+    clearInterval(realTimeSaveInterval);
+    realTimeSaveInterval = null;
   }
 };
 
@@ -296,6 +322,10 @@ export const startInactiveSession = (userId: string) => {
 let activityUpdateTimeout: NodeJS.Timeout | null = null;
 let lastActivityUpdate = 0;
 
+// Real-time session saving to prevent data loss
+let realTimeSaveInterval: NodeJS.Timeout | null = null;
+let lastRealTimeSave = 0;
+
 export const updateLastActivity = (userId: string) => {
   if (typeof window === 'undefined') return;
   
@@ -317,8 +347,8 @@ export const updateLastActivity = (userId: string) => {
   const now = Date.now();
   
   // Debounce updates to prevent excessive localStorage writes
-  // Only update if it's been at least 100ms since last update
-  if (now - lastActivityUpdate < 100) {
+  // Only update if it's been at least 50ms since last update (reduced from 100ms for faster response)
+  if (now - lastActivityUpdate < 50) {
     // Clear existing timeout and set new one
     if (activityUpdateTimeout) {
       clearTimeout(activityUpdateTimeout);
@@ -326,7 +356,7 @@ export const updateLastActivity = (userId: string) => {
     
     activityUpdateTimeout = setTimeout(() => {
       updateLastActivity(userId);
-    }, 100);
+    }, 50);
     return;
   }
   
@@ -417,6 +447,46 @@ export const getUserActivityData = (userId: string): UserActivityData | null => 
   return null;
 };
 
+// Save current session progress to localStorage in real-time
+export const saveCurrentSessionProgress = (userId: string) => {
+  if (typeof window === 'undefined') return;
+  
+  const now = Date.now();
+  
+  // Throttle real-time saves to every 5 seconds to prevent excessive writes
+  if (now - lastRealTimeSave < 5000) {
+    return;
+  }
+  
+  lastRealTimeSave = now;
+  
+  const userData = getUserActivityData(userId);
+  if (!userData || userData.isLoggedOut || userData.isInBreak) {
+    return;
+  }
+  
+  // If user has an active session, save the current progress
+  if (userData.currentSessionStart && userData.currentSessionStart > 0) {
+    const currentSessionDuration = now - userData.currentSessionStart;
+    
+    if (userData.isCurrentlyActive && currentSessionDuration > 1000) { // Only save if session is longer than 1 second
+      // For active sessions, we need to be more careful to avoid double counting
+      // Only save incremental progress, not the full session duration
+      // The active session will be properly recorded when it ends in updateLastActivity or startInactiveSession
+      
+      // Don't save active session progress here - it will be saved when the session ends
+      // This prevents double counting of active time and timer jumping
+    } else if (!userData.isCurrentlyActive && currentSessionDuration > 1000) {
+      // For inactive sessions, we need to be more careful to avoid double counting
+      // Only save incremental progress, not the full session duration
+      // The inactive session will be properly recorded when it ends in updateLastActivity
+      
+      // Don't save inactive session progress here - it will be saved when the session ends
+      // This prevents double counting of inactive time
+    }
+  }
+};
+
 // Real-time activity tracking function
 export const trackUserActivity = (userId: string) => {
   if (typeof window === 'undefined') return;
@@ -426,6 +496,9 @@ export const trackUserActivity = (userId: string) => {
   
   // Update activity immediately
   updateLastActivity(userId);
+  
+  // Save current session progress in real-time
+  saveCurrentSessionProgress(userId);
   
   // Dispatch custom event for real-time updates
   const event = new CustomEvent('userActivityUpdate', {
@@ -444,13 +517,37 @@ export const checkAndResetDailyData = (userId: string) => {
   
   if (!userData) return;
   
-  // Check if we need to reset daily data (new day)
-  const lastResetKey = `shoreagents-daily-reset-${userId}`;
-  const lastReset = localStorage.getItem(lastResetKey);
+  // Check if we need to reset daily data (new day) - USER-SPECIFIC RESET
+  const lastResetKey = `shoreagents-daily-reset-${userId}`; // User-specific reset key
+  const lastResetData = localStorage.getItem(lastResetKey);
   
-  if (lastReset !== today) {
-    // New day - reset daily tracking
-    localStorage.setItem(lastResetKey, today);
+  let shouldReset = false;
+  let lastResetDate = '';
+  
+  if (lastResetData) {
+    try {
+      // Try to parse as timestamp first (new format)
+      const lastResetTimestamp = parseInt(lastResetData);
+      if (!isNaN(lastResetTimestamp)) {
+        lastResetDate = new Date(lastResetTimestamp).toISOString().split('T')[0];
+      } else {
+        // Fallback to old format (date string)
+        lastResetDate = lastResetData;
+      }
+    } catch {
+      // Invalid data, treat as no reset
+      lastResetDate = '';
+    }
+  }
+  
+  if (lastResetDate !== today) {
+    shouldReset = true;
+  }
+  
+  if (shouldReset) {
+    // New day - reset daily tracking with actual readable time
+    const resetTime = new Date(now).toISOString();
+    localStorage.setItem(lastResetKey, resetTime);
     
     // Update daily summary for the previous day if there was activity
     if (userData.lastActivityTime) {
@@ -484,6 +581,9 @@ export const checkAndResetDailyData = (userId: string) => {
         localStorage.setItem(key, JSON.stringify(userData));
       }
     }
+    
+    // DON'T clear today's data - we want to preserve daily totals
+    // Instead, just ensure we start fresh for the new day
   }
 };
 
@@ -604,6 +704,9 @@ export const cleanupDuplicateSessions = (userId: string) => {
 export const markUserAsLoggedOut = (userId: string) => {
   if (typeof window === 'undefined') return;
   
+  // Stop real-time saving immediately
+  stopRealTimeSaving();
+  
   const key = getActivityStorageKey(userId);
   const existingData = localStorage.getItem(key);
   const now = Date.now();
@@ -611,23 +714,36 @@ export const markUserAsLoggedOut = (userId: string) => {
   if (existingData) {
     const userData: UserActivityData = JSON.parse(existingData);
     
-    // ALWAYS end any current session, regardless of state
+    // FINAL SAVE: Save any remaining session time before logout
     if (userData.currentSessionStart && userData.currentSessionStart > 0) {
-      const activeDuration = now - userData.currentSessionStart;
+      const sessionDuration = now - userData.currentSessionStart;
       
-      // Add to total active time
-      userData.totalActiveTime += activeDuration;
-      
-      // Record today and monthly data for the completed session
-      updateTodayActivityData(userId, 'active', activeDuration);
-      
-      // Update the last session with end time and duration
-      const activitySessions = userData.activitySessions || [];
-      const lastSession = activitySessions[activitySessions.length - 1];
-      if (lastSession && !lastSession.endTime) {
-        lastSession.endTime = now;
-        lastSession.duration = activeDuration;
-        lastSession.endReason = 'logout';
+      if (userData.isCurrentlyActive && sessionDuration > 0) {
+        // Save final active session time
+        userData.totalActiveTime += sessionDuration;
+        updateTodayActivityData(userId, 'active', sessionDuration);
+        
+        // Update the last session with end time and duration
+        const activitySessions = userData.activitySessions || [];
+        const lastSession = activitySessions[activitySessions.length - 1];
+        if (lastSession && !lastSession.endTime) {
+          lastSession.endTime = now;
+          lastSession.duration = sessionDuration;
+          lastSession.endReason = 'logout';
+        }
+      } else if (!userData.isCurrentlyActive && sessionDuration > 0) {
+        // Save final inactive session time
+        userData.totalInactiveTime += sessionDuration;
+        updateTodayActivityData(userId, 'inactive', sessionDuration);
+        
+        // Update the last session with end time and duration
+        const activitySessions = userData.activitySessions || [];
+        const lastSession = activitySessions[activitySessions.length - 1];
+        if (lastSession && !lastSession.endTime) {
+          lastSession.endTime = now;
+          lastSession.duration = sessionDuration;
+          lastSession.endReason = 'logout';
+        }
       }
     }
     
@@ -648,6 +764,9 @@ export const markUserAsLoggedOut = (userId: string) => {
 export const markUserAsAppClosed = (userId: string) => {
   if (typeof window === 'undefined') return;
   
+  // Stop real-time saving immediately
+  stopRealTimeSaving();
+  
   const key = getActivityStorageKey(userId);
   const existingData = localStorage.getItem(key);
   
@@ -655,21 +774,36 @@ export const markUserAsAppClosed = (userId: string) => {
     const userData: UserActivityData = JSON.parse(existingData);
     const now = Date.now();
     
-    // If user is currently active, end their active session
-    if (userData.isCurrentlyActive && userData.currentSessionStart) {
-      const activeDuration = now - userData.currentSessionStart;
-      userData.totalActiveTime += activeDuration;
+    // FINAL SAVE: Save any remaining session time before app closes
+    if (userData.currentSessionStart && userData.currentSessionStart > 0) {
+      const sessionDuration = now - userData.currentSessionStart;
       
-      // Record today data for the completed active session
-      updateTodayActivityData(userId, 'active', activeDuration);
+      if (userData.isCurrentlyActive && sessionDuration > 0) {
+        // Save final active session time
+        userData.totalActiveTime += sessionDuration;
+        updateTodayActivityData(userId, 'active', sessionDuration);
       
       // Update the last active session with end time and duration
       const activitySessions = userData.activitySessions || [];
       const lastSession = activitySessions[activitySessions.length - 1];
-      if (lastSession && lastSession.type === 'active') {
+        if (lastSession && lastSession.type === 'active' && !lastSession.endTime) {
         lastSession.endTime = now;
-        lastSession.duration = activeDuration;
-        lastSession.endReason = 'app-close'; // Mark that this session ended due to app closing
+          lastSession.duration = sessionDuration;
+          lastSession.endReason = 'app-close';
+        }
+      } else if (!userData.isCurrentlyActive && sessionDuration > 0) {
+        // Save final inactive session time
+        userData.totalInactiveTime += sessionDuration;
+        updateTodayActivityData(userId, 'inactive', sessionDuration);
+        
+        // Update the last inactive session with end time and duration
+        const activitySessions = userData.activitySessions || [];
+        const lastSession = activitySessions[activitySessions.length - 1];
+        if (lastSession && lastSession.type === 'inactive' && !lastSession.endTime) {
+          lastSession.endTime = now;
+          lastSession.duration = sessionDuration;
+          lastSession.endReason = 'app-close';
+        }
       }
     }
     
@@ -801,47 +935,62 @@ export const getActivitySummary = (userId: string) => {
   const now = Date.now();
   const today = new Date();
   const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const endOfDay = startOfDay + (24 * 60 * 60 * 1000) - 1; // 11:59:59 PM
   
-  // Calculate current session duration - but be more precise about timing
+  // Calculate current session duration for today only
   let currentActiveTime = 0;
   let currentInactiveTime = 0;
   
-  // Only include current session time if there's actually an active session running
-  // and avoid double-counting by ensuring currentSessionStart is recent (within last hour)
-  const oneHourAgo = now - (60 * 60 * 1000);
-  
   // If in break mode, don't add any current session time (time is paused)
   if (cleanedData.isInBreak) {
-    // During break, no time accumulates
     currentActiveTime = 0;
     currentInactiveTime = 0;
   } else if (cleanedData.isCurrentlyActive && 
       cleanedData.currentSessionStart && 
-      cleanedData.currentSessionStart > 0 &&
-      cleanedData.currentSessionStart > oneHourAgo) {
-    currentActiveTime = now - cleanedData.currentSessionStart;
+      cleanedData.currentSessionStart > 0) {
+    // Only count time from today (12:01 AM to 11:59 PM)
+    const sessionStart = Math.max(cleanedData.currentSessionStart, startOfDay);
+    const sessionEnd = Math.min(now, endOfDay);
+    currentActiveTime = Math.max(0, sessionEnd - sessionStart);
   } else if (!cleanedData.isCurrentlyActive && 
              cleanedData.currentSessionStart && 
-             cleanedData.currentSessionStart > 0 &&
-             cleanedData.currentSessionStart > oneHourAgo) {
-    // Only count inactive time if we're in an inactive session (dialog showed up)
-    currentInactiveTime = now - cleanedData.currentSessionStart;
+             cleanedData.currentSessionStart > 0) {
+    // Only count time from today (12:01 AM to 11:59 PM)
+    const sessionStart = Math.max(cleanedData.currentSessionStart, startOfDay);
+    const sessionEnd = Math.min(now, endOfDay);
+    currentInactiveTime = Math.max(0, sessionEnd - sessionStart);
   }
   
   // Get today's sessions - handle case where activitySessions might be undefined
   const activitySessions = cleanedData.activitySessions || [];
-  const todaySessions = activitySessions.filter(session => session.startTime >= startOfDay);
+  const todaySessions = activitySessions.filter(session => {
+    // Only include sessions that started today
+    const sessionStartDate = new Date(session.startTime).toISOString().split('T')[0];
+    const todayDate = today.toISOString().split('T')[0];
+    return sessionStartDate === todayDate;
+  });
+  
   const todayActiveSessions = todaySessions.filter(session => session.type === 'active' && session.duration);
   const todayInactiveSessions = todaySessions.filter(session => session.type === 'inactive' && session.duration);
   
-  // Calculate today's totals from completed sessions only
+  // Calculate today's totals from completed sessions only (within today's time window)
   const todayActiveTime = todayActiveSessions.reduce((total, session) => {
-    return total + (session.duration || 0);
-  }, 0) + (cleanedData.isCurrentlyActive && !cleanedData.isInBreak ? currentActiveTime : 0);
+    if (!session.endTime) return total;
+    
+    // Only count time within today's window (12:01 AM to 11:59 PM)
+    const sessionStart = Math.max(session.startTime, startOfDay);
+    const sessionEnd = Math.min(session.endTime, endOfDay);
+    return total + Math.max(0, sessionEnd - sessionStart);
+  }, 0) + currentActiveTime;
   
   const todayInactiveTime = todayInactiveSessions.reduce((total, session) => {
-    return total + (session.duration || 0);
-  }, 0) + (!cleanedData.isCurrentlyActive && !cleanedData.isInBreak ? currentInactiveTime : 0);
+    if (!session.endTime) return total;
+    
+    // Only count time within today's window (12:01 AM to 11:59 PM)
+    const sessionStart = Math.max(session.startTime, startOfDay);
+    const sessionEnd = Math.min(session.endTime, endOfDay);
+    return total + Math.max(0, sessionEnd - sessionStart);
+  }, 0) + currentInactiveTime;
   
   // Get monthly totals
   const monthlyKey = getMonthlyTotalsStorageKey(userId);
@@ -861,7 +1010,7 @@ export const getActivitySummary = (userId: string) => {
   }
   
   return {
-    // Daily totals (reset each day)
+    // Daily totals (for today only: 12:01 AM to 11:59 PM)
     todayActiveTime,
     todayInactiveTime,
     todayActiveSessions: todayActiveSessions.length,
@@ -870,7 +1019,7 @@ export const getActivitySummary = (userId: string) => {
     // Monthly totals (cumulative for 1 month)
     totalActiveTime: monthlyTotals?.totalActiveTime || 0,
     totalInactiveTime: monthlyTotals?.totalInactiveTime || 0,
-    trackingStartDate: monthlyTotals?.startDate || null,
+    trackingStartDate: monthlyTotals?.monthStartDate || null,
     
     // Legacy fields for compatibility
     totalInactivityAlerts: cleanedData.inactivityAlerts || 0,
@@ -1063,10 +1212,10 @@ export const updateTodayActivityData = (userId: string, activityType: 'active' |
   
   localStorage.setItem(todayKey, JSON.stringify(todayDataArray));
   
-  // Also update yesterday summary, weekly data, and monthly totals
+  // Also update yesterday summary, weekly totals, and monthly totals
   updateYesterdaySummary(userId, dateString);
-  updateWeeklyData(userId, dateString);
-  updateMonthlyTotals(userId, activityType, duration);
+  updateWeeklyTotals(userId, activityType, duration); // Updates daily data and computes totals
+  updateMonthlyTotals(userId, activityType, duration); // Updates daily data and computes totals
 };
 
 // Legacy function for backward compatibility
@@ -1099,35 +1248,138 @@ export const updateMonthlyTotals = (userId: string, activityType: 'active' | 'in
   
   const now = Date.now();
   const currentDate = new Date(now);
-  const dateString = currentDate.toISOString().split('T')[0]; // YYYY-MM-DD
   
-  const monthlyKey = getMonthlyTotalsStorageKey(userId);
-  const existingMonthlyData = localStorage.getItem(monthlyKey);
+  // Calculate the first day of the current month (e.g., 2025-07-01)
+  // Use UTC to avoid timezone issues
+  const year = currentDate.getFullYear();
+  const month = currentDate.getMonth(); // 0-based (0 = January, 6 = July)
+  const monthStartDate = new Date(Date.UTC(year, month, 1, 0, 0, 0, 0));
+  const monthStartDateString = monthStartDate.toISOString().split('T')[0]; // YYYY-MM-DD
   
-  let monthlyTotals: MonthlyTotals;
+
   
-  if (existingMonthlyData) {
-    monthlyTotals = JSON.parse(existingMonthlyData);
+  // Calculate the first day of the next month (e.g., 2025-08-01)
+  const nextMonthStartDate = new Date(Date.UTC(year, month + 1, 1, 0, 0, 0, 0));
+  const nextMonthStartDateString = nextMonthStartDate.toISOString().split('T')[0];
+  
+  const currentDateString = currentDate.toISOString().split('T')[0];
+  
+  const monthlyTotalsKey = getMonthlyTotalsStorageKey(userId);
+  const monthlyDailyKey = `shoreagents-monthly-daily-${userId}`;
+  
+  // Get the daily data first
+  const existingMonthlyDailyData = localStorage.getItem(monthlyDailyKey);
+  
+  let monthlyDailyData: {
+    monthStartDate: string; // YYYY-MM-DD format
+    dailyData: {
+      [date: string]: {
+        activeTime: number;
+        inactiveTime: number;
+        lastUpdated: number;
+      };
+    };
+    lastUpdated: number;
+  };
+  
+  if (existingMonthlyDailyData) {
+    monthlyDailyData = JSON.parse(existingMonthlyDailyData);
+    
+    // Check if we need to start a new month OR if the monthStartDate is incorrect
+    if (monthlyDailyData.monthStartDate !== monthStartDateString) {
+
+      // New month or incorrect date - reset data
+      monthlyDailyData = {
+        monthStartDate: monthStartDateString,
+        dailyData: {},
+        lastUpdated: now
+      };
+    }
   } else {
-    // Initialize monthly totals with current date as start date
-    monthlyTotals = {
-      userId,
-      totalActiveTime: 0,
-      totalInactiveTime: 0,
-      startDate: dateString,
+    // Initialize monthly daily data
+    monthlyDailyData = {
+      monthStartDate: monthStartDateString,
+      dailyData: {},
       lastUpdated: now
     };
   }
   
-  // Update totals
-  if (activityType === 'active') {
-    monthlyTotals.totalActiveTime += duration;
-  } else {
-    monthlyTotals.totalInactiveTime += duration;
-  }
-  monthlyTotals.lastUpdated = now;
+  // Only update if current date is within the current month
+  const currentDateTimestamp = currentDate.getTime();
+  const monthStartTimestamp = monthStartDate.getTime();
+  const nextMonthStartTimestamp = nextMonthStartDate.getTime();
   
-  localStorage.setItem(monthlyKey, JSON.stringify(monthlyTotals));
+  if (currentDateTimestamp >= monthStartTimestamp && currentDateTimestamp < nextMonthStartTimestamp) {
+    // Update daily data for current date
+    if (!monthlyDailyData.dailyData[currentDateString]) {
+      monthlyDailyData.dailyData[currentDateString] = {
+        activeTime: 0,
+        inactiveTime: 0,
+        lastUpdated: now
+      };
+    }
+    
+    // Update daily totals
+    if (activityType === 'active') {
+      monthlyDailyData.dailyData[currentDateString].activeTime += duration;
+    } else {
+      monthlyDailyData.dailyData[currentDateString].inactiveTime += duration;
+    }
+    monthlyDailyData.dailyData[currentDateString].lastUpdated = now;
+    monthlyDailyData.lastUpdated = now;
+    
+    // Save daily data
+    localStorage.setItem(monthlyDailyKey, JSON.stringify(monthlyDailyData));
+    
+    // Now compute totals from daily data (only for current month)
+    let totalActiveTime = 0;
+    let totalInactiveTime = 0;
+    
+    // Sum up all daily data for the current month (only days within the month)
+    Object.entries(monthlyDailyData.dailyData).forEach(([dateString, dayData]) => {
+      const dayTimestamp = new Date(dateString).getTime();
+      if (dayTimestamp >= monthStartTimestamp && dayTimestamp < nextMonthStartTimestamp) {
+        totalActiveTime += dayData.activeTime;
+        totalInactiveTime += dayData.inactiveTime;
+      }
+    });
+    
+    // Create or update monthly totals
+    const existingMonthlyData = localStorage.getItem(monthlyTotalsKey);
+    let monthlyTotals: MonthlyTotals;
+    
+    if (existingMonthlyData) {
+      monthlyTotals = JSON.parse(existingMonthlyData);
+      
+      // Check if we need to start a new month
+      if (monthlyTotals.monthStartDate !== monthStartDateString) {
+        // New month - reset totals
+        monthlyTotals = {
+          userId,
+          monthStartDate: monthStartDateString,
+          totalActiveTime: 0,
+          totalInactiveTime: 0,
+          lastUpdated: now
+        };
+      }
+    } else {
+      // Initialize monthly totals
+      monthlyTotals = {
+        userId,
+        monthStartDate: monthStartDateString,
+        totalActiveTime: 0,
+        totalInactiveTime: 0,
+        lastUpdated: now
+      };
+    }
+    
+    // Update totals from computed values
+    monthlyTotals.totalActiveTime = totalActiveTime;
+    monthlyTotals.totalInactiveTime = totalInactiveTime;
+    monthlyTotals.lastUpdated = now;
+    
+    localStorage.setItem(monthlyTotalsKey, JSON.stringify(monthlyTotals));
+  }
 };
 
 // Update yesterday summary data
@@ -1255,6 +1507,205 @@ export const updateWeeklyData = (userId: string, dateString: string) => {
   localStorage.setItem(weeklyKey, JSON.stringify(weeklyData));
 };
 
+// Update weekly totals data (computed from daily data)
+export const updateWeeklyTotals = (userId: string, activityType: 'active' | 'inactive', duration: number) => {
+  if (typeof window === 'undefined') return;
+  
+  // CRITICAL: Check if user is still authenticated before recording weekly data
+  const authData = localStorage.getItem("shoreagents-auth");
+  if (!authData) {
+    return; // Silently block
+  }
+  
+  try {
+    const parsed = JSON.parse(authData);
+    if (!parsed.isAuthenticated || !parsed.user?.email || parsed.user.email !== userId) {
+      return; // Silently block
+    }
+  } catch (error) {
+    return; // Silently block
+  }
+  
+  // Also check if user is marked as logged out in activity data
+  const userData = getUserActivityData(userId);
+  if (userData?.isLoggedOut) {
+    return; // Silently block
+  }
+  
+  const now = Date.now();
+  const currentDate = new Date(now);
+  const currentWeekStart = new Date(currentDate);
+  currentWeekStart.setDate(currentDate.getDate() - currentDate.getDay()); // Start of week (Sunday)
+  currentWeekStart.setHours(0, 0, 0, 0);
+  
+  const currentWeekEnd = new Date(currentWeekStart);
+  currentWeekEnd.setDate(currentWeekStart.getDate() + 7); // End of week (next Sunday)
+  currentWeekEnd.setHours(0, 0, 0, 0);
+  
+  const weeklyTotalsKey = `shoreagents-weekly-totals-${userId}`;
+  const weeklyDailyKey = `shoreagents-weekly-daily-${userId}`;
+  
+  // Get the daily data first
+  const existingWeeklyDailyData = localStorage.getItem(weeklyDailyKey);
+  
+  let weeklyDailyData: {
+    weekStartDate: string; // YYYY-MM-DD format
+    dailyData: {
+      [date: string]: {
+        activeTime: number;
+        inactiveTime: number;
+        lastUpdated: number;
+      };
+    };
+    lastUpdated: number;
+  };
+  
+  if (existingWeeklyDailyData) {
+    weeklyDailyData = JSON.parse(existingWeeklyDailyData);
+    
+    // Check if we need to start a new week
+    const currentWeekStartString = currentWeekStart.toISOString().split('T')[0];
+    if (weeklyDailyData.weekStartDate !== currentWeekStartString) {
+      // New week - reset data
+      weeklyDailyData = {
+        weekStartDate: currentWeekStartString,
+        dailyData: {},
+        lastUpdated: now
+      };
+    }
+  } else {
+    // Initialize weekly daily data
+    weeklyDailyData = {
+      weekStartDate: currentWeekStart.toISOString().split('T')[0],
+      dailyData: {},
+      lastUpdated: now
+    };
+  }
+  
+  // Only update if current date is within the current week
+  const currentDateString = currentDate.toISOString().split('T')[0];
+  const currentDateTimestamp = currentDate.getTime();
+  
+  if (currentDateTimestamp >= currentWeekStart.getTime() && currentDateTimestamp < currentWeekEnd.getTime()) {
+    // Update daily data for current date
+    if (!weeklyDailyData.dailyData[currentDateString]) {
+      weeklyDailyData.dailyData[currentDateString] = {
+        activeTime: 0,
+        inactiveTime: 0,
+        lastUpdated: now
+      };
+    }
+    
+    // Update daily totals
+    if (activityType === 'active') {
+      weeklyDailyData.dailyData[currentDateString].activeTime += duration;
+    } else {
+      weeklyDailyData.dailyData[currentDateString].inactiveTime += duration;
+    }
+    weeklyDailyData.dailyData[currentDateString].lastUpdated = now;
+    weeklyDailyData.lastUpdated = now;
+    
+    // Save daily data
+    localStorage.setItem(weeklyDailyKey, JSON.stringify(weeklyDailyData));
+    
+    // Now compute totals from daily data (only for current week)
+    let totalActiveTime = 0;
+    let totalInactiveTime = 0;
+    
+    // Sum up all daily data for the current week (only days within the week)
+    Object.entries(weeklyDailyData.dailyData).forEach(([dateString, dayData]) => {
+      const dayTimestamp = new Date(dateString).getTime();
+      if (dayTimestamp >= currentWeekStart.getTime() && dayTimestamp < currentWeekEnd.getTime()) {
+        totalActiveTime += dayData.activeTime;
+        totalInactiveTime += dayData.inactiveTime;
+      }
+    });
+    
+    // Create or update weekly totals
+    const existingWeeklyTotals = localStorage.getItem(weeklyTotalsKey);
+    let weeklyTotals: {
+      userId: string;
+      weekStartDate: string; // YYYY-MM-DD format
+      totalActiveTime: number;
+      totalInactiveTime: number;
+      lastUpdated: number;
+    };
+    
+    if (existingWeeklyTotals) {
+      weeklyTotals = JSON.parse(existingWeeklyTotals);
+      
+      // Check if we need to start a new week
+      const currentWeekStartString = currentWeekStart.toISOString().split('T')[0];
+      if (weeklyTotals.weekStartDate !== currentWeekStartString) {
+        // New week - reset totals
+        weeklyTotals = {
+          userId,
+          weekStartDate: currentWeekStartString,
+          totalActiveTime: 0,
+          totalInactiveTime: 0,
+          lastUpdated: now
+        };
+      }
+    } else {
+      // Initialize weekly totals
+      weeklyTotals = {
+        userId,
+        weekStartDate: currentWeekStart.toISOString().split('T')[0],
+        totalActiveTime: 0,
+        totalInactiveTime: 0,
+        lastUpdated: now
+      };
+    }
+    
+    // Update totals from computed values
+    weeklyTotals.totalActiveTime = totalActiveTime;
+    weeklyTotals.totalInactiveTime = totalInactiveTime;
+    weeklyTotals.lastUpdated = now;
+    
+    localStorage.setItem(weeklyTotalsKey, JSON.stringify(weeklyTotals));
+  }
+};
+
+// Get weekly totals summary (independent of today data)
+export const getWeeklyTotalsSummary = (userId: string) => {
+  if (typeof window === 'undefined') return null;
+  
+  const weeklyTotalsKey = `shoreagents-weekly-totals-${userId}`;
+  const weeklyData = localStorage.getItem(weeklyTotalsKey);
+  
+  if (!weeklyData) {
+    return {
+      totalActiveTime: 0,
+      totalInactiveTime: 0,
+      weekStartDate: null
+    };
+  }
+  
+  const weeklyTotals = JSON.parse(weeklyData);
+  const now = Date.now();
+  
+  // Add current session time if user is active (but not during break)
+  const userData = getUserActivityData(userId);
+  let adjustedActiveTime = weeklyTotals.totalActiveTime;
+  let adjustedInactiveTime = weeklyTotals.totalInactiveTime;
+  
+  if (userData && !userData.isLoggedOut && !userData.isInBreak && userData.currentSessionStart > 0) {
+    const currentSessionDuration = now - userData.currentSessionStart;
+    
+    if (userData.isCurrentlyActive) {
+      adjustedActiveTime += currentSessionDuration;
+    } else {
+      adjustedInactiveTime += currentSessionDuration;
+    }
+  }
+  
+  return {
+    totalActiveTime: adjustedActiveTime,
+    totalInactiveTime: adjustedInactiveTime,
+    weekStartDate: weeklyTotals.weekStartDate
+  };
+};
+
 // Get today's data for different time periods
 export const getTodayDataForPeriod = (userId: string, period: 'today' | '24hours' | '7days' | '30days'): HourlyActivityData[] => {
   if (typeof window === 'undefined') return [];
@@ -1330,6 +1781,8 @@ export const getTodaysActivitySummary = (userId: string) => {
   
   const today = new Date().toISOString().split('T')[0];
   const now = Date.now();
+  const startOfDay = new Date().setHours(0, 0, 0, 0);
+  const endOfDay = startOfDay + (24 * 60 * 60 * 1000) - 1; // 11:59:59 PM
   
   // Ensure daily reset is checked
   checkAndResetDailyData(userId);
@@ -1339,7 +1792,7 @@ export const getTodaysActivitySummary = (userId: string) => {
   const todayData: HourlyActivityData[] = JSON.parse(localStorage.getItem(todayKey) || '[]');
   const todayHourlyData = todayData.filter(h => h.date === today);
   
-  // Calculate today's totals from completed sessions
+  // Calculate today's totals from completed sessions (within today's time window)
   let todayActiveTime = todayHourlyData.reduce((sum, h) => sum + h.activeTime, 0);
   let todayInactiveTime = todayHourlyData.reduce((sum, h) => sum + h.inactiveTime, 0);
   
@@ -1350,7 +1803,10 @@ export const getTodaysActivitySummary = (userId: string) => {
     
     // Only add current session time if it started today
     if (sessionStartDate === today) {
-      const currentSessionDuration = now - userData.currentSessionStart;
+      // Only count time from today (12:01 AM to 11:59 PM)
+      const sessionStart = Math.max(userData.currentSessionStart, startOfDay);
+      const sessionEnd = Math.min(now, endOfDay);
+      const currentSessionDuration = Math.max(0, sessionEnd - sessionStart);
       
       if (userData.isCurrentlyActive) {
         todayActiveTime += currentSessionDuration;
@@ -1500,7 +1956,7 @@ export const getMonthlyTotalsSummary = (userId: string) => {
     return {
       totalActiveTime: 0,
       totalInactiveTime: 0,
-      startDate: null
+      monthStartDate: null
     };
   }
   
@@ -1525,21 +1981,74 @@ export const getMonthlyTotalsSummary = (userId: string) => {
   return {
     totalActiveTime: adjustedActiveTime,
     totalInactiveTime: adjustedInactiveTime,
-    startDate: monthlyTotals.startDate
+    monthStartDate: monthlyTotals.monthStartDate
   };
 };
 
 // Manual daily reset function for testing/debugging
-export const forceDailyReset = (userId: string) => {
+export const forceDailyReset = (userId?: string) => {
   if (typeof window === 'undefined') return;
   
+  if (userId) {
+    // Reset for specific user
+    const lastResetKey = `shoreagents-daily-reset-${userId}`;
+    localStorage.removeItem(lastResetKey);
+    
+    // Trigger reset for this user
+    checkAndResetDailyData(userId);
+  } else {
+    // Reset for all users (legacy behavior)
+    const lastResetKey = 'shoreagents-daily-reset'; // Global reset key
+    localStorage.removeItem(lastResetKey);
+  }
+};
+
+// Force reset monthly data with incorrect dates
+export const forceMonthlyReset = (userId: string) => {
+  if (typeof window === 'undefined') return;
+  
+  const monthlyTotalsKey = getMonthlyTotalsStorageKey(userId);
+  const monthlyDailyKey = `shoreagents-monthly-daily-${userId}`;
+  
+  // Clear existing monthly data
+  localStorage.removeItem(monthlyTotalsKey);
+  localStorage.removeItem(monthlyDailyKey);
+};
+
+// Debug function to test date calculation
+export const debugMonthCalculation = () => {
+  if (typeof window === 'undefined') return;
+  
+  const now = Date.now();
+  const currentDate = new Date(now);
+  
+  // Test old method
+  const oldMethod = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+  oldMethod.setHours(0, 0, 0, 0);
+  
+  // Test new UTC method
+  const year = currentDate.getFullYear();
+  const month = currentDate.getMonth();
+  const newMethod = new Date(Date.UTC(year, month, 1, 0, 0, 0, 0));
+  
+  // Test string-based method
+  const monthString = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+};
+
+// Debug function to check daily reset status
+export const debugDailyReset = (userId: string) => {
+  if (typeof window === 'undefined') return;
+  
+  const now = Date.now();
+  const today = new Date().toISOString().split('T')[0];
   const lastResetKey = `shoreagents-daily-reset-${userId}`;
-  localStorage.removeItem(lastResetKey);
+  const lastResetData = localStorage.getItem(lastResetKey);
   
-  // Force check and reset
-  checkAndResetDailyData(userId);
+  // Check user activity data
+  const userData = getUserActivityData(userId);
   
-  console.log('Daily data reset forced for user:', userId);
+  // Check today's activity summary
+  const summary = getActivitySummary(userId);
 };
 
 // Get next reset time (12 AM)
@@ -1549,6 +2058,34 @@ export const getNextResetTime = () => {
   tomorrow.setDate(tomorrow.getDate() + 1);
   tomorrow.setHours(0, 0, 0, 0); // 12:00 AM
   return tomorrow;
+};
+
+// Get last reset time for debugging
+export const getLastResetTime = (userId?: string) => {
+  if (typeof window === 'undefined') return null;
+  
+  const lastResetKey = userId ? `shoreagents-daily-reset-${userId}` : 'shoreagents-daily-reset'; // User-specific or global reset key
+  const lastResetData = localStorage.getItem(lastResetKey);
+  
+  if (!lastResetData) return null;
+  
+  try {
+    // Try to parse as ISO string first (new format)
+    const resetDate = new Date(lastResetData);
+    if (!isNaN(resetDate.getTime())) {
+      return resetDate;
+    } else {
+      // Fallback to old format (timestamp number)
+      const lastResetTimestamp = parseInt(lastResetData);
+      if (!isNaN(lastResetTimestamp)) {
+        return new Date(lastResetTimestamp);
+      }
+    }
+  } catch {
+    return null;
+  }
+  
+  return null;
 };
 
 // Get time until next reset
@@ -1574,7 +2111,6 @@ export const setupAutomaticReset = (userId: string) => {
     
     // Schedule reset for next midnight
     setTimeout(() => {
-      console.log('Automatic daily reset triggered for user:', userId);
       checkAndResetDailyData(userId);
       
       // Schedule next reset (24 hours later)
@@ -1585,3 +2121,365 @@ export const setupAutomaticReset = (userId: string) => {
   // Start the reset scheduler
   scheduleReset();
 }; 
+
+// Update weekly daily data (track individual days within the week)
+export const updateWeeklyDailyData = (userId: string, activityType: 'active' | 'inactive', duration: number) => {
+  if (typeof window === 'undefined') return;
+  
+  // CRITICAL: Check if user is still authenticated before recording weekly data
+  const authData = localStorage.getItem("shoreagents-auth");
+  if (!authData) {
+    return; // Silently block
+  }
+  
+  try {
+    const parsed = JSON.parse(authData);
+    if (!parsed.isAuthenticated || !parsed.user?.email || parsed.user.email !== userId) {
+      return; // Silently block
+    }
+  } catch (error) {
+    return; // Silently block
+  }
+  
+  // Also check if user is marked as logged out in activity data
+  const userData = getUserActivityData(userId);
+  if (userData?.isLoggedOut) {
+    return; // Silently block
+  }
+  
+  const now = Date.now();
+  const currentDate = new Date(now);
+  const currentWeekStart = new Date(currentDate);
+  currentWeekStart.setDate(currentDate.getDate() - currentDate.getDay()); // Start of week (Sunday)
+  currentWeekStart.setHours(0, 0, 0, 0);
+  
+  const currentDateString = currentDate.toISOString().split('T')[0]; // YYYY-MM-DD
+  const weekStartDateString = currentWeekStart.toISOString().split('T')[0];
+  
+  const weeklyDailyKey = `shoreagents-weekly-daily-${userId}`;
+  const existingWeeklyDailyData = localStorage.getItem(weeklyDailyKey);
+  
+  let weeklyDailyData: {
+    weekStartDate: string; // YYYY-MM-DD format
+    dailyData: {
+      [date: string]: {
+        activeTime: number;
+        inactiveTime: number;
+        lastUpdated: number;
+      };
+    };
+    lastUpdated: number;
+  };
+  
+  if (existingWeeklyDailyData) {
+    weeklyDailyData = JSON.parse(existingWeeklyDailyData);
+    
+    // Check if we need to start a new week
+    if (weeklyDailyData.weekStartDate !== weekStartDateString) {
+      // New week - reset data
+      weeklyDailyData = {
+        weekStartDate: weekStartDateString,
+        dailyData: {},
+        lastUpdated: now
+      };
+    }
+  } else {
+    // Initialize weekly daily data
+    weeklyDailyData = {
+      weekStartDate: weekStartDateString,
+      dailyData: {},
+      lastUpdated: now
+    };
+  }
+  
+  // Initialize or update daily data for current date
+  if (!weeklyDailyData.dailyData[currentDateString]) {
+    weeklyDailyData.dailyData[currentDateString] = {
+      activeTime: 0,
+      inactiveTime: 0,
+      lastUpdated: now
+    };
+  }
+  
+  // Update daily totals
+  if (activityType === 'active') {
+    weeklyDailyData.dailyData[currentDateString].activeTime += duration;
+  } else {
+    weeklyDailyData.dailyData[currentDateString].inactiveTime += duration;
+  }
+  weeklyDailyData.dailyData[currentDateString].lastUpdated = now;
+  weeklyDailyData.lastUpdated = now;
+  
+  localStorage.setItem(weeklyDailyKey, JSON.stringify(weeklyDailyData));
+};
+
+// Get weekly daily data for chart display
+export const getWeeklyDailyData = (userId: string) => {
+  if (typeof window === 'undefined') return null;
+  
+  const weeklyDailyKey = `shoreagents-weekly-daily-${userId}`;
+  const weeklyDailyData = localStorage.getItem(weeklyDailyKey);
+  
+  if (!weeklyDailyData) {
+    return {
+      weekStartDate: null,
+      dailyData: {}
+    };
+  }
+  
+  const data = JSON.parse(weeklyDailyData);
+  
+  // Add current session time if user is active
+  const userData = getUserActivityData(userId);
+  const now = Date.now();
+  
+  if (userData && !userData.isLoggedOut && !userData.isInBreak && userData.currentSessionStart > 0) {
+    const currentSessionDuration = now - userData.currentSessionStart;
+    const currentDateString = new Date().toISOString().split('T')[0];
+    
+    if (data.dailyData[currentDateString]) {
+      if (userData.isCurrentlyActive) {
+        data.dailyData[currentDateString].activeTime += currentSessionDuration;
+      } else {
+        data.dailyData[currentDateString].inactiveTime += currentSessionDuration;
+      }
+    }
+  }
+  
+  return {
+    weekStartDate: data.weekStartDate,
+    dailyData: data.dailyData
+  };
+};
+
+// Update monthly daily data (track individual days within the month)
+export const updateMonthlyDailyData = (userId: string, activityType: 'active' | 'inactive', duration: number) => {
+  if (typeof window === 'undefined') return;
+  
+  // CRITICAL: Check if user is still authenticated before recording monthly data
+  const authData = localStorage.getItem("shoreagents-auth");
+  if (!authData) {
+    return; // Silently block
+  }
+  
+  try {
+    const parsed = JSON.parse(authData);
+    if (!parsed.isAuthenticated || !parsed.user?.email || parsed.user.email !== userId) {
+      return; // Silently block
+    }
+  } catch (error) {
+    return; // Silently block
+  }
+  
+  // Also check if user is marked as logged out in activity data
+  const userData = getUserActivityData(userId);
+  if (userData?.isLoggedOut) {
+    return; // Silently block
+  }
+  
+  const now = Date.now();
+  const currentDate = new Date(now);
+  
+  // Calculate the first day of the current month (e.g., 2025-07-01)
+  // Use UTC to avoid timezone issues
+  const year = currentDate.getFullYear();
+  const month = currentDate.getMonth(); // 0-based (0 = January, 6 = July)
+  const monthStartDate = new Date(Date.UTC(year, month, 1, 0, 0, 0, 0));
+  const monthStartDateString = monthStartDate.toISOString().split('T')[0]; // YYYY-MM-DD
+  const currentDateString = currentDate.toISOString().split('T')[0];
+  
+
+  
+  const monthlyDailyKey = `shoreagents-monthly-daily-${userId}`;
+  const existingMonthlyDailyData = localStorage.getItem(monthlyDailyKey);
+  
+  let monthlyDailyData: {
+    monthStartDate: string; // YYYY-MM-DD format
+    dailyData: {
+      [date: string]: {
+        activeTime: number;
+        inactiveTime: number;
+        lastUpdated: number;
+      };
+    };
+    lastUpdated: number;
+  };
+  
+  if (existingMonthlyDailyData) {
+    monthlyDailyData = JSON.parse(existingMonthlyDailyData);
+    
+    // Check if we need to start a new month OR if the monthStartDate is incorrect
+    if (monthlyDailyData.monthStartDate !== monthStartDateString) {
+
+      // New month or incorrect date - reset data
+      monthlyDailyData = {
+        monthStartDate: monthStartDateString,
+        dailyData: {},
+        lastUpdated: now
+      };
+    }
+  } else {
+    // Initialize monthly daily data
+    monthlyDailyData = {
+      monthStartDate: monthStartDateString,
+      dailyData: {},
+      lastUpdated: now
+    };
+  }
+  
+  // Initialize or update daily data for current date
+  if (!monthlyDailyData.dailyData[currentDateString]) {
+    monthlyDailyData.dailyData[currentDateString] = {
+      activeTime: 0,
+      inactiveTime: 0,
+      lastUpdated: now
+    };
+  }
+  
+  // Update daily totals
+  if (activityType === 'active') {
+    monthlyDailyData.dailyData[currentDateString].activeTime += duration;
+  } else {
+    monthlyDailyData.dailyData[currentDateString].inactiveTime += duration;
+  }
+  monthlyDailyData.dailyData[currentDateString].lastUpdated = now;
+  monthlyDailyData.lastUpdated = now;
+  
+  localStorage.setItem(monthlyDailyKey, JSON.stringify(monthlyDailyData));
+};
+
+// Get monthly daily data for chart display
+export const getMonthlyDailyData = (userId: string) => {
+  if (typeof window === 'undefined') return null;
+  
+  const monthlyDailyKey = `shoreagents-monthly-daily-${userId}`;
+  const monthlyDailyData = localStorage.getItem(monthlyDailyKey);
+  
+  if (!monthlyDailyData) {
+    return {
+      monthStartDate: null,
+      dailyData: {}
+    };
+  }
+  
+  const data = JSON.parse(monthlyDailyData);
+  
+  // Add current session time if user is active
+  const userData = getUserActivityData(userId);
+  const now = Date.now();
+  
+  if (userData && !userData.isLoggedOut && !userData.isInBreak && userData.currentSessionStart > 0) {
+    const currentSessionDuration = now - userData.currentSessionStart;
+    const currentDateString = new Date().toISOString().split('T')[0];
+    
+    if (data.dailyData[currentDateString]) {
+      if (userData.isCurrentlyActive) {
+        data.dailyData[currentDateString].activeTime += currentSessionDuration;
+      } else {
+        data.dailyData[currentDateString].inactiveTime += currentSessionDuration;
+      }
+    }
+  }
+  
+  return {
+    monthStartDate: data.monthStartDate,
+    dailyData: data.dailyData
+  };
+}; 
+
+// Force save all activity data and reload page before logout
+export const forceSaveAndReload = (userId: string) => {
+  if (typeof window === 'undefined') return;
+  
+  try {
+    // Get current user data
+    const userData = getUserActivityData(userId);
+    if (!userData) {
+      return;
+    }
+    
+    const now = Date.now();
+    
+    // If user has an active session, save the current progress
+    if (userData.currentSessionStart && userData.currentSessionStart > 0) {
+      const currentSessionDuration = now - userData.currentSessionStart;
+      
+      if (userData.isCurrentlyActive && currentSessionDuration > 1000) {
+        // Save current active session progress
+        updateTodayActivityData(userId, 'active', currentSessionDuration);
+        
+        // End the active session properly
+        userData.totalActiveTime += currentSessionDuration;
+        
+        // Update the last active session with end time and duration
+        const activitySessions = userData.activitySessions || [];
+        const lastSession = activitySessions[activitySessions.length - 1];
+        if (lastSession && lastSession.type === 'active' && !lastSession.endTime) {
+          lastSession.endTime = now;
+          lastSession.duration = currentSessionDuration;
+          lastSession.endReason = 'logout';
+        }
+        
+        // Mark session as ended
+        userData.isCurrentlyActive = false;
+        userData.currentSessionStart = 0;
+        userData.lastActivityTime = now;
+        
+        // Save the updated data
+        const key = getActivityStorageKey(userId);
+        localStorage.setItem(key, JSON.stringify(userData));
+        
+      } else if (!userData.isCurrentlyActive && currentSessionDuration > 1000) {
+        // Save current inactive session progress
+        updateTodayActivityData(userId, 'inactive', currentSessionDuration);
+        
+        // End the inactive session properly
+        userData.totalInactiveTime += currentSessionDuration;
+        
+        // Update the last inactive session with end time and duration
+        const activitySessions = userData.activitySessions || [];
+        const lastSession = activitySessions[activitySessions.length - 1];
+        if (lastSession && lastSession.type === 'inactive' && !lastSession.endTime) {
+          lastSession.endTime = now;
+          lastSession.duration = currentSessionDuration;
+          lastSession.endReason = 'logout';
+        }
+        
+        // Mark session as ended
+        userData.currentSessionStart = 0;
+        userData.lastActivityTime = now;
+        
+        // Save the updated data
+        const key = getActivityStorageKey(userId);
+        localStorage.setItem(key, JSON.stringify(userData));
+      }
+    }
+    
+    // Force save all pending data
+    updateYesterdaySummary(userId, new Date().toISOString().split('T')[0]);
+    updateWeeklyTotals(userId, 'active', 0); // Trigger weekly data save
+    updateMonthlyTotals(userId, 'active', 0); // Trigger monthly data save
+    
+    // Small delay to ensure all data is saved before logout
+    setTimeout(() => {
+      // Clear authentication data before reload
+      localStorage.removeItem("shoreagents-auth");
+      document.cookie = "shoreagents-auth=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+      
+      // Reload the page
+      window.location.reload();
+    }, 100);
+    
+  } catch (error) {
+    console.error('Error during force save and reload:', error);
+    // Still logout and reload even if there's an error
+    setTimeout(() => {
+      // Clear authentication data before reload
+      localStorage.removeItem("shoreagents-auth");
+      document.cookie = "shoreagents-auth=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+      
+      // Reload the page
+      window.location.reload();
+    }, 100);
+  }
+};

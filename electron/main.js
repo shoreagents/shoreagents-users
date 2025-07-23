@@ -109,26 +109,6 @@ function getSimpleBadgePath() {
   }
 }
 
-// Function to play notification sound
-function playNotificationSound() {
-  try {
-    // Use Windows default notification sound via PowerShell
-    const { exec } = require('child_process');
-    exec('powershell -command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.MessageBox]::Show(\' \', \' \', 0, 64) | Out-Null"', (error) => {
-      if (error) {
-        // Fallback to simple beep
-        exec('powershell -command "[console]::beep(800,200)"', (error2) => {
-          if (error2) {
-            console.log('Could not play notification sound');
-          }
-        });
-      }
-    });
-  } catch (error) {
-    console.log('Could not play custom notification sound');
-  }
-}
-
 // Function to ensure notification sound plays consistently
 function createNotificationWithSound(title, body, icon) {
   return new Promise((resolve) => {
@@ -413,7 +393,7 @@ ipcMain.handle('get-notification-count', async (event) => {
 ipcMain.on('notification-count-changed', async (event, data) => {
   try {
     const count = data.count || 0;
-    console.log('Notification count changed:', count);
+  
     
     // Update the system tray badge with the new count
     await updateTrayWithActualCount();

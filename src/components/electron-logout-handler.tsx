@@ -2,6 +2,8 @@
 
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { forceSaveAndReload } from '@/lib/activity-storage'
+import { getCurrentUser } from '@/lib/ticket-utils'
 
 export default function ElectronLogoutHandler() {
   const router = useRouter()
@@ -60,29 +62,37 @@ export default function ElectronLogoutHandler() {
     if (typeof window !== 'undefined' && window.electronAPI) {
       // Handle force logout before quit
       const handleForceLogout = async () => {
-        
-                 try {
-           // Clear authentication data (using the actual auth storage)
-           localStorage.removeItem('shoreagents-auth')
-           
-           // Clear cookie
-           document.cookie = "shoreagents-auth=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;"
-           
-                      // Clear any session data
-           localStorage.removeItem('sessionData')
-           localStorage.removeItem('currentSessionStart')
-           
-           // Notify Electron that logout is complete
-           if (window.electronAPI?.app?.logoutCompleted) {
-             await window.electronAPI.app.logoutCompleted()
-           }
-         } catch (error) {
-           console.error('Error during forced logout:', error)
-           // Still notify Electron even if there's an error
-           if (window.electronAPI?.app?.logoutCompleted) {
-             await window.electronAPI.app.logoutCompleted()
-           }
-         }
+        try {
+          // Get current user before clearing auth
+          const currentUser = getCurrentUser()
+          
+          // Force save all activity data and reload page before logout
+          if (currentUser?.email) {
+            forceSaveAndReload(currentUser.email)
+            return // The page will reload, so don't continue with logout
+          }
+          
+          // Fallback: Clear authentication data (using the actual auth storage)
+          localStorage.removeItem('shoreagents-auth')
+          
+          // Clear cookie
+          document.cookie = "shoreagents-auth=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;"
+          
+          // Clear any session data
+          localStorage.removeItem('sessionData')
+          localStorage.removeItem('currentSessionStart')
+          
+          // Notify Electron that logout is complete
+          if (window.electronAPI?.app?.logoutCompleted) {
+            await window.electronAPI.app.logoutCompleted()
+          }
+        } catch (error) {
+          console.error('Error during forced logout:', error)
+          // Still notify Electron even if there's an error
+          if (window.electronAPI?.app?.logoutCompleted) {
+            await window.electronAPI.app.logoutCompleted()
+          }
+        }
       }
 
              // Handle navigation requests from tray menu
