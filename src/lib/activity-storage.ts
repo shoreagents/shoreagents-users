@@ -49,6 +49,46 @@ export const getActivityStorageKey = (userId: string) => {
   return `shoreagents-activity-${userId}`;
 };
 
+// Function to end any active or paused break sessions before logout
+const endActiveBreakOnLogout = async () => {
+  try {
+    // Check if there's an active break in localStorage
+    const currentBreak = localStorage.getItem('currentBreak');
+    if (currentBreak) {
+      console.log('🔄 Found active/paused break during logout, ending it...');
+      
+      try {
+        const breakData = JSON.parse(currentBreak);
+        
+        // Call the break manager to end the break
+        const { endBreak } = await import('./break-manager');
+        const result = await endBreak();
+        
+        if (result.success) {
+          console.log('✅ Successfully ended break during logout');
+        } else {
+          console.warn('⚠️ Failed to end break via API, clearing localStorage');
+        }
+      } catch (parseError) {
+        console.warn('⚠️ Invalid break data in localStorage, clearing it');
+      }
+      
+      // Always clear the localStorage regardless of API result
+      localStorage.removeItem('currentBreak');
+    }
+    
+    // Also clear break active state
+    localStorage.removeItem('shoreagents-break-active');
+    
+    console.log('🧹 Break state cleared during logout');
+  } catch (error) {
+    console.error('Error ending break during logout:', error);
+    // Even if there's an error, clear the localStorage to prevent stale state
+    localStorage.removeItem('currentBreak');
+    localStorage.removeItem('shoreagents-break-active');
+  }
+};
+
 export const getTodayDataStorageKey = (userId: string) => {
   return `shoreagents-today-${userId}`;
 };
@@ -2460,7 +2500,12 @@ export const forceSaveAndReload = (userId: string) => {
     updateWeeklyTotals(userId, 'active', 0); // Trigger weekly data save
     updateMonthlyTotals(userId, 'active', 0); // Trigger monthly data save
     
-    // Small delay to ensure all data is saved before logout
+    // End any active or paused break sessions before logout
+    endActiveBreakOnLogout().catch(error => {
+      console.error('Error ending break during logout:', error);
+    });
+    
+    // Increased delay to ensure all data is saved (including break end) before logout
     setTimeout(() => {
       // Clear authentication data before reload
       localStorage.removeItem("shoreagents-auth");
@@ -2468,7 +2513,7 @@ export const forceSaveAndReload = (userId: string) => {
       
       // Reload the page
       window.location.reload();
-    }, 100);
+    }, 500); // Increased from 100ms to 500ms to allow break ending
     
   } catch (error) {
     console.error('Error during force save and reload:', error);
@@ -2480,6 +2525,6 @@ export const forceSaveAndReload = (userId: string) => {
       
       // Reload the page
       window.location.reload();
-    }, 100);
+    }, 500); // Increased from 100ms to 500ms to allow break ending
   }
 };

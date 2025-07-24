@@ -88,6 +88,12 @@ export const executeQuery = async <T = any>(
   query: string, 
   params?: any[]
 ): Promise<T[]> => {
+  // Auto-initialize database if not already done
+  if (!pool) {
+    console.log('🔄 Database not initialized, initializing now...');
+    await initializeDatabase();
+  }
+  
   const client = await getDatabaseClient();
   
   try {

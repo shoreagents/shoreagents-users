@@ -23,22 +23,6 @@ export function LoginForm({
   const router = useRouter()
   const { setUserLoggedIn } = useActivity()
 
-  // Dummy credentials for ShoreAgents
-  const validCredentials = [
-    {
-      email: "agent@shoreagents.com",
-      password: "shoreagents123",
-      name: "Agent User",
-      role: "agent"
-    },
-    {
-      email: "agent0@shoreagents.com",
-      password: "shoreagents123",
-      name: "Agent 0",
-      role: "agent"
-    }
-  ]
-
   const setCookie = (name: string, value: string, days: number) => {
     const expires = new Date()
     expires.setTime(expires.getTime() + days * 24 * 60 * 60 * 1000)
@@ -50,36 +34,56 @@ export function LoginForm({
     setIsLoading(true)
     setError("")
 
-    // Simulate API call delay
-    await new Promise(resolve => setTimeout(resolve, 1000))
-
-    const user = validCredentials.find(cred => cred.email === email && cred.password === password)
-    
-    if (user) {
-      // Store authentication state in both cookie and localStorage
-      const authData = {
-        isAuthenticated: true,
-        user: {
-          email: user.email,
-          name: user.name,
-          role: user.role
+    try {
+      // Call the authentication API
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-        timestamp: new Date().toISOString()
+        body: JSON.stringify({ email, password }),
+      })
+
+      const data = await response.json()
+
+      if (data.success && data.user) {
+        // Store MINIMAL authentication state - no personal info
+        const authData = {
+          isAuthenticated: true,
+          user: {
+            id: data.user.id,
+            email: data.user.email,
+            name: data.user.name, // Just for display, can be fetched fresh
+            role: data.user.role, // For compatibility 
+            user_type: data.user.user_type // For role-based access
+          },
+          timestamp: new Date().toISOString()
+        }
+
+        // Set cookie for middleware (minimal data)
+        setCookie("shoreagents-auth", JSON.stringify(authData), 7)
+        
+        // Store same minimal data in localStorage for client-side access
+        localStorage.setItem("shoreagents-auth", JSON.stringify(authData))
+
+        // Start activity tracking for the logged-in user
+        setUserLoggedIn()
+
+        // Redirect to dashboard
+        router.push("/dashboard")
+      } else {
+        // Handle different types of errors
+        if (response.status === 403) {
+          // Access denied for non-agent users
+          setError("Access denied. This application is restricted to Agent users only.")
+        } else {
+          // General authentication errors
+          setError(data.error || "Login failed. Please try again.")
+        }
       }
-
-      // Set cookie for middleware
-      setCookie("shoreagents-auth", JSON.stringify(authData), 7)
-      
-      // Also store in localStorage for client-side access
-      localStorage.setItem("shoreagents-auth", JSON.stringify(authData))
-
-      // Start activity tracking for the logged-in user
-      setUserLoggedIn()
-
-      // Redirect to dashboard
-      router.push("/dashboard")
-    } else {
-      setError("Invalid email or password. Please try again.")
+    } catch (error) {
+      console.error('Login error:', error)
+      setError("Network error. Please check your connection and try again.")
     }
 
     setIsLoading(false)
@@ -161,17 +165,20 @@ export function LoginForm({
             </Button>
 
           <div className="text-center text-sm text-muted-foreground">
-            <p className="mb-2">Demo Credentials:</p>
+            <p className="mb-2">Demo Credentials (Agent Users Only):</p>
             <div className="space-y-1">
               <div>
                 <p className="text-xs">
-                  User 1: <code className="bg-muted px-1 rounded">agent@shoreagents.com</code>
+                  Agent 1: <code className="bg-muted px-1 rounded">agent@shoreagents.com</code>
                 </p>
                 <p className="text-xs">
-                  User 2: <code className="bg-muted px-1 rounded">agent0@shoreagents.com</code>
+                  Agent 2: <code className="bg-muted px-1 rounded">agent0@shoreagents.com</code>
                 </p>
                 <p className="text-xs">
                   Password: <code className="bg-muted px-1 rounded">shoreagents123</code>
+                </p>
+                <p className="text-xs text-amber-600">
+                  Note: Only Agent users can access this application
                 </p>
               </div>
           </div>

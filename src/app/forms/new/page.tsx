@@ -18,8 +18,20 @@ import { Badge } from "@/components/ui/badge"
 import { ArrowLeft, Send, CheckCircle, FileText, Mail, Phone, Upload, X, AlertTriangle, MessageSquare } from "lucide-react"
 import Link from "next/link"
 import { addTicketForUser, getCurrentUser } from "@/lib/ticket-utils"
-import { getCurrentUserProfile } from "@/lib/user-profiles"
 
+// Define interface for user profile from API
+interface UserProfile {
+  id_number: string
+  first_name: string
+  last_name: string
+  middle_name?: string
+  email: string
+  phone?: string
+  user_type: string
+  job_title?: string
+  company?: string
+  // ... other fields from profile API
+}
 
 export default function NewTicketPage() {
   const [loading, setLoading] = useState(true)
@@ -29,19 +41,51 @@ export default function NewTicketPage() {
   const [files, setFiles] = useState<File[]>([])
   const [dragActive, setDragActive] = useState(false)
   const [fileError, setFileError] = useState<string>("")
-  const [userProfile, setUserProfile] = useState<any>(null)
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
+  const [profileError, setProfileError] = useState<string>("")
   
   // Maximum file size: 10MB
   const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB in bytes
 
-  // Simulate loading and get user profile
+  // Fetch user profile from database API
   useEffect(() => {
-    const timer = setTimeout(() => {
-      const profile = getCurrentUserProfile()
-      setUserProfile(profile)
-      setLoading(false)
-    }, 1000)
-    return () => clearTimeout(timer)
+    const fetchUserProfile = async () => {
+      try {
+        setLoading(true)
+        setProfileError("")
+
+        // First check if user is authenticated
+        const currentUser = getCurrentUser()
+        if (!currentUser) {
+          setProfileError("User not authenticated")
+          setLoading(false)
+          return
+        }
+
+        // Fetch profile from database API
+        const response = await fetch('/api/profile', {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        })
+
+        const data = await response.json()
+
+        if (data.success && data.profile) {
+          setUserProfile(data.profile)
+        } else {
+          setProfileError(data.error || 'Failed to load user profile')
+        }
+      } catch (error) {
+        console.error('Profile loading error:', error)
+        setProfileError('Network error. Please check your connection.')
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchUserProfile()
   }, [])
 
   // Reset form state when component mounts (for "Create Another Ticket")
@@ -109,9 +153,12 @@ export default function NewTicketPage() {
     const newTicketId = generateTicketId()
     const currentDate = new Date()
     
-    // Get user info from session/profile
-    const fullName = userProfile ? `${userProfile.first_name} ${userProfile.last_name}` : 'Unknown User'
-    const userEmail = userProfile?.email || getCurrentUser()?.email || 'unknown@email.com'
+    // Get user info from session/profile with fallbacks
+    const currentUser = getCurrentUser()
+    const fullName = userProfile 
+      ? `${userProfile.first_name} ${userProfile.last_name}` 
+      : currentUser?.name || 'Unknown User'
+    const userEmail = userProfile?.email || currentUser?.email || 'unknown@email.com'
     
     const ticket = {
       id: newTicketId,
@@ -128,7 +175,6 @@ export default function NewTicketPage() {
     }
     
     // Save to user-specific localStorage
-    const currentUser = getCurrentUser()
     if (currentUser) {
       addTicketForUser(currentUser.email, ticket)
     }
@@ -151,6 +197,13 @@ export default function NewTicketPage() {
         </SidebarInset>
       </SidebarProvider>
     )
+  }
+
+  // Show profile error but still allow ticket creation
+  if (profileError && !userProfile) {
+    console.warn('Profile loading error:', profileError)
+    // Continue to show the form even with profile error
+    // We'll use fallback user data from getCurrentUser()
   }
 
   if (isSubmitted) {
@@ -278,6 +331,38 @@ export default function NewTicketPage() {
             </div>
           </div>
           
+          {/* Profile Loading Warning */}
+          {profileError && !userProfile && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-600" />
+                <p className="text-sm text-amber-800">
+                  <strong>Notice:</strong> Could not load your complete profile information, but you can still submit tickets. 
+                  Some fields may show default values.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Debug Info (only in development) */}
+          {process.env.NODE_ENV === 'development' && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <details>
+                <summary className="cursor-pointer text-sm font-medium text-blue-800 mb-2">
+                  🔍 Debug Information (Development Mode)
+                </summary>
+                <div className="space-y-2 text-xs">
+                  <div><strong>Current User:</strong> {JSON.stringify(getCurrentUser(), null, 2)}</div>
+                  <div><strong>Profile Loaded:</strong> {userProfile ? 'Yes' : 'No'}</div>
+                  <div><strong>Profile Error:</strong> {profileError || 'None'}</div>
+                  {userProfile && (
+                    <div><strong>Profile Data:</strong> {JSON.stringify(userProfile, null, 2)}</div>
+                  )}
+                </div>
+              </details>
+            </div>
+          )}
+          
           <div className="grid gap-6 lg:grid-cols-3">
             {/* Main Form */}
             <div className="lg:col-span-2 space-y-6">
@@ -298,11 +383,11 @@ export default function NewTicketPage() {
                 <CardContent className="space-y-6">
                   <form onSubmit={handleSubmit} className="space-y-6">
                   
-                  {/* User Info Display (Read-only) */}
-                  {userProfile && (
-                    <div className="bg-muted/50 rounded-lg p-4 border">
+                  {/* User Info Display Section */}
+                  {(userProfile || getCurrentUser()) && (
+                    <div className="bg-muted/30 rounded-lg p-4 border border-muted">
                       <div className="flex items-center gap-2 mb-3">
-                        <div className="p-1 bg-primary/10 rounded">
+                        <div className="p-1.5 bg-primary/10 rounded-lg">
                           <FileText className="h-4 w-4 text-primary" />
                         </div>
                         <h3 className="font-semibold text-sm">Ticket Information</h3>
@@ -312,12 +397,17 @@ export default function NewTicketPage() {
                           <div className="flex flex-col sm:flex-row sm:items-center gap-1">
                             <span className="text-muted-foreground whitespace-nowrap">Submitted by:</span>
                             <span className="font-medium">
-                              {userProfile.first_name} {userProfile.last_name}
+                              {userProfile 
+                                ? `${userProfile.first_name} ${userProfile.last_name}` 
+                                : getCurrentUser()?.name || 'Unknown User'
+                              }
                             </span>
                           </div>
                           <div className="flex flex-col sm:flex-row sm:items-center gap-1">
                             <span className="text-muted-foreground whitespace-nowrap">Email:</span>
-                            <span className="font-medium break-all text-xs sm:text-sm">{userProfile.email}</span>
+                            <span className="font-medium break-all text-xs sm:text-sm">
+                              {userProfile?.email || getCurrentUser()?.email || 'unknown@email.com'}
+                            </span>
                           </div>
                         </div>
                         <div className="grid gap-2 sm:grid-cols-2">
@@ -327,7 +417,9 @@ export default function NewTicketPage() {
                           </div>
                           <div className="flex flex-col sm:flex-row sm:items-center gap-1">
                             <span className="text-muted-foreground whitespace-nowrap">Department:</span>
-                            <span className="font-medium">{userProfile.department}</span>
+                            <span className="font-medium">
+                              {userProfile?.job_title || 'Agent'}
+                            </span>
                           </div>
                         </div>
                       </div>
