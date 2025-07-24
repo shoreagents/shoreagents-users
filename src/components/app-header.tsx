@@ -52,11 +52,12 @@ interface AppHeaderProps {
 export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
   const pathname = usePathname()
   const router = useRouter()
-  const [user, setUser] = useState({
-    name: "Agent User",
-    email: "agent@shoreagents.com",
-    avatar: "/avatars/agent.jpg",
-  })
+  const [user, setUser] = useState<{
+    name: string
+    email: string
+    avatar: string
+  } | null>(null) // Start with null to show loading state
+  const [userLoading, setUserLoading] = useState(true)
 
   const [notifications, setNotifications] = useState<any[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
@@ -141,15 +142,51 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
   }, [])
 
   useEffect(() => {
-    // Get user data from localStorage
-    const currentUser = getCurrentUser()
-    if (currentUser) {
-      setUser({
-        name: currentUser.name || "Agent User",
-        email: currentUser.email || "agent@shoreagents.com",
-        avatar: "/avatars/agent.jpg",
-      })
+    const loadUserData = async () => {
+      try {
+        // First get user data from localStorage
+        const currentUser = getCurrentUser()
+        if (currentUser) {
+          // Set initial user data from localStorage
+          setUser({
+            name: currentUser.name || "Agent User",
+            email: currentUser.email || "agent@shoreagents.com",
+            avatar: "/avatars/agent.jpg",
+          })
+          
+          // Try to fetch fresh profile data from API
+          try {
+            const response = await fetch('/api/profile')
+            if (response.ok) {
+              const profileData = await response.json()
+              if (profileData.success && profileData.profile) {
+                const profile = profileData.profile
+                setUser({
+                  name: `${profile.first_name} ${profile.last_name}`.trim() || currentUser.name || "Agent User",
+                  email: profile.email || currentUser.email || "agent@shoreagents.com",
+                  avatar: "/avatars/agent.jpg",
+                })
+              }
+            }
+          } catch (apiError) {
+            // If API fails, keep the localStorage data
+            console.warn('Failed to fetch profile from API, using localStorage data')
+          }
+        }
+      } catch (error) {
+        console.error('Error loading user data:', error)
+        // Fallback to default user
+        setUser({
+          name: "Agent User",
+          email: "agent@shoreagents.com",
+          avatar: "/avatars/agent.jpg",
+        })
+      } finally {
+        setUserLoading(false)
+      }
     }
+
+    loadUserData()
   }, [])
 
   // Generate breadcrumbs based on pathname if not provided
@@ -521,7 +558,14 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
               )}
             </DropdownMenuContent>
           </DropdownMenu>
-          <HeaderUser user={user} />
+          {userLoading || !user ? (
+            // User loading skeleton
+            <div className="flex items-center gap-2">
+              <div className="h-8 w-8 rounded-full bg-muted animate-pulse" />
+            </div>
+          ) : (
+            <HeaderUser user={user} />
+          )}
         </div>
       )}
     </header>

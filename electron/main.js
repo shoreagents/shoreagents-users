@@ -710,6 +710,53 @@ async function checkUserLoggedIn() {
   }
 }
 
+// Check if user is currently on break
+async function checkUserOnBreak() {
+  try {
+    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
+      // Wait for the web contents to be ready
+      if (!mainWindow.webContents.isLoading()) {
+        // Get break state from renderer process
+        const result = await mainWindow.webContents.executeJavaScript(`
+          (() => {
+            try {
+              // Check if there's an active break in localStorage
+              const currentBreak = localStorage.getItem('currentBreak');
+              if (currentBreak) {
+                const breakData = JSON.parse(currentBreak);
+                return {
+                  isOnBreak: true,
+                  breakType: breakData.break_type,
+                  timeRemaining: breakData.time_remaining_seconds
+                };
+              }
+              
+              // Also check if break is active in the app state
+              const breakActive = localStorage.getItem('shoreagents-break-active');
+              if (breakActive === 'true') {
+                return {
+                  isOnBreak: true,
+                  breakType: 'Active Break',
+                  timeRemaining: null
+                };
+              }
+              
+              return { isOnBreak: false, breakType: null, timeRemaining: null };
+            } catch (error) {
+              return { isOnBreak: false, breakType: null, timeRemaining: null };
+            }
+          })()
+        `);
+        return result;
+      }
+    }
+    return { isOnBreak: false, breakType: null, timeRemaining: null };
+  } catch (error) {
+    console.error('Error checking break state:', error);
+    return { isOnBreak: false, breakType: null, timeRemaining: null };
+  }
+}
+
 // Update tray menu based on authentication state
 async function updateTrayMenu() {
   try {
@@ -719,6 +766,8 @@ async function updateTrayMenu() {
     
     const authState = await checkUserLoggedIn();
     const isLoggedIn = authState.isLoggedIn;
+    const breakState = await checkUserOnBreak();
+    const isOnBreak = breakState.isOnBreak;
   
   const baseMenuItems = [
     {
@@ -768,11 +817,37 @@ async function updateTrayMenu() {
   
   // Add navigation options only if logged in
   if (isLoggedIn) {
+    // Add break status if user is on break
+    if (isOnBreak) {
+      const timeText = breakState.timeRemaining 
+        ? `${Math.floor(breakState.timeRemaining / 60)}m ${breakState.timeRemaining % 60}s remaining`
+        : '';
+      baseMenuItems.push({
+        label: `On ${breakState.breakType} Break${timeText ? ` - ${timeText}` : ''}`,
+        enabled: false
+      });
+      baseMenuItems.push({
+        label: 'Show Break Timer',
+        click: () => {
+          if (mainWindow) {
+            if (mainWindow.isMinimized()) {
+              mainWindow.restore();
+            }
+            mainWindow.show();
+            mainWindow.focus();
+            mainWindow.webContents.send('navigate-to', '/breaks');
+          }
+        }
+      });
+      baseMenuItems.push({ type: 'separator' });
+    }
+    
     baseMenuItems.push(
       {
         label: 'Dashboard',
+        enabled: !isOnBreak, // Disable when on break
         click: () => {
-          if (mainWindow) {
+          if (mainWindow && !isOnBreak) {
             if (mainWindow.isMinimized()) {
               mainWindow.restore();
             }
@@ -784,8 +859,9 @@ async function updateTrayMenu() {
       },
       {
         label: 'Activity',
+        enabled: !isOnBreak, // Disable when on break
         click: () => {
-          if (mainWindow) {
+          if (mainWindow && !isOnBreak) {
             if (mainWindow.isMinimized()) {
               mainWindow.restore();
             }
@@ -797,8 +873,9 @@ async function updateTrayMenu() {
       },
       {
         label: 'Notifications',
+        enabled: !isOnBreak, // Disable when on break
         click: () => {
-          if (mainWindow) {
+          if (mainWindow && !isOnBreak) {
             if (mainWindow.isMinimized()) {
               mainWindow.restore();
             }
@@ -814,37 +891,43 @@ async function updateTrayMenu() {
   // Add separator
   baseMenuItems.push({ type: 'separator' });
   
-  // Add appropriate quit option based on login state
-  if (isLoggedIn) {
-    baseMenuItems.push({
-      label: 'Logout & Quit',
-      click: async () => {
-        await handleLogoutAndQuit();
+      // Add appropriate quit option based on login state
+    if (isLoggedIn) {
+      baseMenuItems.push({
+        label: 'Logout & Quit',
+        click: async () => {
+          await handleLogoutAndQuit();
+        }
+      });
+      
+      // Update tooltip to show tracking is active and break status
+      let baseTooltip = 'ShoreAgents Dashboard - Activity Tracking Active';
+      if (isOnBreak) {
+        const timeText = breakState.timeRemaining 
+          ? `${Math.floor(breakState.timeRemaining / 60)}m ${breakState.timeRemaining % 60}s remaining`
+          : '';
+        baseTooltip = `ShoreAgents Dashboard - On ${breakState.breakType} Break${timeText ? ` (${timeText})` : ''}`;
       }
-    });
-    
-    // Update tooltip to show tracking is active
-    const baseTooltip = 'ShoreAgents Dashboard - Activity Tracking Active';
-    const tooltip = notificationBadgeCount > 0 
-      ? `${baseTooltip} (${notificationBadgeCount} notifications)`
-      : baseTooltip;
-    tray.setToolTip(tooltip);
-  } else {
-    baseMenuItems.push({
-      label: 'Quit',
-      click: () => {
-        isQuitting = true;
-        app.quit();
-      }
-    });
-    
-    // Update tooltip to show no tracking
-    const baseTooltip = 'ShoreAgents Dashboard';
-    const tooltip = notificationBadgeCount > 0 
-      ? `${baseTooltip} (${notificationBadgeCount} notifications)`
-      : baseTooltip;
-    tray.setToolTip(baseTooltip);
-  }
+      const tooltip = notificationBadgeCount > 0 
+        ? `${baseTooltip} (${notificationBadgeCount} notifications)`
+        : baseTooltip;
+      tray.setToolTip(tooltip);
+    } else {
+      baseMenuItems.push({
+        label: 'Quit',
+        click: () => {
+          isQuitting = true;
+          app.quit();
+        }
+      });
+      
+      // Update tooltip to show no tracking
+      const baseTooltip = 'ShoreAgents Dashboard';
+      const tooltip = notificationBadgeCount > 0 
+        ? `${baseTooltip} (${notificationBadgeCount} notifications)`
+        : baseTooltip;
+      tray.setToolTip(baseTooltip);
+    }
   
   const contextMenu = Menu.buildFromTemplate(baseMenuItems);
   tray.setContextMenu(contextMenu);

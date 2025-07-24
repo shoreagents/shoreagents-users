@@ -22,11 +22,23 @@ import {
   SidebarInset,
   SidebarProvider,
 } from "@/components/ui/sidebar"
-import { getBreakHistory, updateBreakStatus, saveBreakTimerState, clearBreakTimerState } from "@/lib/break-storage"
+import { 
+  startBreak, 
+  endBreak, 
+  pauseBreak,
+  resumeBreak,
+  getCurrentBreak, 
+  getBreakStatus, 
+  getBreakHistory,
+  getCurrentBreakDuration,
+  type BreakType,
+  type BreakStatus as DatabaseBreakStatus
+} from "@/lib/break-manager"
+import { getCurrentUserInfo } from "@/lib/user-profiles"
 import { useBreak } from "@/contexts/break-context"
 
 interface BreakInfo {
-  id: string
+  id: BreakType
   name: string
   duration: number // in minutes
   startTime: string // 24-hour format
@@ -38,7 +50,7 @@ interface BreakInfo {
 
 const breakTypes: BreakInfo[] = [
   {
-    id: "morning",
+    id: "Morning",
     name: "Morning Break",
     duration: 15,
     startTime: "06:00",
@@ -48,7 +60,7 @@ const breakTypes: BreakInfo[] = [
     color: "bg-orange-500"
   },
   {
-    id: "lunch",
+    id: "Lunch",
     name: "Lunch Break",
     duration: 60,
     startTime: "11:00",
@@ -58,7 +70,7 @@ const breakTypes: BreakInfo[] = [
     color: "bg-green-500"
   },
   {
-    id: "afternoon",
+    id: "Afternoon",
     name: "Afternoon Break",
     duration: 15,
     startTime: "12:00",
@@ -71,71 +83,113 @@ const breakTypes: BreakInfo[] = [
 
 export default function BreaksPage() {
   const [currentTime, setCurrentTime] = useState(new Date())
-  const [activeBreak, setActiveBreak] = useState<string | null>(null)
-  const [breakHistory, setBreakHistory] = useState<Record<string, { used: boolean; paused: boolean; timeLeft?: number; startTime?: number; pauseTime?: number; emergencyPauseUsed?: boolean }>>({
-    morning: { used: false, paused: false },
-    lunch: { used: false, paused: false },
-    afternoon: { used: false, paused: false }
-  })
+  const [activeBreak, setActiveBreak] = useState<BreakType | null>(null)
+  const [breakStatus, setBreakStatus] = useState<DatabaseBreakStatus | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const { setBreakActive, isBreakActive, activeBreakId, isInitialized } = useBreak()
 
-  // Load break history on mount and update every 5 seconds for real-time data
+  // Load break status on mount and update periodically
   useEffect(() => {
-    const loadBreakHistory = () => {
-      const history = getBreakHistory()
-      setBreakHistory(history)
-    }
-
-    // Load immediately
-    loadBreakHistory()
-
-    // Update every 5 seconds for real-time data
-    const interval = setInterval(loadBreakHistory, 5000)
-
-    return () => clearInterval(interval)
-  }, [])
-
-  // Additional check for web browsers - manually check localStorage if context isn't initialized quickly enough
-  useEffect(() => {
-    const checkForActiveBreak = () => {
-      if (typeof window !== 'undefined' && !activeBreak) {
-        try {
-          const savedActiveBreak = localStorage.getItem('shoreagents-active-break')
-          const savedBreakState = localStorage.getItem('shoreagents-break-state')
-          
-          if (savedActiveBreak && savedBreakState === 'true' && !activeBreak) {
-            setActiveBreak(savedActiveBreak)
-            setBreakActive(true, savedActiveBreak)
-          }
-        } catch (error) {
-          console.error('Error in manual break check:', error)
+    const loadBreakStatus = async () => {
+      try {
+        const currentUser = getCurrentUserInfo()
+        if (!currentUser?.id) {
+          setError('User not authenticated')
+          setLoading(false)
+          return
         }
+
+        const { success, status, message } = await getBreakStatus()
+        if (success && status) {
+          setBreakStatus(status)
+          
+          // Sync with existing localStorage system for compatibility
+          if (status.is_on_break && status.active_break) {
+            // Only set as active if break is NOT paused
+            if (!status.active_break.is_paused) {
+              setActiveBreak(status.active_break.break_type)
+              setBreakActive(true, status.active_break.break_type.toLowerCase())
+            } else {
+              // Break is paused, show breaks list instead of timer
+              setActiveBreak(null)
+              setBreakActive(false)
+              // Clear any conflicting localStorage
+              localStorage.removeItem('currentBreak')
+
+            }
+          } else {
+            // No active break found - clear all break state
+            setActiveBreak(null)
+            setBreakActive(false)
+            localStorage.removeItem('currentBreak')
+          }
+        } else {
+          // If API fails, check localStorage for any stale data and clear it
+          const currentBreak = localStorage.getItem('currentBreak')
+          if (currentBreak) {
+            try {
+              const breakData = JSON.parse(currentBreak)
+              // If the break looks like it should be finished, clear it
+              if (breakData.time_remaining_seconds && breakData.time_remaining_seconds <= 0) {
+                localStorage.removeItem('currentBreak')
+                setActiveBreak(null)
+                setBreakActive(false)
+              }
+            } catch (e) {
+              // Invalid localStorage data, clear it
+              localStorage.removeItem('currentBreak')
+              setActiveBreak(null)
+              setBreakActive(false)
+            }
+          }
+          
+          // Only show error if it's not just "No active break session found"
+          if (message && !message.toLowerCase().includes('no active break session')) {
+            setError(message || 'Failed to load break status')
+          } else {
+            setError(null) // Clear any previous errors
+          }
+        }
+      } catch (error) {
+        console.error('Error loading break status:', error)
+        setError('Failed to load break status')
+      } finally {
+        setLoading(false)
       }
     }
 
-    // Check immediately and after delays
-    checkForActiveBreak()
-    const timeoutId1 = setTimeout(checkForActiveBreak, 500)
-    const timeoutId2 = setTimeout(checkForActiveBreak, 1000)
+    // Load immediately
+    loadBreakStatus()
 
-    return () => {
-      clearTimeout(timeoutId1)
-      clearTimeout(timeoutId2)
-    }
-  }, [activeBreak, setBreakActive])
+    // Update every 30 seconds for real-time data
+    const interval = setInterval(loadBreakStatus, 30000)
 
-  // Restore active break state when context is initialized
+    return () => clearInterval(interval)
+  }, [setBreakActive])
+
+  // Check localStorage for active break (fallback for compatibility)
   useEffect(() => {
-    if (isInitialized && isBreakActive && activeBreakId) {
-      setActiveBreak(activeBreakId)
-    }
-  }, [isInitialized, isBreakActive, activeBreakId])
+          const checkLocalStorage = () => {
+        const currentBreak = getCurrentBreak()
+        
+        if (currentBreak && !activeBreak) {
+          // Only set as active if not paused
+          if (!currentBreak.is_paused) {
+            setActiveBreak(currentBreak.break_type)
+            setBreakActive(true, currentBreak.break_type.toLowerCase())
+          }
+        }
+      }
+
+    checkLocalStorage()
+  }, [activeBreak, setBreakActive])
 
   // Update current time every minute
   useEffect(() => {
     const interval = setInterval(() => {
       setCurrentTime(new Date())
-    }, 60000) // Update every minute
+    }, 60000)
 
     return () => clearInterval(interval)
   }, [])
@@ -147,77 +201,168 @@ export default function BreaksPage() {
     return currentTimeStr >= breakInfo.startTime && currentTimeStr <= breakInfo.endTime
   }
 
-  const isBreakAvailable = (breakId: string) => {
-    return !breakHistory[breakId].used || breakHistory[breakId].paused
+  const isBreakAvailable = (breakId: BreakType) => {
+    if (!breakStatus) return true
+    
+    // Check if this break type was already taken today
+    const todayBreakCount = breakStatus.today_summary.breaks_by_type[breakId] || 0
+    return todayBreakCount === 0
   }
 
-  const handleStartBreak = (breakId: string) => {
-    setActiveBreak(breakId)
-    setBreakActive(true, breakId)
-    
-    // Save start time if this is a new break (not resuming a paused one)
-    if (!breakHistory[breakId].used || !breakHistory[breakId].startTime) {
-      const startTime = Date.now()
-      const newHistory = {
-        ...breakHistory,
-        [breakId]: { 
-          ...breakHistory[breakId], 
-          used: true,
-          startTime: startTime
+  const handleStartBreak = async (breakId: BreakType) => {
+    try {
+      setLoading(true)
+      setError(null)
+
+      // Call database API to start break
+      const result = await startBreak(breakId)
+      
+      if (result.success && result.breakSession) {
+        setActiveBreak(breakId)
+        setBreakActive(true, breakId.toLowerCase())
+        
+        // Refresh break status after starting
+        const { success, status } = await getBreakStatus()
+        if (success && status) {
+          setBreakStatus(status)
+        }
+
+
+      } else {
+        setError(result.message || 'Failed to start break')
+      }
+    } catch (error) {
+      console.error('Error starting break:', error)
+      setError('Failed to start break session')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleEndBreak = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+
+      // Call database API to end break
+      const result = await endBreak()
+      
+      if (result.success) {
+        // Clear break state immediately
+        setActiveBreak(null)
+        setBreakActive(false)
+        localStorage.removeItem('currentBreak')
+        
+        // Refresh break status after ending
+        const { success, status } = await getBreakStatus()
+        if (success && status) {
+          setBreakStatus(status)
+        }
+
+      } else {
+        // If end break fails, check if it's because break is already ended
+        if (result.message && result.message.toLowerCase().includes('no active break')) {
+          // Break is already ended, just clear local state
+          setActiveBreak(null)
+          setBreakActive(false)
+          localStorage.removeItem('currentBreak')
+          setError(null)
+        } else {
+          setError(result.message || 'Failed to end break')
         }
       }
-      setBreakHistory(newHistory)
-      updateBreakStatus(breakId, { used: true, startTime: startTime })
-    }
-  }
-
-  const handleEndBreak = () => {
-    setActiveBreak(null)
-    setBreakActive(false)
-  }
-
-  const handlePauseBreak = (breakId: string) => {
-    const newHistory = {
-      ...breakHistory,
-      [breakId]: { ...breakHistory[breakId], paused: true }
-    }
-    setBreakHistory(newHistory)
-    updateBreakStatus(breakId, { paused: true })
-  }
-
-  const handleResumeBreak = (breakId: string) => {
-    const currentBreakHistory = breakHistory[breakId]
-    const now = Date.now()
-    
-    // Calculate new start time based on remaining time
-    // If we have 14:55 left (895 seconds), set startTime so that the timer shows 14:55 remaining
-    const timeLeftInSeconds = currentBreakHistory.timeLeft || 0
-    const newStartTime = now - ((breakTypes.find(b => b.id === breakId)!.duration * 60) - timeLeftInSeconds) * 1000
-    
-    // Clear the paused state but keep emergency pause used flag, set new start time
-    const newHistory = {
-      ...breakHistory,
-      [breakId]: { 
-        ...breakHistory[breakId], 
-        paused: false,
-        startTime: newStartTime, // New start time for continued tracking
-        timeLeft: undefined, // Clear saved time left
-        pauseTime: undefined, // Clear pause time
-        emergencyPauseUsed: true // Keep emergency pause flag (1 attempt rule)
+    } catch (error) {
+      console.error('Error ending break:', error)
+      
+      // Check if it's a "no active break" error and handle gracefully
+      if (error instanceof Error && error.message.toLowerCase().includes('no active break')) {
+        setActiveBreak(null)
+        setBreakActive(false)
+        localStorage.removeItem('currentBreak')
+        setError(null)
+      } else {
+        setError('Failed to end break session')
       }
+    } finally {
+      setLoading(false)
     }
-    setBreakHistory(newHistory)
-    updateBreakStatus(breakId, { 
-      paused: false,
-      startTime: newStartTime,
-      timeLeft: undefined,
-      pauseTime: undefined,
-      emergencyPauseUsed: true // Keep the flag to prevent multiple emergency pauses
-    })
-    
-    // Start the break immediately - timer will continue from new start time
-    setActiveBreak(breakId)
-    setBreakActive(true, breakId)
+  }
+
+  const handlePauseBreak = async (timeRemainingSeconds: number) => {
+    try {
+      setLoading(true)
+      setError(null)
+
+      // Call database API to pause break
+      const result = await pauseBreak(timeRemainingSeconds)
+      
+      if (result.success) {
+        setActiveBreak(null)
+        setBreakActive(false)
+        
+        // Refresh break status after pausing
+        const { success, status } = await getBreakStatus()
+        if (success && status) {
+          setBreakStatus(status)
+        }
+
+
+      } else {
+        setError(result.message || 'Failed to pause break')
+      }
+    } catch (error) {
+      console.error('Error pausing break:', error)
+      setError('Failed to pause break session')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleResumeBreak = async (breakId: BreakType) => {
+    try {
+      setLoading(true)
+      setError(null)
+
+
+
+      // Call database API to resume break
+      const result = await resumeBreak()
+      
+      if (result.success && result.breakSession) {
+
+        
+        // Update localStorage with resumed break info for timer
+        const resumedBreak = {
+          id: result.breakSession.id,
+          break_type: breakId,
+          start_time: result.breakSession.start_time,
+          agent_user_id: result.breakSession.agent_user_id,
+          is_paused: false,
+          pause_used: true,
+          time_remaining_seconds: result.breakSession.time_remaining_seconds
+        }
+        
+        localStorage.setItem('currentBreak', JSON.stringify(resumedBreak))
+        
+        // Set break as active to show timer
+        setActiveBreak(breakId)
+        setBreakActive(true, breakId.toLowerCase())
+        
+
+        
+        // Note: We don't refresh break status here to avoid conflicts
+        // The timer will use the localStorage data and the database will be updated when break ends
+        
+      } else {
+
+        setError(result.message || 'Failed to resume break')
+      }
+    } catch (error) {
+      console.error('❌ Error resuming break:', error)
+      setError('Failed to resume break session')
+    } finally {
+      setLoading(false)
+    }
   }
 
   const formatTime = (timeStr: string) => {
@@ -228,20 +373,69 @@ export default function BreaksPage() {
     return `${displayHour}:${minutes} ${ampm}`
   }
 
+  if (loading && !breakStatus) {
+    return (
+      <SidebarProvider>
+        <AppSidebar />
+        <SidebarInset>
+          <AppHeader />
+          <div className="flex flex-1 flex-col gap-6 p-6 pt-2">
+            <div className="flex items-center justify-center h-64">
+              <div className="text-center">
+                <Clock className="h-8 w-8 animate-spin mx-auto mb-4 text-muted-foreground" />
+                <p className="text-muted-foreground">Loading break status...</p>
+              </div>
+            </div>
+          </div>
+        </SidebarInset>
+      </SidebarProvider>
+    )
+  }
+
+  if (error) {
+    return (
+      <SidebarProvider>
+        <AppSidebar />
+        <SidebarInset>
+          <AppHeader />
+          <div className="flex flex-1 flex-col gap-6 p-6 pt-2">
+            <div className="flex items-center justify-center h-64">
+              <div className="text-center">
+                <AlertTriangle className="h-8 w-8 mx-auto mb-4 text-destructive" />
+                <p className="text-destructive font-medium">Error loading break status</p>
+                <p className="text-muted-foreground text-sm">{error}</p>
+                <Button 
+                  onClick={() => window.location.reload()} 
+                  variant="outline" 
+                  className="mt-4"
+                >
+                  Retry
+                </Button>
+              </div>
+            </div>
+          </div>
+        </SidebarInset>
+      </SidebarProvider>
+    )
+  }
+
   if (activeBreak) {
     const breakInfo = breakTypes.find(b => b.id === activeBreak)!
+    const currentBreak = getCurrentBreak()
+    const isResumedBreak = currentBreak && currentBreak.pause_used
     
     return (
       <BreakTimer
-        breakInfo={breakInfo}
+        breakInfo={{
+          ...breakInfo,
+          id: breakInfo.id.toLowerCase() // Convert for compatibility with existing BreakTimer
+        }}
         onEnd={handleEndBreak}
-        onPause={() => handlePauseBreak(activeBreak)}
+        onPause={handlePauseBreak}
         onResume={() => handleResumeBreak(activeBreak)}
-        isPaused={breakHistory[activeBreak].paused}
-        savedTimeLeft={breakHistory[activeBreak].timeLeft}
-        savedStartTime={breakHistory[activeBreak].startTime}
-        savedPauseTime={breakHistory[activeBreak].pauseTime}
-        emergencyPauseUsed={breakHistory[activeBreak].emergencyPauseUsed}
+        isPaused={false} 
+        emergencyPauseUsed={isResumedBreak || false} // Disable pause if already used
+        savedTimeLeft={currentBreak?.time_remaining_seconds}
       />
     )
   }
@@ -257,15 +451,25 @@ export default function BreaksPage() {
               <h1 className="text-3xl font-bold text-foreground">Break Management</h1>
               <p className="text-muted-foreground">Manage your work breaks and rest periods</p>
             </div>
-            <div className="flex items-center gap-2">
-              <Clock className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm font-medium">
-                {currentTime.toLocaleTimeString('en-US', { 
-                  hour: '2-digit', 
-                  minute: '2-digit',
-                  hour12: true 
-                })}
-              </span>
+            <div className="flex items-center gap-4">
+              {breakStatus && (
+                <div className="text-right">
+                  <p className="text-sm text-muted-foreground">Today's breaks:</p>
+                  <p className="font-medium">
+                    {breakStatus.today_summary.completed_breaks} completed • {breakStatus.today_summary.total_minutes}m total
+                  </p>
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <Clock className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-medium">
+                  {currentTime.toLocaleTimeString('en-US', { 
+                    hour: '2-digit', 
+                    minute: '2-digit',
+                    hour12: true 
+                  })}
+                </span>
+              </div>
             </div>
           </div>
 
@@ -273,8 +477,10 @@ export default function BreaksPage() {
             {breakTypes.map((breakInfo) => {
               const isValid = isBreakTimeValid(breakInfo)
               const isAvailable = isBreakAvailable(breakInfo.id)
-              const isPaused = breakHistory[breakInfo.id].paused
-              const isDisabled = !isValid || (!isAvailable && !isPaused)
+              const isOnThisBreak = breakStatus?.is_on_break && breakStatus?.active_break?.break_type === breakInfo.id
+              const isPausedThisBreak = isOnThisBreak && breakStatus?.active_break?.is_paused
+              const todayCount = breakStatus?.today_summary.breaks_by_type[breakInfo.id] || 0
+              const isDisabled = !isValid || (!isAvailable && !isOnThisBreak && !isPausedThisBreak) || loading
               const Icon = breakInfo.icon
 
               return (
@@ -292,17 +498,20 @@ export default function BreaksPage() {
                       </div>
                       {!isAvailable && (
                         <Badge variant="secondary" className="flex items-center gap-1">
-                          {breakHistory[breakInfo.id].paused ? (
-                            <>
-                              <Pause className="h-3 w-3" />
-                              Paused
-                            </>
-                          ) : (
-                            <>
-                              <CheckCircle className="h-3 w-3" />
-                              Used
-                            </>
-                          )}
+                          <CheckCircle className="h-3 w-3" />
+                          Used ({todayCount})
+                        </Badge>
+                      )}
+                      {isOnThisBreak && !isPausedThisBreak && (
+                        <Badge variant="default" className="flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          Active
+                        </Badge>
+                      )}
+                      {isPausedThisBreak && (
+                        <Badge variant="secondary" className="flex items-center gap-1">
+                          <Pause className="h-3 w-3" />
+                          Paused
                         </Badge>
                       )}
                     </div>
@@ -329,46 +538,45 @@ export default function BreaksPage() {
                         </div>
                       )}
                       
-                      {!isAvailable && (
+                      {!isAvailable && !isOnThisBreak && (
                         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          {breakHistory[breakInfo.id].paused ? (
-                            <>
-                              <Pause className="h-4 w-4" />
-                              <span>Break paused - Emergency pause used</span>
-                            </>
-                          ) : (
-                            <>
-                              <X className="h-4 w-4" />
-                              <span>Break already used today</span>
-                            </>
-                          )}
+                          <X className="h-4 w-4" />
+                          <span>Break already used today</span>
+                        </div>
+                      )}
+
+                      {isOnThisBreak && !isPausedThisBreak && (
+                        <div className="flex items-center gap-2 text-sm text-green-600">
+                          <Clock className="h-4 w-4" />
+                          <span>Currently on this break</span>
+                        </div>
+                      )}
+
+                      {isPausedThisBreak && (
+                        <div className="flex items-center gap-2 text-sm text-orange-600">
+                          <Pause className="h-4 w-4" />
+                          <span>Break paused - {breakStatus?.active_break?.time_remaining_at_pause ? Math.floor(breakStatus.active_break.time_remaining_at_pause / 60) : 0}m {breakStatus?.active_break?.time_remaining_at_pause ? breakStatus.active_break.time_remaining_at_pause % 60 : 0}s remaining</span>
                         </div>
                       )}
                     </div>
 
                     <Button 
-                      onClick={() => breakHistory[breakInfo.id].paused ? handleResumeBreak(breakInfo.id) : handleStartBreak(breakInfo.id)}
+                      onClick={() => isPausedThisBreak ? handleResumeBreak(breakInfo.id) : handleStartBreak(breakInfo.id)}
                       disabled={isDisabled}
                       className="w-full"
                       size="lg"
                     >
-                      {breakHistory[breakInfo.id].paused ? (
-                        <>
-                          <Play className="mr-2 h-4 w-4" />
-                          Resume {breakInfo.name}
-                        </>
-                      ) : (
-                        <>
-                          <Play className="mr-2 h-4 w-4" />
-                          Start {breakInfo.name}
-                        </>
-                      )}
+                      <Play className="mr-2 h-4 w-4" />
+                      {loading ? (isPausedThisBreak ? 'Resuming...' : 'Starting...') : 
+                       isPausedThisBreak ? `Resume ${breakInfo.name}` : `Start ${breakInfo.name}`}
                     </Button>
                   </CardContent>
                 </Card>
               )
             })}
           </div>
+
+
 
           <Card>
             <CardHeader>
@@ -391,9 +599,9 @@ export default function BreaksPage() {
                   <h4 className="font-medium">Break Rules</h4>
                   <ul className="text-sm text-muted-foreground space-y-1">
                     <li>• Each break can only be used once per day</li>
-                    <li>• Emergency pause temporarily pauses the break timer</li>
+                    <li>• Breaks are automatically saved to database</li>
                     <li>• Breaks must be taken within valid time windows</li>
-                    <li>• Timer continues even if window is minimized</li>
+                    <li>• Break duration is automatically calculated</li>
                   </ul>
                 </div>
               </div>
