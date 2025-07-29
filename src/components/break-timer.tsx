@@ -219,7 +219,7 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
       await onPause(timeLeft) // Pass remaining time in seconds to database
       
       // Pause break via API
-      const pauseTime = Date.now()
+    const pauseTime = Date.now()
       
       // Return to breaks page WITHOUT ending the break session  
       // The break should remain active but paused in database

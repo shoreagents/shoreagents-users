@@ -11,16 +11,12 @@ import {
 import { Paperclip, X, Upload } from "lucide-react"
 
 interface InlineEditFilesProps {
-  value: string[]
+  value: string[] | undefined
   onSave: (value: string[]) => void
   className?: string
 }
 
-export function InlineEditFiles({
-  value,
-  onSave,
-  className = ""
-}: InlineEditFilesProps) {
+export function InlineEditFiles({ value = [], onSave, className = "" }: InlineEditFilesProps) {
   const [isOpen, setIsOpen] = useState(false)
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -40,7 +36,7 @@ export function InlineEditFiles({
       <PopoverTrigger asChild>
         <div className={`cursor-pointer hover:bg-muted/50 rounded px-2 py-1 min-h-[2rem] flex items-center gap-2 ${className}`}>
           <Paperclip className="h-3 w-3 text-muted-foreground" />
-          {value.length > 0 ? (
+          {(value && value.length > 0) ? (
             <Badge variant="outline">{value.length} file{value.length !== 1 ? 's' : ''}</Badge>
           ) : (
             <span className="text-muted-foreground italic text-sm">Attach files</span>

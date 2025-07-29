@@ -65,11 +65,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Update break session with pause information
+    // Update break session with pause information (Philippines timezone)
     const pauseQuery = `
       UPDATE break_sessions 
       SET 
-        pause_time = CURRENT_TIMESTAMP,
+        pause_time = NOW() AT TIME ZONE 'Asia/Manila',
         pause_used = true,
         time_remaining_at_pause = $2
       WHERE id = $1 AND end_time IS NULL

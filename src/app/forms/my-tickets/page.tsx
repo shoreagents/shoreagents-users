@@ -14,9 +14,9 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Pagination, PaginationContent, PaginationEllipsis, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@/components/ui/pagination"
-import { ArrowLeft, Search, Filter, FileText, Calendar, User, Mail, Tag, Eye } from "lucide-react"
+import { ArrowLeft, Search, Filter, FileText, Calendar, User, Mail, Tag, Eye, Clock, AlertTriangle, CheckCircle } from "lucide-react"
 import Link from "next/link"
-import { getCurrentUserTickets, Ticket } from "@/lib/ticket-utils"
+import { Ticket } from "@/lib/ticket-utils"
 
 export default function MyTicketsPage() {
   const [tickets, setTickets] = useState<Ticket[]>([])
@@ -31,21 +31,36 @@ export default function MyTicketsPage() {
 
   useEffect(() => {
     const loadTickets = async () => {
-      // Simulate loading delay
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      
-      const userTickets = getCurrentUserTickets()
-      
-      // Sort tickets by newest first immediately when loaded
-      const sortedTickets = [...userTickets].sort((a, b) => {
-        const dateA = a.createdAt ? new Date(a.createdAt).getTime() : new Date(a.date).getTime()
-        const dateB = b.createdAt ? new Date(b.createdAt).getTime() : new Date(b.date).getTime()
-        return dateB - dateA // Newest first
-      })
-      
-      setTickets(sortedTickets)
-      setFilteredTickets(sortedTickets)
-      setLoading(false)
+      try {
+        // Load tickets from API
+        const response = await fetch('/api/tickets', {
+          method: 'GET',
+          credentials: 'include' // Include authentication cookies
+        })
+        
+        if (response.ok) {
+          const result = await response.json()
+          if (result.success) {
+            // API already returns tickets sorted by newest first
+            setTickets(result.tickets)
+            setFilteredTickets(result.tickets)
+          } else {
+            console.error('❌ Failed to load tickets:', result.error)
+            setTickets([])
+            setFilteredTickets([])
+          }
+        } else {
+          console.error('❌ API request failed:', response.status)
+          setTickets([])
+          setFilteredTickets([])
+        }
+      } catch (error) {
+        console.error('❌ Error loading tickets:', error)
+        setTickets([])
+        setFilteredTickets([])
+      } finally {
+        setLoading(false)
+      }
     }
 
     loadTickets()
@@ -57,9 +72,9 @@ export default function MyTicketsPage() {
     // Search filter
     if (searchTerm) {
       filtered = filtered.filter(ticket =>
-        (ticket.name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+        (ticket.id?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
         (ticket.concern?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-        (ticket.comments?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+        (ticket.details?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
         (ticket.id?.toLowerCase() || '').includes(searchTerm.toLowerCase())
       )
     }
@@ -139,11 +154,33 @@ export default function MyTicketsPage() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'pending':
-        return <Badge variant="secondary">Pending</Badge>
+        return (
+          <Badge variant="secondary" className="flex items-center gap-1">
+            <Clock className="h-3 w-3" />
+            Pending
+          </Badge>
+        )
       case 'in-progress':
-        return <Badge variant="default">In Progress</Badge>
+        return (
+          <Badge variant="default" className="flex items-center gap-1">
+            <AlertTriangle className="h-3 w-3" />
+            In Progress
+          </Badge>
+        )
       case 'resolved':
-        return <Badge variant="outline">Resolved</Badge>
+        return (
+          <Badge variant="outline" className="flex items-center gap-1 text-green-600 border-green-200">
+            <CheckCircle className="h-3 w-3" />
+            Resolved
+          </Badge>
+        )
+      case 'on-hold':
+        return (
+          <Badge variant="destructive" className="flex items-center gap-1">
+            <AlertTriangle className="h-3 w-3" />
+            On Hold
+          </Badge>
+        )
       default:
         return <Badge variant="secondary">{status}</Badge>
     }
@@ -247,6 +284,7 @@ export default function MyTicketsPage() {
                       <SelectItem value="pending">Pending</SelectItem>
                       <SelectItem value="in-progress">In Progress</SelectItem>
                       <SelectItem value="resolved">Resolved</SelectItem>
+                      <SelectItem value="on-hold">On Hold</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -336,7 +374,7 @@ export default function MyTicketsPage() {
                       <div className="flex items-center justify-between">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-3 mb-2">
-                            <h3 className="text-lg font-semibold truncate">{ticket.name}</h3>
+                            <h3 className="text-lg font-semibold truncate">{ticket.id}</h3>
                             {getStatusBadge(ticket.status)}
                             <Badge variant="outline" className="text-xs">
                               {getCategoryLabel(ticket.category)}

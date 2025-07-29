@@ -3,14 +3,17 @@ export interface Ticket {
   name: string
   date: string
   concern: string
-  comments: string
   category: string
   details: string
   email: string
   files: string[]
-  status: 'pending' | 'in-progress' | 'resolved'
+  status: 'pending' | 'in-progress' | 'resolved' | 'on-hold'
   createdAt: string
-  userId?: string // Add user ID to track ownership
+  userId?: number // Use actual database user ID (integer)
+  userEmail?: string // Keep email for localStorage key generation
+  resolvedBy?: number // ID of user who resolved the ticket
+  resolvedByEmail?: string // Email of user who resolved the ticket
+  resolvedAt?: string // Timestamp when ticket was resolved
 }
 
 export const getCurrentUser = () => {
@@ -48,7 +51,12 @@ export const saveTicketsForUser = (userEmail: string, tickets: Ticket[]) => {
 
 export const addTicketForUser = (userEmail: string, ticket: Ticket) => {
   const tickets = getTicketsForUser(userEmail)
-  const newTicket = { ...ticket, userId: userEmail }
+  const currentUser = getCurrentUser()
+  const newTicket = { 
+    ...ticket, 
+    userId: currentUser?.id ? Number(currentUser.id) : undefined, // Use actual database user ID as number
+    userEmail: userEmail // Keep email for reference
+  }
   tickets.push(newTicket)
   saveTicketsForUser(userEmail, tickets)
   

@@ -49,6 +49,12 @@ export const getActivityStorageKey = (userId: string) => {
   return `shoreagents-activity-${userId}`;
 };
 
+// Utility function to get local date in YYYY-MM-DD format (not UTC)
+const getLocalDateString = (date: Date = new Date()): string => {
+  // Use toLocaleDateString with 'en-CA' to get YYYY-MM-DD format in local timezone
+  return date.toLocaleDateString('en-CA');
+};
+
 // Function to end any active or paused break sessions before logout
 const endActiveBreakOnLogout = async () => {
   try {
@@ -552,7 +558,7 @@ export const checkAndResetDailyData = (userId: string) => {
   if (typeof window === 'undefined') return;
   
   const now = Date.now();
-  const today = new Date().toISOString().split('T')[0];
+  const today = getLocalDateString();
   const userData = getUserActivityData(userId);
   
   if (!userData) return;
@@ -569,7 +575,7 @@ export const checkAndResetDailyData = (userId: string) => {
       // Try to parse as timestamp first (new format)
       const lastResetTimestamp = parseInt(lastResetData);
       if (!isNaN(lastResetTimestamp)) {
-        lastResetDate = new Date(lastResetTimestamp).toISOString().split('T')[0];
+        lastResetDate = getLocalDateString(new Date(lastResetTimestamp));
       } else {
         // Fallback to old format (date string)
         lastResetDate = lastResetData;
@@ -585,13 +591,13 @@ export const checkAndResetDailyData = (userId: string) => {
   }
   
   if (shouldReset) {
-    // New day - reset daily tracking with actual readable time
-    const resetTime = new Date(now).toISOString();
-    localStorage.setItem(lastResetKey, resetTime);
+    // New day - reset daily tracking with local date (not UTC)
+    const resetDate = new Date(now).toLocaleDateString('en-CA'); // YYYY-MM-DD format in local timezone
+    localStorage.setItem(lastResetKey, resetDate);
     
     // Update daily summary for the previous day if there was activity
     if (userData.lastActivityTime) {
-      const lastActivityDate = new Date(userData.lastActivityTime).toISOString().split('T')[0];
+      const lastActivityDate = getLocalDateString(new Date(userData.lastActivityTime));
       if (lastActivityDate !== today) {
         updateDailySummary(userId, lastActivityDate);
       }
@@ -599,7 +605,7 @@ export const checkAndResetDailyData = (userId: string) => {
     
     // Reset current session if it started on a previous day
     if (userData.currentSessionStart) {
-      const sessionStartDate = new Date(userData.currentSessionStart).toISOString().split('T')[0];
+      const sessionStartDate = getLocalDateString(new Date(userData.currentSessionStart));
       if (sessionStartDate !== today) {
         // End the previous day's session and start a new one for today
         const midnight = new Date(today).getTime();
@@ -1207,7 +1213,7 @@ export const updateTodayActivityData = (userId: string, activityType: 'active' |
   
   const now = Date.now();
   const currentDate = new Date(now);
-  const dateString = currentDate.toISOString().split('T')[0]; // YYYY-MM-DD
+  const dateString = currentDate.toLocaleDateString('en-CA'); // YYYY-MM-DD format in local timezone
   const currentHour = currentDate.getHours();
   const hourStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate(), currentHour).getTime();
   
@@ -1294,15 +1300,15 @@ export const updateMonthlyTotals = (userId: string, activityType: 'active' | 'in
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth(); // 0-based (0 = January, 6 = July)
   const monthStartDate = new Date(Date.UTC(year, month, 1, 0, 0, 0, 0));
-  const monthStartDateString = monthStartDate.toISOString().split('T')[0]; // YYYY-MM-DD
+  const monthStartDateString = monthStartDate.toLocaleDateString('en-CA'); // YYYY-MM-DD format
   
 
   
   // Calculate the first day of the next month (e.g., 2025-08-01)
   const nextMonthStartDate = new Date(Date.UTC(year, month + 1, 1, 0, 0, 0, 0));
-  const nextMonthStartDateString = nextMonthStartDate.toISOString().split('T')[0];
+  const nextMonthStartDateString = nextMonthStartDate.toLocaleDateString('en-CA');
   
-  const currentDateString = currentDate.toISOString().split('T')[0];
+  const currentDateString = currentDate.toLocaleDateString('en-CA');
   
   const monthlyTotalsKey = getMonthlyTotalsStorageKey(userId);
   const monthlyDailyKey = `shoreagents-monthly-daily-${userId}`;
@@ -2193,8 +2199,8 @@ export const updateWeeklyDailyData = (userId: string, activityType: 'active' | '
   currentWeekStart.setDate(currentDate.getDate() - currentDate.getDay()); // Start of week (Sunday)
   currentWeekStart.setHours(0, 0, 0, 0);
   
-  const currentDateString = currentDate.toISOString().split('T')[0]; // YYYY-MM-DD
-  const weekStartDateString = currentWeekStart.toISOString().split('T')[0];
+  const currentDateString = currentDate.toLocaleDateString('en-CA'); // YYYY-MM-DD
+  const weekStartDateString = currentWeekStart.toLocaleDateString('en-CA');
   
   const weeklyDailyKey = `shoreagents-weekly-daily-${userId}`;
   const existingWeeklyDailyData = localStorage.getItem(weeklyDailyKey);
@@ -2321,12 +2327,12 @@ export const updateMonthlyDailyData = (userId: string, activityType: 'active' | 
   const currentDate = new Date(now);
   
   // Calculate the first day of the current month (e.g., 2025-07-01)
-  // Use UTC to avoid timezone issues
+  // Use local timezone for Philippines
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth(); // 0-based (0 = January, 6 = July)
-  const monthStartDate = new Date(Date.UTC(year, month, 1, 0, 0, 0, 0));
-  const monthStartDateString = monthStartDate.toISOString().split('T')[0]; // YYYY-MM-DD
-  const currentDateString = currentDate.toISOString().split('T')[0];
+  const monthStartDate = new Date(year, month, 1, 0, 0, 0, 0);
+  const monthStartDateString = monthStartDate.toLocaleDateString('en-CA'); // YYYY-MM-DD
+  const currentDateString = currentDate.toLocaleDateString('en-CA');
   
 
   

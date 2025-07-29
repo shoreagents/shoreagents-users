@@ -23,7 +23,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${montserrat.variable} antialiased`}>
+      <body className={`${montserrat.variable} antialiased overflow-x-hidden`}>
         <BreakProvider>
           <ActivityProvider>
             <DatabaseInitializer />

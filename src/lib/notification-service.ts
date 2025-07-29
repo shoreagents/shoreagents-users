@@ -40,7 +40,7 @@ const NOTIFICATION_RULES = {
     creation: true,        // New task created
     completion: true,      // Task marked as Done
     assignment: true,      // Task assigned to someone
-    status_change: false,  // Don't notify for every status update
+    status_change: true,   // Notify for status updates
     minor_update: false    // Don't notify for description/name changes
   },
   
@@ -144,14 +144,32 @@ export function addSmartNotification(notification: Omit<Notification, 'id' | 'ti
     return // Skip notification for minor updates
   }
   
-  // Check for recent duplicate notifications (within last 5 minutes)
-  const fiveMinutesAgo = Date.now() - (5 * 60 * 1000)
-  const recentDuplicate = notifications.find(n => 
-    n.category === notification.category &&
-    n.title === notification.title &&
-    n.actionData?.taskId === notification.actionData?.taskId &&
-    new Date(n.time).getTime() > fiveMinutesAgo
-  )
+  // Check for recent duplicate notifications 
+  // Use very short window for status changes (5 seconds) vs other events (5 minutes)
+  const duplicateWindow = eventType === 'status_change' ? (5 * 1000) : (5 * 60 * 1000);
+  const duplicateThreshold = Date.now() - duplicateWindow;
+  
+  const recentDuplicate = notifications.find(n => {
+    const categoryMatch = n.category === notification.category;
+    const titleMatch = n.title === notification.title;
+    const eventTypeMatch = n.eventType === eventType;
+    const timeMatch = new Date(n.time).getTime() > duplicateThreshold;
+    
+    // For status changes, compare the exact message (includes the new status)
+    // This allows multiple different status changes on the same task
+    let contentMatch = false;
+    if (eventType === 'status_change') {
+      // Only consider it duplicate if the exact same status change happened
+      contentMatch = n.message === notification.message;
+    } else if (notification.actionData?.taskId && n.actionData?.taskId) {
+      // For other events (creation, assignment), compare task IDs
+      contentMatch = n.actionData.taskId === notification.actionData.taskId;
+    } else {
+      contentMatch = n.message === notification.message;
+    }
+    
+    return categoryMatch && titleMatch && eventTypeMatch && contentMatch && timeMatch;
+  })
   
   if (recentDuplicate) {
     return // Skip duplicate notifications
@@ -174,29 +192,43 @@ export function addSmartNotification(notification: Omit<Notification, 'id' | 'ti
   }
   
   saveNotifications(notifications)
-  
+  console.log('Notifications saved. Total count:', notifications.length);
+
   // Show system-wide notification if Electron is available
   if (typeof window !== 'undefined' && window.electronAPI?.systemNotifications) {
+    console.log('Showing Electron system notification');
     try {
       const systemNotificationId = `system_${newNotification.id}`;
-      
+
       window.electronAPI.systemNotifications.show({
         title: newNotification.title,
         message: newNotification.message,
         actionUrl: newNotification.actionUrl,
         id: systemNotificationId // Use system notification ID
       })
-      
+
       // Trigger notification update event to refresh UI
+      console.log('Dispatching notifications-updated event');
       window.dispatchEvent(new CustomEvent('notifications-updated'))
-      
+
       // Also trigger notification count change for system tray
       if (window.electronAPI?.send) {
         const newUnreadCount = notifications.filter(n => !n.read).length;
+        console.log('Sending notification count to system tray:', newUnreadCount);
         window.electronAPI.send('notification-count-changed', { count: newUnreadCount });
       }
     } catch (error) {
       console.log('System notification not available:', error)
+
+      // Fallback: Just trigger the UI update without system notification
+      console.log('Fallback: Dispatching notifications-updated event');
+      window.dispatchEvent(new CustomEvent('notifications-updated'))
+    }
+  } else {
+    console.log('Electron not available, triggering fallback notification update');
+    // Fallback for web browser: Just trigger the UI update
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('notifications-updated'))
     }
   }
 }

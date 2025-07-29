@@ -17,7 +17,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge"
 import { ArrowLeft, Send, CheckCircle, FileText, Mail, Phone, Upload, X, AlertTriangle, MessageSquare } from "lucide-react"
 import Link from "next/link"
-import { addTicketForUser, getCurrentUser } from "@/lib/ticket-utils"
+import { getCurrentUser } from "@/lib/ticket-utils"
+import { getCurrentPhilippinesTime, getCurrentPhilippinesDateString } from "@/lib/timezone-utils"
+import { addSmartNotification } from "@/lib/notification-service"
 
 // Define interface for user profile from API
 interface UserProfile {
@@ -63,11 +65,18 @@ export default function NewTicketPage() {
         }
 
         // Fetch profile from database API
-        const response = await fetch('/api/profile', {
+        // Get user email for API call (works in both browser and Electron)
+        const userEmail = currentUser.email;
+        const apiUrl = userEmail 
+          ? `http://localhost:3000/api/profile/?email=${encodeURIComponent(userEmail)}`
+          : 'http://localhost:3000/api/profile/';
+          
+        const response = await fetch(apiUrl, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
           },
+          credentials: 'include', // Include authentication cookies for Electron
         })
 
         const data = await response.json()
@@ -81,7 +90,7 @@ export default function NewTicketPage() {
         console.error('Profile loading error:', error)
         setProfileError('Network error. Please check your connection.')
       } finally {
-        setLoading(false)
+      setLoading(false)
       }
     }
 
@@ -149,42 +158,67 @@ export default function NewTicketPage() {
     e.preventDefault()
     setIsSubmitting(true)
     
-    const formData = new FormData(e.currentTarget)
-    const newTicketId = generateTicketId()
-    const currentDate = new Date()
-    
-    // Get user info from session/profile with fallbacks
-    const currentUser = getCurrentUser()
-    const fullName = userProfile 
-      ? `${userProfile.first_name} ${userProfile.last_name}` 
-      : currentUser?.name || 'Unknown User'
-    const userEmail = userProfile?.email || currentUser?.email || 'unknown@email.com'
-    
-    const ticket = {
-      id: newTicketId,
-      name: fullName, // Auto-populated from user session
-      date: currentDate.toISOString().split('T')[0], // Auto-set to submission date
-      concern: formData.get('concern') as string,
-      comments: formData.get('comments') as string,
-      category: formData.get('category') as string,
-      details: formData.get('details') as string,
-      email: userEmail, // Auto-populated from user session
-      files: files.map(file => file.name),
-      status: 'pending' as const,
-      createdAt: currentDate.toISOString()
+    try {
+      const formData = new FormData(e.currentTarget)
+      
+      // Get user info from session/profile with fallbacks
+      const currentUser = getCurrentUser()
+      const fullName = userProfile 
+        ? `${userProfile.first_name} ${userProfile.last_name}` 
+        : currentUser?.name || 'Unknown User'
+      const userEmail = userProfile?.email || currentUser?.email || 'unknown@email.com'
+      
+      // Prepare ticket data for API
+      const ticketData = {
+        name: fullName,
+        concern: formData.get('concern') as string,
+        category: formData.get('category') as string,
+        details: formData.get('details') as string,
+        files: files.map(file => file.name)
+      }
+      
+      // Submit to API
+      const response = await fetch('/api/tickets', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include', // Include authentication cookies
+        body: JSON.stringify(ticketData)
+      })
+      
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to create ticket')
+      }
+      
+      const result = await response.json()
+      
+      if (result.success) {
+        // Add notification for successful ticket creation
+        addSmartNotification({
+          type: 'success',
+          title: 'Ticket Created',
+          message: `Ticket "${result.ticket.id}" created successfully`,
+          actionUrl: `/forms/${result.ticket.id}`,
+          icon: 'FileText',
+          category: 'ticket',
+          actionData: { ticketId: result.ticket.id } // Using ticket_id as requested
+        }, 'creation');
+        
+        // Save ticket ID for success display
+        setTicketId(result.ticket.id)
+        setIsSubmitted(true)
+      } else {
+        throw new Error(result.error || 'Failed to create ticket')
+      }
+      
+    } catch (error) {
+      console.error('❌ Error creating ticket:', error)
+      alert(`Error creating ticket: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      setIsSubmitting(false)
     }
-    
-    // Save to user-specific localStorage
-    if (currentUser) {
-      addTicketForUser(currentUser.email, ticket)
-    }
-    
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 2000))
-    
-    setTicketId(newTicketId)
-    setIsSubmitted(true)
-    setIsSubmitting(false)
   }
 
   if (loading) {
@@ -440,19 +474,7 @@ export default function NewTicketPage() {
                     </div>
                   </div>
 
-                  {/* Ticket Comments */}
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="comments">Ticket Comments *</Label>
-                      <Textarea 
-                        id="comments" 
-                        name="comments"
-                        placeholder="Provide detailed comments about your issue..."
-                        rows={4}
-                        required
-                      />
-                    </div>
-                  </div>
+
 
                   {/* Category */}
                   <div className="space-y-4">

@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Get break history
+    // Get break history using break_date column
     const historyQuery = `
       SELECT 
         id,
@@ -43,10 +43,11 @@ export async function GET(request: NextRequest) {
         start_time,
         end_time,
         duration_minutes,
+        break_date,
         created_at
       FROM break_sessions 
       WHERE agent_user_id = $1 
-      AND start_time >= CURRENT_DATE - INTERVAL '${days} days'
+      AND break_date >= (NOW() AT TIME ZONE 'Asia/Manila')::date - INTERVAL '${days} days'
       ${!include_active ? 'AND end_time IS NOT NULL' : ''}
       ORDER BY start_time DESC
     `;

@@ -36,33 +36,82 @@ import {
   Eye
 } from "lucide-react"
 import Link from "next/link"
-import { getCurrentUserTickets, Ticket } from "@/lib/ticket-utils"
+import { Ticket } from "@/lib/ticket-utils"
+
+// Add interface for current user
+interface CurrentUser {
+  id: number
+  email: string
+  name: string
+  role?: string
+  user_type?: string
+}
 
 export default function TicketDetailsPage() {
   const params = useParams()
   const [ticket, setTicket] = useState<Ticket | null>(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null)
 
   useEffect(() => {
     const loadTicket = async () => {
-      // Simulate loading delay
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      
-      const ticketId = params.id as string
-      const userTickets = getCurrentUserTickets()
-      const foundTicket = userTickets.find((t: Ticket) => t.id === ticketId)
-      
-      if (foundTicket) {
-        setTicket(foundTicket)
-      } else {
+      try {
+        const ticketId = params.id as string
+        
+        // Fetch ticket details from API
+        const response = await fetch(`/api/tickets/${ticketId}`, {
+          method: 'GET',
+          credentials: 'include' // Include authentication cookies
+        })
+        
+        if (response.ok) {
+          const result = await response.json()
+          if (result.success) {
+            setTicket(result.ticket)
+          } else {
+            console.error('❌ Failed to load ticket:', result.error)
+            setNotFound(true)
+          }
+        } else if (response.status === 404) {
+          setNotFound(true)
+        } else {
+          console.error('❌ Error response:', response.status)
+          setNotFound(true)
+        }
+      } catch (error) {
+        console.error('❌ Error loading ticket:', error)
         setNotFound(true)
+      } finally {
+        setLoading(false)
       }
-      setLoading(false)
     }
 
     loadTicket()
   }, [params.id])
+
+  // Get current user information
+  useEffect(() => {
+    const getCurrentUserInfo = () => {
+      if (typeof window === 'undefined') return null
+      
+      const authData = localStorage.getItem("shoreagents-auth")
+      if (!authData) return null
+      
+      try {
+        const parsed = JSON.parse(authData)
+        if (parsed.isAuthenticated && parsed.user) {
+          return parsed.user
+        }
+        return null
+      } catch {
+        return null
+      }
+    }
+
+    const user = getCurrentUserInfo()
+    setCurrentUser(user)
+  }, [])
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -77,9 +126,14 @@ export default function TicketDetailsPage() {
           In Progress
         </Badge>
       case 'resolved':
-        return <Badge variant="outline" className="flex items-center gap-1">
+        return <Badge variant="outline" className="flex items-center gap-1 text-green-600 border-green-200">
           <CheckCircle className="h-3 w-3" />
           Resolved
+        </Badge>
+      case 'on-hold':
+        return <Badge variant="destructive" className="flex items-center gap-1">
+          <AlertTriangle className="h-3 w-3" />
+          On Hold
         </Badge>
       default:
         return <Badge variant="secondary">{status}</Badge>
@@ -192,7 +246,7 @@ export default function TicketDetailsPage() {
               <Card>
                 <CardHeader>
                     <div className="space-y-2">
-                        <h2 className="text-2xl font-bold">{ticket.name}</h2>
+                        <h2 className="text-2xl font-bold">{ticket.id}</h2>
                       <div className="flex items-center gap-4 text-sm text-muted-foreground">
                         <div className="flex items-center gap-1">
                           <Calendar className="h-3 w-3" />
@@ -219,11 +273,11 @@ export default function TicketDetailsPage() {
                   <div className="grid gap-4 md:grid-cols-2">
                     <div>
                       <label className="text-sm font-medium text-muted-foreground">Employee Name</label>
-                      <p className="text-sm mt-1">{ticket.name}</p>
+                      <p className="text-sm mt-1">{currentUser?.name || ticket.userEmail || 'Unknown User'}</p>
                     </div>
                     <div>
                       <label className="text-sm font-medium text-muted-foreground">Email Address</label>
-                      <p className="text-sm mt-1">{ticket.email}</p>
+                      <p className="text-sm mt-1">{currentUser?.email || ticket.email}</p>
                     </div>
                     <div>
                       <label className="text-sm font-medium text-muted-foreground">Ticket Date</label>
@@ -252,11 +306,6 @@ export default function TicketDetailsPage() {
                   <div>
                     <label className="text-sm font-medium text-muted-foreground">Concern</label>
                     <p className="text-sm mt-1 whitespace-pre-wrap">{ticket.concern}</p>
-                  </div>
-
-                  <div>
-                    <label className="text-sm font-medium text-muted-foreground">Comments</label>
-                    <p className="text-sm mt-1 whitespace-pre-wrap">{ticket.comments}</p>
                   </div>
 
                   {ticket.details && (
@@ -317,10 +366,31 @@ export default function TicketDetailsPage() {
                     <p className="text-sm mt-1">{formatDate(ticket.createdAt)}</p>
                   </div>
 
-                  <div>
-                    <label className="text-sm font-medium text-muted-foreground">Ticket ID</label>
-                    <p className="text-sm mt-1 font-mono">{ticket.id}</p>
-                  </div>
+                  {ticket.status === 'resolved' && (
+                    <>
+                      {ticket.resolvedByEmail && (
+                        <div>
+                          <label className="text-sm font-medium text-muted-foreground">Resolved By</label>
+                          <p className="text-sm mt-1">{ticket.resolvedByEmail}</p>
+                        </div>
+                      )}
+                      
+                      {ticket.resolvedAt && (
+                        <div>
+                          <label className="text-sm font-medium text-muted-foreground">Resolved At</label>
+                          <p className="text-sm mt-1">{formatDate(ticket.resolvedAt)}</p>
+                        </div>
+                      )}
+
+                      {/* Show placeholder if no resolved info available */}
+                      {!ticket.resolvedByEmail && !ticket.resolvedAt && (
+                        <div>
+                          <label className="text-sm font-medium text-muted-foreground">Resolved Information</label>
+                          <p className="text-sm mt-1 text-muted-foreground">No resolution details available</p>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </CardContent>
               </Card>
 
