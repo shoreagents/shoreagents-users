@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { useActivity } from "@/contexts/activity-context"
+import { getCurrentPhilippinesTime } from "@/lib/timezone-utils"
 
 export function LoginForm({
   className,
@@ -45,33 +46,33 @@ export function LoginForm({
       })
 
       const data = await response.json()
-
+    
       if (data.success && data.user) {
         // Store MINIMAL authentication state - no personal info
-        const authData = {
-          isAuthenticated: true,
-          user: {
+      const authData = {
+        isAuthenticated: true,
+        user: {
             id: data.user.id,
             email: data.user.email,
             name: data.user.name, // Just for display, can be fetched fresh
             role: data.user.role, // For compatibility 
             user_type: data.user.user_type // For role-based access
-          },
-          timestamp: new Date().toISOString()
-        }
+        },
+        timestamp: getCurrentPhilippinesTime()
+      }
 
         // Set cookie for middleware (minimal data)
-        setCookie("shoreagents-auth", JSON.stringify(authData), 7)
-        
+      setCookie("shoreagents-auth", JSON.stringify(authData), 7)
+      
         // Store same minimal data in localStorage for client-side access
-        localStorage.setItem("shoreagents-auth", JSON.stringify(authData))
+      localStorage.setItem("shoreagents-auth", JSON.stringify(authData))
 
-        // Start activity tracking for the logged-in user
-        setUserLoggedIn()
+      // Start activity tracking for the logged-in user
+      setUserLoggedIn()
 
-        // Redirect to dashboard
-        router.push("/dashboard")
-      } else {
+      // Redirect to dashboard
+      router.push("/dashboard")
+    } else {
         // Handle different types of errors
         if (response.status === 403) {
           // Access denied for non-agent users

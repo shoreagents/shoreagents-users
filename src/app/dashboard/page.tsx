@@ -243,7 +243,7 @@ export default function DashboardPage() {
                     <div key={ticket.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors">
                       <div className="flex-1">
                         <div className="flex items-center gap-3 mb-2">
-                          <h4 className="font-semibold">{ticket.name}</h4>
+                          <h4 className="font-semibold">{ticket.id}</h4>
                           {getStatusBadge(ticket.status)}
                         </div>
                         <div className="flex items-center gap-4 text-sm text-muted-foreground mb-2">

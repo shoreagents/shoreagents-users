@@ -32,6 +32,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { ProfileSkeleton } from "@/components/skeleton-loaders"
+import { getCurrentUser } from "@/lib/ticket-utils";
 
 // Define the UserProfile interface to match what we expect from the API
 interface UserProfile {
@@ -91,13 +92,21 @@ export default function ProfilePage() {
         setError(null)
 
         // Call the profile API
-        const response = await fetch('/api/profile', {
+        // Get current user for email parameter (works in both browser and Electron)
+        const currentUser = getCurrentUser();
+        const userEmail = currentUser?.email;
+        const apiUrl = userEmail 
+          ? `http://localhost:3000/api/profile/?email=${encodeURIComponent(userEmail)}`
+          : 'http://localhost:3000/api/profile/';
+          
+        const response = await fetch(apiUrl, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
           },
+          credentials: 'include', // Include authentication cookies for Electron
         })
-
+      
         const data = await response.json()
 
         if (data.success && data.profile) {
@@ -109,7 +118,7 @@ export default function ProfilePage() {
         console.error('Profile loading error:', error)
         setError('Network error. Please check your connection and try again.')
       } finally {
-        setLoading(false)
+      setLoading(false)
       }
     }
 
@@ -506,9 +515,9 @@ export default function ProfilePage() {
                           className="w-24 h-24 rounded-full object-cover"
                         />
                       ) : (
-                        <div className="w-24 h-24 bg-muted rounded-full flex items-center justify-center">
-                          <User className="h-12 w-12 text-muted-foreground" />
-                        </div>
+                      <div className="w-24 h-24 bg-muted rounded-full flex items-center justify-center">
+                        <User className="h-12 w-12 text-muted-foreground" />
+                      </div>
                       )}
                     </div>
                   </div>

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { initializeDatabase, testDatabaseConnection, getDatabaseStatus } from '@/lib/database-server'
+import { getCurrentPhilippinesTime } from '@/lib/timezone-utils'
 
 export async function GET() {
   try {
@@ -54,7 +55,7 @@ export async function GET() {
         success: true,
         message: 'Database connection successful',
         status: status,
-        timestamp: new Date().toISOString()
+        timestamp: getCurrentPhilippinesTime()
       })
     } else {
       return NextResponse.json({

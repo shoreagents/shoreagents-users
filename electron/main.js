@@ -891,15 +891,15 @@ async function updateTrayMenu() {
   // Add separator
   baseMenuItems.push({ type: 'separator' });
   
-      // Add appropriate quit option based on login state
-    if (isLoggedIn) {
-      baseMenuItems.push({
-        label: 'Logout & Quit',
-        click: async () => {
-          await handleLogoutAndQuit();
-        }
-      });
-      
+  // Add appropriate quit option based on login state
+  if (isLoggedIn) {
+    baseMenuItems.push({
+      label: 'Logout & Quit',
+      click: async () => {
+        await handleLogoutAndQuit();
+      }
+    });
+    
       // Update tooltip to show tracking is active and break status
       let baseTooltip = 'ShoreAgents Dashboard - Activity Tracking Active';
       if (isOnBreak) {
@@ -908,26 +908,26 @@ async function updateTrayMenu() {
           : '';
         baseTooltip = `ShoreAgents Dashboard - On ${breakState.breakType} Break${timeText ? ` (${timeText})` : ''}`;
       }
-      const tooltip = notificationBadgeCount > 0 
-        ? `${baseTooltip} (${notificationBadgeCount} notifications)`
-        : baseTooltip;
-      tray.setToolTip(tooltip);
-    } else {
-      baseMenuItems.push({
-        label: 'Quit',
-        click: () => {
-          isQuitting = true;
-          app.quit();
-        }
-      });
-      
-      // Update tooltip to show no tracking
-      const baseTooltip = 'ShoreAgents Dashboard';
-      const tooltip = notificationBadgeCount > 0 
-        ? `${baseTooltip} (${notificationBadgeCount} notifications)`
-        : baseTooltip;
-      tray.setToolTip(baseTooltip);
-    }
+    const tooltip = notificationBadgeCount > 0 
+      ? `${baseTooltip} (${notificationBadgeCount} notifications)`
+      : baseTooltip;
+    tray.setToolTip(tooltip);
+  } else {
+    baseMenuItems.push({
+      label: 'Quit',
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      }
+    });
+    
+    // Update tooltip to show no tracking
+    const baseTooltip = 'ShoreAgents Dashboard';
+    const tooltip = notificationBadgeCount > 0 
+      ? `${baseTooltip} (${notificationBadgeCount} notifications)`
+      : baseTooltip;
+    tray.setToolTip(baseTooltip);
+  }
   
   const contextMenu = Menu.buildFromTemplate(baseMenuItems);
   tray.setContextMenu(contextMenu);

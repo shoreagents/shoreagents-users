@@ -65,20 +65,37 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     </div>
   )
 
-  // Update task count
+  // Update task count - OPTIMIZED to prevent continuous API calls
   React.useEffect(() => {
-    const updateTaskCount = () => {
-      const count = getNotStartedTaskCount()
-      setNotStartedTaskCount(count)
+    const updateTaskCount = async () => {
+      // Only update task count if we're on task-related pages
+      if (pathname.startsWith("/productivity") || pathname.startsWith("/dashboard")) {
+        try {
+          const count = await getNotStartedTaskCount()
+          setNotStartedTaskCount(count)
+        } catch (error) {
+          console.error('Error getting task count:', error)
+          setNotStartedTaskCount(0)
+        }
+      }
     }
 
     updateTaskCount()
     
-    // Update count every 5 seconds
-    const interval = setInterval(updateTaskCount, 5000)
+    // Listen for task updates instead of polling
+    const handleTaskUpdate = () => {
+      if (pathname.startsWith("/productivity") || pathname.startsWith("/dashboard")) {
+        updateTaskCount()
+      }
+    }
+
+    // Listen for custom events when tasks are updated
+    window.addEventListener('tasks-updated', handleTaskUpdate)
     
-    return () => clearInterval(interval)
-  }, [])
+    return () => {
+      window.removeEventListener('tasks-updated', handleTaskUpdate)
+    }
+  }, [pathname]) // Depend on pathname to update when navigating to task pages
 
   // ShoreAgents data with dynamic active state
   const data = {
@@ -136,6 +153,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             title: "Task Tracker",
             url: "/productivity/tasks",
             badge: notStartedTaskCount > 0 ? notStartedTaskCount.toString() : undefined,
+          },
+          {
+            title: "Task Activity",
+            url: "/productivity/task-activity",
           },
         ],
       },

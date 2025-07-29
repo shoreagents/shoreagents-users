@@ -1,52 +1,16 @@
-import { Task, TaskData, TaskStatus, TaskPriority, TaskType } from '@/types/task'
+import { Task, TaskStatus, TaskPriority, TaskType } from '@/types/task'
 import { getCurrentUserProfile } from './user-profiles'
 import { addSmartNotification } from './notification-service'
 import { getCurrentUser } from './ticket-utils'
+import { getCurrentPhilippinesTime } from './timezone-utils'
 
-// Get user-specific storage key
-function getTasksStorageKey(): string {
+// Get current user info for created/edited by fields
+function getCurrentUserInfo() {
   const user = getCurrentUser()
-  const userEmail = user?.email || 'anonymous'
-  return `shoreagents_tasks_${userEmail}`
-}
-
-// Initialize default task data
-const defaultTaskData: TaskData = {
-  tasks: [],
-  customStatuses: ['Not started', 'In progress', 'Done'],
-  customTaskTypes: ['Document', 'Bug', 'Feature Request', 'Polish']
-}
-
-// Get all task data from localStorage
-export function getTaskData(): TaskData {
-  if (typeof window === 'undefined') return defaultTaskData
+  if (!user) return 'Unknown User'
   
-  try {
-    const storageKey = getTasksStorageKey()
-    const stored = localStorage.getItem(storageKey)
-    if (!stored) return defaultTaskData
-    
-    const parsed = JSON.parse(stored)
-    return {
-      ...defaultTaskData,
-      ...parsed
-    }
-  } catch (error) {
-    console.error('Error loading task data:', error)
-    return defaultTaskData
-  }
-}
-
-// Save task data to localStorage
-export function saveTaskData(data: TaskData): void {
-  if (typeof window === 'undefined') return
-  
-  try {
-    const storageKey = getTasksStorageKey()
-    localStorage.setItem(storageKey, JSON.stringify(data))
-  } catch (error) {
-    console.error('Error saving task data:', error)
-  }
+  // Use the user's name from auth data, fallback to email if name not available
+  return user.name || user.email || 'Unknown User'
 }
 
 // Generate unique task ID with microsecond precision and crypto random
@@ -58,194 +22,281 @@ export function generateTaskId(): string {
   return `task_${timestamp}_${microseconds}_${random1}${random2}`
 }
 
-// Get current user info for created/edited by fields
-function getCurrentUserInfo() {
-  const profile = getCurrentUserProfile()
-  return profile ? `${profile.first_name} ${profile.last_name}` : 'Unknown User'
+// Get all tasks
+export async function getAllTasks(): Promise<Task[]> {
+  try {
+    const response = await fetch('http://localhost:3000/api/tasks', {
+      credentials: 'include', // Include authentication cookies
+    });
+    
+    if (!response.ok) {
+      if (response.status === 401) {
+        console.warn('Authentication required for tasks');
+        return [];
+      }
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    return data.tasks || [];
+  } catch (error) {
+    console.error('Error fetching tasks:', error);
+    return [];
+  }
+}
+
+// Get a specific task by ID
+export async function getTaskById(taskId: string): Promise<Task | null> {
+  try {
+    const response = await fetch(`http://localhost:3000/api/tasks/${taskId}`, {
+      credentials: 'include',
+    });
+    
+    if (!response.ok) {
+      return null;
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching task:', error);
+    return null;
+  }
 }
 
 // Create a new task
-export function createTask(taskData: Partial<Task>): Task {
-  const data = getTaskData()
-  const currentUser = getCurrentUserInfo()
-  const now = new Date().toISOString()
-  
-  const newTask: Task = {
-    id: generateTaskId(),
-    taskName: taskData.taskName || 'New Task',
-    assignee: taskData.assignee || currentUser,
-    status: taskData.status || 'Not started',
-    priority: taskData.priority || 'Medium',
-    taskType: taskData.taskType || 'Document',
-    description: taskData.description || '',
-    attachedFiles: taskData.attachedFiles || [],
-    dueDate: taskData.dueDate || '',
-    createdBy: currentUser,
-    createdTime: now,
-    lastEditedBy: currentUser,
-    lastEditedTime: now
-  }
-  
-  // Double-check that this task ID doesn't already exist before adding
-  if (!data.tasks.some(task => task.id === newTask.id)) {
-    data.tasks.push(newTask)
-    saveTaskData(data)
+export async function createTask(taskData: Partial<Task>): Promise<Task | null> {
+  try {
+    const currentUserName = getCurrentUserInfo();  // This returns a string
     
-    // Add smart notification for new task creation
+    // Generate a unique task ID
+    const task_id = `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    const payload = {
+      task_id: task_id, // Required field that was missing
+      task_name: taskData.taskName || "New Task",
+      status_name: taskData.status || "Not Started", // Fixed: API expects status_name
+      priority: taskData.priority || "medium",
+      type_name: taskData.taskType || "Document", // Fixed: API expects type_name  
+      description: taskData.description || "",
+      due_date: taskData.dueDate || null,
+      // Set user fields to current user name (currentUserName is already a string)
+      created_by: currentUserName,
+      last_edited_by: currentUserName,
+      assignee: currentUserName, // Default assignee to current user
+    };
+
+    console.log('Creating task with payload:', payload);
+    console.log('Current user name:', currentUserName);
+
+    const response = await fetch('http://localhost:3000/api/tasks', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('API Error Response:', errorText);
+      console.error('Response status:', response.status);
+      if (response.status === 401) {
+        throw new Error('Authentication required');
+      }
+      throw new Error('Failed to create task');
+    }
+
+    const newTask = await response.json();
+    
+    // Trigger task update event for sidebar
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('tasks-updated'));
+    }
+    
+    // The API only returns task_id and id, so we need to fetch the full task data
+    // or return a properly formatted task object
+    const formattedTask: Task = {
+      id: newTask.task_id,
+      task_id: newTask.task_id,
+      taskName: taskData.taskName || "New Task",
+      status: taskData.status || "Not Started",
+      assignee: currentUserName,
+      priority: taskData.priority || "medium",
+      taskType: taskData.taskType || "Document",
+      description: taskData.description || "",
+      dueDate: taskData.dueDate || null,
+      attachedFiles: [],
+      createdBy: currentUserName,
+      lastEditedBy: currentUserName,
+      createdTime: new Date().toLocaleString('en-US', {
+        timeZone: 'Asia/Manila',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+      }),
+      lastEditedTime: new Date().toLocaleString('en-US', {
+        timeZone: 'Asia/Manila',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+      }),
+      user_id: undefined, // Will be set by backend
+      files: [],
+      // Add default status color and other properties
+      status_color: '#6b7280', // Default gray color
+      type_color: '#6b7280', // Default gray color
+      is_completed: false
+    };
+    
     addSmartNotification({
-      type: 'info',
-      title: 'New Task Created',
-      message: `Task "${newTask.taskName}" has been created and assigned to ${newTask.assignee || 'you'}`,
+      type: 'success',
+      title: 'Task Created',
+      message: `Task "${formattedTask.taskName}" created successfully`,
+      actionUrl: `/productivity/tasks`,
       icon: 'CheckSquare',
       category: 'task',
-      actionUrl: '/productivity/tasks',
-      actionData: { taskId: newTask.id }
-    }, 'creation')
+      actionData: { taskId: formattedTask.task_id } // Use task_id instead of id
+    }, 'creation');
     
-    // Trigger notification update event
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('notifications-updated'))
-    }
-  } else {
-    console.warn('Attempted to create task with existing ID:', newTask.id)
+    return formattedTask;
+  } catch (error) {
+    console.error('Error creating task:', error);
+    return null;
   }
-  
-  return newTask
 }
 
 // Update an existing task
-export function updateTask(taskId: string, updates: Partial<Task>): Task | null {
-  const data = getTaskData()
-  const taskIndex = data.tasks.findIndex(task => task.id === taskId)
-  
-  if (taskIndex === -1) return null
-  
-  const currentUser = getCurrentUserInfo()
-  const originalTask = data.tasks[taskIndex]
-  const updatedTask = {
-    ...originalTask,
-    ...updates,
-    lastEditedBy: currentUser,
-    lastEditedTime: new Date().toISOString()
+export async function updateTask(taskId: string, updates: Partial<Task>): Promise<boolean> {
+  try {
+    console.log('Updating task:', taskId, 'with updates:', updates);
+    
+    // Map frontend field names to API field names
+    const mappedUpdates: any = {};
+    
+    if (updates.taskName !== undefined) mappedUpdates.task_name = updates.taskName;
+    if (updates.status !== undefined) mappedUpdates.status_name = updates.status;
+    if (updates.taskType !== undefined) mappedUpdates.type_name = updates.taskType;
+    if (updates.assignee !== undefined) mappedUpdates.assignee = updates.assignee;
+    if (updates.priority !== undefined) mappedUpdates.priority = updates.priority;
+    if (updates.description !== undefined) mappedUpdates.description = updates.description;
+    if (updates.dueDate !== undefined) mappedUpdates.due_date = updates.dueDate;
+    if (updates.attachedFiles !== undefined) {
+      // Handle file updates if needed - for now just skip
+      console.log('File updates not yet implemented');
+    }
+    
+    // Always set last_edited_by to current user
+    const currentUserName = getCurrentUserInfo();
+    mappedUpdates.last_edited_by = currentUserName;
+    
+    console.log('Mapped updates for API:', mappedUpdates);
+    
+    const response = await fetch(`http://localhost:3000/api/tasks/${taskId}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+      body: JSON.stringify(mappedUpdates),
+    });
+
+    console.log('Update response status:', response.status);
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Update API Error Response:', errorText);
+      throw new Error('Failed to update task');
+    }
+
+    // Add notifications for significant updates
+    if (updates.status !== undefined) {
+      // Get the current task to know the previous status
+      // For now, we'll use a simpler message that includes transition info
+      addSmartNotification({
+        type: 'info',
+        title: 'Task Status Updated',
+        message: `Task status changed to "${updates.status}" at ${new Date().toLocaleTimeString()}`,
+        actionUrl: `/productivity/tasks`,
+        icon: 'CheckCircle',
+        category: 'task',
+        actionData: { taskId: taskId, newStatus: updates.status, timestamp: Date.now() }
+      }, 'status_change');
+    }
+
+    if (updates.assignee !== undefined && updates.assignee !== currentUserName) {
+      // Assignment notification (only if assigned to someone else)
+      addSmartNotification({
+        type: 'info',
+        title: 'Task Assigned',
+        message: `Task assigned to "${updates.assignee}"`,
+        actionUrl: `/productivity/tasks`,
+        icon: 'AlertCircle', // Use existing icon instead of 'User'
+        category: 'task',
+        actionData: { taskId: taskId }
+      }, 'assignment');
+    }
+
+    // Check if task is being marked as completed
+    if (updates.status === 'Done' || updates.status === 'Completed') {
+      addSmartNotification({
+        type: 'success',
+        title: 'Task Completed',
+        message: `Task "${updates.taskName || 'Task'}" has been completed!`,
+        actionUrl: `/productivity/tasks`,
+        icon: 'CheckSquare',
+        category: 'task',
+        actionData: { taskId: taskId }
+      }, 'completion');
+    }
+
+    // Trigger task update event for sidebar
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('tasks-updated'));
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Error updating task:', error);
+    return false;
   }
-  
-  data.tasks[taskIndex] = updatedTask
-  saveTaskData(data)
-  
-  // Determine event type and create smart notification
-  let eventType: 'status_change' | 'completion' | 'assignment' = 'status_change'
-  let notificationType: 'success' | 'warning' | 'info' = 'info'
-  let title = 'Task Updated'
-  let message = `Task "${updatedTask.taskName}" has been updated`
-  
-  // Check for significant changes that warrant notifications
-  if (updatedTask.status === 'Done' && originalTask.status !== 'Done') {
-    eventType = 'completion'
-    notificationType = 'success'
-    title = 'Task Completed'
-    message = `Task "${updatedTask.taskName}" has been marked as completed`
-  } else if (updatedTask.status === 'In progress' && originalTask.status === 'Not started') {
-    eventType = 'status_change'
-    notificationType = 'warning'
-    title = 'Task Started'
-    message = `Task "${updatedTask.taskName}" is now in progress`
-  } else if (updatedTask.assignee !== originalTask.assignee) {
-    eventType = 'assignment'
-    notificationType = 'info'
-    title = 'Task Reassigned'
-    message = `Task "${updatedTask.taskName}" has been reassigned to ${updatedTask.assignee}`
-  } else {
-    // Skip notification for minor updates (description, name changes, etc.)
-    return updatedTask
-  }
-  
-  // Add smart notification for significant task updates
-  addSmartNotification({
-    type: notificationType,
-    title,
-    message,
-    icon: 'CheckSquare',
-    category: 'task',
-    actionUrl: '/productivity/tasks',
-    actionData: { taskId: updatedTask.id }
-  }, eventType)
-  
-  // Trigger notification update event
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('notifications-updated'))
-  }
-  
-  return updatedTask
 }
 
 // Delete a task
-export function deleteTask(taskId: string): boolean {
-  const data = getTaskData()
-  const initialLength = data.tasks.length
-  data.tasks = data.tasks.filter(task => task.id !== taskId)
-  
-  if (data.tasks.length < initialLength) {
-    saveTaskData(data)
-    return true
+export async function deleteTask(taskId: string): Promise<boolean> {
+  try {
+    const response = await fetch(`http://localhost:3000/api/tasks/${taskId}`, {
+      method: 'DELETE',
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to delete task');
+    }
+
+    // Trigger task update event for sidebar
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('tasks-updated'));
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Error deleting task:', error);
+    return false;
   }
-  
-  return false
-}
-
-// Get all tasks
-export function getAllTasks(): Task[] {
-  const data = getTaskData()
-  // Deduplicate tasks based on ID to prevent key conflicts
-  const uniqueTasks = data.tasks.filter((task, index, self) => 
-    index === self.findIndex(t => t.id === task.id)
-  )
-  
-  // If we found duplicates, save the cleaned data back to localStorage
-  if (uniqueTasks.length !== data.tasks.length) {
-    console.warn('Found duplicate tasks, cleaning up localStorage')
-    data.tasks = uniqueTasks
-    saveTaskData(data)
-  }
-  
-  return uniqueTasks
-}
-
-// Get task by ID
-export function getTaskById(taskId: string): Task | null {
-  const data = getTaskData()
-  return data.tasks.find(task => task.id === taskId) || null
-}
-
-// Add custom status
-export function addCustomStatus(status: string): void {
-  const data = getTaskData()
-  if (!data.customStatuses.includes(status)) {
-    data.customStatuses.push(status)
-    saveTaskData(data)
-  }
-}
-
-// Add custom task type
-export function addCustomTaskType(taskType: string): void {
-  const data = getTaskData()
-  if (!data.customTaskTypes.includes(taskType)) {
-    data.customTaskTypes.push(taskType)
-    saveTaskData(data)
-  }
-}
-
-// Get available statuses (including custom ones)
-export function getAvailableStatuses(): string[] {
-  return getTaskData().customStatuses
-}
-
-// Get available task types (including custom ones)
-export function getAvailableTaskTypes(): string[] {
-  return getTaskData().customTaskTypes
 }
 
 // Get count of tasks that are not started
-export function getNotStartedTaskCount(): number {
-  const tasks = getAllTasks()
-  return tasks.filter(task => task.status === 'Not started').length
+export async function getNotStartedTaskCount(): Promise<number> {
+  try {
+    const tasks = await getAllTasks();
+    return tasks.filter(task => task.status === 'Not Started').length;
+  } catch (error) {
+    console.error('Error getting not started task count:', error);
+    return 0;
+  }
 } 

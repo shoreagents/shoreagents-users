@@ -114,9 +114,20 @@ export default function BreaksPage() {
               // Break is paused, show breaks list instead of timer
               setActiveBreak(null)
               setBreakActive(false)
-              // Clear any conflicting localStorage
-              localStorage.removeItem('currentBreak')
-
+              
+              // Restore paused break to localStorage for resume functionality
+              const pausedBreak = {
+                id: status.active_break.id,
+                break_type: status.active_break.break_type,
+                start_time: status.active_break.start_time,
+                agent_user_id: status.active_break.agent_user_id,
+                is_paused: true,
+                pause_time: status.active_break.pause_time,
+                time_remaining_seconds: status.active_break.time_remaining_at_pause,
+                pause_used: true
+              }
+              localStorage.setItem('currentBreak', JSON.stringify(pausedBreak))
+              console.log('🔄 Restored paused break to localStorage for resume functionality')
             }
           } else {
             // No active break found - clear all break state
@@ -204,9 +215,8 @@ export default function BreaksPage() {
   const isBreakAvailable = (breakId: BreakType) => {
     if (!breakStatus) return true
     
-    // Check if this break type was already taken today
-    const todayBreakCount = breakStatus.today_summary.breaks_by_type[breakId] || 0
-    return todayBreakCount === 0
+    // Use the break_availability field from the API response
+    return breakStatus.today_summary.break_availability[breakId] ?? true
   }
 
   const handleStartBreak = async (breakId: BreakType) => {

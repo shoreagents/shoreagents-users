@@ -43,6 +43,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Check if agent can take this break type today using database function
+    const availabilityQuery = `
+      SELECT can_agent_take_break($1, $2::break_type_enum) as can_take
+    `;
+    
+    const availabilityResult = await executeQuery(availabilityQuery, [agent_user_id, break_type]);
+    
+    if (!availabilityResult[0]?.can_take) {
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: `Agent has already used their ${break_type} break today`,
+          break_type: break_type
+        },
+        { status: 409 }
+      );
+    }
+
     // Verify agent exists
     const agentCheckQuery = `
       SELECT u.id, u.email, pi.first_name, pi.last_name
@@ -61,11 +79,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Insert new break session
+    // Insert new break session with Philippines timezone
     const insertQuery = `
-      INSERT INTO break_sessions (agent_user_id, break_type, start_time)
-      VALUES ($1, $2::break_type_enum, CURRENT_TIMESTAMP)
-      RETURNING id, agent_user_id, break_type, start_time, created_at
+      INSERT INTO break_sessions (agent_user_id, break_type, start_time, break_date)
+      VALUES ($1, $2::break_type_enum, NOW() AT TIME ZONE 'Asia/Manila', (NOW() AT TIME ZONE 'Asia/Manila')::date)
+      RETURNING id, agent_user_id, break_type, start_time, break_date, created_at
     `;
 
     const result = await executeQuery(insertQuery, [agent_user_id, break_type]);

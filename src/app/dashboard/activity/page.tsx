@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Activity, Clock, MousePointer, TrendingUp, TrendingDown } from "lucide-react"
 import { getCurrentUser } from "@/lib/ticket-utils"
 import { getActivitySummary, getUserActivityData, getCurrentSessionStatus, cleanupDuplicateSessions, getTodayDataForPeriod, getYesterdaySummariesForPeriod, getTodaysActivitySummary, getLast24HoursSummary, getLast30DaysSummary, getMonthlyTotalsSummary, getWeeklyTotalsSummary, getWeeklyDailyData, getMonthlyDailyData, getNextResetTime, formatTimeUntilReset, setupAutomaticReset, type HourlyActivityData } from "@/lib/activity-storage"
+import { formatPhilippinesTime } from "@/lib/timezone-utils"
 import {
   SidebarInset,
   SidebarProvider,
@@ -130,7 +131,7 @@ export default function ActivityPage() {
   }, [currentSessionStatus])
 
   const formatTime = (timestamp: number) => {
-    return new Date(timestamp).toLocaleString()
+    return formatPhilippinesTime(timestamp)
   }
 
   const getActivityPercentage = () => {

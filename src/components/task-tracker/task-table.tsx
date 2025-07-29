@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { format } from "date-fns"
+import { formatPhilippinesTime } from "@/lib/timezone-utils"
 import {
   Table,
   TableBody,
@@ -45,11 +46,7 @@ import { Trash2, ChevronDown, ChevronRight, Info, User, Clock, FileText } from "
 import { Task } from "@/types/task"
 import { 
   updateTask, 
-  deleteTask, 
-  addCustomStatus, 
-  addCustomTaskType,
-  getAvailableStatuses,
-  getAvailableTaskTypes
+  deleteTask
 } from "@/lib/task-utils"
 import { InlineEditText } from "./inline-edit-text"
 import { InlineEditSelect } from "./inline-edit-select"
@@ -62,11 +59,18 @@ interface TaskTableProps {
   tasks: Task[]
   onTaskUpdate: (updatedTask: Task) => void
   onTaskDelete: (taskId: string) => void
+  onRefreshTasks?: () => Promise<void> // New prop for refreshing tasks
 }
 
-export function TaskTable({ tasks, onTaskUpdate, onTaskDelete }: TaskTableProps) {
-  const [availableStatuses] = useState(() => getAvailableStatuses())
-  const [availableTaskTypes] = useState(() => getAvailableTaskTypes())
+export function TaskTable({ tasks, onTaskUpdate, onTaskDelete, onRefreshTasks }: TaskTableProps) {
+  // Load dynamic statuses and types from the database
+  const [availableStatuses, setAvailableStatuses] = useState(['Not Started', 'In Progress', 'Done'])
+  const [availableTaskTypes, setAvailableTaskTypes] = useState(['Document', 'Bug', 'Feature', 'Polish'])
+  const [statusColors, setStatusColors] = useState<Record<string, string>>({})
+  const [typeColors, setTypeColors] = useState<Record<string, string>>({})
+  const [statusesData, setStatusesData] = useState<Array<{id: number, name: string, color: string, is_default: boolean}>>([])
+  const [typesData, setTypesData] = useState<Array<{id: number, name: string, color: string, is_default: boolean}>>([])
+  const [isLoadingColors, setIsLoadingColors] = useState(true)
   const [currentPage, setCurrentPage] = useState(1)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
   const [hasAutoExpanded, setHasAutoExpanded] = useState(false)
@@ -80,6 +84,90 @@ export function TaskTable({ tasks, onTaskUpdate, onTaskDelete }: TaskTableProps)
   const startIndex = (currentPage - 1) * tasksPerPage
   const endIndex = startIndex + tasksPerPage
   const currentTasks = tasks.slice(startIndex, endIndex)
+
+  // Load available statuses and types from the database
+  useEffect(() => {
+    // Fetch available statuses and types from API
+    const fetchStatusesAndTypes = async () => {
+      try {
+        setIsLoadingColors(true);
+        
+        // Fetch statuses
+        const statusResponse = await fetch('http://localhost:3000/api/tasks/statuses', {
+          credentials: 'include'
+        });
+        console.log('Status response:', statusResponse.status);
+        if (statusResponse.ok) {
+          const statusData = await statusResponse.json();
+          console.log('Status data received:', statusData);
+          
+          // Map API response to expected format for optionsData
+          const mappedStatusData = statusData.statuses?.map((s: any) => ({
+            id: s.id,
+            name: s.status_name, // Map status_name to name
+            color: s.status_color,
+            is_default: s.is_default
+          })) || [];
+          setStatusesData(mappedStatusData);
+          
+          const statuses = statusData.statuses?.map((s: any) => s.status_name) || [];
+          console.log('Processed statuses:', statuses);
+          setAvailableStatuses(statuses);
+          
+          const colors = statusData.statuses?.reduce((acc: any, s: any) => {
+            acc[s.status_name] = s.status_color;
+            return acc;
+          }, {}) || {};
+          setStatusColors(colors);
+        } else {
+          const errorText = await statusResponse.text();
+          console.error('Status API error:', errorText);
+        }
+        
+        // Fetch types
+        const typeResponse = await fetch('http://localhost:3000/api/tasks/types', {
+          credentials: 'include'
+        });
+        console.log('Type response:', typeResponse.status);
+        if (typeResponse.ok) {
+          const typeData = await typeResponse.json();
+          console.log('Type data received:', typeData);
+          
+          // Map API response to expected format for optionsData  
+          const mappedTypeData = typeData.types?.map((t: any) => ({
+            id: t.id,
+            name: t.type_name, // Map type_name to name
+            color: t.type_color,
+            is_default: t.is_default
+          })) || [];
+          setTypesData(mappedTypeData);
+          
+          const types = typeData.types?.map((t: any) => t.type_name) || [];
+          console.log('Processed types:', types);
+          setAvailableTaskTypes(types);
+          
+          const colors = typeData.types?.reduce((acc: any, t: any) => {
+            acc[t.type_name] = t.type_color;
+            return acc;
+          }, {}) || {};
+          setTypeColors(colors);
+        } else {
+          const errorText = await typeResponse.text();
+          console.error('Type API error:', errorText);
+        }
+        
+      } catch (error) {
+        console.error('Error fetching statuses and types:', error);
+        // Fallback to basic options on error
+        setAvailableStatuses(['Not Started', 'In Progress', 'Completed']);
+        setAvailableTaskTypes(['Document', 'Meeting', 'Task']);
+      } finally {
+        setIsLoadingColors(false);
+      }
+    };
+
+    fetchStatusesAndTypes();
+  }, []);
 
   // Auto-expand first row to show users the feature exists (only once)
   useEffect(() => {
@@ -96,10 +184,24 @@ export function TaskTable({ tasks, onTaskUpdate, onTaskDelete }: TaskTableProps)
     }
   }, [tasks.length, currentPage, totalPages])
 
-  const handleTaskUpdate = (taskId: string, field: keyof Task, value: any) => {
-    const updatedTask = updateTask(taskId, { [field]: value })
-    if (updatedTask) {
-      onTaskUpdate(updatedTask)
+  const handleTaskUpdate = async (taskId: string, field: string, value: string | string[]) => {
+    try {
+      const success = await updateTask(taskId, { [field]: value })
+      if (success) {
+        // Find and update the task in the current tasks list
+        const updatedTask = tasks.find(t => t.id === taskId)
+        if (updatedTask) {
+          const newTask = { ...updatedTask, [field]: value }
+          onTaskUpdate(newTask)
+        }
+        
+        // Trigger task update event for sidebar
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('tasks-updated'));
+        }
+      }
+    } catch (error) {
+      console.error('Error updating task:', error)
     }
   }
 
@@ -108,20 +210,25 @@ export function TaskTable({ tasks, onTaskUpdate, onTaskDelete }: TaskTableProps)
     setDeleteDialogOpen(true)
   }
 
-  const confirmDeleteTask = () => {
-    if (taskToDelete) {
-      const success = deleteTask(taskToDelete)
+  const confirmDeleteTask = async () => {
+    if (!taskToDelete) return
+    
+    try {
+      const success = await deleteTask(taskToDelete)
       if (success) {
         onTaskDelete(taskToDelete)
-        // Adjust current page if we deleted the last item on a page
-        const newTotalPages = Math.ceil((tasks.length - 1) / tasksPerPage)
-        if (currentPage > newTotalPages && newTotalPages > 0) {
-          setCurrentPage(newTotalPages)
+        
+        // Trigger task update event for sidebar
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('tasks-updated'));
         }
       }
+    } catch (error) {
+      console.error('Error deleting task:', error)
+    } finally {
+      setDeleteDialogOpen(false)
+      setTaskToDelete(null)
     }
-    setDeleteDialogOpen(false)
-    setTaskToDelete(null)
   }
 
   const cancelDeleteTask = () => {
@@ -137,17 +244,197 @@ export function TaskTable({ tasks, onTaskUpdate, onTaskDelete }: TaskTableProps)
     setTimeout(() => setIsShaking(false), 600) // Reset after animation
   }
 
-  const handleAddCustomStatus = (status: string) => {
-    addCustomStatus(status)
-    // We still need to reload tasks when adding custom options
-    // since this affects the available options
-  }
+  // Handle adding custom status
+  const handleAddCustomStatus = async (statusName: string) => {
+    try {
+      const response = await fetch('http://localhost:3000/api/tasks/statuses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ status_name: statusName })
+      });
 
-  const handleAddCustomTaskType = (taskType: string) => {
-    addCustomTaskType(taskType)
-    // We still need to reload tasks when adding custom options
-    // since this affects the available options
-  }
+      if (response.ok) {
+        // Refresh statuses after adding
+        const statusResponse = await fetch('http://localhost:3000/api/tasks/statuses', {
+          credentials: 'include'
+        });
+        if (statusResponse.ok) {
+          const statusData = await statusResponse.json();
+          
+          // Map API response to expected format for optionsData
+          const mappedStatusData = statusData.statuses?.map((s: any) => ({
+            id: s.id,
+            name: s.status_name, // Map status_name to name
+            color: s.status_color,
+            is_default: s.is_default
+          })) || [];
+          setStatusesData(mappedStatusData);
+          
+          const statuses = statusData.statuses?.map((s: any) => s.status_name) || [];
+          setAvailableStatuses(statuses);
+          const colors = statusData.statuses?.reduce((acc: any, s: any) => {
+            acc[s.status_name] = s.status_color;
+            return acc;
+          }, {}) || {};
+          setStatusColors(colors);
+        }
+      } else {
+        const errorData = await response.json();
+        alert(`Failed to add status: ${errorData.error}`);
+      }
+    } catch (error) {
+      console.error('Error adding custom status:', error);
+      alert('Failed to add status. Please try again.');
+    }
+  };
+
+  // Handle adding custom task type
+  const handleAddCustomTaskType = async (typeName: string) => {
+    try {
+      const response = await fetch('http://localhost:3000/api/tasks/types', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ type_name: typeName })
+      });
+
+      if (response.ok) {
+        // Refresh types after adding
+        const typeResponse = await fetch('http://localhost:3000/api/tasks/types', {
+          credentials: 'include'
+        });
+        if (typeResponse.ok) {
+          const typeData = await typeResponse.json();
+          
+          // Map API response to expected format for optionsData  
+          const mappedTypeData = typeData.types?.map((t: any) => ({
+            id: t.id,
+            name: t.type_name, // Map type_name to name
+            color: t.type_color,
+            is_default: t.is_default
+          })) || [];
+          setTypesData(mappedTypeData);
+          
+          const types = typeData.types?.map((t: any) => t.type_name) || [];
+          setAvailableTaskTypes(types);
+          const colors = typeData.types?.reduce((acc: any, t: any) => {
+            acc[t.type_name] = t.type_color;
+            return acc;
+          }, {}) || {};
+          setTypeColors(colors);
+        }
+      } else {
+        const errorData = await response.json();
+        alert(`Failed to add task type: ${errorData.error}`);
+      }
+    } catch (error) {
+      console.error('Error adding custom task type:', error);
+      alert('Failed to add task type. Please try again.');
+    }
+  };
+
+  // Handle deleting custom status
+  const handleDeleteStatus = async (statusId: number, statusName: string) => {
+    try {
+      const response = await fetch(`http://localhost:3000/api/tasks/statuses?id=${statusId}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        alert(result.message);
+        
+        // Refresh statuses after deletion
+        const statusResponse = await fetch('http://localhost:3000/api/tasks/statuses', {
+          credentials: 'include'
+        });
+        if (statusResponse.ok) {
+          const statusData = await statusResponse.json();
+          
+          // Map API response to expected format for optionsData
+          const mappedStatusData = statusData.statuses?.map((s: any) => ({
+            id: s.id,
+            name: s.status_name, // Map status_name to name
+            color: s.status_color,
+            is_default: s.is_default
+          })) || [];
+          setStatusesData(mappedStatusData);
+          
+          const statuses = statusData.statuses?.map((s: any) => s.status_name) || [];
+          setAvailableStatuses(statuses);
+          const colors = statusData.statuses?.reduce((acc: any, s: any) => {
+            acc[s.status_name] = s.status_color;
+            return acc;
+          }, {}) || {};
+          setStatusColors(colors);
+        }
+        
+        // If tasks were reassigned, refresh the task list
+        if (result.message.includes('reassigned') && onRefreshTasks) {
+          onRefreshTasks();
+        }
+      } else {
+        const errorData = await response.json();
+        alert(`Error deleting status: "${errorData.error}"`);
+      }
+    } catch (error) {
+      console.error('Error deleting status:', error);
+      alert('Failed to delete status. Please try again.');
+    }
+  };
+
+  // Handle deleting custom task type
+  const handleDeleteTaskType = async (typeId: number, typeName: string) => {
+    try {
+      const response = await fetch(`http://localhost:3000/api/tasks/types?id=${typeId}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        alert(result.message);
+        
+        // Refresh types after deletion
+        const typeResponse = await fetch('http://localhost:3000/api/tasks/types', {
+          credentials: 'include'
+        });
+        if (typeResponse.ok) {
+          const typeData = await typeResponse.json();
+          
+          // Map API response to expected format for optionsData  
+          const mappedTypeData = typeData.types?.map((t: any) => ({
+            id: t.id,
+            name: t.type_name, // Map type_name to name
+            color: t.type_color,
+            is_default: t.is_default
+          })) || [];
+          setTypesData(mappedTypeData);
+          
+          const types = typeData.types?.map((t: any) => t.type_name) || [];
+          setAvailableTaskTypes(types);
+          const colors = typeData.types?.reduce((acc: any, t: any) => {
+            acc[t.type_name] = t.type_color;
+            return acc;
+          }, {}) || {};
+          setTypeColors(colors);
+        }
+        
+        // If tasks were reassigned, refresh the task list
+        if (result.message.includes('reassigned') && onRefreshTasks) {
+          onRefreshTasks();
+        }
+      } else {
+        const errorData = await response.json();
+        alert(`Error deleting task type: "${errorData.error}"`);
+      }
+    } catch (error) {
+      console.error('Error deleting task type:', error);
+      alert('Failed to delete task type. Please try again.');
+    }
+  };
 
   const toggleRowExpansion = (taskId: string) => {
     const newExpanded = new Set(expandedRows)
@@ -161,7 +448,15 @@ export function TaskTable({ tasks, onTaskUpdate, onTaskDelete }: TaskTableProps)
 
   const formatDateTime = (dateString: string) => {
     try {
-      return format(new Date(dateString), "MMM dd, yyyy HH:mm")
+      // Use Philippines timezone formatting for consistent display
+      return formatPhilippinesTime(new Date(dateString), {
+        year: 'numeric',
+        month: 'short',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      })
     } catch {
       return dateString
     }
@@ -242,10 +537,14 @@ export function TaskTable({ tasks, onTaskUpdate, onTaskDelete }: TaskTableProps)
                   <InlineEditSelect
                     value={task.status}
                     options={availableStatuses}
+                    optionsData={statusesData}
                     onSave={(value) => handleTaskUpdate(task.id, 'status', value)}
                     onAddOption={handleAddCustomStatus}
+                    onDeleteOption={handleDeleteStatus}
                     variant="status"
                     placeholder="Set status"
+                    colorMap={statusColors}
+                    isLoading={isLoadingColors}
                   />
                 </div>
                 
@@ -253,7 +552,7 @@ export function TaskTable({ tasks, onTaskUpdate, onTaskDelete }: TaskTableProps)
                   <div className="text-xs font-medium text-muted-foreground mb-1">Priority</div>
                   <InlineEditSelect
                     value={task.priority}
-                    options={['Low', 'Medium', 'High']}
+                    options={['low', 'medium', 'high']}
                     onSave={(value) => handleTaskUpdate(task.id, 'priority', value)}
                     variant="priority"
                     placeholder="Set priority"
@@ -275,7 +574,7 @@ export function TaskTable({ tasks, onTaskUpdate, onTaskDelete }: TaskTableProps)
                 <div>
                   <div className="text-xs font-medium text-muted-foreground mb-1">Due Date</div>
                   <InlineEditDate
-                    value={task.dueDate}
+                    value={task.dueDate || ''}
                     onSave={(value) => handleTaskUpdate(task.id, 'dueDate', value)}
                     placeholder="Set due date"
                   />
@@ -287,10 +586,14 @@ export function TaskTable({ tasks, onTaskUpdate, onTaskDelete }: TaskTableProps)
                 <InlineEditSelect
                   value={task.taskType}
                   options={availableTaskTypes}
+                  optionsData={typesData}
                   onSave={(value) => handleTaskUpdate(task.id, 'taskType', value)}
                   onAddOption={handleAddCustomTaskType}
+                  onDeleteOption={handleDeleteTaskType}
                   variant="taskType"
                   placeholder="Set type"
+                  colorMap={typeColors}
+                  isLoading={isLoadingColors}
                 />
               </div>
               
@@ -340,7 +643,7 @@ export function TaskTable({ tasks, onTaskUpdate, onTaskDelete }: TaskTableProps)
                             <ChevronRight className="h-3 w-3 text-muted-foreground" />
                           </div>
                         </TooltipTrigger>
-                        <TooltipContent>
+                        <TooltipContent side="right">
                           <p className="text-xs">Click arrows to expand task details</p>
                         </TooltipContent>
                       </Tooltip>
@@ -420,10 +723,14 @@ export function TaskTable({ tasks, onTaskUpdate, onTaskDelete }: TaskTableProps)
                           <InlineEditSelect
                             value={task.status}
                             options={availableStatuses}
+                            optionsData={statusesData}
                             onSave={(value) => handleTaskUpdate(task.id, 'status', value)}
                             onAddOption={handleAddCustomStatus}
+                            onDeleteOption={handleDeleteStatus}
                             variant="status"
                             placeholder="Set status"
+                            colorMap={statusColors}
+                            isLoading={isLoadingColors}
                           />
                         </TableCell>
                         
@@ -440,30 +747,34 @@ export function TaskTable({ tasks, onTaskUpdate, onTaskDelete }: TaskTableProps)
                         
                         <TableCell className="px-1">
                           <InlineEditDate
-                            value={task.dueDate}
+                            value={task.dueDate || ''}
                             onSave={(value) => handleTaskUpdate(task.id, 'dueDate', value)}
                             placeholder="Set due date"
                           />
                         </TableCell>
                         
                         <TableCell className="px-1">
-                          <InlineEditSelect
-                            value={task.priority}
-                            options={['Low', 'Medium', 'High']}
-                            onSave={(value) => handleTaskUpdate(task.id, 'priority', value)}
-                            variant="priority"
-                            placeholder="Set priority"
-                          />
+                                                  <InlineEditSelect
+                          value={task.priority}
+                          options={['low', 'medium', 'high']}
+                          onSave={(value) => handleTaskUpdate(task.id, 'priority', value)}
+                          variant="priority"
+                          placeholder="Set priority"
+                        />
                         </TableCell>
                         
                         <TableCell className="px-1">
                           <InlineEditSelect
                             value={task.taskType}
                             options={availableTaskTypes}
+                            optionsData={typesData}
                             onSave={(value) => handleTaskUpdate(task.id, 'taskType', value)}
                             onAddOption={handleAddCustomTaskType}
+                            onDeleteOption={handleDeleteTaskType}
                             variant="taskType"
                             placeholder="Set type"
+                            colorMap={typeColors}
+                            isLoading={isLoadingColors}
                           />
                         </TableCell>
                         

@@ -19,51 +19,41 @@ const sampleTickets = [
     ticket_id: 'TKT-2024001',
     title: 'Email Login Issues',
     concern: 'Cannot login to email account',
-    details: 'Getting authentication errors when trying to access company email. Tried resetting password but still cannot login.',
-    comments: 'Issue started this morning around 9 AM',
+    details: 'Getting authentication errors when trying to access company email. Tried resetting password but still cannot login. Issue started this morning around 9 AM',
     category: 'Technical Support',
-    status: 'pending',
-    priority: 'high'
+    status: 'pending'
   },
   {
     ticket_id: 'TKT-2024002', 
     title: 'Software Installation Request',
     concern: 'Need new software installed on workstation',
-    details: 'Require Adobe Photoshop and Microsoft Project for upcoming client work.',
-    comments: 'Please install latest versions',
+    details: 'Require Adobe Photoshop and Microsoft Project for upcoming client work. Please install latest versions',
     category: 'Software Request',
-    status: 'in-progress',
-    priority: 'medium'
+    status: 'in-progress'
   },
   {
     ticket_id: 'TKT-2024003',
     title: 'VPN Connection Problems',
     concern: 'VPN keeps disconnecting during work hours',
-    details: 'VPN connection drops every 30-45 minutes. Affecting productivity and client calls.',
-    comments: 'Using company provided VPN client',
+    details: 'VPN connection drops every 30-45 minutes. Affecting productivity and client calls. Using company provided VPN client',
     category: 'Network Issue',
-    status: 'resolved',
-    priority: 'high'
+    status: 'resolved'
   },
   {
     ticket_id: 'TKT-2024004',
     title: 'Printer Not Working',
     concern: 'Office printer shows error message',
-    details: 'Printer displays "Paper Jam" error but no paper is stuck. Cannot print any documents.',
-    comments: 'Tried turning off and on, same error persists',
+    details: 'Printer displays "Paper Jam" error but no paper is stuck. Cannot print any documents. Tried turning off and on, same error persists',
     category: 'Hardware Issue',
-    status: 'pending',
-    priority: 'low'
+    status: 'pending'
   },
   {
     ticket_id: 'TKT-2024005',
     title: 'Access Request',
     concern: 'Need access to client database',
-    details: 'Require read/write access to the ARIA FIRST HOMES client database for property management tasks.',
-    comments: 'Urgent - client meeting tomorrow',
+    details: 'Require read/write access to the ARIA FIRST HOMES client database for property management tasks. Urgent - client meeting tomorrow',
     category: 'Access Request',
-    status: 'pending',
-    priority: 'urgent'
+    status: 'pending'
   }
 ];
 
@@ -150,10 +140,10 @@ async function seedTickets() {
         // Insert ticket
         const insertTicketQuery = `
           INSERT INTO tickets (
-            ticket_id, user_id, title, concern, details, comments, 
-            category, status, priority
+            ticket_id, user_id, title, concern, details, 
+            category, status
           ) 
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8::ticket_status_enum, $9::ticket_priority_enum)
+          VALUES ($1, $2, $3, $4, $5, $6, $7::ticket_status_enum)
         `;
         
         await client.query(insertTicketQuery, [
@@ -162,10 +152,8 @@ async function seedTickets() {
           ticketData.title,
           ticketData.concern,
           ticketData.details,
-          ticketData.comments,
           ticketData.category,
-          ticketData.status,
-          ticketData.priority
+          ticketData.status
         ]);
         
         console.log(`  ✅ Successfully created ticket: ${ticketData.ticket_id} (${ticketData.status})`);

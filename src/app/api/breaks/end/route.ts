@@ -18,19 +18,19 @@ export async function POST(request: NextRequest) {
     let queryParams: any[];
 
     if (break_id) {
-      // End specific break by ID
+      // End specific break by ID (Philippines timezone)
       updateQuery = `
         UPDATE break_sessions 
-        SET end_time = CURRENT_TIMESTAMP
+        SET end_time = NOW() AT TIME ZONE 'Asia/Manila'
         WHERE id = $1 AND end_time IS NULL
         RETURNING id, agent_user_id, break_type, start_time, end_time, duration_minutes
       `;
       queryParams = [break_id];
     } else {
-      // End active break for specific agent
+      // End active break for specific agent (Philippines timezone)
       updateQuery = `
         UPDATE break_sessions 
-        SET end_time = CURRENT_TIMESTAMP
+        SET end_time = NOW() AT TIME ZONE 'Asia/Manila'
         WHERE agent_user_id = $1 AND end_time IS NULL
         RETURNING id, agent_user_id, break_type, start_time, end_time, duration_minutes
       `;

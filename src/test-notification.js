@@ -1,0 +1,1 @@
+const user = JSON.parse(localStorage.getItem("shoreagents-auth") || "{}"); console.log("Current user:", user); const notif = {type: "success", title: "Test Task", message: "Test creation", actionUrl: "/productivity/tasks", icon: "CheckSquare", category: "task"}; addSmartNotification(notif, "creation"); console.log("Notification added");

@@ -50,6 +50,11 @@ export interface BreakStatus {
       Lunch: number;
       Afternoon: number;
     };
+    break_availability: {
+      Morning: boolean;
+      Lunch: boolean;
+      Afternoon: boolean;
+    };
   };
   today_breaks: BreakSession[];
 }
@@ -85,9 +90,10 @@ export async function startBreak(breakType: BreakType): Promise<{ success: boole
     }
 
     // Start break in database
-    const response = await fetch('/api/breaks/start', {
+    const response = await fetch('http://localhost:3000/api/breaks/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include', // Include authentication cookies for Electron
       body: JSON.stringify({
         agent_user_id: currentUser.id,
         break_type: breakType
@@ -133,9 +139,10 @@ export async function endBreak(): Promise<{ success: boolean; message?: string; 
     }
 
     // End break in database
-    const response = await fetch('/api/breaks/end', {
+    const response = await fetch('http://localhost:3000/api/breaks/end', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include', // Include authentication cookies for Electron
       body: JSON.stringify({
         agent_user_id: currentBreak.agent_user_id
       })
@@ -185,9 +192,10 @@ export async function pauseBreak(timeRemainingSeconds: number): Promise<{ succes
     }
 
     // Pause break in database
-    const response = await fetch('/api/breaks/pause', {
+    const response = await fetch('http://localhost:3000/api/breaks/pause', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include', // Include authentication cookies for Electron
       body: JSON.stringify({
         agent_user_id: currentBreak.agent_user_id,
         time_remaining_seconds: timeRemainingSeconds
@@ -246,9 +254,10 @@ export async function resumeBreak(): Promise<{ success: boolean; message?: strin
     }
 
     // Resume break in database
-    const response = await fetch('/api/breaks/resume', {
+    const response = await fetch('http://localhost:3000/api/breaks/resume', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include', // Include authentication cookies for Electron
       body: JSON.stringify({
         agent_user_id: currentBreak.agent_user_id
       })
@@ -294,7 +303,9 @@ export async function getBreakStatus(): Promise<{ success: boolean; status?: Bre
       return { success: false, message: 'User not authenticated' };
     }
 
-    const response = await fetch(`/api/breaks/status?agent_user_id=${currentUser.id}`);
+    const response = await fetch(`http://localhost:3000/api/breaks/status?agent_user_id=${currentUser.id}`, {
+      credentials: 'include' // Include authentication cookies for Electron
+    });
     const result = await response.json();
     
     if (!result.success) {
@@ -320,7 +331,9 @@ export async function getBreakHistory(days: number = 7, includeActive: boolean =
       return { success: false, message: 'User not authenticated' };
     }
 
-    const response = await fetch(`/api/breaks/history?agent_user_id=${currentUser.id}&days=${days}&include_active=${includeActive}`);
+    const response = await fetch(`http://localhost:3000/api/breaks/history?agent_user_id=${currentUser.id}&days=${days}&include_active=${includeActive}`, {
+      credentials: 'include' // Include authentication cookies for Electron
+    });
     const result = await response.json();
     
     if (!result.success) {
@@ -416,7 +429,12 @@ export async function syncBreakStatus(): Promise<void> {
         id: status.active_break.id,
         break_type: status.active_break.break_type,
         start_time: status.active_break.start_time,
-        agent_user_id: status.active_break.agent_user_id
+        agent_user_id: status.active_break.agent_user_id,
+        is_paused: status.active_break.is_paused,
+        pause_time: status.active_break.pause_time,
+        resume_time: status.active_break.resume_time,
+        time_remaining_seconds: status.active_break.time_remaining_at_pause,
+        pause_used: status.active_break.pause_used
       };
       
       localStorage.setItem('currentBreak', JSON.stringify(currentBreak));

@@ -36,13 +36,14 @@ export default function TaskTrackerPage() {
     loadTasksWithLoading()
   }, [])
 
-  const loadTasks = () => {
-    const allTasks = getAllTasks()
-    // Deduplicate tasks based on ID to prevent key conflicts
-    const uniqueTasks = allTasks.filter((task, index, self) => 
-      index === self.findIndex(t => t.id === task.id)
-    )
-    setTasks(uniqueTasks)
+  const loadTasks = async () => {
+    try {
+      const allTasks = await getAllTasks()
+      setTasks(allTasks)
+    } catch (error) {
+      console.error('Error loading tasks:', error)
+      setTasks([])
+    }
   }
 
   const handleTaskUpdate = (updatedTask: Task) => {
@@ -66,38 +67,43 @@ export default function TaskTrackerPage() {
         console.warn('Task with ID already exists:', newTask.id)
         return currentTasks
       }
-      return [...currentTasks, newTask]
+      return [newTask, ...currentTasks] // Add to the beginning for newest first
     })
   }
 
-  const loadTasksWithLoading = () => {
+  const loadTasksWithLoading = async () => {
     setLoading(true)
-    // Simulate loading delay only for initial load
-    setTimeout(() => {
-      const allTasks = getAllTasks()
-      // Deduplicate tasks based on ID to prevent key conflicts
-      const uniqueTasks = allTasks.filter((task, index, self) => 
-        index === self.findIndex(t => t.id === task.id)
-      )
-      setTasks(uniqueTasks)
+    try {
+      const allTasks = await getAllTasks()
+      setTasks(allTasks)
+    } catch (error) {
+      console.error('Error loading tasks:', error)
+      setTasks([])
+    } finally {
       setLoading(false)
-    }, 500)
+    }
   }
 
   const handleCreateTask = async () => {
-    if (isCreatingTask || creatingTaskRef.current) return // Prevent double-clicking and React strict mode issues
+    if (isCreatingTask || creatingTaskRef.current) return // Prevent double-clicking
     
     setIsCreatingTask(true)
     creatingTaskRef.current = true
     
     try {
-      const newTask = createTask({
+      const newTask = await createTask({
         taskName: "New Task",
-        status: "Not started",
-        priority: "Medium",
+        status: "Not Started",
+        priority: "medium",
         taskType: "Document"
+        // Don't specify assignee - let it default to current agent
       })
-      handleTaskCreate(newTask)
+      
+      if (newTask) {
+        handleTaskCreate(newTask)
+      }
+    } catch (error) {
+      console.error('Error creating task:', error)
     } finally {
       // Reset the flags after a short delay to prevent rapid clicking
       setTimeout(() => {
@@ -108,13 +114,22 @@ export default function TaskTrackerPage() {
   }
 
   const getStatusCount = (status: string) => {
+    if (status === 'Not Started') {
+      return tasks.filter(task => task.status === 'Not Started').length
+    }
+    if (status === 'In Progress') {
+      return tasks.filter(task => task.status === 'In Progress').length
+    }
+    if (status === 'Done') {
+      return tasks.filter(task => task.is_completed === true).length
+    }
     return tasks.filter(task => task.status === status).length
   }
 
   const filteredTasks = tasks.filter(task => {
-    const matchesSearch = task.taskName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         task.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         task.assignee.toLowerCase().includes(searchTerm.toLowerCase())
+    const matchesSearch = (task.taskName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         (task.description || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         (task.assignee || '').toLowerCase().includes(searchTerm.toLowerCase())
     
     const matchesStatus = statusFilter === "all" || task.status === statusFilter
 
@@ -128,33 +143,30 @@ export default function TaskTrackerPage() {
         <SidebarInset>
           <AppHeader />
           <div className="flex flex-1 flex-col gap-6 p-6 pt-2">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <h1 className="text-3xl font-bold text-foreground">Task Tracker</h1>
-                <p className="text-muted-foreground">Loading your tasks...</p>
-              </div>
+            <div className="flex flex-col space-y-4">
+              <div className="h-8 w-64 bg-muted animate-pulse rounded" />
+              <div className="h-4 w-96 bg-muted animate-pulse rounded" />
             </div>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {[1, 2, 3, 4].map((i) => (
+            <div className="grid gap-6 md:grid-cols-4">
+              {[...Array(4)].map((_, i) => (
                 <Card key={i}>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <div className="h-4 w-20 bg-muted animate-pulse rounded" />
-                    <div className="h-4 w-4 bg-muted animate-pulse rounded" />
+                  <CardHeader>
+                    <div className="h-4 w-24 bg-muted animate-pulse rounded" />
+                    <div className="h-8 w-16 bg-muted animate-pulse rounded" />
                   </CardHeader>
-                  <CardContent>
-                    <div className="h-8 w-12 bg-muted animate-pulse rounded mb-1" />
-                    <div className="h-3 w-24 bg-muted animate-pulse rounded" />
-                  </CardContent>
                 </Card>
               ))}
             </div>
             <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center justify-center py-12">
-                  <div className="flex flex-col items-center gap-4">
-                    <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-                    <p className="text-sm text-muted-foreground">Loading tasks...</p>
-                  </div>
+              <CardHeader>
+                <div className="h-6 w-32 bg-muted animate-pulse rounded" />
+                <div className="h-4 w-48 bg-muted animate-pulse rounded" />
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {[...Array(5)].map((_, i) => (
+                    <div key={i} className="h-16 bg-muted animate-pulse rounded" />
+                  ))}
                 </div>
               </CardContent>
             </Card>
@@ -187,27 +199,14 @@ export default function TaskTrackerPage() {
           </div>
 
           {/* Stats Cards */}
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Total Tasks</CardTitle>
-                <CheckSquare className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{tasks.length}</div>
-                <p className="text-xs text-muted-foreground">
-                  All tasks
-                </p>
-              </CardContent>
-            </Card>
-
+          <div className="grid gap-6 md:grid-cols-4">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">Not Started</CardTitle>
                 <Clock className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{getStatusCount('Not started')}</div>
+                <div className="text-2xl font-bold">{getStatusCount('Not Started')}</div>
                 <p className="text-xs text-muted-foreground">
                   Pending tasks
                 </p>
@@ -220,7 +219,7 @@ export default function TaskTrackerPage() {
                 <AlertCircle className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{getStatusCount('In progress')}</div>
+                <div className="text-2xl font-bold">{getStatusCount('In Progress')}</div>
                 <p className="text-xs text-muted-foreground">
                   Active tasks
                 </p>
@@ -239,62 +238,50 @@ export default function TaskTrackerPage() {
                 </p>
               </CardContent>
             </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Total</CardTitle>
+                <CheckSquare className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{tasks.length}</div>
+                <p className="text-xs text-muted-foreground">
+                  All tasks
+                </p>
+              </CardContent>
+            </Card>
           </div>
 
-          {/* Filters */}
+          {/* Search and Filter */}
           <Card>
             <CardHeader>
-              <div className="flex items-center gap-2">
-                <Filter className="h-4 w-4 text-muted-foreground" />
-                <CardTitle className="text-lg">Filters</CardTitle>
-              </div>
+              <CardTitle>Search & Filter</CardTitle>
+              <CardDescription>Find specific tasks quickly</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="flex flex-col gap-4">
-                <div className="w-full">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      placeholder="Search tasks..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      className="pl-9"
-                    />
-                  </div>
+              <div className="flex flex-col sm:flex-row gap-4">
+                <div className="flex-1 relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+                  <Input
+                    placeholder="Search tasks by name, description, or assignee..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-10"
+                  />
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant={statusFilter === "all" ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setStatusFilter("all")}
-                    className="text-xs"
+                <div className="flex items-center gap-2">
+                  <Filter className="h-4 w-4 text-muted-foreground" />
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    className="border rounded-md px-3 py-2 text-sm bg-background"
                   >
-                    All ({tasks.length})
-                  </Button>
-                  <Button
-                    variant={statusFilter === "Not started" ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setStatusFilter("Not started")}
-                    className="text-xs"
-                  >
-                    Not Started ({getStatusCount('Not started')})
-                  </Button>
-                  <Button
-                    variant={statusFilter === "In progress" ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setStatusFilter("In progress")}
-                    className="text-xs"
-                  >
-                    In Progress ({getStatusCount('In progress')})
-                  </Button>
-                  <Button
-                    variant={statusFilter === "Done" ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setStatusFilter("Done")}
-                    className="text-xs"
-                  >
-                    Done ({getStatusCount('Done')})
-                  </Button>
+                    <option value="all">All Status</option>
+                    <option value="Not Started">Not Started</option>
+                    <option value="In Progress">In Progress</option>
+                    <option value="Done">Done</option>
+                  </select>
                 </div>
               </div>
             </CardContent>
@@ -322,6 +309,7 @@ export default function TaskTrackerPage() {
                 tasks={filteredTasks} 
                 onTaskUpdate={handleTaskUpdate}
                 onTaskDelete={handleTaskDelete}
+                onRefreshTasks={loadTasks}
               />
             </CardContent>
           </Card>

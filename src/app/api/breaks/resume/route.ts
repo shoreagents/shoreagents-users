@@ -37,10 +37,10 @@ export async function POST(request: NextRequest) {
 
     const pausedBreak = pausedBreakResult[0];
 
-    // Update break session with resume time
+    // Update break session with resume time (Philippines timezone)
     const resumeQuery = `
       UPDATE break_sessions 
-      SET resume_time = CURRENT_TIMESTAMP
+      SET resume_time = NOW() AT TIME ZONE 'Asia/Manila'
       WHERE id = $1 AND end_time IS NULL AND pause_time IS NOT NULL AND resume_time IS NULL
       RETURNING id, agent_user_id, break_type, start_time, pause_time, resume_time, time_remaining_at_pause
     `;

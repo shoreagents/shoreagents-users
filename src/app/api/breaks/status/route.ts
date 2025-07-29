@@ -47,8 +47,8 @@ export async function GET(request: NextRequest) {
         CASE 
           WHEN pause_time IS NOT NULL AND resume_time IS NULL THEN time_remaining_at_pause
           WHEN pause_time IS NOT NULL AND resume_time IS NOT NULL THEN 
-            EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - resume_time)) / 60
-          ELSE EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - start_time)) / 60
+            EXTRACT(EPOCH FROM ((NOW() AT TIME ZONE 'Asia/Manila') - resume_time)) / 60
+          ELSE EXTRACT(EPOCH FROM ((NOW() AT TIME ZONE 'Asia/Manila') - start_time)) / 60
         END as current_duration_minutes
       FROM break_sessions 
       WHERE agent_user_id = $1 AND end_time IS NULL
@@ -59,7 +59,7 @@ export async function GET(request: NextRequest) {
     const activeBreakResult = await executeQuery(activeBreakQuery, [agent_user_id]);
     const activeBreak = activeBreakResult.length > 0 ? activeBreakResult[0] : null;
 
-    // Get today's completed breaks
+    // Get today's completed breaks using break_date column
     const todayBreaksQuery = `
       SELECT 
         id,
@@ -69,22 +69,34 @@ export async function GET(request: NextRequest) {
         duration_minutes
       FROM break_sessions 
       WHERE agent_user_id = $1 
-      AND DATE(start_time) = CURRENT_DATE
+      AND break_date = (NOW() AT TIME ZONE 'Asia/Manila')::date
       AND end_time IS NOT NULL
       ORDER BY start_time
     `;
 
     const todayBreaksResult = await executeQuery(todayBreaksQuery, [agent_user_id]);
 
-    // Calculate today's break summary
+    // Get break availability using the new database function
+    const breakAvailabilityQuery = `
+      SELECT * FROM get_agent_daily_breaks($1)
+    `;
+    
+    const availabilityResult = await executeQuery(breakAvailabilityQuery, [agent_user_id]);
+
+    // Calculate today's break summary using database function results
     const todaySummary = {
       total_breaks: todayBreaksResult.length + (activeBreak ? 1 : 0),
       completed_breaks: todayBreaksResult.length,
       total_minutes: todayBreaksResult.reduce((sum, b) => sum + (b.duration_minutes || 0), 0),
       breaks_by_type: {
-        Morning: todayBreaksResult.filter(b => b.break_type === 'Morning').length + (activeBreak?.break_type === 'Morning' ? 1 : 0),
-        Lunch: todayBreaksResult.filter(b => b.break_type === 'Lunch').length + (activeBreak?.break_type === 'Lunch' ? 1 : 0),
-        Afternoon: todayBreaksResult.filter(b => b.break_type === 'Afternoon').length + (activeBreak?.break_type === 'Afternoon' ? 1 : 0)
+        Morning: availabilityResult.find(r => r.break_type === 'Morning')?.break_count || 0,
+        Lunch: availabilityResult.find(r => r.break_type === 'Lunch')?.break_count || 0,
+        Afternoon: availabilityResult.find(r => r.break_type === 'Afternoon')?.break_count || 0
+      },
+      break_availability: {
+        Morning: availabilityResult.find(r => r.break_type === 'Morning')?.can_take_break ?? true,
+        Lunch: availabilityResult.find(r => r.break_type === 'Lunch')?.can_take_break ?? true,
+        Afternoon: availabilityResult.find(r => r.break_type === 'Afternoon')?.can_take_break ?? true
       }
     };
 

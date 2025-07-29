@@ -113,30 +113,53 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
 
     loadNotifications()
     
-    // Update every 10 seconds for real-time responsiveness
-    const interval = setInterval(loadNotifications, 10000)
-    
-    // Listen for real-time notification updates
-    const handleNotificationUpdate = () => {
-      loadNotifications()
-    }
-    
-    window.addEventListener('notifications-updated', handleNotificationUpdate)
+    // Update every 30 seconds instead of 10 seconds to reduce load
+    const interval = setInterval(loadNotifications, 30000)
     
     return () => {
       clearInterval(interval)
-      window.removeEventListener('notifications-updated', handleNotificationUpdate)
     }
-  }, [])
+  }, []) // Remove the event listener from this useEffect
 
-  // Check for new notifications periodically
+  // Separate useEffect for notification event handling only
+  useEffect(() => {
+    const handleNotificationUpdate = () => {
+      const updatedNotifications = getNotifications();
+      // Show unread notifications first, then recent ones, limit to 8
+      const unreadNotifications = updatedNotifications.filter(n => !n.read)
+      const readNotifications = updatedNotifications.filter(n => n.read)
+      
+      // Combine unread first, then recent read ones
+      const recentNotifications = [
+        ...unreadNotifications,
+        ...readNotifications
+      ].slice(0, 8)
+      
+      const newUnreadCount = getUnreadCount();
+      setNotifications(recentNotifications);
+      setUnreadCount(newUnreadCount);
+      
+      // Update system tray badge
+      if (window.electronAPI?.send) {
+        window.electronAPI.send('notification-count-changed', { count: newUnreadCount });
+      }
+    };
+
+    window.addEventListener('notifications-updated', handleNotificationUpdate);
+    
+    return () => {
+      window.removeEventListener('notifications-updated', handleNotificationUpdate);
+    };
+  }, []);
+
+  // Check for new notifications periodically - REDUCED FREQUENCY
   useEffect(() => {
     const checkNotifications = () => {
       checkAllNotifications()
     }
 
-    // Check every 5 minutes
-    const interval = setInterval(checkNotifications, 5 * 60 * 1000)
+    // Check every 15 minutes instead of 5 minutes to reduce API load
+    const interval = setInterval(checkNotifications, 15 * 60 * 1000)
     
     return () => clearInterval(interval)
   }, [])
@@ -145,18 +168,26 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
     const loadUserData = async () => {
       try {
         // First get user data from localStorage
-        const currentUser = getCurrentUser()
-        if (currentUser) {
+    const currentUser = getCurrentUser()
+    if (currentUser) {
           // Set initial user data from localStorage
-          setUser({
-            name: currentUser.name || "Agent User",
-            email: currentUser.email || "agent@shoreagents.com",
-            avatar: "/avatars/agent.jpg",
-          })
+      setUser({
+        name: currentUser.name || "Agent User",
+        email: currentUser.email || "agent@shoreagents.com",
+        avatar: "/avatars/agent.jpg",
+      })
           
           // Try to fetch fresh profile data from API
           try {
-            const response = await fetch('/api/profile')
+            // Get user email for API call (works in both browser and Electron)
+            const userEmail = currentUser.email;
+            const apiUrl = userEmail 
+              ? `http://localhost:3000/api/profile/?email=${encodeURIComponent(userEmail)}`
+              : 'http://localhost:3000/api/profile/';
+              
+            const response = await fetch(apiUrl, {
+              credentials: 'include' // Include authentication cookies for Electron
+            })
             if (response.ok) {
               const profileData = await response.json()
               if (profileData.success && profileData.profile) {
@@ -315,58 +346,16 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
     router.push('/notifications')
   }
 
-  // Update notification count and badge
+  // Update notification count and badge - SIMPLIFIED
   useEffect(() => {
     const unreadCount = getUnreadCount()
     setUnreadCount(unreadCount)
     
-    // Update system notification badge if Electron is available
-    if (window.electronAPI?.systemNotifications) {
-      window.electronAPI.systemNotifications.getCount().then((result: any) => {
-        // The badge count is managed by the main process
-        // This just ensures the app is aware of the current count
-      }).catch((error: any) => {
-        console.log('Could not get system notification count:', error)
-      })
-    }
-    
-    // Trigger system tray update when notification count changes
-    if (window.electronAPI?.systemNotifications) {
-      // Send notification count update to main process
+    // Update system tray badge if available
+    if (window.electronAPI?.send) {
       window.electronAPI.send('notification-count-changed', { count: unreadCount });
     }
-  }, [notifications])
-
-  // Listen for notification updates from other components
-  useEffect(() => {
-    const handleNotificationUpdate = () => {
-      const updatedNotifications = getNotifications();
-      // Show unread notifications first, then recent ones, limit to 8
-      const unreadNotifications = updatedNotifications.filter(n => !n.read)
-      const readNotifications = updatedNotifications.filter(n => n.read)
-      
-      // Combine unread first, then recent read ones
-      const recentNotifications = [
-        ...unreadNotifications,
-        ...readNotifications
-      ].slice(0, 8)
-      
-      const newUnreadCount = getUnreadCount();
-      setNotifications(recentNotifications);
-      setUnreadCount(newUnreadCount);
-      
-      // Update system tray badge
-      if (window.electronAPI?.send) {
-        window.electronAPI.send('notification-count-changed', { count: newUnreadCount });
-      }
-    };
-
-    window.addEventListener('notifications-updated', handleNotificationUpdate);
-    
-    return () => {
-      window.removeEventListener('notifications-updated', handleNotificationUpdate);
-    };
-  }, []);
+  }, [notifications]) // Only depend on notifications, not re-run constantly
 
   return (
     <header className="sticky top-0 z-50 flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12 bg-background/95 backdrop-blur-sm supports-[backdrop-filter]:bg-background/80 border-b border-border/40 shadow-sm">
@@ -564,7 +553,7 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
               <div className="h-8 w-8 rounded-full bg-muted animate-pulse" />
             </div>
           ) : (
-            <HeaderUser user={user} />
+          <HeaderUser user={user} />
           )}
         </div>
       )}
