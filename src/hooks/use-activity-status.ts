@@ -2,21 +2,25 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { getCurrentUser } from '@/lib/ticket-utils'
-import { getCurrentSessionStatus, trackUserActivity } from '@/lib/activity-storage'
+import { useTimer } from '@/contexts/timer-context'
 
 export function useActivityStatus() {
   const [isActive, setIsActive] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+  const { isInitialized, isBreakActive, timerData, lastActivityState } = useTimer()
 
   const checkActivityStatus = useCallback(() => {
     try {
       const currentUser = getCurrentUser()
-      if (currentUser?.email) {
-        const sessionStatus = getCurrentSessionStatus(currentUser.email)
+      if (currentUser?.email && isInitialized) {
+        // Use database-driven activity status from timer context
+        // User is active if they have recent activity and are not on break
+        const hasRecentActivity = timerData?.isActive === true || lastActivityState === true
+        const isOnBreak = isBreakActive === true
         
-        // User is active if they have an active session (not break, inactive, or none)
-        const active = sessionStatus?.type === 'active'
-        setIsActive(active)
+
+        
+        setIsActive(hasRecentActivity && !isOnBreak)
       } else {
         setIsActive(false)
       }
@@ -26,7 +30,7 @@ export function useActivityStatus() {
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [isInitialized, isBreakActive, timerData?.isActive, lastActivityState])
 
   useEffect(() => {
     // Check immediately
@@ -36,12 +40,11 @@ export function useActivityStatus() {
     const interval = setInterval(checkActivityStatus, 500)
 
     // Add event listeners for real-time activity detection
-    const handleActivity = () => {
+    const handleActivity = async () => {
       const currentUser = getCurrentUser()
       if (currentUser?.email) {
-        // Track activity immediately
-        trackUserActivity(currentUser.email)
-        // Check status after a brief delay
+        // TODO: Replace with database-driven activity tracking
+        // For now, just check status after a brief delay
         setTimeout(checkActivityStatus, 50)
       }
     }
@@ -55,11 +58,11 @@ export function useActivityStatus() {
     window.addEventListener('touchstart', handleActivity, { passive: true })
 
     // Listen for visibility changes (tab switching)
-    const handleVisibilityChange = () => {
+    const handleVisibilityChange = async () => {
       if (!document.hidden) {
         const currentUser = getCurrentUser()
         if (currentUser?.email) {
-          trackUserActivity(currentUser.email)
+          // TODO: Replace with database-driven activity tracking
           setTimeout(checkActivityStatus, 50)
         }
       }

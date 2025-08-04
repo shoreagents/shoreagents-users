@@ -36,6 +36,7 @@ import {
 } from "@/lib/break-manager"
 import { getCurrentUserInfo } from "@/lib/user-profiles"
 import { useBreak } from "@/contexts/break-context"
+import { useTimer } from "@/contexts/timer-context"
 
 interface BreakInfo {
   id: BreakType
@@ -88,8 +89,9 @@ export default function BreaksPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const { setBreakActive, isBreakActive, activeBreakId, isInitialized } = useBreak()
+  const { isBreakActive: timerBreakActive, breakStatus: timerBreakStatus, refreshBreakStatus } = useTimer()
 
-  // Load break status on mount and update periodically
+  // Use timer context data and only poll for detailed break status when needed
   useEffect(() => {
     const loadBreakStatus = async () => {
       try {
@@ -173,10 +175,8 @@ export default function BreaksPage() {
     // Load immediately
     loadBreakStatus()
 
-    // Update every 30 seconds for real-time data
-    const interval = setInterval(loadBreakStatus, 30000)
-
-    return () => clearInterval(interval)
+    // No continuous polling - break status will be updated when user takes actions
+    // The page will refresh break status when user interacts with break buttons
   }, [setBreakActive])
 
   // Check localStorage for active break (fallback for compatibility)
@@ -236,6 +236,9 @@ export default function BreaksPage() {
         if (success && status) {
           setBreakStatus(status)
         }
+        
+        // Refresh timer context break status
+        await refreshBreakStatus()
 
 
       } else {
@@ -268,6 +271,9 @@ export default function BreaksPage() {
         if (success && status) {
           setBreakStatus(status)
         }
+        
+        // Refresh timer context break status
+        await refreshBreakStatus()
 
       } else {
         // If end break fails, check if it's because break is already ended
@@ -315,6 +321,9 @@ export default function BreaksPage() {
         if (success && status) {
           setBreakStatus(status)
         }
+        
+        // Refresh timer context break status
+        await refreshBreakStatus()
 
 
       } else {
@@ -360,8 +369,8 @@ export default function BreaksPage() {
         
 
         
-        // Note: We don't refresh break status here to avoid conflicts
-        // The timer will use the localStorage data and the database will be updated when break ends
+        // Refresh timer context break status
+        await refreshBreakStatus()
         
       } else {
 

@@ -1,4 +1,3 @@
-import { getUserActivityData, getActivitySummary } from "./activity-storage"
 import { userProfiles } from "./user-profiles"
 
 export interface LeaderboardEntry {
@@ -19,27 +18,18 @@ export const getAllUsersLeaderboard = (): LeaderboardEntry[] => {
   
   // Get all known users from userProfiles
   Object.entries(userProfiles).forEach(([email, profile]) => {
-    const activityData = getUserActivityData(email)
-    if (activityData) {
-      const summary = getActivitySummary(email)
-      if (summary) {
-        const totalTime = summary.totalActiveTime + summary.totalInactiveTime
-        const productivityScore = totalTime > 0 
-          ? Math.round((summary.totalActiveTime / totalTime) * 100)
-          : 0
-        
-        leaderboard.push({
-          rank: 0, // Will be set after sorting
-          userId: email,
-          name: `${profile.first_name} ${profile.last_name}`,
-          productivityScore,
-          totalActiveTime: summary.totalActiveTime,
-          totalInactiveTime: summary.totalInactiveTime,
-          isCurrentlyActive: summary.isCurrentlyActive,
-          isInBreak: summary.isInBreak
-        })
-      }
-    }
+    // TODO: Replace with database-driven activity data
+    // For now, return empty leaderboard since we're not using localStorage
+    leaderboard.push({
+      rank: 0,
+      userId: email,
+      name: `${profile.first_name} ${profile.last_name}`,
+      productivityScore: 0,
+      totalActiveTime: 0,
+      totalInactiveTime: 0,
+      isCurrentlyActive: false,
+      isInBreak: false
+    })
   })
   
   // Sort by productivity score (highest first)

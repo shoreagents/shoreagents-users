@@ -70,8 +70,11 @@ export function LoginForm({
       // Start activity tracking for the logged-in user
       setUserLoggedIn()
 
-      // Redirect to dashboard
-      router.push("/dashboard")
+      // Add a small delay to ensure data is stored, then reload the page
+      // This ensures the timer initializes properly after login
+      setTimeout(() => {
+        window.location.href = "/dashboard"
+      }, 500)
     } else {
         // Handle different types of errors
         if (response.status === 403) {
@@ -164,26 +167,6 @@ export function LoginForm({
           <Button type="submit" className="w-full" disabled={isLoading}>
             {isLoading ? "Signing in..." : "Sign In"}
             </Button>
-
-          <div className="text-center text-sm text-muted-foreground">
-            <p className="mb-2">Demo Credentials (Agent Users Only):</p>
-            <div className="space-y-1">
-              <div>
-                <p className="text-xs">
-                  Agent 1: <code className="bg-muted px-1 rounded">agent@shoreagents.com</code>
-                </p>
-                <p className="text-xs">
-                  Agent 2: <code className="bg-muted px-1 rounded">agent0@shoreagents.com</code>
-                </p>
-                <p className="text-xs">
-                  Password: <code className="bg-muted px-1 rounded">shoreagents123</code>
-                </p>
-                <p className="text-xs text-amber-600">
-                  Note: Only Agent users can access this application
-                </p>
-              </div>
-          </div>
-        </div>
       </form>
       </CardContent>
     </Card>

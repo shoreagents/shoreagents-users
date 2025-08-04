@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Button } from "@/components/ui/button"
 import { useActivity } from "@/contexts/activity-context"
-import { forceSaveAndReload } from "@/lib/activity-storage"
+// import { forceSaveAndReload } from "@/lib/activity-storage"
 import { getCurrentUser } from "@/lib/ticket-utils"
 
 export function HeaderUser({
@@ -46,16 +46,7 @@ export function HeaderUser({
     const currentUser = getCurrentUser()
     console.log('👤 Current user (header):', currentUser)
     
-    // Force save all activity data and reload page before logout
-    if (currentUser?.email) {
-      console.log('💾 Force saving data for user (header):', currentUser.email)
-      forceSaveAndReload(currentUser.email)
-      return // The page will reload, so don't continue with logout
-    }
-    
-    console.log('⚠️ No current user found, using fallback logout (header)')
-    
-    // Fallback: Clear authentication data first
+    // Clear authentication data first
     localStorage.removeItem("shoreagents-auth")
     
     // Clear cookie

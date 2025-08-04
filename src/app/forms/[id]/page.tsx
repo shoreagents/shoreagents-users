@@ -115,25 +115,30 @@ export default function TicketDetailsPage() {
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case 'pending':
-        return <Badge variant="secondary" className="flex items-center gap-1">
+      case 'For Approval':
+        return <Badge variant="outline" className="flex items-center gap-1 border-orange-500 text-orange-700 bg-orange-50">
           <Clock className="h-3 w-3" />
-          Pending
+          For Approval
         </Badge>
-      case 'in-progress':
+      case 'On Hold':
+        return <Badge variant="destructive" className="flex items-center gap-1">
+          <AlertTriangle className="h-3 w-3" />
+          On Hold
+        </Badge>
+      case 'In Progress':
         return <Badge variant="default" className="flex items-center gap-1">
           <AlertTriangle className="h-3 w-3" />
           In Progress
         </Badge>
-      case 'resolved':
+      case 'Approved':
         return <Badge variant="outline" className="flex items-center gap-1 text-green-600 border-green-200">
           <CheckCircle className="h-3 w-3" />
-          Resolved
+          Approved
         </Badge>
-      case 'on-hold':
-        return <Badge variant="destructive" className="flex items-center gap-1">
-          <AlertTriangle className="h-3 w-3" />
-          On Hold
+      case 'Completed':
+        return <Badge variant="outline" className="flex items-center gap-1 text-green-600 border-green-200">
+          <CheckCircle className="h-3 w-3" />
+          Completed
         </Badge>
       default:
         return <Badge variant="secondary">{status}</Badge>
@@ -246,7 +251,13 @@ export default function TicketDetailsPage() {
               <Card>
                 <CardHeader>
                     <div className="space-y-2">
-                        <h2 className="text-2xl font-bold">{ticket.id}</h2>
+                        <div className="flex items-center gap-3">
+                          <h2 className="text-2xl font-bold">{ticket.id}</h2>
+                          {getStatusBadge(ticket.status)}
+                          <Badge variant="secondary" className="text-sm">
+                            #{ticket.position}
+                          </Badge>
+                        </div>
                       <div className="flex items-center gap-4 text-sm text-muted-foreground">
                         <div className="flex items-center gap-1">
                           <Calendar className="h-3 w-3" />
@@ -366,7 +377,7 @@ export default function TicketDetailsPage() {
                     <p className="text-sm mt-1">{formatDate(ticket.createdAt)}</p>
                   </div>
 
-                  {ticket.status === 'resolved' && (
+                  {ticket.status === 'Completed' && (
                     <>
                       {ticket.resolvedByEmail && (
                         <div>

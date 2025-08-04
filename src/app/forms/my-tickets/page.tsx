@@ -153,36 +153,48 @@ export default function MyTicketsPage() {
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case 'pending':
+      case 'For Approval':
         return (
-          <Badge variant="secondary" className="flex items-center gap-1">
-            <Clock className="h-3 w-3" />
-            Pending
+          <Badge variant="outline" className="border-orange-500 text-orange-700 bg-orange-50">
+            <Clock className="w-3 h-3 mr-1" />
+            For Approval
           </Badge>
         )
-      case 'in-progress':
+      case 'On Hold':
         return (
-          <Badge variant="default" className="flex items-center gap-1">
-            <AlertTriangle className="h-3 w-3" />
-            In Progress
-          </Badge>
-        )
-      case 'resolved':
-        return (
-          <Badge variant="outline" className="flex items-center gap-1 text-green-600 border-green-200">
-            <CheckCircle className="h-3 w-3" />
-            Resolved
-          </Badge>
-        )
-      case 'on-hold':
-        return (
-          <Badge variant="destructive" className="flex items-center gap-1">
-            <AlertTriangle className="h-3 w-3" />
+          <Badge variant="outline" className="border-red-500 text-red-700 bg-red-50">
+            <AlertTriangle className="w-3 h-3 mr-1" />
             On Hold
           </Badge>
         )
+      case 'In Progress':
+        return (
+          <Badge variant="outline" className="border-blue-500 text-blue-700 bg-blue-50">
+            <AlertTriangle className="w-3 h-3 mr-1" />
+            In Progress
+          </Badge>
+        )
+      case 'Approved':
+        return (
+          <Badge variant="outline" className="border-green-500 text-green-700 bg-green-50">
+            <CheckCircle className="w-3 h-3 mr-1" />
+            Approved
+          </Badge>
+        )
+      case 'Completed':
+        return (
+          <Badge variant="outline" className="border-green-500 text-green-700 bg-green-50">
+            <CheckCircle className="w-3 h-3 mr-1" />
+            Completed
+          </Badge>
+        )
       default:
-        return <Badge variant="secondary">{status}</Badge>
+        return (
+          <Badge variant="outline" className="border-gray-500 text-gray-700 bg-gray-50">
+            <Clock className="w-3 h-3 mr-1" />
+            {status}
+          </Badge>
+        )
     }
   }
 
@@ -281,10 +293,11 @@ export default function MyTicketsPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Status</SelectItem>
-                      <SelectItem value="pending">Pending</SelectItem>
-                      <SelectItem value="in-progress">In Progress</SelectItem>
-                      <SelectItem value="resolved">Resolved</SelectItem>
-                      <SelectItem value="on-hold">On Hold</SelectItem>
+                      <SelectItem value="For Approval">For Approval</SelectItem>
+                      <SelectItem value="On Hold">On Hold</SelectItem>
+                      <SelectItem value="In Progress">In Progress</SelectItem>
+                      <SelectItem value="Approved">Approved</SelectItem>
+                      <SelectItem value="Completed">Completed</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -378,6 +391,9 @@ export default function MyTicketsPage() {
                             {getStatusBadge(ticket.status)}
                             <Badge variant="outline" className="text-xs">
                               {getCategoryLabel(ticket.category)}
+                            </Badge>
+                            <Badge variant="secondary" className="text-xs">
+                              #{ticket.position}
                             </Badge>
                           </div>
                           

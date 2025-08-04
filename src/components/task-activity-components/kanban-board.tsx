@@ -57,7 +57,7 @@ interface Column {
 interface KanbanBoardProps {
   tasks: Task[]
   columns: Column[]
-  onTaskMove: (taskId: string, newStatus: string) => void
+  onTaskMove: (taskId: string, newStatus: string, targetPosition?: number) => void
   onTaskCreate: (status: string) => void
   onTaskUpdate: (taskId: string, updates: Partial<Task>) => void
   onColumnsReorder?: (columns: Column[]) => void
@@ -191,18 +191,28 @@ const TaskCard = ({
   return (
     <motion.div
       layout
-      initial={{ opacity: 0, scale: 0.9 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.9 }}
+      initial={{ opacity: 0, scale: 0.9, y: 20 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.9, y: -20 }}
+      transition={{ 
+        duration: 0.3,
+        ease: "easeOut",
+        layout: { duration: 0.4, ease: "easeInOut" }
+      }}
       whileDrag={{ 
         scale: 1.05,
         rotate: 2,
         zIndex: 1000,
-        boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)",
+        boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
         transition: { 
           duration: 0.2,
           ease: "easeOut"
         }
+      }}
+      whileHover={{ 
+        scale: 1.02,
+        boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.1)",
+        transition: { duration: 0.2 }
       }}
       onClick={handleCardClick}
       className={cn(
@@ -214,6 +224,7 @@ const TaskCard = ({
       )}
     >
       <div
+        data-task-id={task.id}
         draggable={!isEditMode}
         onDragStart={(e: React.DragEvent) => {
           if (!isEditMode) {
@@ -386,7 +397,7 @@ const KanbanColumn = ({
 }: { 
   column: Column; 
   tasks: Task[]; 
-  onTaskMove: (taskId: string, newStatus: string) => void;
+  onTaskMove: (taskId: string, newStatus: string, targetPosition?: number) => void;
   onTaskClick: (task: Task) => void;
   onTaskCreate: (status: string) => void;
   isEditMode?: boolean;
@@ -394,22 +405,93 @@ const KanbanColumn = ({
   onTaskRename?: (taskId: string, newTitle: string) => void;
 }) => {
   const [isDragOver, setIsDragOver] = useState(false)
+  const [dropPosition, setDropPosition] = useState<number | null>(null)
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault()
     setIsDragOver(true)
+    
+    // Calculate drop position for visual feedback
+    const dropZone = e.currentTarget as HTMLElement
+    const dropRect = dropZone.getBoundingClientRect()
+    const dropY = e.clientY - dropRect.top
+    
+    const taskElements = dropZone.querySelectorAll('[data-task-id]')
+    let targetPosition = 1
+    
+    if (taskElements.length === 0) {
+      targetPosition = 1
+    } else {
+      for (let i = 0; i < taskElements.length; i++) {
+        const taskElement = taskElements[i] as HTMLElement
+        const taskRect = taskElement.getBoundingClientRect()
+        const taskTop = taskRect.top - dropRect.top
+        const taskBottom = taskRect.bottom - dropRect.top
+        const taskCenter = (taskTop + taskBottom) / 2
+        
+        if (dropY < taskCenter) {
+          targetPosition = i + 1
+          break
+        }
+        targetPosition = i + 2
+      }
+    }
+    
+    setDropPosition(targetPosition)
   }
 
   const handleDragLeave = () => {
     setIsDragOver(false)
+    setDropPosition(null)
   }
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault()
     setIsDragOver(false)
+    setDropPosition(null)
     const taskId = e.dataTransfer.getData("taskId")
     if (taskId) {
-      onTaskMove(taskId, column.id)
+      // Calculate target position based on drop location
+      const dropZone = e.currentTarget as HTMLElement
+      const dropRect = dropZone.getBoundingClientRect()
+      const dropY = e.clientY - dropRect.top
+      
+      // Find the target position based on drop location
+      const taskElements = dropZone.querySelectorAll('[data-task-id]')
+      let targetPosition = 1 // Default to first position
+      
+      console.log(`Drop Y: ${dropY}, Task elements: ${taskElements.length}`)
+      
+      // If no tasks in the column, position will be 1
+      if (taskElements.length === 0) {
+        targetPosition = 1
+        console.log('No tasks in column, setting position to 1')
+      } else {
+        // Check each task element to find the correct insertion point
+        for (let i = 0; i < taskElements.length; i++) {
+          const taskElement = taskElements[i] as HTMLElement
+          const taskRect = taskElement.getBoundingClientRect()
+          const taskTop = taskRect.top - dropRect.top
+          const taskBottom = taskRect.bottom - dropRect.top
+          const taskCenter = (taskTop + taskBottom) / 2
+          
+          console.log(`Task ${i + 1}: top=${taskTop}, bottom=${taskBottom}, center=${taskCenter}`)
+          
+          // If drop is above the middle of this task, insert before it
+          if (dropY < taskCenter) {
+            targetPosition = i + 1
+            console.log(`Drop above task ${i + 1}, setting position to ${targetPosition}`)
+            break
+          }
+          // If drop is below this task, continue to next task
+          targetPosition = i + 2
+          console.log(`Drop below task ${i + 1}, continuing...`)
+        }
+      }
+      
+      console.log(`Dropping task ${taskId} at position ${targetPosition} in column ${column.id}`)
+      console.log('Current tasks in column:', columnTasks.map(t => ({ id: t.id, title: t.title })))
+      onTaskMove(taskId, column.id, targetPosition)
     }
   }
 
@@ -469,7 +551,8 @@ const KanbanColumn = ({
       </div>
 
       {/* Drop Zone */}
-      <div
+      <motion.div
+        layout
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
@@ -477,25 +560,63 @@ const KanbanColumn = ({
           "flex-1 overflow-y-auto transition-colors rounded-md",
           isDragOver && "bg-primary/10 border-2 border-dashed border-primary"
         )}
+        transition={{ 
+          layout: { duration: 0.4, ease: "easeInOut" },
+          backgroundColor: { duration: 0.2 }
+        }}
       >
-        {columnTasks.map(task => (
-          <TaskCard
-            key={task.id}
-            task={task}
-            onMove={(newStatus) => onTaskMove(task.id, newStatus)}
-            onTaskClick={onTaskClick}
-            isEditMode={isEditMode}
-            onDelete={onTaskDelete} // Pass onDelete to TaskCard
-            onRename={onTaskRename} // Pass onRename to TaskCard
-          />
-        ))}
+        <AnimatePresence mode="popLayout">
+          {columnTasks.map((task, index) => (
+            <motion.div 
+              key={task.id}
+              layout
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.2 }}
+            >
+              {/* Drop indicator */}
+              {isDragOver && dropPosition === index + 1 && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 4 }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="bg-primary rounded-full my-1"
+                  style={{ height: '4px' }}
+                />
+              )}
+              <TaskCard
+                task={task}
+                onMove={(newStatus) => onTaskMove(task.id, newStatus)}
+                onTaskClick={onTaskClick}
+                isEditMode={isEditMode}
+                onDelete={onTaskDelete} // Pass onDelete to TaskCard
+                onRename={onTaskRename} // Pass onRename to TaskCard
+              />
+            </motion.div>
+          ))}
+          {/* Drop indicator at the end */}
+          {isDragOver && dropPosition === columnTasks.length + 1 && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 4 }}
+              exit={{ opacity: 0, height: 0 }}
+              className="bg-primary rounded-full my-1"
+              style={{ height: '4px' }}
+            />
+          )}
+        </AnimatePresence>
         
         {columnTasks.length === 0 && (
-          <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
+          <motion.div 
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex items-center justify-center h-32 text-muted-foreground text-sm"
+          >
             {isDragOver ? "Drop task here" : "No tasks"}
-          </div>
+          </motion.div>
         )}
-      </div>
+      </motion.div>
 
       {/* Add Task Button */}
       <div className="mt-3 flex-shrink-0">
@@ -658,7 +779,7 @@ export function KanbanBoard({ tasks, columns, onTaskMove, onTaskCreate, onTaskUp
           width: 'max-content'
         }}
       >
-        <AnimatePresence mode="wait">
+        <AnimatePresence mode="popLayout">
           {localColumns.map(column => (
             <Reorder.Item
               key={column.id}

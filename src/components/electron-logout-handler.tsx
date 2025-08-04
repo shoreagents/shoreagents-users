@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { forceSaveAndReload } from '@/lib/activity-storage'
+// import { forceSaveAndReload } from '@/lib/activity-storage'
 import { getCurrentUser } from '@/lib/ticket-utils'
 
 export default function ElectronLogoutHandler() {
@@ -68,7 +68,8 @@ export default function ElectronLogoutHandler() {
           
           // Force save all activity data and reload page before logout
           if (currentUser?.email) {
-            forceSaveAndReload(currentUser.email)
+            // TODO: Replace with database-driven save and reload
+            // forceSaveAndReload(currentUser.email)
             return // The page will reload, so don't continue with logout
           }
           
