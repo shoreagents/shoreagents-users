@@ -4,7 +4,7 @@ import React, { createContext, useContext, useEffect, useCallback, useState, use
 import { useActivityTracking } from '@/hooks/use-activity-tracking'
 import { InactivityDialog } from '@/components/inactivity-dialog'
 import { getCurrentUser } from '@/lib/ticket-utils'
-import { initializeUserActivity, markUserAsLoggedOut, markUserAsAppClosed, pauseActivityForBreak, resumeActivityFromBreak, cleanupDuplicateSessions, forceSaveAndReload } from '@/lib/activity-storage'
+// import { initializeUserActivity, markUserAsLoggedOut, markUserAsAppClosed, pauseActivityForBreak, resumeActivityFromBreak, cleanupDuplicateSessions, forceSaveAndReload } from '@/lib/activity-storage'
 import { useRouter } from 'next/navigation'
 import { useBreak } from './break-context'
 
@@ -45,22 +45,31 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
 
   // Check for existing login on mount - but don't auto-start tracking
   useEffect(() => {
-    const currentUser = getCurrentUser()
-    if (currentUser) {
-      // Initialize user activity data
-      initializeUserActivity(currentUser.email)
-      
-      // Only set hasLoggedIn if we're not on the login page
-      if (window.location.pathname !== '/' && window.location.pathname !== '/login') {
-        setHasLoggedIn(true)
-      }
-    } else {
-      // No user logged in, ensure tracking is stopped
-      setHasLoggedIn(false)
-      if (isTracking) {
-        stopTracking()
+    const checkInitialAuth = async () => {
+      const currentUser = getCurrentUser()
+      if (currentUser) {
+        // Initialize user activity data
+        try {
+          // TODO: Replace with database-driven activity initialization
+          // await initializeUserActivity(currentUser.email)
+        } catch (error) {
+          console.error('Failed to initialize user activity:', error)
+        }
+        
+        // Only set hasLoggedIn if we're not on the login page
+        if (window.location.pathname !== '/' && window.location.pathname !== '/login') {
+          setHasLoggedIn(true)
+        }
+      } else {
+        // No user logged in, ensure tracking is stopped
+        setHasLoggedIn(false)
+        if (isTracking) {
+          stopTracking()
+        }
       }
     }
+    
+    checkInitialAuth()
   }, [])
 
   // Start tracking only when user has logged in and no break is active
@@ -79,11 +88,13 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
       if (currentUser?.email) {
         if (isBreakActive) {
           // Pause activity tracking when break starts
-          pauseActivityForBreak(currentUser.email)
+          // TODO: Replace with database-driven activity pausing
+          // pauseActivityForBreak(currentUser.email)
           pauseTracking()
         } else {
           // Resume activity tracking when break ends
-          resumeActivityFromBreak(currentUser.email)
+          // TODO: Replace with database-driven activity resuming
+          // resumeActivityFromBreak(currentUser.email)
           resumeTracking()
         }
       }
@@ -172,7 +183,8 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
       const currentUser = getCurrentUser()
       if (currentUser?.email) {
         // Mark user session as ended due to app closing
-        markUserAsAppClosed(currentUser.email)
+        // TODO: Replace with database-driven app closing
+        // markUserAsAppClosed(currentUser.email)
         setHasLoggedIn(false)
         stopTracking()
       }
@@ -188,7 +200,8 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
       const currentUser = getCurrentUser()
       if (currentUser?.email) {
         // Mark user session as ended due to page unload
-        markUserAsAppClosed(currentUser.email)
+        // TODO: Replace with database-driven app closing
+        // markUserAsAppClosed(currentUser.email)
       }
     }
 
@@ -209,7 +222,8 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
       if (currentUser?.email) {
         // Clean up duplicate sessions every 30onds
         const cleanupInterval = setInterval(() => {
-          cleanupDuplicateSessions(currentUser.email)
+          // TODO: Replace with database-driven cleanup
+          // cleanupDuplicateSessions(currentUser.email)
         }, 30000) // 30 seconds
         
         return () => clearInterval(cleanupInterval)
@@ -298,7 +312,8 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
       
       // Force save all activity data and reload page before logout
       if (currentUser?.email) {
-        forceSaveAndReload(currentUser.email)
+        // TODO: Replace with database-driven save and reload
+        // forceSaveAndReload(currentUser.email)
         return // The page will reload, so don't continue with logout
       }
       
@@ -318,99 +333,48 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
     const currentUser = getCurrentUser()
     if (currentUser?.email) {
       // Initialize fresh activity data to prevent timing overlaps
-      initializeUserActivity(currentUser.email)
+      // TODO: Replace with database-driven activity initialization
+      // initializeUserActivity(currentUser.email)
     }
     
     setHasLoggedIn(true)
+    
+    // Add a small delay to ensure authentication data is stored, then reload the page
+    // This ensures the timer initializes properly after login
+    setTimeout(() => {
+      if (window.location.pathname !== '/login' && window.location.pathname !== '/') {
+        console.log('🔄 Reloading page after login to ensure timer initialization')
+        window.location.reload()
+      }
+    }, 1000) // 1 second delay to ensure all data is stored
   }, [])
 
   const setUserLoggedOut = useCallback(async () => {
-    // FIRST: Check current status before stopping
-    try {
-      if (window.electronAPI?.activityTracking?.getStatus) {
-        const status = await window.electronAPI.activityTracking.getStatus();
-        console.log('🔍 Activity status before logout:', status);
-      }
-    } catch (error) {
-      console.error('Error getting activity status:', error);
-    }
+    console.log('🔄 User logging out - stopping activity tracking')
     
-    // SECOND: Stop activity tracking immediately to prevent any more activity updates
+    // FIRST: Stop activity tracking immediately to prevent any more activity updates
     try {
       await stopTracking()
+      console.log('✅ Activity tracking stopped successfully')
     } catch (error) {
       console.error('Error stopping tracking before logout:', error)
     }
     
-    // SECOND: Mark user as logged out (this will end the session)
-    const currentUser = getCurrentUser()
-    if (currentUser?.email) {
-      markUserAsLoggedOut(currentUser.email)
-    }
-    
-    // THIRD: Also force logout for ALL activity data in localStorage
+    // SECOND: Clear any remaining localStorage activity data
     const allKeys = Object.keys(localStorage)
     const activityKeys = allKeys.filter(key => key.startsWith('shoreagents-activity-'))
     activityKeys.forEach(key => {
       try {
-        const data = localStorage.getItem(key)
-        if (data) {
-          const parsed = JSON.parse(data)
-          if (parsed.isCurrentlyActive || !parsed.isLoggedOut) {
-            console.log(`🔴 Force ending session for key: ${key}`)
-            const now = Date.now()
-            
-            // End any active session
-            if (parsed.currentSessionStart && parsed.currentSessionStart > 0) {
-              const duration = now - parsed.currentSessionStart
-              parsed.totalActiveTime += duration
-              
-              // End last session
-              if (parsed.activitySessions && parsed.activitySessions.length > 0) {
-                const lastSession = parsed.activitySessions[parsed.activitySessions.length - 1]
-                if (lastSession && !lastSession.endTime) {
-                  lastSession.endTime = now
-                  lastSession.duration = duration
-                  lastSession.endReason = 'logout'
-                }
-              }
-            }
-            
-            // Force logout state
-            parsed.isCurrentlyActive = false
-            parsed.currentSessionStart = 0
-            parsed.isLoggedOut = true
-            parsed.lastLogoutTime = now
-            parsed.isInBreak = false
-            
-            localStorage.setItem(key, JSON.stringify(parsed))
-          }
-        }
+        localStorage.removeItem(key)
+        console.log(`🗑️ Removed activity data: ${key}`)
       } catch (error) {
-        console.error('Error force ending session:', error)
+        console.error('Error removing activity data:', error)
       }
     })
     
+    // THIRD: Set logged out state
     setHasLoggedIn(false)
-    
-    // THIRD: Additional safety stops to ensure tracking stays off
-    const stopAttempts = [
-      () => stopTracking(),
-      () => stopTracking()
-    ]
-    
-    for (let i = 0; i < stopAttempts.length; i++) {
-      try {
-        await stopAttempts[i]()
-      } catch (error) {
-        console.error(`Safety stop attempt ${i + 1} failed:`, error)
-      }
-      
-      // Small delay between attempts
-      if (i < stopAttempts.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 100))
-      }
-    }
+    console.log('✅ User logged out successfully')
   }, [stopTracking])
 
   const value = {

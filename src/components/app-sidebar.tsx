@@ -17,7 +17,7 @@ import {
   Database,
 } from "lucide-react"
 import { useActivityStatus } from "@/hooks/use-activity-status"
-import { getNotStartedTaskCount } from "@/lib/task-utils"
+// import { getNotStartedTaskCount } from "@/lib/task-utils"
 
 import { NavMain } from "@/components/nav-main"
 import { NavProjects } from "@/components/nav-projects"
@@ -71,8 +71,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       // Only update task count if we're on task-related pages
       if (pathname.startsWith("/productivity") || pathname.startsWith("/dashboard")) {
         try {
-          const count = await getNotStartedTaskCount()
-          setNotStartedTaskCount(count)
+          // TODO: Replace with new task system if needed
+          // const count = await getNotStartedTaskCount()
+          setNotStartedTaskCount(0)
         } catch (error) {
           console.error('Error getting task count:', error)
           setNotStartedTaskCount(0)
@@ -147,13 +148,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         title: "Productivity",
         icon: CheckSquare,
         isActive: pathname.startsWith("/productivity"),
-        statusIndicator: notStartedTaskCount > 0 ? <TaskNotificationIndicator /> : undefined,
         items: [
-          {
-            title: "Task Tracker",
-            url: "/productivity/tasks",
-            badge: notStartedTaskCount > 0 ? notStartedTaskCount.toString() : undefined,
-          },
           {
             title: "Task Activity",
             url: "/productivity/task-activity",

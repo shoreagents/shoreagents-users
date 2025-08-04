@@ -76,6 +76,7 @@ export async function GET(request: NextRequest) {
           t.resolved_at,
           t.created_at,
           t.updated_at,
+          t.position,
           u.email as user_email,
           resolver.email as resolved_by_email,
           COALESCE(
@@ -94,7 +95,7 @@ export async function GET(request: NextRequest) {
         LEFT JOIN ticket_files tf ON t.id = tf.ticket_id
         WHERE t.user_id = $1
         GROUP BY t.id, u.email, resolver.email
-        ORDER BY t.created_at DESC
+        ORDER BY t.position ASC, t.created_at DESC
       `
 
       const result = await client.query(ticketsQuery, [user.id])
@@ -139,7 +140,8 @@ export async function GET(request: NextRequest) {
           hour: '2-digit',
           minute: '2-digit',
           hour12: true
-        }) || null
+        }) || null,
+        position: row.position
       }))
 
       return NextResponse.json({
@@ -204,13 +206,19 @@ export async function POST(request: NextRequest) {
       // Generate ticket ID
       const ticketId = generateTicketId()
 
+      // Get the next position value
+      const positionResult = await client.query(
+        'SELECT COALESCE(MAX(position), 0) + 1 as next_position FROM tickets'
+      )
+      const nextPosition = positionResult.rows[0].next_position
+
       // Insert ticket
       const insertTicketQuery = `
         INSERT INTO tickets (
           ticket_id, user_id, concern, details, 
-          category, status, created_at, updated_at
+          category, status, position, created_at, updated_at
         ) 
-        VALUES ($1, $2, $3, $4, $5, $6::ticket_status_enum, 
+        VALUES ($1, $2, $3, $4, $5, $6::ticket_status_enum, $7,
                 NOW() AT TIME ZONE 'Asia/Manila', 
                 NOW() AT TIME ZONE 'Asia/Manila')
         RETURNING *
@@ -222,7 +230,8 @@ export async function POST(request: NextRequest) {
         concern,
         details || null,
         category,
-        'pending'
+        'For Approval',
+        nextPosition
       ])
 
       const newTicket = ticketResult.rows[0]
@@ -260,6 +269,7 @@ export async function POST(request: NextRequest) {
         email: user.email,
         files: files,
         status: newTicket.status,
+        position: newTicket.position,
         createdAt: newTicket.created_at?.toLocaleString('en-US', { 
           timeZone: 'Asia/Manila',
           year: 'numeric',
@@ -269,30 +279,38 @@ export async function POST(request: NextRequest) {
           minute: '2-digit',
           hour12: true
         }) || '',
-        userId: user.id,
-        userEmail: user.email
+        updatedAt: newTicket.updated_at?.toLocaleString('en-US', { 
+          timeZone: 'Asia/Manila',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: true
+        }) || ''
       }
 
       return NextResponse.json({
         success: true,
-        message: 'Ticket created successfully',
-        ticket: createdTicket
-      }, { status: 201 })
+        ticket: createdTicket,
+        message: 'Ticket created successfully'
+      })
 
-    } catch (dbError) {
+    } catch (error) {
       await client.query('ROLLBACK')
-      throw dbError
+      console.error('Database error:', error)
+      return NextResponse.json(
+        { error: 'Failed to create ticket' },
+        { status: 500 }
+      )
     } finally {
       client.release()
     }
 
   } catch (error) {
-    console.error('❌ Error creating ticket:', error)
+    console.error('Error creating ticket:', error)
     return NextResponse.json(
-      { 
-        error: 'Failed to create ticket',
-        details: error instanceof Error ? error.message : 'Unknown error'
-      },
+      { error: 'Internal server error' },
       { status: 500 }
     )
   } finally {

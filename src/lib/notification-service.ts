@@ -1,7 +1,6 @@
 import { getCurrentUser } from './ticket-utils'
-import { getAllTasks, getNotStartedTaskCount } from './task-utils'
+// import { getAllTasks, getNotStartedTaskCount } from './task-utils'
 import { getCurrentUserTickets } from './ticket-utils'
-import { getCurrentUserActivityData } from './activity-storage'
 
 export interface Notification {
   id: string
@@ -394,33 +393,9 @@ export function checkForTicketNotifications(): void {
 
 // Check for activity-based notifications
 export function checkForActivityNotifications(): void {
-  const activityData = getCurrentUserActivityData()
-  const notifications = getNotifications()
-  
-  if (!activityData) return
-  
-  const now = Date.now()
-  const last24Hours = now - 24 * 60 * 60 * 1000
-  
-  // Check for break reminders
-  const lastBreakNotification = notifications.find(n => 
-    n.category === 'activity' && 
-    n.title.includes('Break reminder') &&
-    new Date(n.time).getTime() > last24Hours
-  )
-  
-  if (!lastBreakNotification && activityData.totalActiveTime > 2 * 60 * 60 * 1000) { // 2 hours
-    addNotification({
-      type: 'warning',
-      title: 'Break Reminder',
-      message: 'You\'ve been working for 2 hours. Time for a break!',
-      icon: 'Clock',
-      category: 'activity',
-      actionUrl: '/breaks'
-    })
-  }
-  
-  // Inactivity alerts removed - no longer generating these notifications
+  // Activity notifications are now handled by database-driven activity tracking
+  // This function is kept for compatibility but no longer uses localStorage
+  return
 }
 
 // Check for system notifications

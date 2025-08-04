@@ -7,8 +7,10 @@ export interface Ticket {
   details: string
   email: string
   files: string[]
-  status: 'pending' | 'in-progress' | 'resolved' | 'on-hold'
+  status: 'For Approval' | 'On Hold' | 'In Progress' | 'Approved' | 'Completed'
+  position: number
   createdAt: string
+  updatedAt?: string
   userId?: number // Use actual database user ID (integer)
   userEmail?: string // Keep email for localStorage key generation
   resolvedBy?: number // ID of user who resolved the ticket
@@ -93,14 +95,14 @@ export const updateTicketForUser = (userEmail: string, ticketId: string, updates
   saveTicketsForUser(userEmail, updatedTickets)
   
   // Only create notification for significant status changes
-  if (typeof window !== 'undefined' && updates.status === 'resolved' && originalTicket.status !== 'resolved') {
+  if (typeof window !== 'undefined' && updates.status === 'Completed' && originalTicket.status !== 'Completed') {
     const updatedTicket = updatedTickets.find(t => t.id === ticketId)
     if (updatedTicket) {
       const { addSmartNotification } = require('./notification-service')
       addSmartNotification({
         type: 'success',
-        title: 'Ticket Resolved',
-        message: `Your ticket "${updatedTicket.name}" has been resolved`,
+        title: 'Ticket Completed',
+        message: `Ticket "${updatedTicket.name}" has been completed`,
         icon: 'CheckCircle',
         category: 'ticket',
         actionUrl: `/forms/${updatedTicket.id}`,

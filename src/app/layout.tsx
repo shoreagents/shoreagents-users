@@ -3,8 +3,10 @@ import { Montserrat } from "next/font/google";
 import "./globals.css";
 import { ActivityProvider } from "@/contexts/activity-context";
 import { BreakProvider } from "@/contexts/break-context";
+import { TimerProvider } from "@/contexts/timer-context";
 import ElectronLogoutHandler from "@/components/electron-logout-handler";
 import DatabaseInitializer from "@/components/database-initializer";
+import { GlobalTimerDisplay } from "@/components/global-timer-display";
 
 const montserrat = Montserrat({
   subsets: ["latin"],
@@ -26,9 +28,12 @@ export default function RootLayout({
       <body className={`${montserrat.variable} antialiased overflow-x-hidden`}>
         <BreakProvider>
           <ActivityProvider>
-            <DatabaseInitializer />
-            <ElectronLogoutHandler />
-            {children}
+            <TimerProvider>
+              <DatabaseInitializer />
+              <ElectronLogoutHandler />
+              {children}
+              <GlobalTimerDisplay />
+            </TimerProvider>
           </ActivityProvider>
         </BreakProvider>
       </body>

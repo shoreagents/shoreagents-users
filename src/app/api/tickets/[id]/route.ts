@@ -73,6 +73,7 @@ export async function GET(
           t.resolved_at,
           t.created_at,
           t.updated_at,
+          t.position,
           u.email as user_email,
           resolver.email as resolved_by_email,
           COALESCE(
