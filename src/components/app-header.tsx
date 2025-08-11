@@ -14,7 +14,7 @@ import {
 import { Separator } from "@/components/ui/separator"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { getCurrentUser } from "@/lib/ticket-utils"
-import { Bell, CheckCircle, AlertCircle, Info, Clock, ArrowRight, CheckSquare, FileText } from "lucide-react"
+import { Bell, CheckCircle, AlertCircle, Info, Clock, ArrowRight, CheckSquare, FileText, Sun, Moon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -282,11 +282,6 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
           title: 'Contact Support',
           href: '/help/contact'
         })
-      } else if (pathSegments[1] === 'docs') {
-        generatedBreadcrumbs.push({
-          title: 'Documentation',
-          href: '/help/docs'
-        })
       } else if (pathSegments.length === 1) {
         // Help home page - make it clickable
         generatedBreadcrumbs[0].href = '/help'
@@ -386,6 +381,29 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
       </div>
       {showUser && (
         <div className="ml-auto flex items-center gap-2 px-4">
+          {/* Theme toggle */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => {
+              const root = document.documentElement
+              const isDark = root.classList.contains('dark')
+              if (isDark) {
+                root.classList.remove('dark')
+                localStorage.setItem('theme', 'light')
+              } else {
+                root.classList.add('dark')
+                localStorage.setItem('theme', 'dark')
+              }
+            }}
+            aria-label="Toggle theme"
+          >
+            {/* Show sun in dark mode, moon in light mode */}
+            <span className="dark:hidden"><Moon className="h-4 w-4" /></span>
+            <span className="hidden dark:inline"><Sun className="h-4 w-4" /></span>
+          </Button>
+
           <DropdownMenu onOpenChange={(open) => {
             // Mark all notifications as read when dropdown opens
             if (open && unreadCount > 0) {
@@ -458,8 +476,10 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
                         return (
                           <DropdownMenuItem
                             key={notification.id}
-                            className={`p-4 cursor-pointer hover:bg-accent ${
-                              !notification.read ? 'bg-blue-50 dark:bg-blue-950/20' : ''
+                            className={`p-4 cursor-pointer rounded-md transition-colors ${
+                              !notification.read
+                                ? 'bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/40 hover:bg-blue-100/70 dark:hover:bg-blue-900/30'
+                                : 'hover:bg-muted/40 dark:hover:bg-muted/20'
                             }`}
                             onClick={() => {
                               // Mark as read
@@ -487,10 +507,10 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
                           >
                             <div className="flex items-start gap-3 w-full">
                               <div className={`mt-0.5 ${
-                                notification.type === 'success' ? 'text-green-600' :
-                                notification.type === 'warning' ? 'text-yellow-600' :
-                                notification.type === 'error' ? 'text-red-600' :
-                                'text-blue-600'
+                                notification.type === 'success' ? 'text-green-600 dark:text-green-400' :
+                                notification.type === 'warning' ? 'text-yellow-600 dark:text-yellow-400' :
+                                notification.type === 'error' ? 'text-red-600 dark:text-red-400' :
+                                'text-blue-600 dark:text-blue-400'
                               }`}>
                                 <IconComponent className="h-4 w-4" />
                               </div>

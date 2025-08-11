@@ -85,7 +85,18 @@ export const getCurrentUserInfo = () => {
   
   try {
     const parsed = JSON.parse(authData)
-    return parsed.user // Returns: { id, email, name, role, user_type }
+    const user = parsed.user
+    
+    // For hybrid authentication, prioritize Railway ID for database operations
+    if (user && parsed.hybrid && user.railway_id) {
+      return {
+        ...user,
+        id: user.railway_id, // Use Railway ID for database queries
+        supabase_id: user.id, // Keep Supabase ID for reference
+      }
+    }
+    
+    return user // Returns: { id, email, name, role, user_type }
   } catch {
     return null
   }

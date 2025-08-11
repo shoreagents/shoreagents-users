@@ -4,6 +4,7 @@ import React, { createContext, useContext, useEffect, useCallback, useState, use
 import { useSocketTimer } from '@/hooks/use-socket-timer'
 import { getCurrentUser } from '@/lib/ticket-utils'
 import { useActivity } from './activity-context'
+import { useMeeting } from '@/contexts/meeting-context'
 
 interface TimerContextType {
   timerData: any
@@ -19,6 +20,9 @@ interface TimerContextType {
   setActivityState: (isActive: boolean) => void
   updateTimerData: (activeSeconds: number, inactiveSeconds: number) => void
   refreshBreakStatus: () => Promise<void>
+  shiftInfo: any
+  timeUntilReset: number
+  formattedTimeUntilReset: string
 }
 
 const TimerContext = createContext<TimerContextType | undefined>(undefined)
@@ -31,7 +35,11 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
   const [lastActivityState, setLastActivityState] = useState<boolean | null>(null)
   const [isBreakActive, setIsBreakActive] = useState(false)
   const [breakStatus, setBreakStatus] = useState<any>(null)
+  const [shiftInfo, setShiftInfo] = useState<any>(null)
+  const [timeUntilReset, setTimeUntilReset] = useState(0)
+  const [formattedTimeUntilReset, setFormattedTimeUntilReset] = useState('')
   const { hasLoggedIn } = useActivity()
+  const { isInMeeting } = useMeeting()
 
   // Get current user
   useEffect(() => {
@@ -103,12 +111,28 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       setLiveActiveSeconds(timerData.activeSeconds || 0)
       setLiveInactiveSeconds(timerData.inactiveSeconds || 0)
       setLastActivityState(timerData.isActive)
+      
+      // Extract shift information
+      if (timerData.shiftInfo) {
+        setShiftInfo(timerData.shiftInfo)
+        setTimeUntilReset(timerData.shiftInfo.timeUntilReset || 0)
+        setFormattedTimeUntilReset(timerData.shiftInfo.formattedTimeUntilReset || '')
+        console.log('⏰ Shift info loaded:', timerData.shiftInfo)
+      }
+      
       setIsInitialized(true)
       console.log('Timer initialized with server data:', timerData)
     } else if (timerData && isInitialized) {
       // After initialization, only update activity state, not the counters
       // This prevents flashing as the local counter continues running
       setLastActivityState(timerData.isActive)
+      
+      // Update shift information if it changes
+      if (timerData.shiftInfo) {
+        setShiftInfo(timerData.shiftInfo)
+        setTimeUntilReset(timerData.shiftInfo.timeUntilReset || 0)
+        setFormattedTimeUntilReset(timerData.shiftInfo.formattedTimeUntilReset || '')
+      }
     }
   }, [timerData, isInitialized])
 
@@ -141,6 +165,11 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         return // Don't increment counters when on break (but resume when paused)
       }
       
+      // Pause counting when in a meeting
+      if (isInMeeting) {
+        return // Don't increment counters when in a meeting
+      }
+      
       // Use timerData.isActive if available, otherwise use lastActivityState
       const isActive = timerData ? timerData.isActive : lastActivityState
       
@@ -152,7 +181,77 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     }, 1000)
 
     return () => clearInterval(interval)
-  }, [timerData?.isActive, lastActivityState, isAuthenticated, hasLoggedIn, isBreakActive, breakStatus?.is_paused])
+  }, [timerData?.isActive, lastActivityState, isAuthenticated, hasLoggedIn, isBreakActive, breakStatus?.is_paused, isInMeeting])
+
+  // Real-time countdown timer for shift reset
+  useEffect(() => {
+    if (!shiftInfo || !isAuthenticated || !hasLoggedIn) return
+
+    const countdownInterval = setInterval(() => {
+      const currentTime = new Date()
+      const nextResetTime = new Date(shiftInfo.nextResetTime)
+      const timeRemaining = nextResetTime.getTime() - currentTime.getTime()
+      
+      if (timeRemaining <= 0) {
+        // Reset time has passed, clear the countdown
+        setTimeUntilReset(0)
+        setFormattedTimeUntilReset('0s')
+        console.log('⏰ Shift reset time has passed')
+      } else {
+        // Update countdown
+        setTimeUntilReset(timeRemaining)
+        
+        // Format the remaining time
+        const seconds = Math.floor(timeRemaining / 1000)
+        const minutes = Math.floor(seconds / 60)
+        const hours = Math.floor(minutes / 60)
+        const days = Math.floor(hours / 24)
+
+        let formatted = ''
+        if (days > 0) {
+          formatted = `${days}d ${hours % 24}h ${minutes % 60}m`
+        } else if (hours > 0) {
+          formatted = `${hours}h ${minutes % 60}m`
+        } else if (minutes > 0) {
+          formatted = `${minutes}m ${seconds % 60}s`
+        } else {
+          formatted = `${seconds}s`
+        }
+        
+        setFormattedTimeUntilReset(formatted)
+      }
+    }, 1000)
+
+    return () => clearInterval(countdownInterval)
+  }, [shiftInfo, isAuthenticated, hasLoggedIn])
+
+  // Listen for shift reset events from server
+  useEffect(() => {
+    if (!isAuthenticated || !hasLoggedIn) return
+
+    const handleShiftReset = (event: CustomEvent) => {
+      const resetData = event.detail
+      console.log('🔄 Shift reset event received in timer context:', resetData)
+      
+      // Reset local timers to match server data
+      setLiveActiveSeconds(resetData.activeSeconds || 0)
+      setLiveInactiveSeconds(resetData.inactiveSeconds || 0)
+      setLastActivityState(resetData.isActive)
+      
+      // Show notification to user about the reset
+      if (resetData.resetReason === 'shift_change') {
+        // You can add a toast notification here if you have a notification system
+        console.log('⏰ Timer reset due to shift change')
+      }
+    }
+
+    // Listen for shift reset events
+    window.addEventListener('shiftReset', handleShiftReset as EventListener)
+
+    return () => {
+      window.removeEventListener('shiftReset', handleShiftReset as EventListener)
+    }
+  }, [isAuthenticated, hasLoggedIn])
 
   // Sync live timer values to Socket.IO server (less frequent to prevent flashing)
   useEffect(() => {
@@ -274,7 +373,10 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     lastActivityState,
     setActivityState,
     updateTimerData,
-    refreshBreakStatus
+    refreshBreakStatus,
+    shiftInfo,
+    timeUntilReset,
+    formattedTimeUntilReset
   }
 
   return (

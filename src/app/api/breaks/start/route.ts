@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
     const result = await executeQuery(insertQuery, [agent_user_id, break_type]);
     const breakSession = result[0];
 
-    console.log(`✅ Break started: ${break_type} break for agent ${agent_user_id}`);
+    // Break started successfully;
 
     return NextResponse.json({
       success: true,

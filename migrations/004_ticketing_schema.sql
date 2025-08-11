@@ -2,12 +2,14 @@
 -- This migration creates the ticketing tables
 
 -- Create ENUM types for tickets
-CREATE TYPE IF NOT EXISTS public.ticket_status_enum AS ENUM (
-	'pending',
-	'in-progress', 
-	'resolved',
-	'on-hold'
-);
+-- DROP TYPE public."ticket_status_enum";
+
+CREATE TYPE public."ticket_status_enum" AS ENUM (
+	'For Approval',
+	'On Hold',
+	'In Progress',
+	'Approved',
+	'Completed');
 
 -- Create tickets table
 CREATE TABLE IF NOT EXISTS public.tickets (
@@ -17,7 +19,7 @@ CREATE TABLE IF NOT EXISTS public.tickets (
 	concern text NOT NULL,
 	details text NULL,
 	category varchar(100) NOT NULL,
-	status public.ticket_status_enum DEFAULT 'pending' NOT NULL,
+	status public.ticket_status_enum DEFAULT 'For Approval' NOT NULL,
 	resolved_by int4 NULL, -- Agent who resolved the ticket
 	resolved_at timestamp NULL,
 	created_at timestamp DEFAULT (NOW() AT TIME ZONE 'Asia/Manila') NOT NULL,

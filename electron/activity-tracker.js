@@ -13,7 +13,7 @@ class ActivityTracker {
     this.mousePosition = { x: 0, y: 0 };
     this.mouseTrackingInterval = null;
     this.isSystemSuspended = false;
-    this.systemIdleThreshold = 60000; // 1 minute for system idle detection
+    this.systemIdleThreshold = 30000; // 1 minute for system idle detection
     this.systemIdleCheckInterval = null;
     
     // Bind methods
@@ -81,7 +81,7 @@ class ActivityTracker {
     // Start checking for inactivity
     this.activityCheckInterval = setInterval(() => {
       this.checkInactivity();
-    }, 1000); // Check every second
+    }, 1000); // Check every second (renderer expects ~30s consistency)
     
     // Start system idle checking
     this.systemIdleCheckInterval = setInterval(() => {
@@ -216,45 +216,25 @@ class ActivityTracker {
     const currentTime = Date.now();
     const timeSinceLastActivity = currentTime - this.lastActivityTime;
     
-    // Check system idle time to avoid false inactivity alerts
+    // Prefer our own high-frequency tracker for consistent thresholding.
+    // Use system idle time only as additional context, not as a hard gate.
+    let systemIdleTime = null;
     try {
-      const systemIdleTime = powerMonitor.getSystemIdleTime() * 1000;
-      
-      // Only show inactivity if both our tracker and system agree user is idle
-      if (timeSinceLastActivity >= this.inactivityThreshold && systemIdleTime >= this.inactivityThreshold) {
-        // Automatically bring window to foreground when inactivity is detected
-        this.showInactivityWindow();
-        
-        // Send inactivity alert to renderer
-        try {
-          if (this.mainWindow && !this.mainWindow.isDestroyed() && this.mainWindow.webContents) {
-            this.mainWindow.webContents.send('inactivity-alert', {
-              inactiveTime: timeSinceLastActivity,
-              threshold: this.inactivityThreshold,
-              systemIdleTime: systemIdleTime
-            });
-          }
-        } catch (error) {
-          console.error('Error sending inactivity alert:', error);
+      systemIdleTime = powerMonitor.getSystemIdleTime() * 1000;
+    } catch (_) {}
+
+    if (timeSinceLastActivity >= this.inactivityThreshold) {
+      this.showInactivityWindow();
+      try {
+        if (this.mainWindow && !this.mainWindow.isDestroyed() && this.mainWindow.webContents) {
+          this.mainWindow.webContents.send('inactivity-alert', {
+            inactiveTime: timeSinceLastActivity,
+            threshold: this.inactivityThreshold,
+            systemIdleTime: systemIdleTime,
+          });
         }
-      }
-    } catch (error) {
-      // Fallback to our own tracking if system idle time is unavailable
-      if (timeSinceLastActivity >= this.inactivityThreshold) {
-        // Automatically bring window to foreground when inactivity is detected
-        this.showInactivityWindow();
-        
-        try {
-          if (this.mainWindow && !this.mainWindow.isDestroyed() && this.mainWindow.webContents) {
-            this.mainWindow.webContents.send('inactivity-alert', {
-              inactiveTime: timeSinceLastActivity,
-              threshold: this.inactivityThreshold,
-              systemIdleTime: null
-            });
-          }
-        } catch (error) {
-          console.error('Error sending inactivity alert:', error);
-        }
+      } catch (error) {
+        console.error('Error sending inactivity alert:', error);
       }
     }
   }

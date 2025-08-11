@@ -27,8 +27,7 @@ export const initializeDatabase = async (): Promise<void> => {
       throw new Error('DATABASE_URL must be a valid PostgreSQL connection string starting with postgresql:// or postgres://');
     }
 
-    console.log('🔗 Attempting to connect to database...');
-    console.log('📊 Database URL format:', dbUrl.replace(/\/\/.*@/, '//***:***@')); // Hide credentials
+      // Attempting to connect to database...
 
     // Create connection pool with timeout
     pool = new Pool({
@@ -41,14 +40,7 @@ export const initializeDatabase = async (): Promise<void> => {
     const client = await pool.connect();
     try {
       await client.query('SELECT NOW()');
-      console.log('✅ Database connected successfully!');
-      console.log('📊 Connection pool created');
-      console.log('🔗 Database URL:', dbUrl.replace(/\/\/.*@/, '//***:***@')); // Hide credentials
-
-      // Log additional connection info
-      if (process.env.ENABLE_DATABASE_LOGGING === 'true') {
-        console.log('📝 Database logging enabled');
-      }
+      // Database connected successfully
     } finally {
       client.release();
     }
@@ -90,7 +82,6 @@ export const executeQuery = async <T = any>(
 ): Promise<T[]> => {
   // Auto-initialize database if not already done
   if (!pool) {
-    console.log('🔄 Database not initialized, initializing now...');
     await initializeDatabase();
   }
   
@@ -101,9 +92,7 @@ export const executeQuery = async <T = any>(
     const result = await client.query(query, params);
     const duration = Date.now() - startTime;
     
-    if (process.env.ENABLE_DATABASE_LOGGING === 'true') {
-      console.log(`📊 Query executed in ${duration}ms:`, query.substring(0, 100) + '...');
-    }
+    // Query executed successfully
     
     return result.rows;
   } catch (error) {

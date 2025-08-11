@@ -74,6 +74,7 @@ interface Task {
   dueDate: string
   tags: string[]
   status: string
+  group_id?: number
   relationships?: Array<{ taskId: string; type: string }>
 }
 
@@ -120,6 +121,7 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
   const [isDragOver, setIsDragOver] = useState(false)
   const [uploadedFiles, setUploadedFiles] = useState<Array<{id: string, name: string, size: number}>>([])
   const [isAttachmentsOpen, setIsAttachmentsOpen] = useState(false)
+  const [selectedAssignees, setSelectedAssignees] = useState<Array<{id: string, name: string, email: string, avatar: string}>>([])
 
   // Priority options with colors
   const priorityOptions = [
@@ -136,10 +138,25 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
     low: "text-gray-500"
   }
 
-  // Mock data for assignees dropdown
-  const currentAssignees = [
-    { id: "current-1", name: "Bob Smith", email: "bob@example.com", avatar: "" },
-  ]
+  // Initialize selected assignees from task data
+  React.useEffect(() => {
+    if (task?.assignee) {
+      // Parse assignee data if it's stored as JSON, otherwise treat as single assignee
+      try {
+        const assigneeData = JSON.parse(task.assignee)
+        if (Array.isArray(assigneeData)) {
+          setSelectedAssignees(assigneeData)
+        } else {
+          setSelectedAssignees([{ id: "current-1", name: task.assignee, email: `${task.assignee.toLowerCase().replace(' ', '.')}@shoreagents.com`, avatar: "" }])
+        }
+      } catch {
+        // If not JSON, treat as single assignee string
+        setSelectedAssignees([{ id: "current-1", name: task.assignee, email: `${task.assignee.toLowerCase().replace(' ', '.')}@shoreagents.com`, avatar: "" }])
+      }
+    } else {
+      setSelectedAssignees([])
+    }
+  }, [task])
 
   const peopleList = [
     { id: "people-1", name: "Me", email: "me@example.com", avatar: "", isCurrentUser: true },
@@ -179,7 +196,7 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
     return colorMap[statusId] || 'bg-slate-500' // Default color for custom statuses
   }
 
-  const currentStatus = statusOptions.find(s => s.id === task?.status) || statusOptions[0] || { id: task?.status || '', label: task?.status || '', color: 'bg-gray-500' }
+  const currentStatus = statusOptions.find(s => s.id === task?.group_id?.toString()) || statusOptions[0] || { id: task?.group_id?.toString() || '', label: task?.group_id?.toString() || '', color: 'bg-gray-500' }
   const filteredStatuses = statusOptions.filter(status => 
     status.label.toLowerCase().includes(statusSearch.toLowerCase())
   )
@@ -232,7 +249,8 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
   }
 
   const handleStatusChange = (newStatus: string) => {
-    onTaskUpdate(task.id, { status: newStatus })
+    // Update the group_id instead of status for proper task movement
+    onTaskUpdate(task.id, { group_id: parseInt(newStatus) })
     setIsStatusOpen(false)
   }
 
@@ -389,6 +407,38 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
     onTaskUpdate(task.id, { assignee: newAssignee })
     setIsAssigneeOpen(false)
   }
+
+  const handleAddAssignee = (assignee: {id: string, name: string, email?: string, avatar: string, members?: number}) => {
+    // Convert team to assignee format if it's a team
+    const assigneeData = {
+      id: assignee.id,
+      name: assignee.name,
+      email: assignee.email || `${assignee.name.toLowerCase().replace(' ', '.')}@shoreagents.com`,
+      avatar: assignee.avatar
+    }
+    
+    const updatedAssignees = [...selectedAssignees, assigneeData]
+    setSelectedAssignees(updatedAssignees)
+    // Update task with assignee data
+    onTaskUpdate(task.id, { assignee: JSON.stringify(updatedAssignees) })
+  }
+
+  const handleRemoveAssignee = (assigneeId: string) => {
+    const updatedAssignees = selectedAssignees.filter(a => a.id !== assigneeId)
+    setSelectedAssignees(updatedAssignees)
+    // Update task with assignee data
+    onTaskUpdate(task.id, { assignee: updatedAssignees.length > 0 ? JSON.stringify(updatedAssignees) : "" })
+  }
+
+  // Filter people list to exclude already selected assignees
+  const availablePeople = peopleList.filter(person => 
+    !selectedAssignees.some(selected => selected.id === person.id)
+  )
+
+  // Filter team list to exclude already selected teams
+  const availableTeams = teamList.filter(team => 
+    !selectedAssignees.some(selected => selected.id === team.id)
+  )
 
   // Helper functions for quick date selections
   const getQuickDate = (type: string): Date => {
@@ -695,7 +745,7 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                                     variant="ghost"
                                     className={cn(
                                       "w-full justify-between h-10 px-3",
-                                      status.id === task.status && "bg-accent"
+                                      status.id === task.group_id?.toString() && "bg-accent"
                                     )}
                                     onClick={() => handleStatusChange(status.id)}
                                   >
@@ -703,7 +753,7 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                                       <div className={cn("w-3 h-3 rounded-full", status.color)} />
                                       <span className="text-sm">{status.label}</span>
                                     </div>
-                                    {status.id === task.status && (
+                                    {status.id === task.group_id?.toString() && (
                                       <Check className="h-4 w-4 text-green-600" />
                                     )}
                                   </Button>
@@ -763,12 +813,12 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                           >
                             <div className="p-2 space-y-1">
                               {/* Assignees Section */}
-                              {currentAssignees.length > 0 && (
+                              {selectedAssignees.length > 0 && (
                                 <>
                                   <div className="text-xs font-medium text-muted-foreground mb-2 px-2">
                                     Assignees
                                   </div>
-                                  {currentAssignees.map((assignee) => (
+                                  {selectedAssignees.map((assignee) => (
                                     <div
                                       key={assignee.id}
                                       className="flex items-center justify-between p-2 rounded hover:bg-accent cursor-pointer"
@@ -776,7 +826,7 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                                       <div className="flex items-center gap-3">
                                         <Avatar className="h-6 w-6">
                                           <AvatarFallback className="text-xs">
-                                            {assignee.name.split(' ').map(n => n[0]).join('').toUpperCase()}
+                                            {assignee.name.split(' ').map((n: string) => n[0]).join('').toUpperCase()}
                                           </AvatarFallback>
                                         </Avatar>
                                         <div className="flex flex-col">
@@ -784,7 +834,12 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                                           <span className="text-xs text-muted-foreground">{assignee.email}</span>
                                         </div>
                                       </div>
-                                      <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+                                      <Button 
+                                        variant="ghost" 
+                                        size="sm" 
+                                        className="h-6 w-6 p-0"
+                                        onClick={() => handleRemoveAssignee(assignee.id)}
+                                      >
                                         ×
                                       </Button>
                                     </div>
@@ -797,7 +852,7 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                               <div className="text-xs font-medium text-muted-foreground mb-2 px-2">
                                 People
                               </div>
-                              {peopleList
+                              {availablePeople
                                 .filter(person => 
                                   person.name.toLowerCase().includes(assigneeSearch.toLowerCase()) ||
                                   person.email.toLowerCase().includes(assigneeSearch.toLowerCase())
@@ -807,7 +862,7 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                                     key={person.id}
                                     variant="ghost"
                                     className="w-full justify-start h-auto p-2"
-                                    onClick={() => handleAssigneeChange(person.name)}
+                                    onClick={() => handleAddAssignee(person)}
                                   >
                                     <div className="flex items-center gap-3 w-full">
                                       <Avatar className="h-6 w-6">
@@ -836,7 +891,7 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                               <div className="text-xs font-medium text-muted-foreground mb-2 px-2">
                                 Team
                               </div>
-                              {teamList
+                              {availableTeams
                                 .filter(team => 
                                   team.name.toLowerCase().includes(assigneeSearch.toLowerCase())
                                 )
@@ -845,7 +900,7 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                                     key={team.id}
                                     variant="ghost"
                                     className="w-full justify-start h-auto p-2"
-                                    onClick={() => handleAssigneeChange(team.name)}
+                                    onClick={() => handleAddAssignee(team)}
                                   >
                                     <div className="flex items-center gap-3 w-full">
                                       <Avatar className="h-6 w-6">

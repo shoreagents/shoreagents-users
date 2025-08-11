@@ -1,5 +1,5 @@
 export interface Ticket {
-  id: string
+  id: string // ticket_id from database
   name: string
   date: string
   concern: string
@@ -7,7 +7,7 @@ export interface Ticket {
   details: string
   email: string
   files: string[]
-  status: 'For Approval' | 'On Hold' | 'In Progress' | 'Approved' | 'Completed'
+  status: 'For Approval' | 'On Hold' | 'In Progress' | 'Approved' | 'Stuck' | 'Actioned' | 'Closed'
   position: number
   createdAt: string
   updatedAt?: string
@@ -16,6 +16,10 @@ export interface Ticket {
   resolvedBy?: number // ID of user who resolved the ticket
   resolvedByEmail?: string // Email of user who resolved the ticket
   resolvedAt?: string // Timestamp when ticket was resolved
+  categoryId?: number // New field for category relationship
+  roleId?: number // New field for role relationship
+  supportingFiles?: string[] // New field for file attachments
+  fileCount?: number // New field for file count
 }
 
 export const getCurrentUser = () => {
@@ -26,7 +30,18 @@ export const getCurrentUser = () => {
   
   try {
     const parsed = JSON.parse(authData)
-    return parsed.user
+    const user = parsed.user
+    
+    // For hybrid authentication, prioritize Railway ID for database operations
+    if (user && parsed.hybrid && user.railway_id) {
+      return {
+        ...user,
+        id: user.railway_id, // Use Railway ID for database queries
+        supabase_id: user.id, // Keep Supabase ID for reference
+      }
+    }
+    
+    return user
   } catch {
     return null
   }
@@ -95,14 +110,14 @@ export const updateTicketForUser = (userEmail: string, ticketId: string, updates
   saveTicketsForUser(userEmail, updatedTickets)
   
   // Only create notification for significant status changes
-  if (typeof window !== 'undefined' && updates.status === 'Completed' && originalTicket.status !== 'Completed') {
+  if (typeof window !== 'undefined' && updates.status === 'Closed' && originalTicket.status !== 'Closed') {
     const updatedTicket = updatedTickets.find(t => t.id === ticketId)
     if (updatedTicket) {
       const { addSmartNotification } = require('./notification-service')
       addSmartNotification({
         type: 'success',
-        title: 'Ticket Completed',
-        message: `Ticket "${updatedTicket.name}" has been completed`,
+        title: 'Ticket Closed',
+        message: `Ticket "${updatedTicket.name}" has been closed`,
         icon: 'CheckCircle',
         category: 'ticket',
         actionUrl: `/forms/${updatedTicket.id}`,

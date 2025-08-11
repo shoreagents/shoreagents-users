@@ -1,5 +1,3 @@
-import { userProfiles } from "./user-profiles"
-
 export interface LeaderboardEntry {
   rank: number
   userId: string
@@ -11,53 +9,62 @@ export interface LeaderboardEntry {
   isInBreak: boolean
 }
 
-export const getAllUsersLeaderboard = (): LeaderboardEntry[] => {
+export const getAllUsersLeaderboard = async (month?: string): Promise<LeaderboardEntry[]> => {
   if (typeof window === 'undefined') return []
   
-  const leaderboard: LeaderboardEntry[] = []
-  
-  // Get all known users from userProfiles
-  Object.entries(userProfiles).forEach(([email, profile]) => {
-    // TODO: Replace with database-driven activity data
-    // For now, return empty leaderboard since we're not using localStorage
-    leaderboard.push({
-      rank: 0,
-      userId: email,
-      name: `${profile.first_name} ${profile.last_name}`,
-      productivityScore: 0,
-      totalActiveTime: 0,
-      totalInactiveTime: 0,
-      isCurrentlyActive: false,
-      isInBreak: false
+  try {
+    const authData = localStorage.getItem("shoreagents-auth")
+    const authToken = authData ? JSON.stringify(JSON.parse(authData)) : null
+    
+    const params = new URLSearchParams()
+    if (month) params.append('month', month)
+    
+    const response = await fetch(`/api/leaderboard?${params}`, {
+      headers: {
+        'Authorization': `Bearer ${authToken}`,
+        'Content-Type': 'application/json'
+      }
     })
-  })
-  
-  // Sort by productivity score (highest first)
-  leaderboard.sort((a, b) => b.productivityScore - a.productivityScore)
-  
-  // Assign ranks
-  leaderboard.forEach((entry, index) => {
-    entry.rank = index + 1
-  })
-  
-  return leaderboard
+    
+    if (!response.ok) {
+      console.error('Failed to fetch leaderboard:', response.statusText)
+      return []
+    }
+    
+    const data = await response.json()
+    return data.leaderboard || []
+  } catch (error) {
+    console.error('Error fetching leaderboard:', error)
+    return []
+  }
 }
 
-export const getCurrentUserRank = (): number => {
+export const getCurrentUserRank = async (month?: string): Promise<number> => {
   if (typeof window === 'undefined') return 0
   
-  const authData = localStorage.getItem("shoreagents-auth")
-  if (!authData) return 0
-  
   try {
-    const parsed = JSON.parse(authData)
-    const userEmail = parsed.user?.email
-    if (!userEmail) return 0
+    const authData = localStorage.getItem("shoreagents-auth")
+    const authToken = authData ? JSON.stringify(JSON.parse(authData)) : null
     
-    const leaderboard = getAllUsersLeaderboard()
-    const userEntry = leaderboard.find(entry => entry.userId === userEmail)
-    return userEntry?.rank || 0
-  } catch {
+    const params = new URLSearchParams()
+    if (month) params.append('month', month)
+    
+    const response = await fetch(`/api/leaderboard?${params}`, {
+      headers: {
+        'Authorization': `Bearer ${authToken}`,
+        'Content-Type': 'application/json'
+      }
+    })
+    
+    if (!response.ok) {
+      console.error('Failed to fetch user rank:', response.statusText)
+      return 0
+    }
+    
+    const data = await response.json()
+    return data.currentUserRank || 0
+  } catch (error) {
+    console.error('Error fetching user rank:', error)
     return 0
   }
 } 

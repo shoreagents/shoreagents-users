@@ -24,37 +24,30 @@ CREATE INDEX IF NOT EXISTS idx_productivity_score ON productivity_scores(product
 CREATE INDEX IF NOT EXISTS idx_productivity_created_at ON productivity_scores(created_at);
 
 -- Function to calculate productivity score
--- Formula: (active_time / total_time) * 100
--- Higher score = more productive (more active time)
+-- New formula: +1 point per hour active, -1 point per hour inactive
+-- Final score = active_points - inactive_points
 CREATE OR REPLACE FUNCTION calculate_productivity_score(
     active_seconds INTEGER,
     inactive_seconds INTEGER
 )
 RETURNS DECIMAL(5,2) AS $$
 DECLARE
-    total_seconds INTEGER;
-    active_percentage DECIMAL(5,2);
+    active_points DECIMAL(5,2);
+    inactive_points DECIMAL(5,2);
     productivity_score DECIMAL(5,2);
 BEGIN
-    -- Calculate total seconds
-    total_seconds := active_seconds + inactive_seconds;
+    -- Calculate points based on hours
+    -- +1 point for every 3600 seconds (1 hour) of active time
+    active_points := (active_seconds::DECIMAL / 3600.0);
     
-    -- Avoid division by zero
-    IF total_seconds = 0 THEN
-        RETURN 0.00;
-    END IF;
+    -- -1 point for every 3600 seconds (1 hour) of inactive time
+    inactive_points := (inactive_seconds::DECIMAL / 3600.0);
     
-    -- Calculate active percentage
-    active_percentage := (active_seconds::DECIMAL / total_seconds::DECIMAL) * 100;
+    -- Final score = active points - inactive points
+    productivity_score := active_points - inactive_points;
     
-    -- Productivity score is the same as active percentage
-    -- You can modify this formula for different scoring logic
-    productivity_score := active_percentage;
-    
-    -- Ensure score is between 0 and 100
-    IF productivity_score > 100 THEN
-        productivity_score := 100.00;
-    ELSIF productivity_score < 0 THEN
+    -- Ensure score is not negative (minimum 0)
+    IF productivity_score < 0 THEN
         productivity_score := 0.00;
     END IF;
     
@@ -95,7 +88,6 @@ DECLARE
     total_active INTEGER;
     total_inactive INTEGER;
     total_seconds INTEGER;
-    active_percentage DECIMAL(5,2);
     productivity_score DECIMAL(5,2);
     month_year_str VARCHAR(7);
 BEGIN
@@ -119,16 +111,11 @@ BEGIN
     WHERE user_id = target_user_id 
     AND today_date BETWEEN month_start AND month_end;
     
-    -- Calculate productivity score
+    -- Calculate productivity score using new point-based system
     productivity_score := calculate_productivity_score(total_active, total_inactive);
     
-    -- Calculate percentages
+    -- Calculate total seconds for reference
     total_seconds := total_active + total_inactive;
-    IF total_seconds > 0 THEN
-        active_percentage := (total_active::DECIMAL / total_seconds::DECIMAL) * 100;
-    ELSE
-        active_percentage := 0.00;
-    END IF;
     
     -- Insert or update productivity score
     INSERT INTO productivity_scores (
@@ -136,7 +123,8 @@ BEGIN
         total_active_seconds, total_inactive_seconds, total_seconds, active_percentage
     ) VALUES (
         target_user_id, month_year_str, productivity_score,
-        total_active, total_inactive, total_seconds, active_percentage
+        total_active, total_inactive, total_seconds, 
+        CASE WHEN total_seconds > 0 THEN (total_active::DECIMAL / total_seconds::DECIMAL) * 100 ELSE 0 END
     )
     ON CONFLICT (user_id, month_year) 
     DO UPDATE SET

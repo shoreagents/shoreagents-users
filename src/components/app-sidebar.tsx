@@ -11,12 +11,13 @@ import {
   MessageSquare,
   BarChart3,
   Activity,
-  Coffee,
+  Smile,
   Heart,
   CheckSquare,
-  Database,
+  Clock,
 } from "lucide-react"
 import { useActivityStatus } from "@/hooks/use-activity-status"
+import { useMeeting } from "@/contexts/meeting-context"
 // import { getNotStartedTaskCount } from "@/lib/task-utils"
 
 import { NavMain } from "@/components/nav-main"
@@ -37,6 +38,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
   const { state } = useSidebar()
   const { isActive: isActivityActive, isLoading } = useActivityStatus()
+  const { isInMeeting } = useMeeting()
   const [notStartedTaskCount, setNotStartedTaskCount] = React.useState(0)
 
   // Activity status indicator component
@@ -46,11 +48,35 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         className={`w-2 h-2 rounded-full ${
           isLoading 
             ? 'bg-gray-400 animate-pulse' 
-            : isActivityActive 
-              ? 'bg-green-500' 
-              : 'bg-red-500'
+            : isInMeeting 
+              ? 'bg-yellow-500 animate-pulse' 
+              : isActivityActive 
+                ? 'bg-green-500' 
+                : 'bg-red-500'
         }`}
-        title={isLoading ? 'Loading...' : isActivityActive ? 'Active' : 'Inactive'}
+        title={
+          isLoading 
+            ? 'Loading...' 
+            : isInMeeting 
+              ? 'In Meeting' 
+              : isActivityActive 
+                ? 'Active' 
+                : 'Inactive'
+        }
+      />
+    </div>
+  )
+
+  // Meeting status indicator component
+  const MeetingStatusIndicator = () => (
+    <div className="flex items-center">
+      <div 
+        className={`w-2 h-2 rounded-full ${
+          isInMeeting 
+            ? 'bg-yellow-500 animate-pulse' 
+            : 'bg-gray-300'
+        }`}
+        title={isInMeeting ? 'In Meeting' : 'No Active Meeting'}
       />
     </div>
   )
@@ -156,13 +182,19 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         ],
       },
       {
-        title: "Breaks",
-        icon: Coffee,
-        isActive: pathname.startsWith("/breaks"),
+        title: "Set Your Status",
+        icon: Smile,
+        isActive: pathname.startsWith("/status"),
+        statusIndicator: isInMeeting ? <MeetingStatusIndicator /> : null,
         items: [
           {
-            title: "Break Management",
-            url: "/breaks",
+            title: "Breaks",
+            url: "/status/breaks",
+          },
+          {
+            title: "Meetings",
+            url: "/status/meetings",
+            statusIndicator: <MeetingStatusIndicator />,
           },
         ],
       },
@@ -191,8 +223,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             url: "/help/contact",
           },
           {
-            title: "Documentation",
-            url: "/help/docs",
+            title: "Report an Issue",
+            url: "/help/report",
           },
         ],
       },
@@ -205,40 +237,29 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             title: "Profile",
             url: "/settings/profile",
           },
-        ],
-      },
-      {
-        title: "Database",
-        icon: Database,
-        isActive: pathname.startsWith("/database-test"),
-        items: [
           {
-            title: "Connection Test",
-            url: "/database-test",
+            title: "Change Password",
+            url: "/settings/password",
           },
         ],
       },
+
     ],
     quickActions: [
       {
-        name: "Create New Ticket",
+        name: "New Ticket",
         url: "/forms/new",
         icon: Plus,
       },
       {
-        name: "View Analytics",
-        url: "/dashboard/analytics",
-        icon: BarChart3,
+        name: "Breaks",
+        url: "/status/breaks",
+        icon: Clock,
       },
       {
-        name: "Activity Dashboard",
-        url: "/dashboard/activity",
-        icon: Activity,
-      },
-      {
-        name: "Health Staff",
-        url: "/health",
-        icon: Heart,
+        name: "Meetings",
+        url: "/status/meetings",
+        icon: MessageSquare,
       },
     ],
   }

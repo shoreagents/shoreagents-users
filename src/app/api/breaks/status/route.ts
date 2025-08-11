@@ -107,7 +107,7 @@ export async function GET(request: NextRequest) {
       activeBreak.can_pause = !activeBreak.pause_used;
     }
 
-    console.log(`📊 Break status for agent ${agent_user_id}: ${activeBreak ? (activeBreak.is_paused ? 'Paused' : 'On break') : 'Available'}`);
+    // Break status retrieved;
 
     return NextResponse.json({
       success: true,

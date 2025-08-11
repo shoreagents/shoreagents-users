@@ -223,7 +223,7 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
       
       // Return to breaks page WITHOUT ending the break session  
       // The break should remain active but paused in database
-      router.push('/breaks') // Navigate specifically to breaks page
+      router.push('/status/breaks') // Navigate specifically to breaks page
       
     } catch (error) {
       console.error('Failed to pause break:', error)

@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 // import { forceSaveAndReload } from '@/lib/activity-storage'
 import { getCurrentUser } from '@/lib/ticket-utils'
+import { hasOngoingMeeting, endMeeting } from '@/lib/meeting-utils'
 
 export default function ElectronLogoutHandler() {
   const router = useRouter()
@@ -65,6 +66,29 @@ export default function ElectronLogoutHandler() {
         try {
           // Get current user before clearing auth
           const currentUser = getCurrentUser()
+          
+          // Check if user has an ongoing meeting and end it
+          if (currentUser?.email) {
+            try {
+              const hasOngoing = await hasOngoingMeeting()
+              if (hasOngoing) {
+                console.log('📞 User has ongoing meeting - ending it before force logout')
+                
+                // Get meetings to find the active one
+                const { getMeetings } = await import('@/lib/meeting-utils')
+                const meetings = await getMeetings()
+                const activeMeeting = meetings.find(m => m.status === 'in-progress')
+                
+                if (activeMeeting) {
+                  await endMeeting(activeMeeting.id)
+                  console.log('✅ Active meeting ended successfully before force logout')
+                }
+              }
+            } catch (error) {
+              console.error('Error ending meeting during force logout:', error)
+              // Continue with logout even if meeting cleanup fails
+            }
+          }
           
           // Force save all activity data and reload page before logout
           if (currentUser?.email) {

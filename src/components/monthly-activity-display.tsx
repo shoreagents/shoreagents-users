@@ -6,6 +6,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Calendar, Clock, TrendingUp, Info, RefreshCw } from 'lucide-react';
+import { useTimer } from '@/contexts/timer-context';
+import { useMeeting } from '@/contexts/meeting-context';
 
 interface MonthlyActivityData {
   month_start_date: string;
@@ -28,6 +30,10 @@ export default function MonthlyActivityDisplay({ currentUser }: MonthlyActivityD
   const [cleanupStatus, setCleanupStatus] = useState<string>('');
   const [cleanupTime, setCleanupTime] = useState<number>(0);
   const [lastUpdate, setLastUpdate] = useState<string>('');
+
+  // Get break and meeting status to pause auto-refresh
+  const { isBreakActive } = useTimer();
+  const { isInMeeting } = useMeeting();
 
   const formatTime = (seconds: number): string => {
     const hours = Math.floor(seconds / 3600);
@@ -96,14 +102,17 @@ export default function MonthlyActivityDisplay({ currentUser }: MonthlyActivityD
       // Single request to get all monthly data
       fetchAllMonthlyData();
       
-      // Auto-refresh every 5 seconds
+      // Auto-refresh every 15 seconds - but only when agent is active (not on break or in meeting)
       const interval = setInterval(() => {
-        fetchAllMonthlyData();
-      }, 5000);
+        // Only fetch data if agent is not on break and not in a meeting
+        if (!isBreakActive && !isInMeeting) {
+          fetchAllMonthlyData();
+        }
+      }, 15000);
       
       return () => clearInterval(interval);
     }
-  }, [currentUser?.email]);
+  }, [currentUser?.email, isBreakActive, isInMeeting]);
 
   // Calculate current month totals
   const currentMonthTotals = currentMonth?.currentMonth?.reduce((acc: any, day: any) => {
@@ -141,8 +150,12 @@ export default function MonthlyActivityDisplay({ currentUser }: MonthlyActivityD
               </Tooltip>
             </div>
             <div className="flex items-center gap-1 text-xs text-muted-foreground">
-              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-              <span>Auto-refresh</span>
+              <div className={`w-2 h-2 rounded-full ${(isBreakActive || isInMeeting) ? 'bg-yellow-500' : 'bg-green-500 animate-pulse'}`}></div>
+              <span>
+                {(isBreakActive || isInMeeting) ? 'Auto-refresh paused' : 'Auto-refresh'}
+                {isBreakActive && ' (Break)'}
+                {isInMeeting && ' (Meeting)'}
+              </span>
               {lastUpdate && <span>• Last: {lastUpdate}</span>}
             </div>
           </div>
@@ -157,31 +170,31 @@ export default function MonthlyActivityDisplay({ currentUser }: MonthlyActivityD
             </div>
           ) : monthlyData.length > 0 ? (
             <div className="space-y-4">
-              {monthlyData.map((month, index) => (
-                <div key={index} className="flex items-center justify-between p-4 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border border-purple-200">
+              {monthlyData.slice(0, 3).map((month, index) => (
+                <div key={index} className="flex items-center justify-between p-4 bg-gradient-to-r from-purple-50 to-pink-50 dark:from-violet-950/20 dark:to-pink-950/10 rounded-lg border border-purple-200 dark:border-violet-900/40">
                   <div className="flex items-center gap-4">
                     <div className="flex items-center gap-2">
-                      <Calendar className="w-4 h-4 text-purple-600" />
-                      <span className="font-medium text-purple-900">
+                      <Calendar className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                      <span className="font-medium text-purple-900 dark:text-purple-100">
                         {formatDate(month.month_start_date)}
                       </span>
                     </div>
-                    <Badge variant="outline" className="border-purple-200 text-purple-700">
+                    <Badge variant="outline" className="border-purple-200 dark:border-violet-900/40 text-purple-700 dark:text-purple-300">
                       {month.total_days_active} days
                     </Badge>
                   </div>
                   <div className="flex items-center gap-6">
                     <div className="text-center">
-                      <div className="text-lg font-bold text-green-600">
+                      <div className="text-lg font-bold text-green-600 dark:text-green-400">
                         {formatTime(month.total_active_seconds)}
                       </div>
-                      <div className="text-xs text-green-600">Active</div>
+                      <div className="text-xs text-green-600 dark:text-green-400">Active</div>
                     </div>
                     <div className="text-center">
-                      <div className="text-lg font-bold text-red-600">
+                      <div className="text-lg font-bold text-red-600 dark:text-red-400">
                         {formatTime(month.total_inactive_seconds)}
                       </div>
-                      <div className="text-xs text-red-600">Inactive</div>
+                      <div className="text-xs text-red-600 dark:text-red-400">Inactive</div>
                     </div>
                   </div>
                 </div>

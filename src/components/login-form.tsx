@@ -11,6 +11,8 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { useActivity } from "@/contexts/activity-context"
 import { getCurrentPhilippinesTime } from "@/lib/timezone-utils"
+import { setAuthCookie } from "@/lib/auth-utils"
+import { authHelpers, supabase } from "@/lib/supabase"
 
 export function LoginForm({
   className,
@@ -24,69 +26,109 @@ export function LoginForm({
   const router = useRouter()
   const { setUserLoggedIn } = useActivity()
 
-  const setCookie = (name: string, value: string, days: number) => {
-    const expires = new Date()
-    expires.setTime(expires.getTime() + days * 24 * 60 * 60 * 1000)
-    document.cookie = `${name}=${value};expires=${expires.toUTCString()};path=/`
-  }
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
     setError("")
 
     try {
-      // Call the authentication API
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email, password }),
-      })
+      // Sign in with Supabase
+      const { data, error } = await authHelpers.signInWithEmail(email, password)
+      
+      if (error) {
+        // If Supabase is not configured, fallback to Railway system
+        if (error.message.includes('SUPABASE') || error.message.includes('supabaseKey')) {
+          // Fallback to Railway authentication
+          const response = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ email, password, fallback: true }),
+          })
 
-      const data = await response.json()
-    
-      if (data.success && data.user) {
-        // Store MINIMAL authentication state - no personal info
-      const authData = {
-        isAuthenticated: true,
-        user: {
-            id: data.user.id,
-            email: data.user.email,
-            name: data.user.name, // Just for display, can be fetched fresh
-            role: data.user.role, // For compatibility 
-            user_type: data.user.user_type // For role-based access
-        },
-        timestamp: getCurrentPhilippinesTime()
+          const fallbackData = await response.json()
+          
+          if (fallbackData.success && fallbackData.user) {
+            // Store authentication data with fallback flag
+            const authData = {
+              isAuthenticated: true,
+              user: {
+                id: fallbackData.user.id,
+                email: fallbackData.user.email,
+                name: fallbackData.user.name,
+                role: fallbackData.user.role,
+                user_type: fallbackData.user.user_type
+              },
+              timestamp: getCurrentPhilippinesTime(),
+              usingFallback: true
+            }
+
+            setAuthCookie(authData, 7)
+            localStorage.setItem("shoreagents-auth", JSON.stringify(authData))
+            setUserLoggedIn()
+            // Navigate immediately after setting auth cookie/localStorage
+            router.replace("/dashboard")
+            return
+          } else {
+            setError(fallbackData.error || "Login failed. Please try again.")
+            setIsLoading(false)
+            return
+          }
+        }
+        
+        setError(error.message || "Login failed. Please try again.")
+        setIsLoading(false)
+        return
       }
 
-        // Set cookie for middleware (minimal data)
-      setCookie("shoreagents-auth", JSON.stringify(authData), 7)
-      
-        // Store same minimal data in localStorage for client-side access
-      localStorage.setItem("shoreagents-auth", JSON.stringify(authData))
+      if (data.user && data.session) {
+        // Call the API route for hybrid validation (Supabase auth + Railway role check)
+        const response = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ email, password }),
+        })
 
-      // Start activity tracking for the logged-in user
-      setUserLoggedIn()
+        const validationData = await response.json()
+        
+        if (validationData.success && validationData.user) {
+          // Store authentication data with hybrid information
+          const authData = {
+            isAuthenticated: true,
+            user: {
+              id: validationData.user.id, // Supabase UUID
+              railway_id: validationData.user.railway_id, // Railway ID for compatibility
+              email: validationData.user.email,
+              name: validationData.user.name,
+              role: validationData.user.role,
+              user_type: validationData.user.user_type
+            },
+            timestamp: getCurrentPhilippinesTime(),
+            hybrid: true // Flag to indicate hybrid authentication
+          }
 
-      // Add a small delay to ensure data is stored, then reload the page
-      // This ensures the timer initializes properly after login
-      setTimeout(() => {
-        window.location.href = "/dashboard"
-      }, 500)
-    } else {
-        // Handle different types of errors
-        if (response.status === 403) {
-          // Access denied for non-agent users
-          setError("Access denied. This application is restricted to Agent users only.")
+          // Set cookie using the new utility function
+          setAuthCookie(authData, 7)
+          
+          // Store same minimal data in localStorage for client-side access
+          localStorage.setItem("shoreagents-auth", JSON.stringify(authData))
+
+          // Start activity tracking for the logged-in user
+          setUserLoggedIn()
+
+          // Navigate immediately after setting auth cookie/localStorage
+          router.replace("/dashboard")
         } else {
-          // General authentication errors
-          setError(data.error || "Login failed. Please try again.")
+          // Validation failed - sign out from Supabase
+          await authHelpers.signOut()
+          setError(validationData.error || "Access denied. Please contact administrator.")
+          setIsLoading(false)
         }
       }
     } catch (error) {
-      console.error('Login error:', error)
       setError("Network error. Please check your connection and try again.")
     }
 
@@ -167,6 +209,17 @@ export function LoginForm({
           <Button type="submit" className="w-full" disabled={isLoading}>
             {isLoading ? "Signing in..." : "Sign In"}
             </Button>
+          
+          <div className="text-center mt-4">
+            <Button 
+              type="button" 
+              variant="link" 
+              onClick={() => router.push('/forgot-password')}
+              className="text-sm text-gray-600 hover:text-gray-800"
+            >
+              Forgot your password?
+            </Button>
+          </div>
       </form>
       </CardContent>
     </Card>

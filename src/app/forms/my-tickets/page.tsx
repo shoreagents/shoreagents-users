@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Pagination, PaginationContent, PaginationEllipsis, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@/components/ui/pagination"
 import { ArrowLeft, Search, Filter, FileText, Calendar, User, Mail, Tag, Eye, Clock, AlertTriangle, CheckCircle } from "lucide-react"
 import Link from "next/link"
-import { Ticket } from "@/lib/ticket-utils"
+import { Ticket, getCurrentUser } from "@/lib/ticket-utils"
 
 export default function MyTicketsPage() {
   const [tickets, setTickets] = useState<Ticket[]>([])
@@ -27,21 +27,29 @@ export default function MyTicketsPage() {
   const [sortBy, setSortBy] = useState<string>("newest")
   const [loading, setLoading] = useState(true)
   const [currentPage, setCurrentPage] = useState(1)
+  const [categories, setCategories] = useState<Array<{id: number, name: string}>>([])
   const ticketsPerPage = 5
 
   useEffect(() => {
-    const loadTickets = async () => {
+    const currentUser = getCurrentUser()
+    if (!currentUser?.email) {
+      console.error('❌ No user email found')
+      setTickets([])
+      setFilteredTickets([])
+      setLoading(false)
+      return
+    }
+
+    const refreshTickets = async () => {
       try {
-        // Load tickets from API
-        const response = await fetch('/api/tickets', {
+        const response = await fetch(`/api/tickets?email=${encodeURIComponent(currentUser.email)}`, {
           method: 'GET',
-          credentials: 'include' // Include authentication cookies
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
         })
-        
         if (response.ok) {
           const result = await response.json()
           if (result.success) {
-            // API already returns tickets sorted by newest first
             setTickets(result.tickets)
             setFilteredTickets(result.tickets)
           } else {
@@ -54,16 +62,55 @@ export default function MyTicketsPage() {
           setTickets([])
           setFilteredTickets([])
         }
-      } catch (error) {
-        console.error('❌ Error loading tickets:', error)
-        setTickets([])
-        setFilteredTickets([])
+      } catch (err) {
+        console.error('❌ Error refreshing tickets:', err)
+      }
+    }
+
+    const loadInitial = async () => {
+      try {
+        await refreshTickets()
+        const categoriesResponse = await fetch('/api/ticket-categories', { credentials: 'include' })
+        if (categoriesResponse.ok) {
+          const categoriesData = await categoriesResponse.json()
+          if (categoriesData.success) setCategories(categoriesData.categories)
+        }
       } finally {
         setLoading(false)
       }
     }
 
-    loadTickets()
+    loadInitial()
+
+    // Setup SSE to receive realtime updates from Postgres NOTIFY/LISTEN
+    const es = new EventSource('/api/tickets?stream=1')
+    const debounceRef = { timer: null as any }
+
+    es.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data)
+        if (data?.type === 'connected') return
+        // Debounce refetch to coalesce bursts of changes
+        if (debounceRef.timer) clearTimeout(debounceRef.timer)
+        debounceRef.timer = setTimeout(() => {
+          refreshTickets()
+        }, 400)
+      } catch {}
+    }
+
+    es.onerror = () => {
+      // Attempt a simple reconnect by closing and reopening after delay
+      es.close()
+      setTimeout(() => {
+        // Trigger a rerun by updating state slightly if needed; simplest is to open a new ES
+        const retry = new EventSource('/api/tickets?stream=1')
+        retry.onmessage = es.onmessage
+      }, 1500)
+    }
+
+    return () => {
+      try { es.close() } catch {}
+    }
   }, [])
 
   useEffect(() => {
@@ -162,14 +209,14 @@ export default function MyTicketsPage() {
         )
       case 'On Hold':
         return (
-          <Badge variant="outline" className="border-red-500 text-red-700 bg-red-50">
+          <Badge variant="destructive" className="text-white">
             <AlertTriangle className="w-3 h-3 mr-1" />
             On Hold
           </Badge>
         )
       case 'In Progress':
         return (
-          <Badge variant="outline" className="border-blue-500 text-blue-700 bg-blue-50">
+          <Badge variant="default" className="bg-blue-500 text-white">
             <AlertTriangle className="w-3 h-3 mr-1" />
             In Progress
           </Badge>
@@ -181,11 +228,25 @@ export default function MyTicketsPage() {
             Approved
           </Badge>
         )
-      case 'Completed':
+      case 'Stuck':
+        return (
+          <Badge variant="destructive" className="text-white">
+            <AlertTriangle className="w-3 h-3 mr-1" />
+            Stuck
+          </Badge>
+        )
+      case 'Actioned':
+        return (
+          <Badge variant="outline" className="border-blue-500 text-blue-700 bg-blue-50">
+            <CheckCircle className="w-3 h-3 mr-1" />
+            Actioned
+          </Badge>
+        )
+      case 'Closed':
         return (
           <Badge variant="outline" className="border-green-500 text-green-700 bg-green-50">
             <CheckCircle className="w-3 h-3 mr-1" />
-            Completed
+            Closed
           </Badge>
         )
       default:
@@ -250,12 +311,6 @@ export default function MyTicketsPage() {
         <AppHeader />
         <div className="flex flex-1 flex-col gap-6 p-6 pt-2">
           <div className="flex items-center gap-4">
-            <Link href="/dashboard">
-              <Button variant="outline" size="sm">
-                <ArrowLeft className="mr-2 h-4 w-4" />
-                Back
-              </Button>
-            </Link>
             <div>
               <h1 className="text-3xl font-bold text-foreground">My Support Tickets</h1>
               <p className="text-muted-foreground">View and manage your support requests</p>
@@ -297,7 +352,9 @@ export default function MyTicketsPage() {
                       <SelectItem value="On Hold">On Hold</SelectItem>
                       <SelectItem value="In Progress">In Progress</SelectItem>
                       <SelectItem value="Approved">Approved</SelectItem>
-                      <SelectItem value="Completed">Completed</SelectItem>
+                      <SelectItem value="Stuck">Stuck</SelectItem>
+                      <SelectItem value="Actioned">Actioned</SelectItem>
+                      <SelectItem value="Closed">Closed</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -310,14 +367,11 @@ export default function MyTicketsPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Categories</SelectItem>
-                      <SelectItem value="computer">Computer/Equipment</SelectItem>
-                      <SelectItem value="station">Station</SelectItem>
-                      <SelectItem value="surroundings">Surroundings</SelectItem>
-                      <SelectItem value="schedule">Schedule</SelectItem>
-                      <SelectItem value="compensation">Compensation</SelectItem>
-                      <SelectItem value="transport">Transport</SelectItem>
-                      <SelectItem value="suggestion">Suggestion</SelectItem>
-                      <SelectItem value="checkin">Check-in</SelectItem>
+                      {categories.map((category) => (
+                        <SelectItem key={category.id} value={category.name}>
+                          {category.name}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>

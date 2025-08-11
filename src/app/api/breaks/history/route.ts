@@ -58,16 +58,27 @@ export async function GET(request: NextRequest) {
     const activeBreaks = historyResult.filter(session => session.end_time === null);
     const completedBreaks = historyResult.filter(session => session.end_time !== null);
 
-    // Get break statistics
+    // Get break statistics (including active breaks with calculated duration)
     const statsQuery = `
       SELECT 
         break_type,
         COUNT(*) as total_sessions,
-        ROUND(AVG(duration_minutes)::numeric, 1) as avg_duration,
-        SUM(duration_minutes) as total_minutes
+        ROUND(AVG(
+          CASE 
+            WHEN end_time IS NOT NULL THEN duration_minutes
+            WHEN pause_time IS NOT NULL THEN EXTRACT(EPOCH FROM (pause_time - start_time)) / 60
+            ELSE EXTRACT(EPOCH FROM (NOW() - start_time)) / 60
+          END
+        )::numeric, 1) as avg_duration,
+        SUM(
+          CASE 
+            WHEN end_time IS NOT NULL THEN duration_minutes
+            WHEN pause_time IS NOT NULL THEN EXTRACT(EPOCH FROM (pause_time - start_time)) / 60
+            ELSE EXTRACT(EPOCH FROM (NOW() - start_time)) / 60
+          END
+        ) as total_minutes
       FROM break_sessions 
       WHERE agent_user_id = $1 
-      AND end_time IS NOT NULL
       AND start_time >= CURRENT_DATE - INTERVAL '${days} days'
       GROUP BY break_type
       ORDER BY break_type
@@ -91,7 +102,25 @@ export async function GET(request: NextRequest) {
 
     const todayResult = await executeQuery(todayQuery, [agent_user_id]);
 
-    console.log(`📊 Break history retrieved for agent ${agent_user_id}: ${historyResult.length} sessions in last ${days} days`);
+    // Calculate total break time from ALL history (not just today)
+    const totalBreakTimeQuery = `
+      SELECT 
+        SUM(
+          CASE 
+            WHEN end_time IS NOT NULL THEN duration_minutes
+            WHEN pause_time IS NOT NULL THEN EXTRACT(EPOCH FROM (pause_time - start_time)) / 60
+            ELSE EXTRACT(EPOCH FROM (NOW() - start_time)) / 60
+          END
+        ) as total_break_time_minutes
+      FROM break_sessions 
+      WHERE agent_user_id = $1 
+      AND end_time IS NOT NULL
+    `;
+
+    const totalBreakTimeResult = await executeQuery(totalBreakTimeQuery, [agent_user_id]);
+    const totalBreakTimeMinutes = totalBreakTimeResult[0]?.total_break_time_minutes || 0;
+
+    // Break history retrieved;
 
     return NextResponse.json({
       success: true,
@@ -107,7 +136,10 @@ export async function GET(request: NextRequest) {
           completed_sessions: completedBreaks.length,
           today_sessions: todayResult.length,
           date_range: `${days} days`,
-          total_break_time: statsResult.reduce((sum, stat) => sum + (stat.total_minutes || 0), 0)
+          total_break_time: statsResult.reduce((sum, stat) => sum + (stat.total_minutes || 0), 0),
+          // Calculate total time from ALL break history (not just today)
+          total_time: totalBreakTimeMinutes,
+          today_break_time: todayResult.reduce((sum, session) => sum + (session.duration_minutes || 0), 0)
         }
       }
     });

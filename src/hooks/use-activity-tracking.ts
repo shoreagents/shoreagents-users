@@ -59,7 +59,7 @@ export const useActivityTracking = () => {
       
       if (result && result.success) {
         setIsTracking(false);
-        console.log('✅ Activity tracking stopped successfully');
+        // Activity tracking stopped successfully;
         
         // Check if we have enhanced diagnostics
         if (result.wasTracking !== undefined) {
