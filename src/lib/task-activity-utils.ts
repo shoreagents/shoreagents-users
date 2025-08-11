@@ -176,12 +176,27 @@ export async function moveTask(taskId: number, newGroupId: number, targetPositio
 // Update a task
 export async function updateTask(taskId: number, updates: Partial<Task>): Promise<Task> {
   try {
-    const response = await fetch(`/api/task-activity/${taskId}`, {
-      method: 'PATCH',
+    // Get current user from localStorage
+    const authData = localStorage.getItem("shoreagents-auth")
+    if (!authData) {
+      throw new Error('User not authenticated')
+    }
+    
+    const parsed = JSON.parse(authData)
+    const user = parsed.user
+    
+    const response = await fetch(`/api/task-activity?email=${encodeURIComponent(user.email)}`, {
+      method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(updates)
+      body: JSON.stringify({
+        action: 'update_task',
+        data: {
+          task_id: taskId,
+          updates: updates
+        }
+      })
     })
     
     const data = await response.json()

@@ -22,6 +22,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { action, userId, email, monthYear, monthsBack = 12 } = body;
 
+    // Debug logging removed to clean up console
+
     if (!email) {
       return NextResponse.json({ error: 'Email is required' }, { status: 400 });
     }
@@ -29,9 +31,11 @@ export async function POST(request: NextRequest) {
     // Get user ID
     const userResult = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
     if (userResult.rows.length === 0) {
+      console.log('❌ PRODUCTIVITY API: User not found for email:', email);
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
     const actualUserId = userResult.rows[0].id;
+    // User ID logging removed
 
     switch (action) {
       case 'get_all':
@@ -51,7 +55,15 @@ export async function POST(request: NextRequest) {
         );
         const allAverageScore = allAvgResult.rows[0].average_score;
         
-        // 3. Get current month's productivity score
+        // 3. Get current month's productivity score (ALWAYS recalculate for real-time sync)
+        // Auto-recalculation logging removed
+        const recalcResult = await pool.query(
+          'SELECT calculate_monthly_productivity_score($1) as productivity_score',
+          [actualUserId]
+        );
+        // Recalculation result logging removed
+        
+        // Now get the updated productivity score
         const allCurrentScoreResult = await pool.query(
           'SELECT * FROM productivity_scores WHERE user_id = $1 AND month_year = $2',
           [actualUserId, currentMonthYear]
@@ -59,17 +71,24 @@ export async function POST(request: NextRequest) {
         
         let allCurrentMonthScore;
         if (allCurrentScoreResult.rows.length > 0) {
-          allCurrentMonthScore = allCurrentScoreResult.rows[0];
-        } else {
-          // Calculate score if not exists
-          const newScoreResult = await pool.query(
-            'SELECT calculate_monthly_productivity_score($1) as productivity_score',
-            [actualUserId]
-          );
+          const rawScore = allCurrentScoreResult.rows[0];
+          // Convert seconds to hours for frontend display
+          allCurrentMonthScore = {
+            ...rawScore,
+            active_hours: (rawScore.total_active_seconds || 0) / 3600,
+            inactive_hours: (rawScore.total_inactive_seconds || 0) / 3600,
+            total_hours: (rawScore.total_seconds || 0) / 3600
+          };
           
+          // Hours conversion logging removed
+        } else {
+          // Fallback if still no record (shouldn't happen after recalculation)
           allCurrentMonthScore = {
             month_year: currentMonthYear,
-            productivity_score: newScoreResult.rows[0].productivity_score
+            productivity_score: recalcResult.rows[0].productivity_score,
+            active_hours: 0,
+            inactive_hours: 0,
+            total_hours: 0
           };
         }
         
@@ -120,28 +139,43 @@ export async function POST(request: NextRequest) {
         });
 
       case 'get_current_month_score':
-        // Get current month's productivity score
+        // Get current month's productivity score (always recalculate for real-time sync)
         const scoreCurrentMonthYear = await getCurrentMonthYear(pool);
+        
+        // Auto-recalculation logging removed
+        const currentRecalcResult = await pool.query(
+          'SELECT calculate_monthly_productivity_score($1) as productivity_score',
+          [actualUserId]
+        );
+        // Recalculation result logging removed
+        
         const currentScoreResult = await pool.query(
           'SELECT * FROM productivity_scores WHERE user_id = $1 AND month_year = $2',
           [actualUserId, scoreCurrentMonthYear]
         );
         
         if (currentScoreResult.rows.length > 0) {
+          const rawScore = currentScoreResult.rows[0];
+          // Convert seconds to hours for frontend display
+          const formattedScore = {
+            ...rawScore,
+            active_hours: (rawScore.total_active_seconds || 0) / 3600,
+            inactive_hours: (rawScore.total_inactive_seconds || 0) / 3600,
+            total_hours: (rawScore.total_seconds || 0) / 3600
+          };
+          
           return NextResponse.json({
-            currentMonthScore: currentScoreResult.rows[0]
+            currentMonthScore: formattedScore
           });
         } else {
-          // Calculate score if not exists
-          const newScoreResult = await pool.query(
-            'SELECT calculate_monthly_productivity_score($1) as productivity_score',
-            [actualUserId]
-          );
-          
+          // Fallback if still no record (shouldn't happen after recalculation)
           return NextResponse.json({
             currentMonthScore: {
               month_year: scoreCurrentMonthYear,
-              productivity_score: newScoreResult.rows[0].productivity_score
+              productivity_score: currentRecalcResult.rows[0].productivity_score,
+              active_hours: 0,
+              inactive_hours: 0,
+              total_hours: 0
             }
           });
         }

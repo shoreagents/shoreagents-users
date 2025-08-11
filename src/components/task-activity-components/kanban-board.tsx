@@ -60,6 +60,7 @@ interface KanbanBoardProps {
   onTaskMove: (taskId: string, newStatus: string, targetPosition?: number) => void
   onTaskCreate: (status: string) => void
   onTaskUpdate: (taskId: string, updates: Partial<Task>) => void
+  onTaskRename?: (taskId: string, newTitle: string) => void
   onColumnsReorder?: (columns: Column[]) => void
   isEditMode?: boolean
 }
@@ -70,7 +71,8 @@ const TaskCard = ({
   onTaskClick,
   isEditMode = false,
   onDelete,
-  onRename
+  onRename,
+  availableGroups
 }: { 
   task: Task; 
   onMove: (newStatus: string) => void;
@@ -78,6 +80,7 @@ const TaskCard = ({
   isEditMode?: boolean;
   onDelete?: (taskId: string) => void;
   onRename?: (taskId: string, newTitle: string) => void;
+  availableGroups?: Array<{id: string, title: string}>;
 }) => {
   const [isDragging, setIsDragging] = useState(false)
   const [isRenaming, setIsRenaming] = useState(false)
@@ -105,8 +108,8 @@ const TaskCard = ({
   }
 
   const handleCardClick = (e: React.MouseEvent) => {
-    // Prevent click when dragging, clicking dropdown menu, or in edit mode
-    if (!isDragging && !e.defaultPrevented && !isEditMode) {
+    // Prevent click when dragging, clicking dropdown menu, in edit mode, or when renaming
+    if (!isDragging && !e.defaultPrevented && !isEditMode && !isRenaming) {
       onTaskClick(task)
     }
   }
@@ -191,29 +194,24 @@ const TaskCard = ({
   return (
     <motion.div
       layout
-      initial={{ opacity: 0, scale: 0.9, y: 20 }}
-      animate={{ opacity: 1, scale: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.9, y: -20 }}
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
       transition={{ 
-        duration: 0.3,
+        duration: 0.2,
         ease: "easeOut",
-        layout: { duration: 0.4, ease: "easeInOut" }
+        layout: { duration: 0.3, ease: "easeInOut" }
       }}
       whileDrag={{ 
-        scale: 1.05,
-        rotate: 2,
-        zIndex: 1000,
-        boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
+        scale: 1.01,
+        zIndex: 10,
+        boxShadow: "0 1px 3px -1px rgba(0, 0, 0, 0.03)",
         transition: { 
-          duration: 0.2,
+          duration: 0.1,
           ease: "easeOut"
         }
       }}
-      whileHover={{ 
-        scale: 1.02,
-        boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.1)",
-        transition: { duration: 0.2 }
-      }}
+
       onClick={handleCardClick}
       className={cn(
         "mb-3 transition-all overflow-hidden",
@@ -239,7 +237,7 @@ const TaskCard = ({
         }}
         style={{ pointerEvents: isEditMode ? 'none' : 'auto' }}
       >
-        <Card className="w-full">
+        <Card className="w-full shadow-none border border-border/50 overflow-hidden">
           {/* Cover Photo */}
           {task.attachments && task.attachments.length > 0 && (
             <div className="relative w-full h-32 bg-muted">
@@ -279,12 +277,14 @@ const TaskCard = ({
                   onChange={(e) => setNewTitle(e.target.value)}
                   onBlur={handleRenameBlur}
                   onKeyDown={handleRenameKeyDown}
+                  onClick={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
                   className="text-sm font-medium leading-none bg-background border border-input rounded px-2 py-1 focus:ring-2 focus:ring-ring focus:border-ring flex-1 min-w-0"
                   autoFocus
                   onFocus={(e) => e.target.select()}
                 />
               ) : (
-                <h4 className="text-sm font-medium leading-none">{task.title}</h4>
+                <h4 className="text-sm font-medium leading-none truncate">{task.title}</h4>
               )}
               <DropdownMenu open={isDropdownOpen} onOpenChange={setIsDropdownOpen}>
                 <DropdownMenuTrigger asChild onClick={handleDropdownClick}>
@@ -303,22 +303,14 @@ const TaskCard = ({
                       Move to
                     </DropdownMenuSubTrigger>
                     <DropdownMenuSubContent>
-                      <DropdownMenuItem onClick={(e) => handleMoveTask(e, "todo")}>
-                        <ListTodo className="mr-2 h-4 w-4" />
-                        To Do
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={(e) => handleMoveTask(e, "in-progress")}>
-                        <Clock className="mr-2 h-4 w-4" />
-                        In Progress
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={(e) => handleMoveTask(e, "review")}>
-                        <ArrowRight className="mr-2 h-4 w-4" />
-                        Review
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={(e) => handleMoveTask(e, "done")}>
-                        <CheckCircle className="mr-2 h-4 w-4" />
-                        Done
-                      </DropdownMenuItem>
+                      {availableGroups?.filter(group => group.id !== task.status).map((group) => (
+                        <DropdownMenuItem 
+                          key={group.id} 
+                          onClick={(e) => handleMoveTask(e, group.id)}
+                        >
+                          {group.title}
+                        </DropdownMenuItem>
+                      ))}
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
                   <DropdownMenuSeparator />
@@ -348,18 +340,18 @@ const TaskCard = ({
             )}
             
             {/* Footer */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between min-w-0">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
                 {/* Priority */}
-                <div className="flex items-center gap-1">
-                  <Flag className={cn("h-3 w-3", priorityColors[task.priority])} />
-                  <span className="text-xs capitalize">{task.priority}</span>
+                <div className="flex items-center gap-1 min-w-0">
+                  <Flag className={cn("h-3 w-3 flex-shrink-0", priorityColors[task.priority])} />
+                  <span className="text-xs capitalize truncate">{task.priority}</span>
                 </div>
                 
                 {/* Due Date */}
-                <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                  <Calendar className="h-3 w-3" />
-                  {new Date(task.dueDate).toLocaleDateString()}
+                <div className="flex items-center gap-1 text-xs text-muted-foreground min-w-0">
+                  <Calendar className="h-3 w-3 flex-shrink-0" />
+                  <span className="truncate">{new Date(task.dueDate).toLocaleDateString()}</span>
                 </div>
 
                 {/* Attachments */}
@@ -393,7 +385,8 @@ const KanbanColumn = ({
   onTaskCreate,
   isEditMode = false,
   onTaskDelete,
-  onTaskRename
+  onTaskRename,
+  availableGroups
 }: { 
   column: Column; 
   tasks: Task[]; 
@@ -403,6 +396,7 @@ const KanbanColumn = ({
   isEditMode?: boolean;
   onTaskDelete?: (taskId: string) => void;
   onTaskRename?: (taskId: string, newTitle: string) => void;
+  availableGroups?: Array<{id: string, title: string}>;
 }) => {
   const [isDragOver, setIsDragOver] = useState(false)
   const [dropPosition, setDropPosition] = useState<number | null>(null)
@@ -518,13 +512,14 @@ const KanbanColumn = ({
         }
       }}
       className={cn(
-        "flex flex-col w-80 bg-muted/20 rounded-lg p-4 h-full",
+        "flex flex-col w-80 bg-muted/20 rounded-lg p-4 h-full border border-border/30",
         isEditMode && "cursor-move"
       )}
       style={{ 
         width: '100%',
         height: '100%',
-        minHeight: '500px'
+        minHeight: '500px',
+        maxHeight: 'calc(100vh - 200px)'
       }}
     >
       {/* Column Header */}
@@ -557,12 +552,12 @@ const KanbanColumn = ({
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         className={cn(
-          "flex-1 overflow-y-auto transition-colors rounded-md",
+          "flex-1 overflow-y-auto overflow-x-hidden transition-colors rounded-md",
           isDragOver && "bg-primary/10 border-2 border-dashed border-primary"
         )}
         transition={{ 
-          layout: { duration: 0.4, ease: "easeInOut" },
-          backgroundColor: { duration: 0.2 }
+          layout: { duration: 0.2, ease: "easeInOut" },
+          backgroundColor: { duration: 0.1 }
         }}
       >
         <AnimatePresence mode="popLayout">
@@ -570,10 +565,10 @@ const KanbanColumn = ({
             <motion.div 
               key={task.id}
               layout
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              transition={{ duration: 0.2 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.1 }}
             >
               {/* Drop indicator */}
               {isDragOver && dropPosition === index + 1 && (
@@ -592,6 +587,7 @@ const KanbanColumn = ({
                 isEditMode={isEditMode}
                 onDelete={onTaskDelete} // Pass onDelete to TaskCard
                 onRename={onTaskRename} // Pass onRename to TaskCard
+                availableGroups={availableGroups}
               />
             </motion.div>
           ))}
@@ -634,7 +630,7 @@ const KanbanColumn = ({
   )
 }
 
-export function KanbanBoard({ tasks, columns, onTaskMove, onTaskCreate, onTaskUpdate, onColumnsReorder, isEditMode = false }: KanbanBoardProps) {
+export function KanbanBoard({ tasks, columns, onTaskMove, onTaskCreate, onTaskUpdate, onTaskRename, onColumnsReorder, isEditMode = false }: KanbanBoardProps) {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [localColumns, setLocalColumns] = useState(columns)
@@ -642,6 +638,10 @@ export function KanbanBoard({ tasks, columns, onTaskMove, onTaskCreate, onTaskUp
   const [scrollStart, setScrollStart] = useState(0)
   const [scrollLeft, setScrollLeft] = useState(0)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
+  
+  // Column reordering state
+  const [isColumnDragOver, setIsColumnDragOver] = useState(false)
+  const [columnDropPosition, setColumnDropPosition] = useState<number | null>(null)
 
   // Filter out deleted tasks
   const activeTasks = tasks.filter(task => task.status !== "deleted")
@@ -773,46 +773,112 @@ export function KanbanBoard({ tasks, columns, onTaskMove, onTaskCreate, onTaskUp
           setLocalColumns(newColumns)
           onColumnsReorder?.(newColumns)
         }}
-        className="flex gap-4 h-full min-w-max"
+        className={`flex gap-4 h-full min-w-max overflow-hidden ${isEditMode ? 'cursor-grab active:cursor-grabbing' : ''}`}
         style={{ 
           position: 'relative',
           width: 'max-content'
         }}
+        onDragOver={(e: React.DragEvent) => {
+          if (!isEditMode) return
+          
+          const container = e.currentTarget
+          const rect = container.getBoundingClientRect()
+          const x = e.clientX - rect.left
+          
+          // Calculate drop position based on column width and gap
+          const columnWidth = 320
+          const gap = 16 // gap-4 = 16px
+          const totalWidth = columnWidth + gap
+          
+          let dropPosition = Math.floor(x / totalWidth)
+          dropPosition = Math.max(0, Math.min(dropPosition, localColumns.length))
+          
+          setColumnDropPosition(dropPosition)
+          setIsColumnDragOver(true)
+        }}
+        onDragLeave={() => {
+          if (isEditMode) {
+            setIsColumnDragOver(false)
+            setColumnDropPosition(null)
+          }
+        }}
       >
         <AnimatePresence mode="popLayout">
-          {localColumns.map(column => (
-            <Reorder.Item
-              key={column.id}
-              value={column}
-              whileDrag={{ 
-                scale: 1.05,
-                rotate: 3,
-                zIndex: 1000,
-                boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
-                transition: { 
-                  duration: 0.2,
-                  ease: "easeOut"
-                }
-              }}
-              drag={isEditMode}
+          {localColumns.map((column, index) => (
+            <div key={column.id} className="relative">
+              {/* Column drop indicator */}
+              {isEditMode && isColumnDragOver && columnDropPosition === index && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 4 }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="absolute left-0 right-0 bg-blue-500 rounded-full z-10"
+                  style={{ 
+                    height: '4px',
+                    top: '-2px'
+                  }}
+                />
+              )}
+              
+              <Reorder.Item
+                value={column}
+                whileDrag={{ 
+                  scale: 1.01,
+                  zIndex: 50,
+                  boxShadow: "0 2px 8px -2px rgba(0, 0, 0, 0.05)",
+                  transition: { 
+                    duration: 0.1,
+                    ease: "easeOut"
+                  }
+                }}
+                drag={isEditMode}
+                onDragStart={() => {
+                  if (isEditMode) {
+                    setIsColumnDragOver(true)
+                  }
+                }}
+                onDragEnd={() => {
+                  if (isEditMode) {
+                    setIsColumnDragOver(false)
+                    setColumnDropPosition(null)
+                  }
+                }}
+                style={{ 
+                  position: 'relative',
+                  width: '320px',
+                  height: '100%',
+                  flexShrink: 0
+                }}
+              >
+                              <KanbanColumn
+                  column={column}
+                  tasks={activeTasks}
+                  onTaskMove={onTaskMove}
+                  onTaskClick={handleTaskClick}
+                  onTaskCreate={onTaskCreate}
+                  isEditMode={isEditMode}
+                  onTaskDelete={handleTaskDelete}
+                  onTaskRename={handleTaskRename}
+                  availableGroups={localColumns.map(col => ({ id: col.id, title: col.title }))}
+                />
+              </Reorder.Item>
+            </div>
+          ))}
+          
+          {/* Drop indicator at the end */}
+          {isEditMode && isColumnDragOver && columnDropPosition === localColumns.length && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 4 }}
+              exit={{ opacity: 0, height: 0 }}
+              className="bg-blue-500 rounded-full z-10"
               style={{ 
-                position: 'relative',
+                height: '4px',
                 width: '320px',
                 flexShrink: 0
               }}
-            >
-              <KanbanColumn
-                column={column}
-                tasks={activeTasks}
-                onTaskMove={onTaskMove}
-                onTaskClick={handleTaskClick}
-                onTaskCreate={onTaskCreate}
-                isEditMode={isEditMode}
-                onTaskDelete={handleTaskDelete}
-                onTaskRename={handleTaskRename}
-              />
-            </Reorder.Item>
-          ))}
+            />
+          )}
         </AnimatePresence>
       </Reorder.Group>
       

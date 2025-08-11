@@ -17,7 +17,8 @@ import {
   Bell,
   ArrowLeft,
   Calendar,
-  Filter
+  Filter,
+  Settings
 } from "lucide-react"
 import {
   SidebarInset,
@@ -210,7 +211,47 @@ export default function HealthPage() {
         <AppSidebar />
         <SidebarInset>
           <AppHeader />
-          <div className="flex flex-1 flex-col gap-6 p-6 pt-2">
+          <div className="flex flex-1 flex-col gap-6 p-6 pt-2 relative">
+            {/* Coming Soon Overlay */}
+            <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
+              <div className="bg-card border rounded-lg p-8 max-w-md mx-4 text-center shadow-lg">
+                <div className="mb-4">
+                  <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <Settings className="h-8 w-8 text-primary" />
+                  </div>
+                  <h2 className="text-2xl font-bold mb-2">Coming Soon</h2>
+                  <p className="text-muted-foreground mb-6">
+                    The Health Check feature is currently under development. 
+                    We're working hard to bring you comprehensive health services.
+                  </p>
+                  <div className="flex flex-col gap-3 text-sm text-muted-foreground">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-primary rounded-full"></div>
+                      <span>Digital health records</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-primary rounded-full"></div>
+                      <span>Real-time nurse availability</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-primary rounded-full"></div>
+                      <span>Appointment scheduling</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-primary rounded-full"></div>
+                      <span>Health monitoring</span>
+                    </div>
+                  </div>
+                </div>
+                <Button 
+                  variant="outline" 
+                  onClick={() => window.history.back()}
+                  className="w-full"
+                >
+                  Go Back
+                </Button>
+              </div>
+            </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
                 <Button
@@ -322,7 +363,47 @@ export default function HealthPage() {
       <AppSidebar />
       <SidebarInset>
         <AppHeader />
-        <div className="flex flex-1 flex-col gap-6 p-6 pt-2">
+        <div className="flex flex-1 flex-col gap-6 p-6 pt-2 relative">
+          {/* Coming Soon Overlay */}
+          <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
+            <div className="bg-card border rounded-lg p-8 max-w-md mx-4 text-center shadow-lg">
+              <div className="mb-4">
+                <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Settings className="h-8 w-8 text-primary" />
+                </div>
+                <h2 className="text-2xl font-bold mb-2">Coming Soon</h2>
+                <p className="text-muted-foreground mb-6">
+                  The Health Check feature is currently under development. 
+                  We're working hard to bring you comprehensive health services.
+                </p>
+                <div className="flex flex-col gap-3 text-sm text-muted-foreground">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 bg-primary rounded-full"></div>
+                    <span>Digital health records</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 bg-primary rounded-full"></div>
+                    <span>Real-time nurse availability</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 bg-primary rounded-full"></div>
+                    <span>Appointment scheduling</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 bg-primary rounded-full"></div>
+                    <span>Health monitoring</span>
+                  </div>
+                </div>
+              </div>
+              <Button 
+                variant="outline" 
+                onClick={() => window.history.back()}
+                className="w-full"
+              >
+                Go Back
+              </Button>
+            </div>
+          </div>
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-3xl font-bold text-foreground">Health Check</h1>

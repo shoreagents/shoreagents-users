@@ -6,6 +6,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Calendar, Clock, TrendingUp, Info, RefreshCw } from 'lucide-react';
+import { useTimer } from '@/contexts/timer-context';
+import { useMeeting } from '@/contexts/meeting-context';
 
 interface WeeklyActivityData {
   week_start_date: string;
@@ -28,6 +30,10 @@ export default function WeeklyActivityDisplay({ currentUser }: WeeklyActivityDis
   const [cleanupStatus, setCleanupStatus] = useState<string>('');
   const [cleanupTime, setCleanupTime] = useState<number>(0);
   const [lastUpdate, setLastUpdate] = useState<string>('');
+
+  // Get break and meeting status to pause auto-refresh
+  const { isBreakActive } = useTimer();
+  const { isInMeeting } = useMeeting();
 
   const formatTime = (seconds: number): string => {
     const hours = Math.floor(seconds / 3600);
@@ -97,14 +103,17 @@ export default function WeeklyActivityDisplay({ currentUser }: WeeklyActivityDis
       // Single request to get all weekly data
       fetchAllWeeklyData();
       
-      // Auto-refresh every 5 seconds
+      // Auto-refresh every 15 seconds - but only when agent is active (not on break or in meeting)
       const interval = setInterval(() => {
-        fetchAllWeeklyData();
-      }, 5000);
+        // Only fetch data if agent is not on break and not in a meeting
+        if (!isBreakActive && !isInMeeting) {
+          fetchAllWeeklyData();
+        }
+      }, 15000);
       
       return () => clearInterval(interval);
     }
-  }, [currentUser?.email]);
+  }, [currentUser?.email, isBreakActive, isInMeeting]);
 
   // Calculate current week totals
   const currentWeekTotals = currentWeek?.currentWeek?.reduce((acc: any, day: any) => {
@@ -142,8 +151,12 @@ export default function WeeklyActivityDisplay({ currentUser }: WeeklyActivityDis
               </Tooltip>
             </div>
             <div className="flex items-center gap-1 text-xs text-muted-foreground">
-              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-              <span>Auto-refresh</span>
+              <div className={`w-2 h-2 rounded-full ${(isBreakActive || isInMeeting) ? 'bg-yellow-500' : 'bg-green-500 animate-pulse'}`}></div>
+              <span>
+                {(isBreakActive || isInMeeting) ? 'Auto-refresh paused' : 'Auto-refresh'}
+                {isBreakActive && ' (Break)'}
+                {isInMeeting && ' (Meeting)'}
+              </span>
               {lastUpdate && <span>• Last: {lastUpdate}</span>}
             </div>
           </div>
@@ -158,31 +171,31 @@ export default function WeeklyActivityDisplay({ currentUser }: WeeklyActivityDis
             </div>
           ) : weeklyData.length > 0 ? (
             <div className="space-y-4">
-              {weeklyData.map((week, index) => (
-                <div key={index} className="flex items-center justify-between p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
+              {weeklyData.slice(0, 3).map((week, index) => (
+                <div key={index} className="flex items-center justify-between p-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-indigo-950/20 dark:to-indigo-900/10 rounded-lg border border-blue-200 dark:border-indigo-900/40">
                   <div className="flex items-center gap-4">
                     <div className="flex items-center gap-2">
                       <Calendar className="w-4 h-4 text-blue-600" />
-                      <span className="font-medium text-blue-900">
+                      <span className="font-medium text-blue-900 dark:text-blue-100">
                         {formatDate(week.week_start_date)} - {formatDate(week.week_end_date)}
                       </span>
                     </div>
-                    <Badge variant="outline" className="border-blue-200 text-blue-700">
+                    <Badge variant="outline" className="border-blue-200 dark:border-indigo-900/40 text-blue-700 dark:text-blue-300">
                       {week.total_days_active} days
                     </Badge>
                   </div>
                   <div className="flex items-center gap-6">
                     <div className="text-center">
-                      <div className="text-lg font-bold text-green-600">
+                      <div className="text-lg font-bold text-green-600 dark:text-green-400">
                         {formatTime(week.total_active_seconds)}
                       </div>
-                      <div className="text-xs text-green-600">Active</div>
+                      <div className="text-xs text-green-600 dark:text-green-400">Active</div>
                     </div>
                     <div className="text-center">
-                      <div className="text-lg font-bold text-red-600">
+                      <div className="text-lg font-bold text-red-600 dark:text-red-400">
                         {formatTime(week.total_inactive_seconds)}
                       </div>
-                      <div className="text-xs text-red-600">Inactive</div>
+                      <div className="text-xs text-red-600 dark:text-red-400">Inactive</div>
                     </div>
                   </div>
                 </div>

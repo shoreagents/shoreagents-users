@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
     
     const agentResult = await executeQuery(agentQuery, [completedBreak.agent_user_id]);
 
-    console.log(`✅ Break ended: ${completedBreak.break_type} break for agent ${completedBreak.agent_user_id}, duration: ${completedBreak.duration_minutes} minutes`);
+    // Break ended successfully;
 
     return NextResponse.json({
       success: true,

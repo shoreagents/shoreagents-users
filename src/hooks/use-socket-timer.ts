@@ -6,6 +6,14 @@ interface TimerData {
   activeSeconds: number
   inactiveSeconds: number
   sessionStart: string | null
+  shiftInfo?: {
+    period: string
+    schedule: string
+    time: string
+    timeUntilReset: number
+    formattedTimeUntilReset: string
+    nextResetTime: string
+  }
 }
 
 interface UseSocketTimerReturn {
@@ -57,92 +65,141 @@ export const useSocketTimer = (email: string | null): UseSocketTimerReturn => {
     setConnectionStatus('connecting')
     console.log('Connecting Socket.IO for user:', email)
 
-    // Connect to Socket.IO server with reconnection options
-    const socket = io('http://localhost:3001', {
-      reconnection: true,
-      reconnectionAttempts: 10,
-      reconnectionDelay: 500,
-      reconnectionDelayMax: 3000,
-      timeout: 10000,
-      forceNew: true,
-      transports: ['websocket', 'polling']
-    })
-    socketRef.current = socket
+    // Use a ref to track if this effect is still active
+    const isActive = { current: true }
 
-    // Handle connection events
-    socket.on('connect', () => {
-      console.log('Socket.IO connected for user:', email)
-      setConnectionStatus('connected')
-      setError(null)
+    // Add a small delay to avoid rapid reconnections during React development mode
+    const connectionTimeout = setTimeout(() => {
+      if (!isActive.current) return
+
+      // Connect to Socket.IO server with safer connection options
+      const socket = io('http://localhost:3001', {
+        reconnection: true,
+        reconnectionAttempts: 3, // Further reduced attempts
+        reconnectionDelay: 2000, // Longer delay
+        reconnectionDelayMax: 10000,
+        timeout: 10000, // Longer timeout
+        forceNew: false,
+        transports: ['websocket', 'polling'],
+        upgrade: true,
+        autoConnect: true
+      })
       
-      // Authenticate with the server
-      console.log('Authenticating with server for user:', email)
-      socket.emit('authenticate', email)
-    })
-
-    socket.on('disconnect', (reason) => {
-      console.log('Socket.IO disconnected for user:', email, 'Reason:', reason)
-      setConnectionStatus('disconnected')
-    })
-
-    socket.on('connect_error', (error) => {
-      console.log('Socket.IO connection error for user:', email, error)
-      setConnectionStatus('error')
-      setError('Connection failed')
-    })
-
-    socket.on('reconnect', (attemptNumber) => {
-      console.log('Socket.IO reconnected for user:', email, 'Attempt:', attemptNumber)
-      setConnectionStatus('connected')
-      setError(null)
+      if (!isActive.current) {
+        socket.disconnect()
+        return
+      }
       
-      // Re-authenticate after reconnection
-      console.log('Re-authenticating after reconnect for user:', email)
-      socket.emit('authenticate', email)
-    })
+      socketRef.current = socket
 
-    socket.on('reconnect_attempt', (attemptNumber) => {
-      console.log('Socket.IO reconnection attempt for user:', email, 'Attempt:', attemptNumber)
-      setConnectionStatus('connecting')
-    })
+      // Handle connection events
+      socket.on('connect', () => {
+        if (!isActive.current) return
+        console.log('Socket.IO connected for user:', email)
+        setConnectionStatus('connected')
+        setError(null)
+        
+        // Authenticate with the server
+        console.log('Authenticating with server for user:', email)
+        socket.emit('authenticate', email)
+      })
 
-    socket.on('reconnect_error', (error) => {
-      console.log('Socket.IO reconnection error for user:', email, error)
-      setConnectionStatus('error')
-      setError('Reconnection failed')
-    })
+      socket.on('disconnect', (reason) => {
+        if (!isActive.current) return
+        console.log('Socket.IO disconnected for user:', email, 'Reason:', reason)
+        setConnectionStatus('disconnected')
+      })
 
-    // Handle authentication response
-    socket.on('authenticated', (data: TimerData) => {
-      console.log('Socket.IO authenticated for user:', email, 'Data:', data)
-      setTimerData(data)
-      setIsAuthenticated(true)
-      lastActivityStateRef.current = data.isActive
-    })
+      socket.on('connect_error', (error) => {
+        if (!isActive.current) return
+        console.log('Socket.IO connection error for user:', email, error)
+        setConnectionStatus('error')
+        setError('Connection failed')
+      })
 
-    // Handle activity updates from server
-    socket.on('activityUpdated', (data: TimerData) => {
-      setTimerData(data)
-    })
+      socket.on('reconnect', (attemptNumber) => {
+        if (!isActive.current) return
+        console.log('Socket.IO reconnected for user:', email, 'Attempt:', attemptNumber)
+        setConnectionStatus('connected')
+        setError(null)
+        
+        // Re-authenticate after reconnection
+        console.log('Re-authenticating after reconnect for user:', email)
+        socket.emit('authenticate', email)
+      })
 
-    // Handle timer updates from server
-    socket.on('timerUpdated', (data: TimerData) => {
-      setTimerData(data)
-    })
+      socket.on('reconnect_attempt', (attemptNumber) => {
+        if (!isActive.current) return
+        console.log('Socket.IO reconnection attempt for user:', email, 'Attempt:', attemptNumber)
+        setConnectionStatus('connecting')
+      })
 
-    // Handle errors
-    socket.on('error', (errorData: { message: string }) => {
-      setError(errorData.message);
-      setConnectionStatus('error');
-    })
+      socket.on('reconnect_error', (error) => {
+        if (!isActive.current) return
+        console.log('Socket.IO reconnection error for user:', email, error)
+        setConnectionStatus('error')
+        setError('Reconnection failed')
+      })
+
+      // Handle authentication response
+      socket.on('authenticated', (data: TimerData) => {
+        if (!isActive.current) return
+        console.log('Socket.IO authenticated for user:', email, 'Data:', data)
+        setTimerData(data)
+        setIsAuthenticated(true)
+        lastActivityStateRef.current = data.isActive
+      })
+
+      // Handle activity updates from server
+      socket.on('activityUpdated', (data: TimerData) => {
+        if (!isActive.current) return
+        setTimerData(data)
+      })
+
+      // Handle timer updates from server
+      socket.on('timerUpdated', (data: TimerData) => {
+        if (!isActive.current) return
+        setTimerData(data)
+      })
+
+      // Handle shift reset events from server
+      socket.on('shiftReset', (data: TimerData & { resetReason?: string }) => {
+        if (!isActive.current) return
+        console.log('🔄 Shift reset received from server:', data)
+        setTimerData(data)
+        
+        // Emit a custom event to notify other components about the shift reset
+        window.dispatchEvent(new CustomEvent('shiftReset', { 
+          detail: { ...data, resetReason: data.resetReason || 'shift_change' }
+        }))
+      })
+
+      // Handle errors
+      socket.on('error', (errorData: { message: string }) => {
+        if (!isActive.current) return
+        setError(errorData.message);
+        setConnectionStatus('error');
+      })
+    }, 100) // Small delay to avoid rapid reconnections
 
     return () => {
+      // Mark effect as inactive
+      isActive.current = false
+      
+      // Clear the connection timeout
+      clearTimeout(connectionTimeout)
+      
       if (timerUpdateIntervalRef.current) {
         clearInterval(timerUpdateIntervalRef.current)
         timerUpdateIntervalRef.current = null
       }
-      if (socket) {
-        socket.disconnect()
+      if (socketRef.current) {
+        try {
+          socketRef.current.removeAllListeners()
+          socketRef.current.disconnect()
+        } catch (error) {
+          console.warn('Error during socket cleanup:', error)
+        }
       }
     }
   }, [email])
@@ -155,8 +212,14 @@ export const useSocketTimer = (email: string | null): UseSocketTimerReturn => {
         timerUpdateIntervalRef.current = null
       }
       if (socketRef.current) {
-        socketRef.current.disconnect()
-        socketRef.current = null
+        try {
+          socketRef.current.removeAllListeners()
+          socketRef.current.disconnect()
+        } catch (error) {
+          console.warn('Error during socket cleanup on unmount:', error)
+        } finally {
+          socketRef.current = null
+        }
       }
     }
   }, [])
@@ -180,18 +243,19 @@ export const useSocketTimer = (email: string | null): UseSocketTimerReturn => {
     socketRef.current.emit('timerUpdate', { activeSeconds, inactiveSeconds })
   }, [])
 
-  // Periodic timer updates (every 5 seconds)
+  // Periodic timer updates (every 15 seconds to prevent race conditions)
   useEffect(() => {
     if (!isAuthenticated || !socketRef.current) return
 
     timerUpdateIntervalRef.current = setInterval(() => {
       if (timerData && socketRef.current) {
+        console.log(`⏰ Periodic sync: ${timerData.activeSeconds}s active, ${timerData.inactiveSeconds}s inactive`)
         socketRef.current.emit('timerUpdate', {
           activeSeconds: timerData.activeSeconds,
           inactiveSeconds: timerData.inactiveSeconds
         })
       }
-    }, 5000) // 5 seconds
+    }, 15000) // 15 seconds (reduced frequency)
 
     return () => {
       if (timerUpdateIntervalRef.current) {

@@ -24,8 +24,9 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Button } from "@/components/ui/button"
 import { useActivity } from "@/contexts/activity-context"
-// import { forceSaveAndReload } from "@/lib/activity-storage"
 import { getCurrentUser } from "@/lib/ticket-utils"
+import { hasOngoingMeeting, endMeeting } from "@/lib/meeting-utils"
+import { forceLogout } from "@/lib/auth-utils"
 
 export function HeaderUser({
   user,
@@ -39,18 +40,36 @@ export function HeaderUser({
   const router = useRouter()
   const { setUserLoggedOut } = useActivity()
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     console.log('🔄 Logout button clicked (header)')
     
     // Get current user before clearing auth
     const currentUser = getCurrentUser()
     console.log('👤 Current user (header):', currentUser)
     
-    // Clear authentication data first
-    localStorage.removeItem("shoreagents-auth")
+    // Check if user has an ongoing meeting and end it
+    try {
+      const hasOngoing = await hasOngoingMeeting()
+      if (hasOngoing) {
+        console.log('📞 User has ongoing meeting - ending it before logout')
+        
+        // Get meetings to find the active one
+        const { getMeetings } = await import('@/lib/meeting-utils')
+        const meetings = await getMeetings()
+        const activeMeeting = meetings.find(m => m.status === 'in-progress')
+        
+        if (activeMeeting) {
+          await endMeeting(activeMeeting.id)
+          console.log('✅ Active meeting ended successfully before logout')
+        }
+      }
+    } catch (error) {
+      console.error('Error ending meeting during logout:', error)
+      // Continue with logout even if meeting cleanup fails
+    }
     
-    // Clear cookie
-    document.cookie = "shoreagents-auth=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;"
+    // Use the new forceLogout utility function
+    forceLogout()
     
     // Stop activity tracking (this will be picked up by the auth monitor)
     setUserLoggedOut()
@@ -59,15 +78,13 @@ export function HeaderUser({
     router.push("/login")
   }
 
-
-
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" className="relative h-8 w-8 rounded-full cursor-pointer">
           <Avatar className="h-8 w-8">
             <AvatarImage src={user.avatar} alt={user.name} />
-            <AvatarFallback>{user.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
+            <AvatarFallback>AU</AvatarFallback>
           </Avatar>
         </Button>
       </DropdownMenuTrigger>
@@ -85,6 +102,10 @@ export function HeaderUser({
           <DropdownMenuItem>
             <BadgeCheck className="mr-2 h-4 w-4" />
             <span>Account</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem>
+            <Bell className="mr-2 h-4 w-4" />
+            <span>Notifications</span>
           </DropdownMenuItem>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />

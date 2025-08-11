@@ -5,7 +5,7 @@
 
 import { getCurrentUserInfo } from './user-profiles';
 
-export type BreakType = 'Morning' | 'Lunch' | 'Afternoon';
+export type BreakType = 'Morning' | 'Lunch' | 'Afternoon' | 'FirstNight' | 'Midnight' | 'SecondNight';
 
 export interface CurrentBreak {
   id?: number;
@@ -438,13 +438,13 @@ export async function syncBreakStatus(): Promise<void> {
       };
       
       localStorage.setItem('currentBreak', JSON.stringify(currentBreak));
-      console.log('🔄 Restored break session from database');
+      // Restored break session from database;
     }
     
     // If localStorage shows break but database doesn't, clear localStorage
     if (!status.is_on_break && localBreak) {
       localStorage.removeItem('currentBreak');
-      console.log('🔄 Cleared outdated break session from localStorage');
+      // Cleared outdated break session from localStorage;
     }
     
   } catch (error) {

@@ -444,6 +444,111 @@ export async function POST(request: NextRequest) {
           await pool.end()
         }
         
+      case 'update_task':
+        const { task_id: updateTaskId, updates } = data
+        
+        console.log('Updating task:', updateTaskId, updates)
+        
+        const updateClient = await pool.connect()
+        
+        try {
+          await updateClient.query('BEGIN')
+          
+          // Build dynamic update query
+          const updateFields = []
+          const updateValues = []
+          let paramIndex = 1
+          
+          // Only update fields that are provided
+          if (updates.title !== undefined) {
+            updateFields.push(`title = $${paramIndex}`)
+            updateValues.push(updates.title)
+            paramIndex++
+          }
+          
+          if (updates.description !== undefined) {
+            updateFields.push(`description = $${paramIndex}`)
+            updateValues.push(updates.description)
+            paramIndex++
+          }
+          
+          if (updates.priority !== undefined) {
+            updateFields.push(`priority = $${paramIndex}`)
+            updateValues.push(updates.priority)
+            paramIndex++
+          }
+          
+          if (updates.assignee !== undefined) {
+            updateFields.push(`assignee = $${paramIndex}`)
+            updateValues.push(updates.assignee)
+            paramIndex++
+          }
+          
+          if (updates.due_date !== undefined) {
+            updateFields.push(`due_date = $${paramIndex}`)
+            updateValues.push(updates.due_date)
+            paramIndex++
+          }
+          
+          if (updates.tags !== undefined) {
+            updateFields.push(`tags = $${paramIndex}`)
+            updateValues.push(updates.tags)
+            paramIndex++
+          }
+          
+          if (updates.group_id !== undefined) {
+            updateFields.push(`group_id = $${paramIndex}`)
+            updateValues.push(updates.group_id)
+            paramIndex++
+          }
+          
+          // Always update the updated_at timestamp
+          updateFields.push(`updated_at = NOW() AT TIME ZONE 'Asia/Manila'`)
+          
+          if (updateFields.length === 0) {
+            throw new Error('No fields to update')
+          }
+          
+          // Add task_id and user_id to the values array
+          updateValues.push(updateTaskId, actualUserId)
+          
+          const updateQuery = `
+            UPDATE tasks 
+            SET ${updateFields.join(', ')}
+            WHERE id = $${paramIndex} AND user_id = $${paramIndex + 1}
+            RETURNING *
+          `
+          
+          console.log('Update query:', updateQuery)
+          console.log('Update values:', updateValues)
+          
+          const updateResult = await updateClient.query(updateQuery, updateValues)
+          
+          if (updateResult.rows.length === 0) {
+            throw new Error('Task not found or not owned by user')
+          }
+          
+          await updateClient.query('COMMIT')
+          
+          console.log('Task updated successfully:', updateResult.rows[0])
+          
+          return NextResponse.json({
+            success: true,
+            task: updateResult.rows[0]
+          })
+          
+        } catch (error) {
+          console.error('Error updating task:', error)
+          await updateClient.query('ROLLBACK')
+          return NextResponse.json({ 
+            error: 'Failed to update task', 
+            details: error instanceof Error ? error.message : 'Unknown error'
+          }, { status: 500 })
+        } finally {
+          updateClient.release()
+          await pool.end()
+        }
+        
       default:
         await pool.end()
         return NextResponse.json({ error: 'Invalid action' }, { status: 400 })

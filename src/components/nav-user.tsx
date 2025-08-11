@@ -31,8 +31,9 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 import { useActivity } from "@/contexts/activity-context"
-// import { forceSaveAndReload } from "@/lib/activity-storage"
 import { getCurrentUser } from "@/lib/ticket-utils"
+import { hasOngoingMeeting, endMeeting } from "@/lib/meeting-utils"
+import { forceLogout } from "@/lib/auth-utils"
 
 export function NavUser({
   user,
@@ -47,18 +48,36 @@ export function NavUser({
   const router = useRouter()
   const { setUserLoggedOut } = useActivity()
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     console.log('🔄 Logout button clicked')
     
     // Get current user before clearing auth
     const currentUser = getCurrentUser()
     console.log('👤 Current user:', currentUser)
     
-    // Clear authentication data first
-    localStorage.removeItem("shoreagents-auth")
+    // Check if user has an ongoing meeting and end it
+    try {
+      const hasOngoing = await hasOngoingMeeting()
+      if (hasOngoing) {
+        console.log('📞 User has ongoing meeting - ending it before logout')
+        
+        // Get meetings to find the active one
+        const { getMeetings } = await import('@/lib/meeting-utils')
+        const meetings = await getMeetings()
+        const activeMeeting = meetings.find(m => m.status === 'in-progress')
+        
+        if (activeMeeting) {
+          await endMeeting(activeMeeting.id)
+          console.log('✅ Active meeting ended successfully before logout')
+        }
+      }
+    } catch (error) {
+      console.error('Error ending meeting during logout:', error)
+      // Continue with logout even if meeting cleanup fails
+    }
     
-    // Clear cookie
-    document.cookie = "shoreagents-auth=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;"
+    // Use the new logout utility function
+    forceLogout()
     
     // Stop activity tracking (this will be picked up by the auth monitor)
     setUserLoggedOut()

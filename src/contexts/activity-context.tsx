@@ -1,12 +1,13 @@
 "use client"
 
-import React, { createContext, useContext, useEffect, useCallback, useState, useRef } from 'react'
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
+import { getCurrentUser } from '@/lib/ticket-utils'
 import { useActivityTracking } from '@/hooks/use-activity-tracking'
 import { InactivityDialog } from '@/components/inactivity-dialog'
-import { getCurrentUser } from '@/lib/ticket-utils'
 // import { initializeUserActivity, markUserAsLoggedOut, markUserAsAppClosed, pauseActivityForBreak, resumeActivityFromBreak, cleanupDuplicateSessions, forceSaveAndReload } from '@/lib/activity-storage'
 import { useRouter } from 'next/navigation'
 import { useBreak } from './break-context'
+
 
 interface ActivityContextType {
   isTracking: boolean
@@ -30,6 +31,8 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
   const notificationTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const notificationUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const { isBreakActive } = useBreak()
+  // Removed useMeeting dependency to fix circular dependency
+  // Meeting status will be handled by individual components that need it
   const {
     isTracking,
     showInactivityDialog,
@@ -56,7 +59,7 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
           console.error('Failed to initialize user activity:', error)
         }
         
-        // Only set hasLoggedIn if we're not on the login page
+        // Only set hasLoggedIn if we're not on the login page or root page
         if (window.location.pathname !== '/' && window.location.pathname !== '/login') {
           setHasLoggedIn(true)
         }
@@ -69,7 +72,10 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
       }
     }
     
-    checkInitialAuth()
+    // Add a small delay to ensure all contexts are properly initialized
+    const timeoutId = setTimeout(checkInitialAuth, 200)
+    
+    return () => clearTimeout(timeoutId)
   }, [])
 
   // Start tracking only when user has logged in and no break is active
@@ -100,6 +106,9 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
       }
     }
   }, [isBreakActive, hasLoggedIn, pauseTracking, resumeTracking])
+
+  // Meeting status will be handled by individual components that need it
+  // This prevents circular dependency with MeetingProvider
 
     // Monitor authentication state continuously with enhanced stopping
   useEffect(() => {

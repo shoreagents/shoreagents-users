@@ -6,6 +6,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { TrendingUp, Info, Target, BarChart3, RefreshCw } from 'lucide-react';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { useTimer } from '@/contexts/timer-context';
+import { useMeeting } from '@/contexts/meeting-context';
 
 interface ProductivityScore {
   month_year: string;
@@ -24,6 +27,7 @@ interface ProductivityScoreDisplayProps {
 }
 
 export default function ProductivityScoreDisplay({ currentUser }: ProductivityScoreDisplayProps) {
+  // Component updated to remove console logs - v2.0
   const [productivityScores, setProductivityScores] = useState<ProductivityScore[]>([]);
   const [currentMonthScore, setCurrentMonthScore] = useState<any>(null);
   const [averageScore, setAverageScore] = useState<number | string>(0);
@@ -31,16 +35,27 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
   const [lastFetchTime, setLastFetchTime] = useState<number>(0);
   const [lastUpdate, setLastUpdate] = useState<string>('');
 
+  // Get break and meeting status to pause auto-refresh
+  const { isBreakActive } = useTimer();
+  const { isInMeeting } = useMeeting();
+
   const formatScore = (score: number | string): string => {
     const numericScore = typeof score === 'string' ? parseFloat(score) : score;
-    if (isNaN(numericScore)) return '0.0%';
-    return `${numericScore.toFixed(1)}%`;
+    if (isNaN(numericScore)) return '0.0 pts';
+    return `${numericScore.toFixed(1)} pts`;
   };
 
   const formatHours = (hours: number | string): string => {
     const numericHours = typeof hours === 'string' ? parseFloat(hours) : hours;
-    if (isNaN(numericHours)) return '0.0h';
-    return `${numericHours.toFixed(1)}h`;
+    if (isNaN(numericHours)) return '0h 0m';
+    
+    const totalMinutes = Math.round(numericHours * 60);
+    const h = Math.floor(totalMinutes / 60);
+    const m = totalMinutes % 60;
+    
+    if (h === 0) return `${m}m`;
+    if (m === 0) return `${h}h`;
+    return `${h}h ${m}m`;
   };
 
   const formatMonth = (monthYear: string): string => {
@@ -54,29 +69,30 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
 
   const getScoreColor = (score: number | string): string => {
     const numericScore = typeof score === 'string' ? parseFloat(score) : score;
-    if (numericScore >= 80) return 'text-green-600';
-    if (numericScore >= 60) return 'text-yellow-600';
-    if (numericScore >= 40) return 'text-orange-600';
+    if (numericScore >= 8) return 'text-green-600';
+    if (numericScore >= 6) return 'text-blue-600';
+    if (numericScore >= 4) return 'text-yellow-600';
+    if (numericScore >= 2) return 'text-orange-600';
     return 'text-red-600';
   };
 
   const getScoreBadgeVariant = (score: number | string): "default" | "secondary" | "destructive" | "outline" => {
     const numericScore = typeof score === 'string' ? parseFloat(score) : score;
-    if (numericScore >= 80) return 'default';
-    if (numericScore >= 60) return 'secondary';
-    if (numericScore >= 40) return 'outline';
+    if (numericScore >= 8) return 'default';
+    if (numericScore >= 6) return 'secondary';
+    if (numericScore >= 4) return 'outline';
     return 'destructive';
   };
 
   const getScoreLabel = (score: number | string): string => {
     const numericScore = typeof score === 'string' ? parseFloat(score) : score;
-    if (numericScore >= 90) return 'Excellent';
-    if (numericScore >= 80) return 'Great';
-    if (numericScore >= 70) return 'Good';
-    if (numericScore >= 60) return 'Fair';
-    if (numericScore >= 50) return 'Average';
-    if (numericScore >= 40) return 'Below Average';
-    return 'Poor';
+    if (numericScore >= 10) return 'Outstanding';
+    if (numericScore >= 8) return 'Excellent';
+    if (numericScore >= 6) return 'Great';
+    if (numericScore >= 4) return 'Good';
+    if (numericScore >= 2) return 'Fair';
+    if (numericScore >= 1) return 'Poor';
+    return 'Very Poor';
   };
 
   const fetchAllProductivityData = async () => {
@@ -84,14 +100,16 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
     
     setLoading(true);
     try {
+      const requestBody = {
+        action: 'get_all',
+        email: currentUser.email,
+        monthsBack: 12
+      };
+      
       const response = await fetch('/api/activity/productivity', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'get_all',
-          email: currentUser.email,
-          monthsBack: 12
-        })
+        body: JSON.stringify(requestBody)
       });
       
       if (response.ok) {
@@ -100,6 +118,8 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
         setCurrentMonthScore(data.currentMonthScore);
         setAverageScore(data.averageProductivityScore);
         setLastUpdate(new Date().toLocaleTimeString());
+      } else {
+        console.error('❌ API ERROR:', response.status, response.statusText);
       }
     } catch (error) {
       console.error('Error fetching productivity data:', error);
@@ -115,14 +135,17 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
       // Single request to get all productivity data
       fetchAllProductivityData();
       
-      // Auto-refresh every 5 seconds
+      // Auto-refresh every 15 seconds - but only when agent is active (not on break or in meeting)
       const interval = setInterval(() => {
-        fetchAllProductivityData();
-      }, 5000);
+        // Only fetch data if agent is not on break and not in a meeting
+        if (!isBreakActive && !isInMeeting) {
+          fetchAllProductivityData();
+        }
+      }, 15000);
       
       return () => clearInterval(interval);
     }
-  }, [currentUser?.email]);
+  }, [currentUser?.email, isBreakActive, isInMeeting]);
 
   return (
     <div className="space-y-6">
@@ -144,7 +167,8 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
                 <TooltipContent>
                   <div className="space-y-2">
                     <p className="font-medium">Productivity Scoring</p>
-                    <p className="text-sm">Based on active vs inactive time ratio</p>
+                    <p className="text-sm">+1 point per hour active, -1 point per hour inactive</p>
+                    <p className="text-sm">Final score = active points - inactive points</p>
                     <p className="text-sm">Current Month: {currentMonthScore ? formatScore(currentMonthScore.productivity_score) : 'N/A'}</p>
                     <p className="text-sm">Average: {formatScore(averageScore)}</p>
                   </div>
@@ -152,8 +176,12 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
               </Tooltip>
             </div>
             <div className="flex items-center gap-1 text-xs text-muted-foreground">
-              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-              <span>Auto-refresh</span>
+              <div className={`w-2 h-2 rounded-full ${(isBreakActive || isInMeeting) ? 'bg-yellow-500' : 'bg-green-500 animate-pulse'}`}></div>
+              <span>
+                {(isBreakActive || isInMeeting) ? 'Auto-refresh paused' : 'Auto-refresh'}
+                {isBreakActive && ' (Break)'}
+                {isInMeeting && ' (Meeting)'}
+              </span>
               {lastUpdate && <span>• Last: {lastUpdate}</span>}
             </div>
           </div>
@@ -169,7 +197,7 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {/* Current Month Score */}
-              <Card className="bg-gradient-to-br from-green-50 to-emerald-50 border-green-200">
+              <Card className="bg-gradient-to-br from-green-50 to-emerald-50 dark:from-emerald-950/20 dark:to-emerald-900/10 border-green-200 dark:border-emerald-900/40">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-lg flex items-center gap-2">
                     <BarChart3 className="w-4 h-4 text-green-600" />
@@ -215,7 +243,7 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
               </Card>
 
               {/* Average Score */}
-              <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-200">
+              <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-indigo-950/20 dark:to-indigo-900/10 border-blue-200 dark:border-indigo-900/40">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-lg flex items-center gap-2">
                     <TrendingUp className="w-4 h-4 text-blue-600" />
@@ -244,7 +272,7 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
               </Card>
 
               {/* Score History */}
-              <Card className="bg-gradient-to-br from-purple-50 to-pink-50 border-purple-200">
+              <Card className="bg-gradient-to-br from-purple-50 to-pink-50 dark:from-violet-950/20 dark:to-pink-950/10 border-purple-200 dark:border-violet-900/40">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-lg flex items-center gap-2">
                     <BarChart3 className="w-4 h-4 text-purple-600" />
@@ -253,23 +281,25 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
                 </CardHeader>
                 <CardContent>
                   {productivityScores.length > 0 ? (
-                    <div className="space-y-2 max-h-32 overflow-y-auto">
-                      {productivityScores.slice(0, 6).map((score, index) => (
-                        <div key={index} className="flex items-center justify-between p-2 bg-white/50 rounded">
-                          <span className="text-sm font-medium">
-                            {formatMonth(score.month_year)}
-                          </span>
-                          <div className="flex items-center gap-2">
-                            <span className={`text-sm font-bold ${getScoreColor(score.productivity_score)}`}>
-                              {formatScore(score.productivity_score)}
+                    <ScrollArea className="h-40 pr-3">
+                      <div className="space-y-2">
+                        {productivityScores.slice(0, 6).map((score, index) => (
+                          <div key={index} className="flex items-center justify-between p-2 rounded border border-border/50 bg-muted/40 dark:bg-muted/20">
+                            <span className="text-sm font-medium">
+                              {formatMonth(score.month_year)}
                             </span>
-                            <Badge variant="outline" size="sm">
-                              {getScoreLabel(score.productivity_score)}
-                            </Badge>
+                            <div className="flex items-center gap-2">
+                              <span className={`text-sm font-bold ${getScoreColor(score.productivity_score)}`}>
+                                {formatScore(score.productivity_score)}
+                              </span>
+                              <Badge variant="outline">
+                                {getScoreLabel(score.productivity_score)}
+                              </Badge>
+                            </div>
                           </div>
-                        </div>
-                      ))}
-                    </div>
+                        ))}
+                      </div>
+                    </ScrollArea>
                   ) : (
                     <div className="text-center py-4 text-muted-foreground">
                       <BarChart3 className="w-8 h-8 mx-auto mb-2 text-gray-300" />

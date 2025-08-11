@@ -7,109 +7,87 @@ import { NewTicketSkeleton } from "@/components/skeleton-loaders"
 import {
   SidebarInset,
   SidebarProvider,
+  SidebarTrigger,
 } from "@/components/ui/sidebar"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Badge } from "@/components/ui/badge"
 import { ArrowLeft, Send, CheckCircle, FileText, Mail, Phone, Upload, X, AlertTriangle, MessageSquare } from "lucide-react"
 import Link from "next/link"
 import { getCurrentUser } from "@/lib/ticket-utils"
-import { getCurrentPhilippinesTime, getCurrentPhilippinesDateString } from "@/lib/timezone-utils"
 import { addSmartNotification } from "@/lib/notification-service"
 
-// Define interface for user profile from API
-interface UserProfile {
-  id_number: string
-  first_name: string
-  last_name: string
-  middle_name?: string
-  email: string
-  phone?: string
-  user_type: string
-  job_title?: string
-  company?: string
-  // ... other fields from profile API
+// Interface for uploaded files
+interface UploadedFile {
+  name: string
+  url: string
+  size: number
+  type: string
 }
 
 export default function NewTicketPage() {
-  const [loading, setLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isSubmitted, setIsSubmitted] = useState(false)
-  const [ticketId, setTicketId] = useState("")
+  const [ticketId, setTicketId] = useState<string>('')
   const [files, setFiles] = useState<File[]>([])
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
   const [dragActive, setDragActive] = useState(false)
-  const [fileError, setFileError] = useState<string>("")
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
-  const [profileError, setProfileError] = useState<string>("")
+  const [fileError, setFileError] = useState<string>('')
+  const [loading, setLoading] = useState(true)
+  const [categories, setCategories] = useState<Array<{id: number, name: string}>>([])
+  const [categoriesLoading, setCategoriesLoading] = useState(true)
+  const [uploadingFiles, setUploadingFiles] = useState(false)
   
   // Maximum file size: 10MB
   const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB in bytes
 
-  // Fetch user profile from database API
+  // Fetch categories only
   useEffect(() => {
-    const fetchUserProfile = async () => {
+    const fetchData = async () => {
       try {
-        setLoading(true)
-        setProfileError("")
-
-        // First check if user is authenticated
-        const currentUser = getCurrentUser()
-        if (!currentUser) {
-          setProfileError("User not authenticated")
-          setLoading(false)
-          return
-        }
-
-        // Fetch profile from database API
-        // Get user email for API call (works in both browser and Electron)
-        const userEmail = currentUser.email;
-        const apiUrl = userEmail 
-          ? `http://localhost:3000/api/profile/?email=${encodeURIComponent(userEmail)}`
-          : 'http://localhost:3000/api/profile/';
-          
-        const response = await fetch(apiUrl, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include', // Include authentication cookies for Electron
+        // Fetch categories
+        const categoriesResponse = await fetch('/api/ticket-categories', {
+          credentials: 'include'
         })
-
-        const data = await response.json()
-
-        if (data.success && data.profile) {
-          setUserProfile(data.profile)
+        
+        if (categoriesResponse.ok) {
+          const categoriesData = await categoriesResponse.json()
+          if (categoriesData.success) {
+            setCategories(categoriesData.categories)
+          } else {
+            console.error('Failed to load categories:', categoriesData.error)
+          }
         } else {
-          setProfileError(data.error || 'Failed to load user profile')
+          console.error('Failed to load categories')
         }
       } catch (error) {
-        console.error('Profile loading error:', error)
-        setProfileError('Network error. Please check your connection.')
+        console.error('Error fetching data:', error)
       } finally {
-      setLoading(false)
+        setLoading(false)
+        setCategoriesLoading(false)
       }
     }
 
-    fetchUserProfile()
+    fetchData()
   }, [])
 
   // Reset form state when component mounts (for "Create Another Ticket")
   useEffect(() => {
-    setIsSubmitted(false)
-    setTicketId("")
-    setFiles([])
-    setFileError("")
+    const resetFormState = () => {
+      setIsSubmitted(false)
+      setTicketId("")
+      setFiles([])
+      setUploadedFiles([]) // Reset uploaded files state
+      setFileError("")
+      setDragActive(false)
+      setIsSubmitting(false)
+      setUploadingFiles(false)
+    }
+    
+    resetFormState()
   }, [])
-
-  const generateTicketId = () => {
-    const timestamp = Date.now().toString(36)
-    const random = Math.random().toString(36).substr(2, 5)
-    return `TKT-${timestamp}-${random}`.toUpperCase()
-  }
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault()
@@ -157,33 +135,32 @@ export default function NewTicketPage() {
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     setIsSubmitting(true)
+    setUploadingFiles(true)
     
     try {
       const formData = new FormData(e.currentTarget)
       
       // Get user info from session/profile with fallbacks
       const currentUser = getCurrentUser()
-      const fullName = userProfile 
-        ? `${userProfile.first_name} ${userProfile.last_name}` 
-        : currentUser?.name || 'Unknown User'
-      const userEmail = userProfile?.email || currentUser?.email || 'unknown@email.com'
+      const fullName = currentUser?.name || 'Unknown User'
+      const userEmail = currentUser?.email || 'unknown@email.com'
       
-      // Prepare ticket data for API
+      // First, create the ticket to get the ticket ID
       const ticketData = {
         name: fullName,
         concern: formData.get('concern') as string,
         category: formData.get('category') as string,
         details: formData.get('details') as string,
-        files: files.map(file => file.name)
+        files: [] // We'll update this after uploading files
       }
       
-      // Submit to API
+      // Submit ticket to API first
       const response = await fetch('/api/tickets', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        credentials: 'include', // Include authentication cookies
+        credentials: 'include',
         body: JSON.stringify(ticketData)
       })
       
@@ -193,6 +170,62 @@ export default function NewTicketPage() {
       }
       
       const result = await response.json()
+      const newTicketId = result.ticket.id
+      
+      // Now upload files to Supabase storage using server-side API
+      if (files.length > 0) {
+        console.log('📤 Uploading files to Supabase storage...')
+        
+        // Create FormData for file upload
+        const uploadFormData = new FormData()
+        uploadFormData.append('ticketId', newTicketId)
+        
+        // Add all files to FormData
+        files.forEach(file => {
+          uploadFormData.append('files', file)
+        })
+        
+        // Upload files using server-side API
+        const uploadResponse = await fetch('/api/upload', {
+          method: 'POST',
+          credentials: 'include',
+          body: uploadFormData
+        })
+        
+        if (uploadResponse.ok) {
+          const uploadResult = await uploadResponse.json()
+          if (uploadResult.success) {
+            setUploadedFiles(uploadResult.files)
+            
+            // Update the ticket with the uploaded file URLs
+            const updateResponse = await fetch(`/api/tickets/${newTicketId}`, {
+              method: 'PATCH',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              credentials: 'include',
+              body: JSON.stringify({
+                supporting_files: uploadResult.files.map((file: any) => file.url),
+                file_count: uploadResult.files.length
+              })
+            })
+            
+            if (!updateResponse.ok) {
+              const errorData = await updateResponse.json()
+              console.error('❌ Failed to update ticket with file URLs:', errorData)
+              console.error('❌ Response status:', updateResponse.status)
+              console.error('❌ Uploaded files:', uploadResult.files)
+            } else {
+              const updateResult = await updateResponse.json()
+              console.log('✅ Successfully updated ticket with file URLs:', updateResult)
+            }
+          } else {
+            console.warn('Failed to upload files, but ticket was created')
+          }
+        } else {
+          console.warn('Failed to upload files, but ticket was created')
+        }
+      }
       
       if (result.success) {
         // Add notification for successful ticket creation
@@ -203,7 +236,7 @@ export default function NewTicketPage() {
           actionUrl: `/forms/${result.ticket.id}`,
           icon: 'FileText',
           category: 'ticket',
-          actionData: { ticketId: result.ticket.id } // Using ticket_id as requested
+          actionData: { ticketId: result.ticket.id }
         }, 'creation');
         
         // Save ticket ID for success display
@@ -218,6 +251,7 @@ export default function NewTicketPage() {
       alert(`Error creating ticket: ${error instanceof Error ? error.message : 'Unknown error'}`)
     } finally {
       setIsSubmitting(false)
+      setUploadingFiles(false)
     }
   }
 
@@ -231,13 +265,6 @@ export default function NewTicketPage() {
         </SidebarInset>
       </SidebarProvider>
     )
-  }
-
-  // Show profile error but still allow ticket creation
-  if (profileError && !userProfile) {
-    console.warn('Profile loading error:', profileError)
-    // Continue to show the form even with profile error
-    // We'll use fallback user data from getCurrentUser()
   }
 
   if (isSubmitted) {
@@ -259,9 +286,9 @@ export default function NewTicketPage() {
                   <CardTitle className="text-3xl font-bold text-primary mb-2">
                     Ticket Submitted Successfully!
                   </CardTitle>
-                  <CardDescription className="text-lg">
+                  <p className="text-lg">
                     Your support ticket has been created and is now in our system
-                  </CardDescription>
+                  </p>
                 </CardHeader>
                 
                 <CardContent className="space-y-8">
@@ -316,10 +343,15 @@ export default function NewTicketPage() {
                     </Link>
                     <Button 
                       onClick={() => {
+                        // Comprehensive reset of all form states
                         setIsSubmitted(false)
                         setTicketId("")
                         setFiles([])
+                        setUploadedFiles([]) // Reset uploaded files when creating another ticket
                         setFileError("")
+                        setDragActive(false)
+                        setIsSubmitting(false)
+                        setUploadingFiles(false)
                       }}
                       className="w-full sm:w-auto bg-primary hover:bg-primary/90"
                     >
@@ -353,49 +385,12 @@ export default function NewTicketPage() {
         <AppHeader />
         <div className="flex flex-1 flex-col gap-6 p-6 pt-2">
           <div className="flex items-center gap-4">
-            <Link href="/dashboard">
-              <Button variant="outline" size="sm">
-                <ArrowLeft className="mr-2 h-4 w-4" />
-                Back
-              </Button>
-            </Link>
             <div>
               <h1 className="text-3xl font-bold text-foreground">New Support Ticket</h1>
               <p className="text-muted-foreground">Submit a support request to our team</p>
             </div>
           </div>
           
-          {/* Profile Loading Warning */}
-          {profileError && !userProfile && (
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4 text-amber-600" />
-                <p className="text-sm text-amber-800">
-                  <strong>Notice:</strong> Could not load your complete profile information, but you can still submit tickets. 
-                  Some fields may show default values.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Debug Info (only in development) */}
-          {process.env.NODE_ENV === 'development' && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <details>
-                <summary className="cursor-pointer text-sm font-medium text-blue-800 mb-2">
-                  🔍 Debug Information (Development Mode)
-                </summary>
-                <div className="space-y-2 text-xs">
-                  <div><strong>Current User:</strong> {JSON.stringify(getCurrentUser(), null, 2)}</div>
-                  <div><strong>Profile Loaded:</strong> {userProfile ? 'Yes' : 'No'}</div>
-                  <div><strong>Profile Error:</strong> {profileError || 'None'}</div>
-                  {userProfile && (
-                    <div><strong>Profile Data:</strong> {JSON.stringify(userProfile, null, 2)}</div>
-                  )}
-                </div>
-              </details>
-            </div>
-          )}
           
           <div className="grid gap-6 lg:grid-cols-3">
             {/* Main Form */}
@@ -418,7 +413,7 @@ export default function NewTicketPage() {
                   <form onSubmit={handleSubmit} className="space-y-6">
                   
                   {/* User Info Display Section */}
-                  {(userProfile || getCurrentUser()) && (
+                  {(getCurrentUser()) && (
                     <div className="bg-muted/30 rounded-lg p-4 border border-muted">
                       <div className="flex items-center gap-2 mb-3">
                         <div className="p-1.5 bg-primary/10 rounded-lg">
@@ -431,16 +426,13 @@ export default function NewTicketPage() {
                           <div className="flex flex-col sm:flex-row sm:items-center gap-1">
                             <span className="text-muted-foreground whitespace-nowrap">Submitted by:</span>
                             <span className="font-medium">
-                              {userProfile 
-                                ? `${userProfile.first_name} ${userProfile.last_name}` 
-                                : getCurrentUser()?.name || 'Unknown User'
-                              }
+                              {getCurrentUser()?.name || 'Unknown User'}
                             </span>
                           </div>
                           <div className="flex flex-col sm:flex-row sm:items-center gap-1">
                             <span className="text-muted-foreground whitespace-nowrap">Email:</span>
                             <span className="font-medium break-all text-xs sm:text-sm">
-                              {userProfile?.email || getCurrentUser()?.email || 'unknown@email.com'}
+                              {getCurrentUser()?.email || 'unknown@email.com'}
                             </span>
                           </div>
                         </div>
@@ -452,7 +444,7 @@ export default function NewTicketPage() {
                           <div className="flex flex-col sm:flex-row sm:items-center gap-1">
                             <span className="text-muted-foreground whitespace-nowrap">Department:</span>
                             <span className="font-medium">
-                              {userProfile?.job_title || 'Agent'}
+                              Agent
                             </span>
                           </div>
                         </div>
@@ -482,17 +474,14 @@ export default function NewTicketPage() {
                       <Label htmlFor="category">What is your support ticket related to? *</Label>
                       <Select name="category" required>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select a category" />
+                          <SelectValue placeholder={categoriesLoading ? "Loading categories..." : "Select a category"} />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="computer">Computer/Equipment</SelectItem>
-                          <SelectItem value="station">Station</SelectItem>
-                          <SelectItem value="surroundings">Surroundings</SelectItem>
-                          <SelectItem value="schedule">Schedule</SelectItem>
-                          <SelectItem value="compensation">Compensation</SelectItem>
-                          <SelectItem value="transport">Transport</SelectItem>
-                          <SelectItem value="suggestion">Suggestion</SelectItem>
-                          <SelectItem value="checkin">Check-in (chat with account manager)</SelectItem>
+                          {categories.map((category) => (
+                            <SelectItem key={category.id} value={category.name}>
+                              {category.name}
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>
@@ -511,86 +500,118 @@ export default function NewTicketPage() {
                     </div>
                   </div>
 
-                  {/* File Upload */}
+                  {/* File Upload Section */}
                   <div className="space-y-4">
-                    <Label>Supporting Information (drag and drop files, images)</Label>
+                    <Label htmlFor="files">Supporting Files (Optional)</Label>
                     <div
-                      className={`border-2 border-dashed rounded-lg p-4 sm:p-6 text-center transition-colors cursor-pointer ${
-                        dragActive 
-                          ? 'border-primary bg-primary/5' 
-                          : 'border-muted-foreground/25 hover:border-muted-foreground/50'
+                      className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
+                        dragActive ? 'border-primary bg-primary/5' : 'border-muted-foreground/25'
                       }`}
                       onDragEnter={handleDrag}
                       onDragLeave={handleDrag}
                       onDragOver={handleDrag}
                       onDrop={handleDrop}
-                      onClick={() => document.getElementById('file-upload')?.click()}
                     >
-                      <Upload className="mx-auto h-6 w-6 sm:h-8 sm:w-8 text-muted-foreground mb-2" />
-                      <p className="text-xs sm:text-sm text-muted-foreground mb-2">
+                      <Upload className="mx-auto h-8 w-8 text-muted-foreground mb-2" />
+                      <p className="text-sm text-muted-foreground mb-2">
                         Drag and drop files here, or click to select
                       </p>
-                      <p className="text-xs text-muted-foreground mb-3">
-                        Maximum file size: 10MB per file
+                      <p className="text-xs text-muted-foreground">
+                        Maximum file size: 10MB. Supported formats: Images, PDF, Word, Excel, PowerPoint, Text, ZIP
                       </p>
                       <input
+                        id="files"
                         type="file"
                         multiple
-                        onChange={handleFileSelect}
                         className="hidden"
-                        id="file-upload"
-                        accept="image/*,.pdf,.doc,.docx,.txt"
+                        onChange={handleFileSelect}
+                        accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.rar,.7z"
                       />
-                      <Button 
-                        type="button" 
-                        variant="outline" 
+                      <Button
+                        type="button"
+                        variant="outline"
                         size="sm"
-                        className="w-full sm:w-auto"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          document.getElementById('file-upload')?.click()
-                        }}
+                        className="mt-2"
+                        onClick={() => document.getElementById('files')?.click()}
                       >
-                        Choose Files
+                        Select Files
                       </Button>
                     </div>
-                    
-                    {/* File Error */}
-                    {fileError && (
-                      <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md p-3">
-                        {fileError}
-                      </div>
-                    )}
-                    
+
                     {/* File List */}
                     {files.length > 0 && (
                       <div className="space-y-2">
-                        <Label>Selected Files:</Label>
-                        <div className="space-y-2">
+                        <Label>Selected Files ({files.length})</Label>
+                        <div className="space-y-2 max-h-32 overflow-y-auto">
                           {files.map((file, index) => (
-                            <div key={index} className="flex items-center justify-between p-2 bg-muted rounded-md gap-2">
-                              <div className="flex-1">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-sm font-medium">
-                                    {file.name}
-                                  </span>
-                                  <span className="text-xs text-muted-foreground flex-shrink-0">
-                                    ({(file.size / 1024 / 1024).toFixed(2)} MB)
-                                  </span>
-                                </div>
+                            <div key={index} className="flex items-center justify-between p-2 bg-muted rounded-md">
+                              <div className="flex items-center gap-2">
+                                <FileText className="h-4 w-4 text-muted-foreground" />
+                                <span className="text-sm">{file.name}</span>
+                                <span className="text-xs text-muted-foreground">
+                                  ({(file.size / 1024 / 1024).toFixed(2)} MB)
+                                </span>
                               </div>
                               <Button
                                 type="button"
                                 variant="ghost"
                                 size="sm"
-                                className="flex-shrink-0"
                                 onClick={() => removeFile(index)}
+                                className="h-6 w-6 p-0"
                               >
-                                <X className="h-4 w-4" />
+                                <X className="h-3 w-3" />
                               </Button>
                             </div>
                           ))}
                         </div>
+                      </div>
+                    )}
+
+                    {/* Upload Progress */}
+                    {uploadingFiles && (
+                      <div className="space-y-2">
+                        <Label>Uploading Files...</Label>
+                        <div className="flex items-center gap-2">
+                          <div className="h-2 flex-1 bg-muted rounded-full overflow-hidden">
+                            <div className="h-full bg-primary animate-pulse" style={{ width: '100%' }}></div>
+                          </div>
+                          <span className="text-sm text-muted-foreground">Processing...</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Uploaded Files */}
+                    {uploadedFiles.length > 0 && (
+                      <div className="space-y-2">
+                        <Label>Uploaded Files ({uploadedFiles.length})</Label>
+                        <div className="space-y-2">
+                          {uploadedFiles.map((file, index) => (
+                            <div key={index} className="flex items-center justify-between p-2 bg-green-50 border border-green-200 rounded-md">
+                              <div className="flex items-center gap-2">
+                                <CheckCircle className="h-4 w-4 text-green-600" />
+                                <span className="text-sm">{file.name}</span>
+                                <span className="text-xs text-muted-foreground">
+                                  ({(file.size / 1024 / 1024).toFixed(2)} MB)
+                                </span>
+                              </div>
+                              <a
+                                href={file.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-blue-600 hover:underline"
+                              >
+                                View
+                              </a>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {fileError && (
+                      <div className="flex items-center gap-2 p-2 bg-destructive/10 border border-destructive/20 rounded-md">
+                        <AlertTriangle className="h-4 w-4 text-destructive" />
+                        <span className="text-sm text-destructive">{fileError}</span>
                       </div>
                     )}
                   </div>

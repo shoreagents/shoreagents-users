@@ -32,11 +32,12 @@ import {
   AlertTriangle, 
   CheckCircle, 
   Clock,
-  Download,
-  Eye
+  Eye,
+  Image
 } from "lucide-react"
 import Link from "next/link"
 import { Ticket } from "@/lib/ticket-utils"
+import { ImageViewerDialog } from "@/components/image-viewer-dialog"
 
 // Add interface for current user
 interface CurrentUser {
@@ -53,6 +54,8 @@ export default function TicketDetailsPage() {
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null)
+  const [imageViewerOpen, setImageViewerOpen] = useState(false)
+  const [selectedImage, setSelectedImage] = useState<{ url: string; name: string } | null>(null)
 
   useEffect(() => {
     const loadTicket = async () => {
@@ -68,6 +71,9 @@ export default function TicketDetailsPage() {
         if (response.ok) {
           const result = await response.json()
           if (result.success) {
+            console.log('✅ Ticket loaded successfully:', result.ticket)
+            console.log('Supporting files:', result.ticket.supportingFiles)
+            console.log('Files (old format):', result.ticket.files)
             setTicket(result.ticket)
           } else {
             console.error('❌ Failed to load ticket:', result.error)
@@ -88,6 +94,28 @@ export default function TicketDetailsPage() {
     }
 
     loadTicket()
+
+    // Subscribe to SSE for this specific ticket
+    const ticketId = params.id as string
+    const es = new EventSource(`/api/tickets/${ticketId}?stream=1`)
+    const debounce = { timer: null as any }
+    es.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data)
+        if (data?.type === 'connected') return
+        // Refresh details after a short debounce
+        if (debounce.timer) clearTimeout(debounce.timer)
+        debounce.timer = setTimeout(() => {
+          loadTicket()
+        }, 300)
+      } catch {}
+    }
+    es.onerror = () => {
+      try { es.close() } catch {}
+    }
+    return () => {
+      try { es.close() } catch {}
+    }
   }, [params.id])
 
   // Get current user information
@@ -135,10 +163,20 @@ export default function TicketDetailsPage() {
           <CheckCircle className="h-3 w-3" />
           Approved
         </Badge>
-      case 'Completed':
+      case 'Stuck':
+        return <Badge variant="destructive" className="flex items-center gap-1">
+          <AlertTriangle className="h-3 w-3" />
+          Stuck
+        </Badge>
+      case 'Actioned':
+        return <Badge variant="outline" className="flex items-center gap-1 text-blue-600 border-blue-200">
+          <CheckCircle className="h-3 w-3" />
+          Actioned
+        </Badge>
+      case 'Closed':
         return <Badge variant="outline" className="flex items-center gap-1 text-green-600 border-green-200">
           <CheckCircle className="h-3 w-3" />
-          Completed
+          Closed
         </Badge>
       default:
         return <Badge variant="secondary">{status}</Badge>
@@ -176,6 +214,21 @@ export default function TicketDetailsPage() {
       hour: '2-digit',
       minute: '2-digit'
     })
+  }
+
+  const isImageFile = (fileName: string): boolean => {
+    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg']
+    const lowerFileName = fileName.toLowerCase()
+    const isImage = imageExtensions.some(ext => lowerFileName.endsWith(ext))
+    console.log(`Checking if ${fileName} is image: ${isImage}`)
+    return isImage
+  }
+
+  const openImageViewer = (url: string, fileName: string) => {
+    console.log('Opening image viewer for:', { url, fileName })
+    setSelectedImage({ url, name: fileName })
+    setImageViewerOpen(true)
+    console.log('State updated:', { selectedImage: { url, name: fileName }, imageViewerOpen: true })
   }
 
   if (loading) {
@@ -329,28 +382,90 @@ export default function TicketDetailsPage() {
               </Card>
 
               {/* Attachments */}
-              {ticket.files && ticket.files.length > 0 && (
+              {(() => {
+                const hasFiles = (ticket.files && ticket.files.length > 0) || (ticket.supportingFiles && ticket.supportingFiles.length > 0)
+                console.log('Rendering attachments section:', { 
+                  hasFiles, 
+                  filesLength: ticket.files?.length, 
+                  supportingFilesLength: ticket.supportingFiles?.length 
+                })
+                return hasFiles
+              })() && (
                 <Card>
                   <CardHeader>
                     <div className="flex items-center gap-2">
-                      <Download className="h-4 w-4 text-muted-foreground" />
-                      <CardTitle>Attachments</CardTitle>
+                      <CardTitle>Attachments ({ticket.fileCount || ticket.files?.length || 0})</CardTitle>
                     </div>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-2">
-                      {ticket.files.map((file, index) => (
-                        <div key={index} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                          <div className="flex items-center gap-2">
-                            <FileText className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-sm">{file}</span>
-                          </div>
-                          <Button variant="outline" size="sm">
-                            <Eye className="mr-2 h-3 w-3" />
-                            View
-                          </Button>
-                        </div>
-                      ))}
+                      {/* Display files from Supabase storage (new format) */}
+                      {ticket.supportingFiles && ticket.supportingFiles.length > 0 && (
+                        ticket.supportingFiles.map((fileUrl, index) => {
+                          // Extract filename from URL
+                          const fileName = fileUrl.split('/').pop() || `File ${index + 1}`
+                          const isImage = isImageFile(fileName)
+                          console.log(`Processing file: ${fileName}, isImage: ${isImage}, URL: ${fileUrl}`)
+                          
+                          return (
+                            <div key={index} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                              <div className="flex items-center gap-2">
+                                {isImage ? (
+                                  <Image className="h-4 w-4 text-blue-500" />
+                                ) : (
+                                  <FileText className="h-4 w-4 text-muted-foreground" />
+                                )}
+                                <span className="text-sm">{fileName}</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                {isImage ? (
+                                  <Button 
+                                    variant="outline" 
+                                    size="sm"
+                                    onClick={() => openImageViewer(fileUrl, fileName)}
+                                  >
+                                    <Eye className="mr-2 h-3 w-3" />
+                                    View Image
+                                  </Button>
+                                ) : (
+                                  <Button 
+                                    variant="outline" 
+                                    size="sm"
+                                    onClick={() => window.open(fileUrl, '_blank')}
+                                  >
+                                    <Eye className="mr-2 h-3 w-3" />
+                                    View
+                                  </Button>
+                                )}
+
+                              </div>
+                            </div>
+                          )
+                        })
+                      )}
+                      
+                      {/* Display files from old format (fallback) */}
+                      {(!ticket.supportingFiles || ticket.supportingFiles.length === 0) && ticket.files && ticket.files.length > 0 && (
+                        ticket.files.map((file, index) => {
+                          const isImage = isImageFile(file)
+                          return (
+                            <div key={index} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                              <div className="flex items-center gap-2">
+                                {isImage ? (
+                                  <Image className="h-4 w-4 text-blue-500" />
+                                ) : (
+                                  <FileText className="h-4 w-4 text-muted-foreground" />
+                                )}
+                                <span className="text-sm">{file}</span>
+                              </div>
+                              <Button variant="outline" size="sm">
+                                <Eye className="mr-2 h-3 w-3" />
+                                View
+                              </Button>
+                            </div>
+                          )
+                        })
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -377,7 +492,7 @@ export default function TicketDetailsPage() {
                     <p className="text-sm mt-1">{formatDate(ticket.createdAt)}</p>
                   </div>
 
-                  {ticket.status === 'Completed' && (
+                  {ticket.status === 'Closed' && (
                     <>
                       {ticket.resolvedByEmail && (
                         <div>
@@ -450,6 +565,19 @@ export default function TicketDetailsPage() {
             </div>
           </div>
         </div>
+
+        {/* Image Viewer Dialog */}
+        {imageViewerOpen && selectedImage && (
+          <ImageViewerDialog
+            isOpen={imageViewerOpen}
+            onClose={() => {
+              setImageViewerOpen(false)
+              setSelectedImage(null)
+            }}
+            imageUrl={selectedImage.url}
+            fileName={selectedImage.name}
+          />
+        )}
       </SidebarInset>
     </SidebarProvider>
   )

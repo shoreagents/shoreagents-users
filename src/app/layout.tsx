@@ -4,9 +4,12 @@ import "./globals.css";
 import { ActivityProvider } from "@/contexts/activity-context";
 import { BreakProvider } from "@/contexts/break-context";
 import { TimerProvider } from "@/contexts/timer-context";
+import { MeetingProvider } from "@/contexts/meeting-context";
 import ElectronLogoutHandler from "@/components/electron-logout-handler";
 import DatabaseInitializer from "@/components/database-initializer";
 import { GlobalTimerDisplay } from "@/components/global-timer-display";
+import { AuthMonitor } from "@/components/auth-monitor";
+
 
 const montserrat = Montserrat({
   subsets: ["latin"],
@@ -24,18 +27,35 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body className={`${montserrat.variable} antialiased overflow-x-hidden`}>
-        <BreakProvider>
-          <ActivityProvider>
-            <TimerProvider>
-              <DatabaseInitializer />
-              <ElectronLogoutHandler />
-              {children}
-              <GlobalTimerDisplay />
-            </TimerProvider>
-          </ActivityProvider>
-        </BreakProvider>
+        {/* Persist theme across reloads */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function(){
+                try {
+                  var theme = localStorage.getItem('theme');
+                  if(theme === 'dark') document.documentElement.classList.add('dark');
+                } catch(e) {}
+              })();
+            `,
+          }}
+        />
+        <AuthMonitor>
+          <BreakProvider>
+            <ActivityProvider>
+              <MeetingProvider>
+                <TimerProvider>
+                  <DatabaseInitializer />
+                  <ElectronLogoutHandler />
+                  {children}
+                  <GlobalTimerDisplay />
+                </TimerProvider>
+              </MeetingProvider>
+            </ActivityProvider>
+          </BreakProvider>
+        </AuthMonitor>
       </body>
     </html>
   );

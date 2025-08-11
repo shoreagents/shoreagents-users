@@ -13,6 +13,9 @@ export function DashboardSkeleton() {
         <Skeleton className="h-10 w-32" />
       </div>
 
+      {/* Shift reset/timer banner */}
+      <Skeleton className="h-10 w-full" />
+
       {/* Stats Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
@@ -24,6 +27,23 @@ export function DashboardSkeleton() {
             <CardContent>
               <Skeleton className="h-8 w-16 mb-2" />
               <Skeleton className="h-3 w-32" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Charts */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        {[0, 1].map((i) => (
+          <Card key={i}>
+            <CardHeader>
+              <div className="space-y-2">
+                <Skeleton className="h-5 w-48" />
+                <Skeleton className="h-4 w-40" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <Skeleton className="h-64 w-full" />
             </CardContent>
           </Card>
         ))}
@@ -62,22 +82,6 @@ export function DashboardSkeleton() {
           </div>
         </CardContent>
       </Card>
-
-      {/* Quick Actions */}
-      <div className="grid gap-4 md:grid-cols-2">
-        {Array.from({ length: 2 }).map((_, i) => (
-          <Card key={i}>
-            <CardHeader>
-              <Skeleton className="h-5 w-32" />
-              <Skeleton className="h-4 w-48" />
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
-            </CardContent>
-          </Card>
-        ))}
-      </div>
     </div>
   )
 }
@@ -87,7 +91,6 @@ export function MyTicketsSkeleton() {
     <div className="flex flex-1 flex-col gap-6 p-6 pt-2">
       {/* Header */}
       <div className="flex items-center gap-4">
-        <Skeleton className="h-9 w-24" />
         <div className="space-y-2">
           <Skeleton className="h-8 w-64" />
           <Skeleton className="h-4 w-96" />
@@ -171,7 +174,6 @@ export function NewTicketSkeleton() {
     <div className="flex flex-1 flex-col gap-6 p-6 pt-2">
       {/* Header */}
       <div className="flex items-center gap-4">
-        <Skeleton className="h-9 w-20" />
         <div className="space-y-2">
           <Skeleton className="h-8 w-64" />
           <Skeleton className="h-4 w-96" />
@@ -497,7 +499,6 @@ export function HelpFaqSkeleton() {
   return (
     <div className="flex flex-1 flex-col gap-6 p-6 pt-2">
       <div className="flex items-center gap-4">
-        <Skeleton className="h-9 w-24" />
         <div className="space-y-2">
           <Skeleton className="h-8 w-64" />
           <Skeleton className="h-4 w-96" />
@@ -547,7 +548,6 @@ export function HelpContactSkeleton() {
   return (
     <div className="flex flex-1 flex-col gap-6 p-6 pt-2">
       <div className="flex items-center gap-4">
-        <Skeleton className="h-9 w-24" />
         <div className="space-y-2">
           <Skeleton className="h-8 w-64" />
           <Skeleton className="h-4 w-96" />

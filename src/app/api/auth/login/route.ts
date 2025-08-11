@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { supabaseAdmin } from '@/lib/supabase'
 import { initializeDatabase, executeQuery } from '@/lib/database-server'
 import * as bcrypt from 'bcryptjs'
 
 interface LoginRequest {
   email: string
   password: string
+  fallback?: boolean
 }
 
 interface User {
@@ -44,7 +46,7 @@ export async function POST(request: NextRequest) {
   try {
     // Parse request body
     const body: LoginRequest = await request.json()
-    const { email, password } = body
+    const { email, password, fallback } = body
 
     if (!email || !password) {
       return NextResponse.json(
@@ -53,87 +55,209 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Initialize database connection
+    // If fallback is explicitly requested, use Railway authentication only
+    if (fallback) {
+      console.log('Using Railway authentication fallback (explicit request)')
+      
+      // Initialize database connection
+      await initializeDatabase()
+
+      // Query to get user and password information from Railway database
+      const userQuery = `
+        SELECT 
+          u.id, u.email, u.user_type, u.created_at, u.updated_at,
+          p.password as password_hash,
+          pi.first_name, pi.middle_name, pi.last_name, pi.nickname, 
+          pi.profile_picture, pi.phone, pi.birthday, pi.city, pi.address, pi.gender
+        FROM users u
+        LEFT JOIN passwords p ON u.id = p.user_id
+        LEFT JOIN personal_info pi ON u.id = pi.user_id
+        WHERE u.email = $1
+        LIMIT 1
+      `
+
+      const result = await executeQuery(userQuery, [email])
+
+      if (result.length === 0) {
+        return NextResponse.json(
+          { success: false, error: 'Invalid email or password' },
+          { status: 401 }
+        )
+      }
+
+      const userRecord = result[0]
+
+      // Check if password exists
+      if (!userRecord.password_hash) {
+        return NextResponse.json(
+          { success: false, error: 'User account not properly configured' },
+          { status: 401 }
+        )
+      }
+
+      // Verify password
+      const passwordMatch = await bcrypt.compare(password, userRecord.password_hash)
+
+      if (!passwordMatch) {
+        return NextResponse.json(
+          { success: false, error: 'Invalid email or password' },
+          { status: 401 }
+        )
+      }
+
+      // Check if user is an Agent - only agents can login to this app
+      if (userRecord.user_type !== 'Agent') {
+        return NextResponse.json(
+          { 
+            success: false, 
+            error: 'Access denied. This application is restricted to Agent users only.',
+            userType: userRecord.user_type 
+          },
+          { status: 403 }
+        )
+      }
+
+      // Prepare user data for response (Railway format)
+      const userData = {
+        id: userRecord.id,
+        email: userRecord.email,
+        user_type: userRecord.user_type,
+        name: `${userRecord.first_name || ''} ${userRecord.last_name || ''}`.trim() || userRecord.email,
+        first_name: userRecord.first_name,
+        middle_name: userRecord.middle_name,
+        last_name: userRecord.last_name,
+        nickname: userRecord.nickname,
+        profile_picture: userRecord.profile_picture,
+        phone: userRecord.phone,
+        birthday: userRecord.birthday,
+        city: userRecord.city,
+        address: userRecord.address,
+        gender: userRecord.gender,
+        role: userRecord.user_type.toLowerCase() // For compatibility with existing code
+      }
+
+      return NextResponse.json({
+        success: true,
+        user: userData,
+        message: 'Login successful (Railway fallback)',
+        fallback: true
+      })
+    }
+
+    // If Supabase is not configured, use Railway only
+    if (!supabaseAdmin) {
+      return NextResponse.json(
+        { success: false, error: 'Authentication service not configured. Please contact administrator.' },
+        { status: 500 }
+      )
+    }
+
+    // Hybrid approach: Supabase for authentication, Railway for role validation
+    console.log('Using hybrid authentication: Supabase + Railway role validation')
+
+    // Step 1: Authenticate with Supabase
+    const { data, error } = await supabaseAdmin.auth.signInWithPassword({
+      email,
+      password
+    })
+
+    if (error) {
+      return NextResponse.json(
+        { success: false, error: error.message },
+        { status: 401 }
+      )
+    }
+
+    if (!data.user) {
+      return NextResponse.json(
+        { success: false, error: 'Authentication failed' },
+        { status: 401 }
+      )
+    }
+
+    // Step 2: Check Railway database for user role and profile
     await initializeDatabase()
 
-    // Query to get user and password information
-    const userQuery = `
+    const railwayUserQuery = `
       SELECT 
         u.id, u.email, u.user_type, u.created_at, u.updated_at,
-        p.password as password_hash,
         pi.first_name, pi.middle_name, pi.last_name, pi.nickname, 
         pi.profile_picture, pi.phone, pi.birthday, pi.city, pi.address, pi.gender
       FROM users u
-      LEFT JOIN passwords p ON u.id = p.user_id
       LEFT JOIN personal_info pi ON u.id = pi.user_id
       WHERE u.email = $1
       LIMIT 1
     `
 
-    const result = await executeQuery(userQuery, [email])
+    const railwayResult = await executeQuery(railwayUserQuery, [email])
 
-    if (result.length === 0) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid email or password' },
-        { status: 401 }
-      )
-    }
-
-    const userRecord = result[0]
-
-    // Check if password exists
-    if (!userRecord.password_hash) {
-      return NextResponse.json(
-        { success: false, error: 'User account not properly configured' },
-        { status: 401 }
-      )
-    }
-
-    // Verify password
-    const passwordMatch = await bcrypt.compare(password, userRecord.password_hash)
-
-    if (!passwordMatch) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid email or password' },
-        { status: 401 }
-      )
-    }
-
-    // Check if user is an Agent - only agents can login to this app
-    if (userRecord.user_type !== 'Agent') {
+    if (railwayResult.length === 0) {
+      // Email exists in Supabase but not in Railway - sign them out
+      await supabaseAdmin.auth.admin.signOut(data.session.access_token)
       return NextResponse.json(
         { 
           success: false, 
-          error: 'Access denied. This application is restricted to Agent users only.',
-          userType: userRecord.user_type 
+          error: 'User not found in system records. Please contact administrator.',
         },
         { status: 403 }
       )
     }
 
-    // Prepare user data for response
+    const railwayUser = railwayResult[0]
+
+    // Step 3: Verify email matches between Supabase and Railway
+    if (railwayUser.email.toLowerCase() !== data.user.email!.toLowerCase()) {
+      // Email mismatch - security issue
+      await supabaseAdmin.auth.admin.signOut(data.session.access_token)
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: 'Authentication error. Please contact administrator.',
+        },
+        { status: 403 }
+      )
+    }
+
+    // Step 4: Check if user is an Agent in Railway database
+    if (railwayUser.user_type !== 'Agent') {
+      // Sign out from Supabase since they're not an agent
+      await supabaseAdmin.auth.admin.signOut(data.session.access_token)
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: 'Access denied. This application is restricted to Agent users only.',
+          userType: railwayUser.user_type 
+        },
+        { status: 403 }
+      )
+    }
+
+    // Step 5: Prepare user data for response (combining Supabase ID with Railway profile)
     const userData = {
-      id: userRecord.id,
-      email: userRecord.email,
-      user_type: userRecord.user_type,
-      name: `${userRecord.first_name || ''} ${userRecord.last_name || ''}`.trim() || userRecord.email,
-      first_name: userRecord.first_name,
-      middle_name: userRecord.middle_name,
-      last_name: userRecord.last_name,
-      nickname: userRecord.nickname,
-      profile_picture: userRecord.profile_picture,
-      phone: userRecord.phone,
-      birthday: userRecord.birthday,
-      city: userRecord.city,
-      address: userRecord.address,
-      gender: userRecord.gender,
-      role: userRecord.user_type.toLowerCase() // For compatibility with existing code
+      id: data.user.id, // Use Supabase UUID
+      railway_id: railwayUser.id, // Keep Railway ID for compatibility
+      email: data.user.email!,
+      user_type: railwayUser.user_type,
+      name: `${railwayUser.first_name || ''} ${railwayUser.last_name || ''}`.trim() || data.user.email!,
+      first_name: railwayUser.first_name,
+      middle_name: railwayUser.middle_name,
+      last_name: railwayUser.last_name,
+      nickname: railwayUser.nickname,
+      profile_picture: railwayUser.profile_picture,
+      phone: railwayUser.phone,
+      birthday: railwayUser.birthday,
+      city: railwayUser.city,
+      address: railwayUser.address,
+      gender: railwayUser.gender,
+      role: 'agent' // For compatibility with existing code
     }
 
     return NextResponse.json({
       success: true,
       user: userData,
-      message: 'Login successful'
+      message: 'Login successful (Supabase + Railway validation)',
+      session: data.session,
+      hybrid: true
     })
 
   } catch (error) {

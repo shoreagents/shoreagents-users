@@ -173,12 +173,6 @@ export default function ProfilePage() {
         <div className="flex flex-1 flex-col gap-6 p-6 pt-2">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <Link href="/dashboard">
-                <Button variant="outline" size="sm">
-                  <ArrowLeft className="mr-2 h-4 w-4" />
-                  Back
-                </Button>
-              </Link>
               <div>
                 <h1 className="text-3xl font-bold text-foreground">Profile Settings</h1>
                 <p className="text-muted-foreground">Manage your personal information and account details</p>

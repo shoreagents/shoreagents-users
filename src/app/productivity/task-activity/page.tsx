@@ -10,13 +10,8 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { KanbanBoard } from "@/components/task-activity-components/kanban-board"
 import { Button } from "@/components/ui/button"
-import { Plus, Filter, Users, Calendar, Settings, Loader2 } from "lucide-react"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+import { Plus, Settings, Loader2 } from "lucide-react"
+
 import {
   Dialog,
   DialogContent,
@@ -27,7 +22,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { fetchTaskActivityData, createTask, createGroup, moveTask, reorderGroups, TaskGroup, Task } from "@/lib/task-activity-utils"
+import { fetchTaskActivityData, createTask, createGroup, moveTask, reorderGroups, updateTask, TaskGroup, Task } from "@/lib/task-activity-utils"
 import { useTaskActivitySocket } from "@/hooks/use-task-activity-socket"
 
 // Utility function to generate unique IDs
@@ -266,7 +261,7 @@ export default function TaskActivityPage() {
         priority: 'normal',
         assignee: 'Unassigned',
         due_date: new Date().toISOString().split('T')[0],
-        tags: [],
+      tags: [],
         position: 0,
         status: 'active',
         created_at: new Date().toISOString(),
@@ -310,9 +305,146 @@ export default function TaskActivityPage() {
     }
   }
 
-  const handleTaskUpdate = (taskId: string, updates: any) => {
-    // This will be implemented when we add the update API endpoint
-    console.log('Task update:', taskId, updates)
+  const handleTaskUpdate = async (taskId: string, updates: any) => {
+    try {
+      console.log('Task update:', taskId, updates)
+      
+      // Check if this is a group move (group_id is being updated)
+      const isGroupMove = updates.group_id !== undefined
+      
+      if (isGroupMove) {
+        // Handle group move similar to handleTaskMove
+        const newGroupId = updates.group_id.toString()
+        
+        // Optimistic update - immediately move the task
+        setGroups(prevGroups => {
+          const updatedGroups = [...prevGroups]
+          
+          // Find and remove the task from its current group
+          let movedTask: any = null
+          for (const group of updatedGroups) {
+            const taskIndex = group.tasks.findIndex(task => task.id.toString() === taskId)
+            if (taskIndex !== -1) {
+              movedTask = { ...group.tasks[taskIndex], ...updates }
+              group.tasks.splice(taskIndex, 1)
+              
+              // Re-index remaining tasks in the source group
+              group.tasks.forEach((task, index) => {
+                task.position = index + 1
+              })
+              break
+            }
+          }
+          
+          // Add the task to the new group
+          if (movedTask) {
+            const targetGroup = updatedGroups.find(group => group.id.toString() === newGroupId)
+            if (targetGroup) {
+              movedTask.group_id = updates.group_id
+              targetGroup.tasks.push(movedTask)
+              movedTask.position = targetGroup.tasks.length
+            }
+          }
+          
+          return updatedGroups
+        })
+      } else {
+        // Regular update - just update the task in place
+        setGroups(prevGroups => {
+          const updatedGroups = [...prevGroups]
+          
+          // Find and update the task
+          for (const group of updatedGroups) {
+            const taskIndex = group.tasks.findIndex(task => task.id.toString() === taskId)
+            if (taskIndex !== -1) {
+              // Update the task with new data
+              group.tasks[taskIndex] = {
+                ...group.tasks[taskIndex],
+                ...updates,
+                updated_at: new Date().toISOString()
+              }
+              break
+            }
+          }
+          
+          return updatedGroups
+        })
+      }
+      
+      // Make the API call in the background
+      const updatedTask = await updateTask(parseInt(taskId), updates)
+      console.log('Task updated successfully:', updatedTask)
+      
+      // Update with the real task data from the API response
+      setGroups(prevGroups => {
+        const updatedGroups = [...prevGroups]
+        
+        for (const group of updatedGroups) {
+          const taskIndex = group.tasks.findIndex(task => task.id.toString() === taskId)
+          if (taskIndex !== -1) {
+            group.tasks[taskIndex] = updatedTask
+            break
+          }
+        }
+        
+        return updatedGroups
+      })
+      
+    } catch (error) {
+      console.error('Error updating task:', error)
+      // Revert optimistic update on error
+      await loadTaskData()
+    }
+  }
+
+  const handleTaskRename = async (taskId: string, newTitle: string) => {
+    try {
+      console.log('Task rename:', taskId, newTitle)
+      
+      // Optimistic update - immediately update the UI
+      setGroups(prevGroups => {
+        const updatedGroups = [...prevGroups]
+        
+        // Find and update the task title
+        for (const group of updatedGroups) {
+          const taskIndex = group.tasks.findIndex(task => task.id.toString() === taskId)
+          if (taskIndex !== -1) {
+            group.tasks[taskIndex] = {
+              ...group.tasks[taskIndex],
+              title: newTitle,
+              updated_at: new Date().toISOString()
+            }
+            break
+          }
+        }
+        
+        return updatedGroups
+      })
+      
+      // Make the API call in the background
+      const updatedTask = await updateTask(parseInt(taskId), { title: newTitle })
+      console.log('Task renamed successfully:', updatedTask)
+      
+      // Update with the real task data from the API response
+      setGroups(prevGroups => {
+        const updatedGroups = [...prevGroups]
+        
+        for (const group of updatedGroups) {
+          const taskIndex = group.tasks.findIndex(task => task.id.toString() === taskId)
+          if (taskIndex !== -1) {
+            group.tasks[taskIndex] = updatedTask
+            break
+          }
+        }
+        
+        return updatedGroups
+      })
+      
+    } catch (error) {
+      console.error('Error renaming task:', error)
+      // Revert optimistic update on error
+      await loadTaskData()
+    }
   }
 
   const handleColumnsReorder = async (newColumns: any[]) => {
@@ -365,16 +497,16 @@ export default function TaskActivityPage() {
         // Optimistic update - immediately add the group
         const newGroup: TaskGroup = {
           id: parseInt(tempId.replace(/\D/g, '')), // Convert to number for compatibility
-          title: newGroupName,
+        title: newGroupName,
           color: 'bg-purple-50 dark:bg-purple-950/20',
           position: groups.length,
           is_default: false,
           tasks: []
-        }
+      }
         
         setGroups(prevGroups => [...prevGroups, newGroup])
-        setNewGroupName("")
-        setIsAddGroupOpen(false)
+      setNewGroupName("")
+      setIsAddGroupOpen(false)
         
         // Make the API call in the background
         const createdGroup = await createGroup(newGroupName)
@@ -404,7 +536,47 @@ export default function TaskActivityPage() {
       <AppSidebar />
       <SidebarInset className="overflow-hidden">
         <AppHeader />
-        <div className="flex flex-1 flex-col gap-4 p-4 h-screen overflow-hidden max-w-full">
+        <div className="flex flex-1 flex-col gap-4 p-4 h-screen overflow-hidden max-w-full relative">
+          {/* Coming Soon Overlay */}
+          <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
+            <div className="bg-card border rounded-lg p-8 max-w-md mx-4 text-center shadow-lg">
+              <div className="mb-4">
+                <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Settings className="h-8 w-8 text-primary" />
+                </div>
+                <h2 className="text-2xl font-bold mb-2">Coming Soon</h2>
+                <p className="text-muted-foreground mb-6">
+                  The Task Activity feature is currently under development. 
+                  We're working hard to bring you an amazing task management experience.
+                </p>
+                <div className="flex flex-col gap-3 text-sm text-muted-foreground">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 bg-primary rounded-full"></div>
+                    <span>Advanced Kanban boards</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 bg-primary rounded-full"></div>
+                    <span>Real-time collaboration</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 bg-primary rounded-full"></div>
+                    <span>Task automation</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 bg-primary rounded-full"></div>
+                    <span>Progress tracking</span>
+                  </div>
+                </div>
+              </div>
+              <Button 
+                variant="outline" 
+                onClick={() => window.history.back()}
+                className="w-full"
+              >
+                Go Back
+              </Button>
+            </div>
+          </div>
           {/* Header */}
           <div className="flex items-center justify-between flex-shrink-0 min-w-0">
             <div className="min-w-0">
@@ -415,56 +587,13 @@ export default function TaskActivityPage() {
             </div>
             
             <div className="flex items-center gap-2 flex-shrink-0">
-              {/* Real-time connection status */}
-              <div className="flex items-center space-x-2 px-3 py-1 rounded-md bg-gray-50 border">
-                <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-                <span className="text-xs text-gray-600">
-                  {isConnected ? 'Real-time Connected' : 'Connecting...'}
-                </span>
-              </div>
-              
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm">
-                    <Filter className="h-4 w-4 mr-2" />
-                    Filter
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent>
-                  <DropdownMenuItem>All Tasks</DropdownMenuItem>
-                  <DropdownMenuItem>My Tasks</DropdownMenuItem>
-                  <DropdownMenuItem>High Priority</DropdownMenuItem>
-                  <DropdownMenuItem>Due Today</DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm">
-                    <Users className="h-4 w-4 mr-2" />
-                    Assignee
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent>
-                  <DropdownMenuItem>All Assignees</DropdownMenuItem>
-                  <DropdownMenuItem>John Doe</DropdownMenuItem>
-                  <DropdownMenuItem>Jane Smith</DropdownMenuItem>
-                  <DropdownMenuItem>Bob Johnson</DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-
-              <Button variant="outline" size="sm">
-                <Calendar className="h-4 w-4 mr-2" />
-                Due Date
-              </Button>
-
               <Button
                 variant={isEditMode ? "default" : "outline"}
                 size="sm"
                 onClick={toggleEditMode}
-                className="flex items-center gap-2"
+                className={`flex items-center gap-2 ${isEditMode ? 'bg-blue-600 hover:bg-blue-700' : ''}`}
               >
-                <Settings className="h-4 w-4" />
+                <Settings className={`h-4 w-4 ${isEditMode ? 'animate-spin' : ''}`} />
                 {isEditMode ? "Exit Edit Mode" : "Edit Board"}
               </Button>
 
@@ -517,14 +646,14 @@ export default function TaskActivityPage() {
             <CardHeader className="flex-shrink-0 pb-3">
               <CardTitle className="text-lg">Board View</CardTitle>
             </CardHeader>
-            <CardContent className="flex-1 p-0 overflow-x-auto overflow-y-hidden">
+            <CardContent className="flex-1 p-0 overflow-x-auto">
               {isLoading ? (
                 <div className="flex items-center justify-center h-64">
                   <Loader2 className="h-8 w-8 animate-spin" />
                   <span className="ml-2">Loading tasks...</span>
                 </div>
               ) : (
-                <KanbanBoard 
+              <KanbanBoard 
                   tasks={(() => {
                     const allTasks = groups.flatMap(group => 
                       group.tasks.map(task => ({
@@ -557,11 +686,12 @@ export default function TaskActivityPage() {
                     color: group.color
                   }))}
                   onTaskMove={(taskId, newStatus, targetPosition) => handleTaskMove(taskId, newStatus, targetPosition)}
-                  onTaskCreate={handleTaskCreate}
-                  onTaskUpdate={handleTaskUpdate}
-                  onColumnsReorder={handleColumnsReorder}
-                  isEditMode={isEditMode}
-                />
+                onTaskCreate={handleTaskCreate}
+                onTaskUpdate={handleTaskUpdate}
+                  onTaskRename={handleTaskRename}
+                onColumnsReorder={handleColumnsReorder}
+                isEditMode={isEditMode}
+              />
               )}
             </CardContent>
           </Card>

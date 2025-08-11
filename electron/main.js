@@ -1313,6 +1313,22 @@ ipcMain.handle('resume-activity-tracking', () => {
   }
 });
 
+// Handle Socket.IO meeting status updates (deprecated - now using direct Socket.IO)
+// ipcMain.on('updateMeetingStatus', (event, isInMeeting) => {
+//   try {
+//     console.log('📨 IPC received meeting status update:', isInMeeting);
+//     // Forward to Socket.IO server if available
+//     if (mainWindow && !mainWindow.isDestroyed()) {
+//       mainWindow.webContents.send('meeting-status-update', { isInMeeting });
+//       console.log('✅ Meeting status update forwarded to renderer:', isInMeeting);
+//     } else {
+//       console.warn('⚠️ Main window not available for meeting status update');
+//     }
+//   } catch (error) {
+//     console.error('❌ Error forwarding meeting status update:', error);
+//   }
+// });
+
 // Handle system notifications
 ipcMain.on('show-notification', (event, data) => {
   if (Notification.isSupported()) {
