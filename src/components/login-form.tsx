@@ -46,6 +46,7 @@ export function LoginForm({
             headers: {
               'Content-Type': 'application/json',
             },
+            credentials: 'include',
             body: JSON.stringify({ email, password, fallback: true }),
           })
 
@@ -69,8 +70,9 @@ export function LoginForm({
             setAuthCookie(authData, 7)
             localStorage.setItem("shoreagents-auth", JSON.stringify(authData))
             setUserLoggedIn()
-            // Navigate immediately after setting auth cookie/localStorage
-            router.replace("/dashboard")
+            // Give the browser a tick to persist cookies, then hard-navigate
+            await new Promise(r => setTimeout(r, 50))
+            window.location.href = "/dashboard"
             return
           } else {
             setError(fallbackData.error || "Login failed. Please try again.")
@@ -91,6 +93,7 @@ export function LoginForm({
           headers: {
             'Content-Type': 'application/json',
           },
+          credentials: 'include',
           body: JSON.stringify({ email, password }),
         })
 
@@ -121,8 +124,9 @@ export function LoginForm({
           // Start activity tracking for the logged-in user
           setUserLoggedIn()
 
-          // Navigate immediately after setting auth cookie/localStorage
-          router.replace("/dashboard")
+          // Give the browser a tick to persist cookies, then hard-navigate
+          await new Promise(r => setTimeout(r, 50))
+          window.location.href = "/dashboard"
         } else {
           // Validation failed - sign out from Supabase
           await authHelpers.signOut()

@@ -102,6 +102,24 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
   }, [])
   const [activeTab, setActiveTab] = useState("details")
   const [comment, setComment] = useState("")
+  const [taskComments, setTaskComments] = useState<Array<{id:string; user_id:number; content:string; created_at:string; updated_at:string; author_name?:string; author_email?:string}>>([])
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
+  const [editingCommentText, setEditingCommentText] = useState<string>("")
+  const [commentActionsVisibleId, setCommentActionsVisibleId] = useState<string | null>(null)
+  const taskCommentIdsRef = useRef<Set<string>>(new Set())
+
+  const uniqueTaskComments = React.useMemo(() => {
+    const seen = new Set<string>()
+    const out: typeof taskComments = [] as any
+    for (const c of taskComments) {
+      const idStr = String((c as any).id)
+      if (!seen.has(idStr)) {
+        seen.add(idStr)
+        out.push(c)
+      }
+    }
+    return out
+  }, [taskComments])
   const [isStatusOpen, setIsStatusOpen] = useState(false)
   const [statusSearch, setStatusSearch] = useState("")
   const [isAssigneeOpen, setIsAssigneeOpen] = useState(false)
@@ -282,6 +300,18 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
     }
   }
 
+  // Helper to get current user id (Railway id for hybrid)
+  const getCurrentUserId = (): number | null => {
+    try {
+      const raw = localStorage.getItem('shoreagents-auth')
+      if (!raw) return null
+      const parsed = JSON.parse(raw)
+      if (!parsed?.user) return null
+      const id = parsed.hybrid && parsed.user?.railway_id ? Number(parsed.user.railway_id) : Number(parsed.user.id)
+      return Number.isFinite(id) ? id : null
+    } catch { return null }
+  }
+
   // Current user email (lowercased) for marking "(me)" in lists
   const currentEmail = React.useMemo(() => {
     try {
@@ -291,6 +321,23 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
       return null
     }
   }, [])
+
+  const currentUserId = React.useMemo(() => {
+    try { return getCurrentUserId() } catch { return null }
+  }, [])
+
+  // Helpers: avatar initials
+  const getInitials = (input?: string) => {
+    if (!input) return 'U'
+    const str = String(input).trim()
+    if (str.includes('@')) {
+      const base = str.split('@')[0].replace(/[^a-zA-Z]/g, '')
+      return (base.slice(0, 1) + base.slice(1, 2)).toUpperCase() || 'U'
+    }
+    const parts = str.split(/\s+/).filter(Boolean)
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+    return (parts[0][0] + (parts[1]?.[0] || '')).toUpperCase()
+  }
 
   const taskIdNum = React.useMemo(() => {
     const n = parseInt(task?.id || '0', 10)
@@ -499,6 +546,70 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
     return () => { socketInstance.off('task_activity_event', handler) }
   }, [socketInstance, task?.id])
 
+  // Load comments on open/task change
+  React.useEffect(() => {
+    let abort = false
+    async function load() {
+      if (!task?.id) return
+      try {
+        const res = await fetch(`/api/task-activity/comments?taskId=${task.id}`, { credentials: 'include' })
+        if (!res.ok) return
+        const data = await res.json().catch(()=>null)
+        if (!data?.success || !Array.isArray(data.comments)) return
+        if (!abort) {
+          const uniq: any[] = []
+          const seen = new Set<string>()
+          for (const c of data.comments) {
+            const idStr = String(c.id)
+            if (!seen.has(idStr)) { seen.add(idStr); uniq.push(c) }
+          }
+          taskCommentIdsRef.current = seen
+          setTaskComments(uniq)
+        }
+      } catch {}
+    }
+    load()
+    return () => { abort = true }
+  }, [task?.id, isOpen])
+
+  // Realtime: subscribe to task_comments channel through socket
+  React.useEffect(() => {
+    if (!socketInstance || !task?.id) return
+    const onTaskComment = (raw: any) => {
+      try {
+        const payload = typeof raw === 'string' ? JSON.parse(raw) : raw
+        if (String(payload.task_id) !== String(task.id)) return
+        if (payload.event === 'insert') {
+          const newId = String(payload.comment_id)
+          if (!taskCommentIdsRef.current.has(newId)) {
+            taskCommentIdsRef.current.add(newId)
+            setTaskComments(prev => [...prev, {
+              id: newId,
+              user_id: Number(payload.user_id),
+              content: payload.comment,
+              created_at: payload.created_at,
+              updated_at: payload.updated_at || payload.created_at,
+              author_name: payload.authorName,
+              author_email: payload.authorEmail || payload.author_email,
+            }])
+          }
+        } else if (payload.event === 'update') {
+          setTaskComments(prev => prev.map(c => String(c.id) === String(payload.comment_id) ? {
+            ...c,
+            content: payload.comment ?? c.content,
+            updated_at: payload.updated_at || c.updated_at,
+          } : c))
+        } else if (payload.event === 'delete') {
+          const delId = String(payload.comment_id)
+          setTaskComments(prev => prev.filter(c => String(c.id) !== delId))
+          try { taskCommentIdsRef.current.delete(delId) } catch {}
+        }
+      } catch {}
+    }
+    socketInstance.on('task_comments', onTaskComment)
+    return () => { socketInstance.off('task_comments', onTaskComment) }
+  }, [socketInstance, task?.id])
+
   // Helpers to render activity events
   const formatRelative = (iso: string) => {
     try {
@@ -620,10 +731,6 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
   }
 
   if (!task) return null
-
-  const getInitials = (name: string) => {
-    return name.split(' ').map(n => n[0]).join('').toUpperCase()
-  }
 
   // Related task ids to hide from the picker (avoid duplicate/bidirectional re-adding)
   const relatedIds = new Set<string>((task.relationships || []).map(rel => String(rel.taskId)))
@@ -953,7 +1060,7 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
   const handleQuickDateSelect = (type: string) => {
     const date = getQuickDate(type)
     if (datePickerMode === "start") {
-      handleStartDateChange(date)
+    handleStartDateChange(date)
     } else {
       handleDueDateChange(date)
     }
@@ -1215,9 +1322,7 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                     </div>
                   </div>
                 </div>
-                <Button variant="ghost" size="icon" onClick={onClose}>
-                  <MoreHorizontal className="h-4 w-4" />
-                </Button>
+                {/* Removed stray action menu button to avoid duplicate ... icon */}
               </div>
             </DialogHeader>
 
@@ -1359,8 +1464,8 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                             <Avatar className="h-5 w-5">
                               <AvatarFallback className="text-[10px]">
                                 {assignee.name.split(' ').map((n: string) => n[0]).join('').toUpperCase()}
-                              </AvatarFallback>
-                            </Avatar>
+                        </AvatarFallback>
+                      </Avatar>
                                     <span className="text-xs">
 										{assignee.name}
 										{currentEmail && assignee.email && assignee.email.toLowerCase() === currentEmail && (
@@ -1783,7 +1888,7 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                               </div>
                               {tasks
                                 ?.filter(t => 
-                                  t.id !== task.id &&
+                                  t.id !== task.id && 
                                   !relatedIds.has(String(t.id)) &&
                                   (t.title.toLowerCase().includes(relationshipSearch.toLowerCase()) ||
                                    t.id.toLowerCase().includes(relationshipSearch.toLowerCase()))
@@ -1954,9 +2059,9 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                                   {uniqueCustomFields.map((field, index) => (
                                     <Reorder.Item key={`cf-${field.id}`} value={field}>
                                       <Card className="p-3">
-                                        <div className="flex items-start gap-3">
-                                          <div className="flex-1 space-y-2">
-                                            <div className="flex items-center gap-2">
+                                    <div className="flex items-start gap-3">
+                                      <div className="flex-1 space-y-2">
+                                        <div className="flex items-center gap-2">
                                               <span className="inline-flex items-center gap-2 text-xs text-muted-foreground cursor-grab">
                                                 <svg width="12" height="12" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                                                   <circle cx="4" cy="4" r="1.5"/><circle cx="10" cy="4" r="1.5"/><circle cx="16" cy="4" r="1.5"/>
@@ -1965,32 +2070,32 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                                                 </svg>
                                                 Drag
                                               </span>
-                                              <Input
-                                                value={field.title}
-                                                onChange={(e) => updateCustomField(field.id, { title: e.target.value })}
+                                          <Input
+                                            value={field.title}
+                                            onChange={(e) => updateCustomField(field.id, { title: e.target.value })}
                                                 onBlur={() => persistCustomField(field.id, { title: field.title })}
-                                                placeholder="Field title"
-                                                className="h-8 text-sm"
-                                              />
-                                            </div>
-                                            <Input
-                                              value={field.description}
-                                              onChange={(e) => updateCustomField(field.id, { description: e.target.value })}
-                                              onBlur={() => persistCustomField(field.id, { description: field.description })}
-                                              placeholder="Field value"
-                                              className="h-8 text-sm"
-                                            />
-                                          </div>
-                                          <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
-                                            onClick={() => removeCustomField(field.id)}
-                                          >
-                                            ×
-                                          </Button>
+                                            placeholder="Field title"
+                                            className="h-8 text-sm"
+                                          />
                                         </div>
-                                      </Card>
+                                        <Input
+                                          value={field.description}
+                                          onChange={(e) => updateCustomField(field.id, { description: e.target.value })}
+                                              onBlur={() => persistCustomField(field.id, { description: field.description })}
+                                          placeholder="Field value"
+                                          className="h-8 text-sm"
+                                        />
+                                      </div>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                                        onClick={() => removeCustomField(field.id)}
+                                      >
+                                        ×
+                                      </Button>
+                                    </div>
+                                  </Card>
                                     </Reorder.Item>
                                   ))}
                                 </Reorder.Group>
@@ -2179,25 +2284,134 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                               <div key={`${ev.id}-${idx}`} className={idx === 0 ? 'mb-1 flex items-center gap-2' : ''}>
                                 {idx === 0 && renderEventIcon(ev)}
                                 <span className={idx === 0 ? 'font-normal' : ''}>{line}</span>
-                              </div>
+                        </div>
                             ))}
                             <span>{formatRelative(ev.created_at)}</span>
-                          </div>
+                      </div>
                         ))
                       )}
-                    </div>
+                        </div>
                   </ScrollArea>
 
-                  {/* Comment Input */}
-                  <div className="mt-4 space-y-2">
+                  {/* Comments List */}
+                  <div className="mt-6">
+                    <h4 className="text-sm font-medium mb-2">Comments</h4>
+                    <ScrollArea className="h-[180px] pr-2">
+                      <div className="space-y-3">
+                        {taskComments.length === 0 ? (
+                          <div className="text-xs text-muted-foreground">No comments yet.</div>
+                        ) : (
+                          taskComments.map((c) => {
+                            const canEdit = currentUserId && Number(currentUserId) === Number(c.user_id)
+                            const isEditing = editingCommentId === String(c.id)
+                            return (
+                              <div key={c.id} className="text-xs group">
+                                <div
+                                  className={cn(
+                                    "relative rounded p-2",
+                                    currentUserId && Number(currentUserId) === Number(c.user_id)
+                                      ? "bg-muted/40"
+                                      : "bg-accent/20"
+                                  )}
+                                  onClick={() => setCommentActionsVisibleId(prev => prev === String(c.id) ? null : String(c.id))}
+                                >
+                                  <div className="flex items-start gap-2">
+                                    <Avatar className="h-6 w-6">
+                                      <AvatarFallback className="text-[10px]">
+                                        {getInitials(c.author_name || c.author_email)}
+                                      </AvatarFallback>
+                                    </Avatar>
+                                    <div className="flex-1 min-w-0">
+                                      <div className="font-medium text-foreground truncate">
+                                        {c.author_name || c.author_email || 'User'}
+                      </div>
+                                      <div className="mt-1 whitespace-pre-wrap text-muted-foreground">
+                                    {isEditing ? (
+                                      <div className="space-y-2">
+                                        <Textarea value={editingCommentText} onChange={(e)=>setEditingCommentText(e.target.value)} />
+                                        <div className="flex gap-2 justify-end">
+                                          <Button variant="outline" size="sm" onClick={()=>{ setEditingCommentId(null); setEditingCommentText('') }}>Cancel</Button>
+                                          <Button size="sm" onClick={async ()=>{
+                                            const trimmed = editingCommentText.trim(); if (!trimmed) return
+                                            try {
+                                              const res = await fetch(`/api/task-activity/comments/${c.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ content: trimmed }) })
+                                              if (res.ok) {
+                                                const data = await res.json().catch(()=>null)
+                                                const updatedAt = data?.comment?.updated_at || new Date().toISOString()
+                                                setTaskComments(prev => prev.map(cc => String(cc.id)===String(c.id) ? { ...cc, content: trimmed, updated_at: updatedAt } : cc))
+                                                setEditingCommentId(null)
+                                                setEditingCommentText('')
+                                              }
+                                            } catch {}
+                                          }}>Save</Button>
+                        </div>
+                      </div>
+                                        ) : (
+                                          c.content
+                                        )}
+                        </div>
+                      </div>
+                        </div>
+                                  {canEdit && (
+                                    <div className={`absolute right-1 top-1 transition-opacity duration-150 ${commentActionsVisibleId===String(c.id) ? 'opacity-100' : 'opacity-0 pointer-events-none'} group-hover:opacity-100 group-hover:pointer-events-auto`}>
+                                      <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                          <Button variant="ghost" size="icon" className="h-5 w-5 p-0">
+                                            <MoreHorizontal className="h-3 w-3" />
+                                          </Button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end" className="w-36">
+                                          <DropdownMenuItem onClick={() => { setEditingCommentId(String(c.id)); setEditingCommentText(c.content) }}>Edit</DropdownMenuItem>
+                                          <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={async ()=>{
+                                            try {
+                                              const res = await fetch(`/api/task-activity/comments/${c.id}`, { method: 'DELETE', credentials: 'include' })
+                                              if (res.ok) setTaskComments(prev => prev.filter(cc => String(cc.id)!==String(c.id)))
+                                            } catch {}
+                                          }}>Delete</DropdownMenuItem>
+                                        </DropdownMenuContent>
+                                      </DropdownMenu>
+                      </div>
+                                  )}
+                        </div>
+                                <div className="mt-1 text-[10px] text-muted-foreground text-right">{formatRelative(c.created_at)}</div>
+                      </div>
+                            )
+                          })
+                        )}
+                    </div>
+                  </ScrollArea>
+                  </div>
+
+                  {/* Add Comment */}
+                  <div className="mt-3 space-y-2">
                     <Textarea
                       placeholder="Write a comment..."
                       value={comment}
                       onChange={(e) => setComment(e.target.value)}
-                      className="min-h-[80px]"
+                      className="min-h-[70px]"
                     />
                     <div className="flex justify-end">
-                      <Button size="sm">Send</Button>
+                      <Button size="sm" onClick={async () => {
+                        const trimmed = comment.trim()
+                        if (!trimmed || !task?.id) return
+                        try {
+                          const res = await fetch('/api/task-activity/comments', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            credentials: 'include',
+                            body: JSON.stringify({ taskId: task.id, content: trimmed }),
+                          })
+                          const data = await res.json().catch(()=>null)
+                          if (res.ok && data?.success && data.comment) {
+                            const newId = String(data.comment.id)
+                            if (!taskCommentIdsRef.current.has(newId)) {
+                              taskCommentIdsRef.current.add(newId)
+                              setTaskComments(prev => [...prev, data.comment])
+                            }
+                            setComment('')
+                          }
+                        } catch {}
+                      }}>Send</Button>
                     </div>
                   </div>
                 </div>

@@ -78,7 +78,7 @@ export default function TestActivityPage() {
       <AppSidebar />
       <SidebarInset>
         <AppHeader />
-        <div className="flex flex-1 flex-col gap-8 p-8 pt-4 min-h-screen bg-background dark:bg-background">
+        <div className="flex flex-1 flex-col gap-8 p-8 pt-4 min-h-screen bg-background dark:bg-background relative">
           <div className="flex items-center justify-between">
             <div>
                 <h1 className="text-3xl font-bold text-foreground">Activity Dashboard</h1>

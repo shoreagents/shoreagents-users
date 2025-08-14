@@ -1,20 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Pool } from 'pg';
 
-const databaseConfig = {
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-};
+// Ensure Node.js runtime for pg
+export const runtime = 'nodejs';
 
-// Create a single pool instance that persists across requests
-let pool: Pool | null = null;
-
-const getPool = () => {
-  if (!pool) {
-    pool = new Pool(databaseConfig);
+// Lazy pg import to avoid edge bundling; cache pool across requests
+function getPool() {
+  const g: any = globalThis as any;
+  if (!g.__leaderboard_pg_pool) {
+    const { Pool } = require('pg');
+    g.__leaderboard_pg_pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+    });
   }
-  return pool;
-};
+  return g.__leaderboard_pg_pool as any;
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -103,7 +103,7 @@ export async function GET(request: NextRequest) {
     const leaderboardResult = await pool.query(leaderboardQuery, leaderboardParams);
     
     // Transform the data to match the expected format
-    const leaderboard = leaderboardResult.rows.map((row, index) => ({
+    const leaderboard = (leaderboardResult.rows as any[]).map((row: any, index: number) => ({
       rank: index + 1,
       userId: row.email,
       name: `${row.first_name || ''} ${row.last_name || ''}`.trim() || 'Unknown User',
@@ -120,8 +120,13 @@ export async function GET(request: NextRequest) {
     
     if (authHeader) {
       try {
-        const authData = JSON.parse(authHeader.replace('Bearer ', ''));
-        const userEmail = authData.user?.email;
+        let userEmail: string | null = null;
+        try {
+          const authData = JSON.parse(authHeader.replace('Bearer ', ''));
+          userEmail = authData?.user?.email || null;
+        } catch {
+          userEmail = null;
+        }
         
         if (userEmail) {
           const userRankQuery = `
