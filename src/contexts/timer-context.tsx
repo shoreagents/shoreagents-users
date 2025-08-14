@@ -5,6 +5,7 @@ import { useSocketTimer } from '@/hooks/use-socket-timer'
 import { getCurrentUser } from '@/lib/ticket-utils'
 import { useActivity } from './activity-context'
 import { useMeeting } from '@/contexts/meeting-context'
+import { isBreakTimeValid, getBreaksForShift } from '@/lib/shift-break-utils'
 
 interface TimerContextType {
   timerData: any
@@ -38,6 +39,8 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
   const [shiftInfo, setShiftInfo] = useState<any>(null)
   const [timeUntilReset, setTimeUntilReset] = useState(0)
   const [formattedTimeUntilReset, setFormattedTimeUntilReset] = useState('')
+  const [userProfile, setUserProfile] = useState<any>(null)
+  const [availableBreaks, setAvailableBreaks] = useState<any[]>([])
   const { hasLoggedIn } = useActivity()
   const { isInMeeting } = useMeeting()
 
@@ -66,6 +69,153 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       console.log('User logged out, resetting timer state')
     }
   }, [currentUser?.email])
+
+  // Load user profile and generate available breaks for background auto-ending
+  useEffect(() => {
+    const loadUserProfile = async () => {
+      if (!currentUser?.email) return
+      
+      try {
+        const response = await fetch(`/api/profile/?email=${encodeURIComponent(currentUser.email)}`)
+        const data = await response.json()
+        
+        if (data.success && data.profile) {
+          const profile = data.profile
+          setUserProfile({
+            shift_period: profile.shift_period,
+            shift_schedule: profile.shift_schedule,
+            shift_time: profile.shift_time
+          })
+
+          // Generate available breaks based on shift
+          const shiftInfo = {
+            shift_period: profile.shift_period || '',
+            shift_schedule: profile.shift_schedule || '',
+            shift_time: profile.shift_time || ''
+          }
+          
+          const breaks = getBreaksForShift(shiftInfo)
+          setAvailableBreaks(breaks)
+        }
+      } catch (error) {
+        console.error('Error loading user profile for background auto-ending:', error)
+      }
+    }
+
+    loadUserProfile()
+  }, [currentUser?.email])
+
+  // Request notification permissions for break auto-ending notifications
+  useEffect(() => {
+    if (currentUser?.email && typeof window !== 'undefined' && 'Notification' in window) {
+      if (Notification.permission === 'default') {
+        Notification.requestPermission().then(permission => {
+          if (permission === 'granted') {
+            console.log('✅ Notification permission granted for break auto-ending alerts')
+          } else {
+            console.log('❌ Notification permission denied for break auto-ending alerts')
+          }
+        })
+      }
+    }
+  }, [currentUser?.email])
+
+  /**
+   * Background Service: Auto-End Invalid Paused Breaks
+   * 
+   * This service runs globally across all pages and automatically ends breaks that are:
+   * 1. Currently paused (not active)
+   * 2. Outside their valid time window
+   * 
+   * It runs every 10 seconds to ensure responsive auto-ending even when the agent
+   * is not on the break page. This prevents agents from having indefinitely
+   * paused breaks that accumulate time outside their scheduled break windows.
+   * 
+   * The service also sends notifications to inform the agent about auto-ended breaks.
+   */
+  useEffect(() => {
+    if (!currentUser?.id || !breakStatus?.active_break || !userProfile || availableBreaks.length === 0) {
+      return
+    }
+
+    const checkAndEndInvalidBreaks = async () => {
+      try {
+        const currentBreak = breakStatus.active_break
+        const breakInfo = availableBreaks.find(b => b.id === currentBreak.break_type)
+        
+        if (!breakInfo) return
+
+        // Only auto-end paused breaks that are outside their valid time window
+        // Active breaks should continue running even if outside the time window
+        if (currentBreak.is_paused && !isBreakTimeValid(breakInfo, userProfile, new Date())) {
+          console.log(`⏰ Background auto-ending paused ${breakInfo.name} - outside valid time window (${breakInfo.startTime} - ${breakInfo.endTime})`)
+          
+          try {
+            // End the break automatically via API
+            const response = await fetch('/api/breaks/end', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                agent_user_id: currentUser.id
+              })
+            })
+            
+            const result = await response.json()
+            
+            if (result.success) {
+              console.log(`✅ Background auto-ended paused ${breakInfo.name} successfully`)
+              
+              // Update local state
+              setIsBreakActive(false)
+              setBreakStatus(null)
+              
+              // Clear any localStorage break data
+              if (typeof window !== 'undefined') {
+                localStorage.removeItem('currentBreak')
+              }
+              
+              // Show notification to user about auto-ended break
+              if (typeof window !== 'undefined' && 'Notification' in window) {
+                if (Notification.permission === 'granted') {
+                  new Notification('Break Auto-Ended', {
+                    body: `Your paused ${breakInfo.name} break was automatically ended because it was outside the valid time window (${breakInfo.startTime} - ${breakInfo.endTime}).`,
+                    icon: '/shoreagents-logo.png',
+                    tag: 'break-auto-ended',
+                    requireInteraction: false
+                  })
+                }
+              }
+              
+              // Also show a browser alert if notifications are not available
+              if (typeof window !== 'undefined' && (!('Notification' in window) || Notification.permission !== 'granted')) {
+                alert(`Your paused ${breakInfo.name} break was automatically ended because it was outside the valid time window.`)
+              }
+              
+              // Refresh break status to ensure consistency
+              await refreshBreakStatus()
+            } else {
+              console.log(`⚠️ Background auto-end failed for ${breakInfo.name}:`, result.error)
+            }
+          } catch (error) {
+            console.error(`❌ Error in background auto-ending ${breakInfo.name}:`, error)
+          }
+        }
+      } catch (error) {
+        console.error('Error in background break validation:', error)
+      }
+    }
+
+    // Check immediately when break status changes
+    checkAndEndInvalidBreaks()
+
+    // Set up interval to check every 10 seconds for more responsive background auto-ending
+    const interval = setInterval(() => {
+      console.log(`🔍 Background checking break validity for ${breakStatus.active_break.break_type}...`)
+      checkAndEndInvalidBreaks()
+    }, 10000)
+
+    return () => clearInterval(interval)
+  }, [currentUser?.id, breakStatus?.active_break, userProfile, availableBreaks])
 
   // Fetch break status from API - only when user changes
   useEffect(() => {

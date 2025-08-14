@@ -14,6 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { 
   ArrowLeft, 
   FileText, 
@@ -62,6 +63,12 @@ export default function TicketDetailsPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingText, setEditingText] = useState<string>("")
   const [actionsVisibleId, setActionsVisibleId] = useState<string | null>(null)
+  const commentsEndRef = useRef<HTMLDivElement | null>(null)
+  const scrollCommentsToBottom = (behavior: ScrollBehavior = 'auto') => {
+    try {
+      commentsEndRef.current?.scrollIntoView({ behavior })
+    } catch {}
+  }
 
   useEffect(() => {
     const loadTicket = async () => {
@@ -95,7 +102,9 @@ export default function TicketDetailsPage() {
                   createdAt: c.createdAt,
                 }))
                 setComments(mapped)
-                try { seenCommentIdsRef.current = new Set(mapped.map((m:any)=>m.id)) } catch {}
+                 try { seenCommentIdsRef.current = new Set(mapped.map((m:any)=>m.id)) } catch {}
+                 // Scroll to latest after initial load
+                 setTimeout(() => scrollCommentsToBottom('auto'), 0)
               } else {
                 setComments([])
                 seenCommentIdsRef.current = new Set()
@@ -281,6 +290,19 @@ export default function TicketDetailsPage() {
     return isImage
   }
 
+  // Helper: initials for avatar fallback
+  const getInitials = (input?: string) => {
+    if (!input) return 'U'
+    const str = String(input).trim()
+    if (str.includes('@')) {
+      const base = str.split('@')[0].replace(/[^a-zA-Z]/g, '')
+      return (base.slice(0, 1) + base.slice(1, 2)).toUpperCase() || 'U'
+    }
+    const parts = str.split(/\s+/).filter(Boolean)
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+    return (parts[0][0] + (parts[1]?.[0] || '')).toUpperCase()
+  }
+
   const openImageViewer = (url: string, fileName: string) => {
     console.log('Opening image viewer for:', { url, fileName })
     setSelectedImage({ url, name: fileName })
@@ -314,7 +336,9 @@ export default function TicketDetailsPage() {
               createdAt: data.comment.createdAt || new Date().toISOString(),
             },
           ])
-          seenCommentIdsRef.current.add(newId)
+           seenCommentIdsRef.current.add(newId)
+           // Scroll to latest on own insert
+           setTimeout(() => scrollCommentsToBottom('smooth'), 0)
         }
         setNewComment("")
       }
@@ -347,7 +371,7 @@ export default function TicketDetailsPage() {
             },
           ])
           seenCommentIdsRef.current.add(newId)
-        }
+          }
       } else if (payload?.event === 'update') {
         const updId = String(payload.comment_id)
         setComments(prev => prev.map(c => c.id === updId ? {
@@ -665,82 +689,92 @@ export default function TicketDetailsPage() {
                           comments.map(comment => {
                             const isEditing = editingId === comment.id
                             const canEdit = currentUser && (Number(currentUser.id) === Number(comment.userId))
-                            return (
-                              <div key={comment.id} className="group">
-                                <div
-                                  className="relative p-3 rounded-lg bg-muted/40"
+                              return (
+                                <div key={comment.id} className="text-xs group">
+                                  <div
+                                    className={`relative p-2 rounded-lg ${currentUser && Number(currentUser.id) === Number(comment.userId) ? 'bg-muted/40' : 'bg-accent/20'}`}
                                   onClick={() => setActionsVisibleId(prev => (prev === comment.id ? null : comment.id))}
                                 >
-                                  <div className="flex items-center gap-2">
-                                    <div className="text-sm font-medium">{comment.author}</div>
-                                    {canEdit && (
-                                      <div className={`absolute right-2 top-0.5 transition-opacity duration-150 ${actionsVisibleId === comment.id ? 'opacity-100' : 'opacity-0 pointer-events-none'} group-hover:opacity-100 group-hover:pointer-events-auto`}>
-                                        <DropdownMenu>
-                                          <DropdownMenuTrigger asChild>
-                                            <Button variant="ghost" size="icon" className="h-6 w-6 p-0 text-muted-foreground">
-                                              <MoreHorizontal className="h-4 w-4" />
-                                            </Button>
-                                          </DropdownMenuTrigger>
-                                          <DropdownMenuContent align="end" className="w-36">
-                                            <DropdownMenuItem onClick={() => { setEditingId(comment.id); setEditingText(comment.content) }}>
-                                              <Pencil className="mr-2 h-4 w-4" /> Edit
-                                            </DropdownMenuItem>
-                                            <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={async () => {
-                                              try {
-                                                const res = await fetch(`/api/tickets/comments/${comment.id}`, { method: 'DELETE', credentials: 'include' })
-                                                if (res.ok) {
-                                                  setComments(prev => prev.filter(c => c.id !== comment.id))
-                                                  try { seenCommentIdsRef.current.delete(comment.id) } catch {}
-                                                }
-                                              } catch {}
-                                            }}>
-                                              <Trash2 className="mr-2 h-4 w-4" /> Delete
-                                            </DropdownMenuItem>
-                                          </DropdownMenuContent>
-                                        </DropdownMenu>
-                                      </div>
-                                    )}
-                                  </div>
-                                  <div className="text-sm mt-2 whitespace-pre-wrap">
-                                    {isEditing ? (
-                                      <div className="space-y-2">
-                                        <Textarea value={editingText} onChange={e => setEditingText(e.target.value)} />
-                                        <div className="flex items-center gap-2 justify-end">
-                                          <Button variant="outline" size="sm" onClick={() => { setEditingId(null); setEditingText('') }}>Cancel</Button>
-                                          <Button size="sm" onClick={async () => {
-                                            const trimmed = editingText.trim()
-                                            if (!trimmed) return
-                                            try {
-                                              const res = await fetch(`/api/tickets/comments/${comment.id}`, {
-                                                method: 'PUT',
-                                                credentials: 'include',
-                                                headers: { 'Content-Type': 'application/json' },
-                                                body: JSON.stringify({ comment: trimmed })
-                                              })
-                                              if (res.ok) {
-                                                const data = await res.json().catch(() => null)
-                                                const updatedAt = data?.comment?.updated_at_ph || data?.comment?.updatedAt || new Date().toISOString()
-                                                setComments(prev => prev.map(c => c.id === comment.id ? { ...c, content: trimmed, createdAt: updatedAt } : c))
-                                                setEditingId(null)
-                                                setEditingText('')
-                                              }
-                                            } catch {}
-                                          }}>Save</Button>
+                                    <div className="flex items-start gap-2">
+                                      <Avatar className="h-6 w-6">
+                                        <AvatarFallback className="text-[10px]">
+                                          {getInitials(comment.author || comment.email)}
+                                        </AvatarFallback>
+                                      </Avatar>
+                                      <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-2">
+                                          <div className="font-medium text-foreground truncate">{comment.author}</div>
+                                          {canEdit && (
+                                            <div className={`absolute right-2 top-0.5 transition-opacity duration-150 ${actionsVisibleId === comment.id ? 'opacity-100' : 'opacity-0 pointer-events-none'} group-hover:opacity-100 group-hover:pointer-events-auto`}>
+                                              <DropdownMenu>
+                                                <DropdownMenuTrigger asChild>
+                                                  <Button variant="ghost" size="icon" className="h-5 w-5 p-0 text-muted-foreground">
+                                                    <MoreHorizontal className="h-3 w-3" />
+                    </Button>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent align="end" className="w-36">
+                                                  <DropdownMenuItem onClick={() => { setEditingId(comment.id); setEditingText(comment.content) }}>
+                                                    <Pencil className="mr-2 h-4 w-4" /> Edit
+                                                  </DropdownMenuItem>
+                                                  <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={async () => {
+                                                    try {
+                                                      const res = await fetch(`/api/tickets/comments/${comment.id}`, { method: 'DELETE', credentials: 'include' })
+                                                      if (res.ok) {
+                                                        setComments(prev => prev.filter(c => c.id !== comment.id))
+                                                        try { seenCommentIdsRef.current.delete(comment.id) } catch {}
+                                                      }
+                                                    } catch {}
+                                                  }}>
+                                                    <Trash2 className="mr-2 h-4 w-4" /> Delete
+                                                  </DropdownMenuItem>
+                                                </DropdownMenuContent>
+                                              </DropdownMenu>
+                                            </div>
+                                          )}
+                                        </div>
+                                        <div className="mt-1 whitespace-pre-wrap text-muted-foreground">
+                                          {isEditing ? (
+                                            <div className="space-y-2">
+                                              <Textarea value={editingText} onChange={e => setEditingText(e.target.value)} />
+                                              <div className="flex items-center gap-2 justify-end">
+                                                <Button variant="outline" size="sm" onClick={() => { setEditingId(null); setEditingText('') }}>Cancel</Button>
+                                                <Button size="sm" onClick={async () => {
+                                                  const trimmed = editingText.trim()
+                                                  if (!trimmed) return
+                                                  try {
+                                                    const res = await fetch(`/api/tickets/comments/${comment.id}`, {
+                                                      method: 'PUT',
+                                                      credentials: 'include',
+                                                      headers: { 'Content-Type': 'application/json' },
+                                                      body: JSON.stringify({ comment: trimmed })
+                                                    })
+                                                    if (res.ok) {
+                                                      const data = await res.json().catch(() => null)
+                                                      const updatedAt = data?.comment?.updated_at_ph || data?.comment?.updatedAt || new Date().toISOString()
+                                                      setComments(prev => prev.map(c => c.id === comment.id ? { ...c, content: trimmed, createdAt: updatedAt } : c))
+                                                      setEditingId(null)
+                                                      setEditingText('')
+                                                    }
+                                                  } catch {}
+                                                }}>Save</Button>
+                                              </div>
+                                            </div>
+                                          ) : (
+                                            comment.content
+                                          )}
                                         </div>
                                       </div>
-                                    ) : (
-                                      comment.content
-                                    )}
+                                    </div>
+                                  </div>
+                                  <div className="mt-1 text-[10px] text-muted-foreground text-right">
+                                    {formatRelativeTime(comment.createdAt)}
                                   </div>
                                 </div>
-                                <div className="mt-1 text-xs text-muted-foreground text-right">
-                                  {formatRelativeTime(comment.createdAt)}
-                                </div>
-                              </div>
-                            )
-                          })
-                        )}
+                              )
+                            })
+                          )}
                       </div>
+                       <div ref={commentsEndRef} />
                     </ScrollArea>
                     <div className="pt-3 mt-3 border-t">
                       <Textarea
@@ -753,8 +787,8 @@ export default function TicketDetailsPage() {
                       <div className="flex justify-end mt-2">
                         <Button size="sm" disabled={submittingComment || newComment.trim().length === 0} onClick={handleAddComment}>
                           {submittingComment ? 'Posting…' : 'Post Comment'}
-                        </Button>
-                      </div>
+                    </Button>
+                    </div>
                     </div>
                   </div>
                 </CardContent>

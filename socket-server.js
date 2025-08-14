@@ -116,31 +116,11 @@ function shouldResetForShift(lastActivityTime, currentTime, shiftInfo) {
     return lastDate !== currentDate;
   }
 
-  // Get shift start times for both dates
-  const lastShiftStart = getShiftStartForDate(lastActivityTime, shiftInfo);
+  // Compute the start boundary for the shift window that the CURRENT time belongs to
   const currentShiftStart = getShiftStartForDate(currentTime, shiftInfo);
-  
-  // For night shifts, we need to handle the case where shift crosses midnight
-  if (shiftInfo.isNightShift) {
-    // Night shift example: 10:00 PM - 7:00 AM
-    // If current time is after 10:00 PM and last activity was before 10:00 PM, reset
-    const lastShiftStartTime = lastShiftStart.getTime();
-    const currentShiftStartTime = currentShiftStart.getTime();
-    
-    // Check if we've moved to a new shift period
-    return currentShiftStartTime !== lastShiftStartTime;
-  } else {
-    // For day shifts, reset at shift start time each day
-    // Example: 6:00 AM shift start
-    // If current time is 6:02 AM and last activity was at 5:30 AM, reset
-    const lastShiftStartTime = lastShiftStart.getTime();
-    const currentShiftStartTime = currentShiftStart.getTime();
-    
-    // Reset if we've moved to a new shift period OR if current time has passed shift start
-    // and last activity was before shift start
-    return currentShiftStartTime !== lastShiftStartTime || 
-           (currentTime >= currentShiftStart && lastActivityTime < currentShiftStart);
-  }
+  // Reset only when we CROSS the shift start boundary:
+  // previous activity happened before the current window's start, and now time is after it
+  return (lastActivityTime < currentShiftStart) && (currentTime >= currentShiftStart);
 }
 
 // Function to check if current time has passed shift start time for today
@@ -899,7 +879,8 @@ io.on('connection', (socket) => {
             msg.channel === 'task_groups' ||
             msg.channel === 'task_custom_fields' ||
             msg.channel === 'task_attachments' ||
-            msg.channel === 'task_assignees'
+            msg.channel === 'task_assignees' ||
+            msg.channel === 'task_comments'
           ) {
             try {
               io.emit(msg.channel, msg.payload);
@@ -913,6 +894,7 @@ io.on('connection', (socket) => {
         client.query('LISTEN task_custom_fields');
         client.query('LISTEN task_attachments');
         client.query('LISTEN task_assignees');
+        client.query('LISTEN task_comments');
         global.__sa_task_activity_listener = true;
       }).catch(() => {});
     }
@@ -971,6 +953,17 @@ io.on('connection', (socket) => {
       userInfo.sessionStart = new Date().toISOString();
       userInfo.lastResetAt = Date.now();
       userInfo.lastShiftId = currentShiftId;
+
+      // Guard: only allow if we've actually crossed into the next shift window
+      const now = new Date();
+      const shiftInfoGuard = userShiftInfo.get(email) || null;
+      if (shiftInfoGuard) {
+        const startBoundary = getShiftStartForDate(now, shiftInfoGuard);
+        const lastSessionStart = new Date(userInfo.sessionStart);
+        if (!(lastSessionStart < startBoundary && now >= startBoundary)) {
+          return; // ignore spurious client reset requests
+        }
+      }
 
       // Upsert DB row for today to zero
       await pool.query(

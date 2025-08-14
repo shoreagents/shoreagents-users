@@ -290,6 +290,16 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
       } else if (pathSegments.length === 1) {
         // Forms home page - make it clickable
         generatedBreadcrumbs[0].href = '/forms'
+      } else if (pathSegments.length === 2 && pathSegments[1]) {
+        // Ticket details page: /forms/[id]
+        generatedBreadcrumbs.push({
+          title: 'My Tickets',
+          href: '/forms/my-tickets'
+        })
+        generatedBreadcrumbs.push({
+          title: pathSegments[1].toUpperCase(),
+          isCurrent: true
+        })
       }
     } else if (pathSegments[0] === 'help') {
       generatedBreadcrumbs.push({
@@ -323,6 +333,23 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
       } else if (pathSegments.length === 1) {
         // Productivity home page - make it clickable
         generatedBreadcrumbs[0].href = '/productivity'
+      }
+    } else if (pathSegments[0] === 'status') {
+      generatedBreadcrumbs.push({
+        title: 'Set Your Status',
+      })
+      if (pathSegments[1] === 'breaks') {
+        generatedBreadcrumbs.push({
+          title: 'Breaks',
+          href: '/status/breaks'
+        })
+      } else if (pathSegments[1] === 'meetings') {
+        generatedBreadcrumbs.push({
+          title: 'Meetings',
+          href: '/status/meetings'
+        })
+      } else if (pathSegments.length === 1) {
+        generatedBreadcrumbs[0].href = '/status'
       }
     } else if (pathSegments[0] === 'breaks') {
       generatedBreadcrumbs.push({

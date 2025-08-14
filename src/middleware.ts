@@ -102,6 +102,10 @@ export async function middleware(request: NextRequest) {
 
   // If user is not authenticated and trying to access protected route
   if (!isAuthenticated && !isPublicRoute) {
+    // Avoid redirect loop on first request after stale session by allowing GET / to fall through to root handler
+    if (pathname === '/') {
+      return response
+    }
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
