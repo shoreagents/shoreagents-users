@@ -39,6 +39,7 @@ export default function TaskActivityPage() {
 
   // Get current user email for Socket.IO
   const [userEmail, setUserEmail] = useState<string | null>(null)
+  const [socketInstance, setSocketInstance] = useState<any>(null)
   
   // Socket.IO for real-time updates
   const { socket, isConnected, emitTaskMoved, emitTaskCreated, emitGroupCreated, emitGroupsReordered } = useTaskActivitySocket(userEmail)
@@ -61,12 +62,201 @@ export default function TaskActivityPage() {
     loadTaskData()
   }, [])
 
+  // Fallback: pick up global socket when available
+  useEffect(() => {
+    const id = setInterval(() => {
+      try {
+        const s = (window as any)._saSocket
+        if (s && s.connected) {
+          setSocketInstance(s)
+          clearInterval(id)
+        }
+      } catch {}
+    }, 250)
+    return () => clearInterval(id)
+  }, [])
+
   // Socket.IO event listeners for real-time updates
   useEffect(() => {
-    if (!socket) return
+    const s = socket || socketInstance
+    if (!s) return
+    const parse = (payload: any) => {
+      try { return typeof payload === 'string' ? JSON.parse(payload) : payload } catch { return null }
+    }
+    // Live task updates from Postgres NOTIFY -> socket
+    const onTaskUpdated = (payload: any) => {
+      const msg = parse(payload)
+      if (!msg) return
+      // Support both enriched { task } and generic trigger { table, action, new, old }
+      let t = msg.task
+      if (!t && msg.table === 'tasks') {
+        if (msg.action === 'DELETE' && msg.old?.id) {
+          const delId = Number(msg.old.id)
+          setGroups(prev => prev.map(g => ({
+            ...g,
+            tasks: g.tasks.filter((task: any) => Number(task.id) !== delId)
+          })) as any)
+          return
+        }
+        t = msg.new
+      }
+      if (!t || !t.id) return
+      const idNum = Number(t.id)
+      setGroups(prev => {
+        // If group_id changed due to manual update, move between groups
+        const next = prev.map(g => ({ ...g, tasks: g.tasks.slice() })) as any
+        let foundGroupIdx = -1
+        let foundTaskIdx = -1
+        for (let gi = 0; gi < next.length; gi++) {
+          const idx = next[gi].tasks.findIndex((task: any) => Number(task.id) === idNum)
+          if (idx !== -1) { foundGroupIdx = gi; foundTaskIdx = idx; break }
+        }
+        if (foundGroupIdx !== -1) {
+          const previous = next[foundGroupIdx].tasks[foundTaskIdx]
+          const merged = { ...previous, ...t }
+          // Move if needed
+          if (t.group_id && Number(t.group_id) !== Number(prev[foundGroupIdx].id)) {
+            next[foundGroupIdx].tasks.splice(foundTaskIdx, 1)
+            const targetIdx = next.findIndex((g: any) => Number(g.id) === Number(t.group_id))
+            if (targetIdx !== -1) {
+              next[targetIdx].tasks.push(merged)
+            }
+          } else {
+            next[foundGroupIdx].tasks[foundTaskIdx] = merged
+          }
+        }
+        return next
+      })
+    }
+    s.on('task_updated', onTaskUpdated)
+
+    // Generic handlers for other tables
+    const onTaskAssignees = (payload: any) => {
+      const msg = parse(payload)
+      if (!msg?.new && !msg?.old) return
+      const row = msg.new || msg.old
+      const taskId = Number(row.task_id)
+      const userId = Number(row.user_id)
+      setGroups(prev => prev.map(g => ({
+        ...g,
+        tasks: g.tasks.map((task: any) => {
+          if (Number(task.id) !== taskId) return task
+          const list: number[] = Array.isArray((task as any).assignees) ? (task as any).assignees.slice() : []
+          if (msg.action === 'INSERT') {
+            if (!list.includes(userId)) list.push(userId)
+          } else if (msg.action === 'DELETE') {
+            const idx = list.indexOf(userId); if (idx !== -1) list.splice(idx, 1)
+          }
+          return { ...task, assignees: list }
+        })
+      })) as any)
+    }
+    s.on('task_assignees', onTaskAssignees)
+
+    const onTaskCustomFields = (payload: any) => {
+      const msg = parse(payload)
+      if (!msg?.table || msg.table !== 'task_custom_fields') return
+      const row = msg.new || msg.old
+      const taskId = Number(row.task_id)
+      setGroups(prev => prev.map(g => ({
+        ...g,
+        tasks: g.tasks.map((task: any) => {
+          if (Number(task.id) !== taskId) return task
+          const list = ((task as any).custom_fields || (task as any).task_custom_fields || []).slice()
+          if (msg.action === 'INSERT' && msg.new) {
+            const cf = { id: String(row.id), title: row.title || '', description: row.description || '', position: row.position ?? 0 }
+            if (!list.some((f: any) => String(f.id) === String(cf.id))) list.push(cf)
+          } else if (msg.action === 'UPDATE' && msg.new) {
+            const idx = list.findIndex((f: any) => String(f.id) === String(row.id))
+            if (idx !== -1) list[idx] = { ...list[idx], title: row.title || '', description: row.description || '', position: row.position ?? list[idx].position }
+          } else if (msg.action === 'DELETE' && msg.old) {
+            const idx = list.findIndex((f: any) => String(f.id) === String(row.id))
+            if (idx !== -1) list.splice(idx, 1)
+          }
+          // Keep both aliases
+          return { ...task, custom_fields: list, task_custom_fields: list }
+        })
+      })) as any)
+    }
+    s.on('task_custom_fields', onTaskCustomFields)
+
+    const onTaskAttachments = (payload: any) => {
+      const msg = parse(payload)
+      if (!msg?.table || msg.table !== 'task_attachments') return
+      const row = msg.new || msg.old
+      const taskId = Number(row.task_id)
+      setGroups(prev => prev.map(g => ({
+        ...g,
+        tasks: g.tasks.map((task: any) => {
+          if (Number(task.id) !== taskId) return task
+          const list = (task.attachments || []).slice()
+          if (msg.action === 'INSERT' && msg.new) {
+            const att = { id: String(row.id), name: row.name || 'Attachment', url: row.url, size: row.size }
+            if (!list.some((f: any) => String(f.id) === String(att.id))) list.push(att as any)
+          } else if (msg.action === 'UPDATE' && msg.new) {
+            const idx = list.findIndex((f: any) => String(f.id) === String(row.id))
+            if (idx !== -1) list[idx] = { ...list[idx], name: row.name || list[idx].name, url: row.url || list[idx].url }
+          } else if (msg.action === 'DELETE' && msg.old) {
+            const idx = list.findIndex((f: any) => String(f.id) === String(row.id))
+            if (idx !== -1) list.splice(idx, 1)
+          }
+          return { ...task, attachments: list }
+        })
+      })) as any)
+    }
+    s.on('task_attachments', onTaskAttachments)
+
+    const onTaskRelations = (payload: any) => {
+      const msg = parse(payload)
+      if (!msg?.table || msg.table !== 'task_relations') return
+      const row = msg.new || msg.old
+      const a = Number(row.task_id)
+      const b = Number(row.related_task_id)
+      const rel = { taskId: String(b), type: String(row.type || 'related_to') }
+      const inv = { taskId: String(a), type: String(row.type || 'related_to') }
+      setGroups(prev => prev.map(g => ({
+        ...g,
+        tasks: g.tasks.map((task: any) => {
+          const idNum = Number(task.id)
+          if (msg.action === 'INSERT') {
+            if (idNum === a) {
+              const list = ((task as any).relationships || (task as any).task_relationships || []).slice()
+              if (!list.some((r: any) => String(r.taskId) === String(rel.taskId))) list.push(rel)
+              return { ...task, relationships: list, task_relationships: list }
+            }
+            if (idNum === b) {
+              const list = ((task as any).relationships || (task as any).task_relationships || []).slice()
+              if (!list.some((r: any) => String(r.taskId) === String(inv.taskId))) list.push(inv)
+              return { ...task, relationships: list, task_relationships: list }
+            }
+          } else if (msg.action === 'DELETE') {
+            if (idNum === a || idNum === b) {
+              const targetId = idNum === a ? b : a
+              const list = ((task as any).relationships || (task as any).task_relationships || []).filter((r: any) => String(r.taskId) !== String(targetId))
+              return { ...task, relationships: list, task_relationships: list }
+            }
+          }
+          return task
+        })
+      })) as any)
+    }
+    s.on('task_relations', onTaskRelations)
+
+    const onTaskGroups = (payload: any) => {
+      const msg = parse(payload)
+      if (!msg?.table || msg.table !== 'task_groups') return
+      if (msg.action === 'INSERT' && msg.new) {
+        setGroups(prev => ([...prev, { ...msg.new, tasks: [] }]))
+      } else if (msg.action === 'UPDATE' && msg.new) {
+        setGroups(prev => prev.map(g => (Number(g.id) === Number(msg.new.id) ? { ...g, ...msg.new } : g)))
+      } else if (msg.action === 'DELETE' && msg.old) {
+        setGroups(prev => prev.filter(g => Number(g.id) !== Number(msg.old.id)))
+      }
+    }
+    s.on('task_groups', onTaskGroups)
 
     // Listen for task moved events
-    socket.on('taskMoved', ({ taskId, newGroupId, task }) => {
+    s.on('taskMoved', ({ taskId, newGroupId, task }: { taskId: string; newGroupId: string; task: any }) => {
       console.log('Received taskMoved event:', { taskId, newGroupId, task })
       setGroups(prevGroups => {
         const updatedGroups = [...prevGroups]
@@ -116,7 +306,7 @@ export default function TaskActivityPage() {
     })
 
     // Listen for task created events
-    socket.on('taskCreated', ({ groupId, task }) => {
+    s.on('taskCreated', ({ groupId, task }: { groupId: string; task: any }) => {
       setGroups(prevGroups => {
         const updatedGroups = [...prevGroups]
         const targetGroup = updatedGroups.find(group => group.id.toString() === groupId)
@@ -128,12 +318,12 @@ export default function TaskActivityPage() {
     })
 
     // Listen for group created events
-    socket.on('groupCreated', ({ group }) => {
+    s.on('groupCreated', ({ group }: { group: any }) => {
       setGroups(prevGroups => [...prevGroups, group])
     })
 
     // Listen for groups reordered events
-    socket.on('groupsReordered', ({ groupPositions }) => {
+    s.on('groupsReordered', ({ groupPositions }: { groupPositions: Array<{ id: number; position: number }> }) => {
       console.log('Received groupsReordered event:', groupPositions)
       setGroups(prevGroups => {
         const updatedGroups = [...prevGroups]
@@ -148,12 +338,18 @@ export default function TaskActivityPage() {
     })
 
     return () => {
-      socket.off('taskMoved')
-      socket.off('taskCreated')
-      socket.off('groupCreated')
-      socket.off('groupsReordered')
+      s.off('taskMoved')
+      s.off('taskCreated')
+      s.off('groupCreated')
+      s.off('groupsReordered')
+      s.off('task_updated')
+      s.off('task_assignees')
+      s.off('task_custom_fields')
+      s.off('task_attachments')
+      s.off('task_relations')
+      s.off('task_groups')
     }
-  }, [socket])
+  }, [socket, socketInstance])
 
   const loadTaskData = async () => {
     try {
@@ -260,7 +456,7 @@ export default function TaskActivityPage() {
         description: 'Task description',
         priority: 'normal',
         assignee: 'Unassigned',
-        due_date: new Date().toISOString().split('T')[0],
+          due_date: '',
       tags: [],
         position: 0,
         status: 'active',
@@ -353,6 +549,52 @@ export default function TaskActivityPage() {
         setGroups(prevGroups => {
           const updatedGroups = [...prevGroups]
           
+          // If relationships are provided, propagate optimistic changes to counterpart tasks
+          if (Array.isArray(updates.relationships)) {
+            // Find previous relationships for this task
+            let previousRels: Array<{ taskId: string; type: string }> = []
+            for (const g of updatedGroups) {
+              const t = g.tasks.find(t => t.id.toString() === taskId)
+              if (t) {
+                previousRels = (t as any).relationships || (t as any).task_relationships || []
+                break
+              }
+            }
+            const prevIds = new Set(previousRels.map(r => String(r.taskId)))
+            const newIds = new Set((updates.relationships as any[]).map((r: any) => String(r.taskId)))
+            const removedIds: string[] = [...prevIds].filter(id => !newIds.has(id))
+            const addedIds: string[] = [...newIds].filter(id => !prevIds.has(id))
+
+            // Remove inverse link from counterpart tasks
+            if (removedIds.length > 0) {
+              for (const g of updatedGroups) {
+                g.tasks = g.tasks.map((t: any) => {
+                  if (removedIds.includes(String(t.id))) {
+                    const list = (t.relationships || t.task_relationships || []) as Array<{ taskId: string; type: string }>
+                    const filtered = list.filter(rel => String(rel.taskId) !== String(taskId))
+                    return { ...t, relationships: filtered, task_relationships: filtered }
+                  }
+                  return t
+                }) as any
+              }
+            }
+
+            // Add inverse link to counterpart tasks
+            if (addedIds.length > 0) {
+              for (const g of updatedGroups) {
+                g.tasks = g.tasks.map((t: any) => {
+                  if (addedIds.includes(String(t.id))) {
+                    const list = (t.relationships || t.task_relationships || []) as Array<{ taskId: string; type: string }>
+                    const exists = list.some(rel => String(rel.taskId) === String(taskId))
+                    const next = exists ? list : [...list, { taskId: String(taskId), type: 'related_to' }]
+                    return { ...t, relationships: next, task_relationships: next }
+                  }
+                  return t
+                }) as any
+              }
+            }
+          }
+          
           // Find and update the task
           for (const group of updatedGroups) {
             const taskIndex = group.tasks.findIndex(task => task.id.toString() === taskId)
@@ -361,6 +603,9 @@ export default function TaskActivityPage() {
               group.tasks[taskIndex] = {
                 ...group.tasks[taskIndex],
                 ...updates,
+                ...(updates.custom_fields ? { custom_fields: updates.custom_fields, task_custom_fields: updates.custom_fields } : {}),
+                // Merge server shape if present (e.g., assignees array)
+                ...(updates.assignees ? { assignees: updates.assignees } : {}),
                 updated_at: new Date().toISOString()
               }
               break
@@ -369,6 +614,10 @@ export default function TaskActivityPage() {
           
           return updatedGroups
         })
+        // If local-only UI sync, don't call API
+        if (updates && updates.__localOnly) {
+          return
+        }
       }
       
       // Make the API call in the background
@@ -382,7 +631,24 @@ export default function TaskActivityPage() {
         for (const group of updatedGroups) {
           const taskIndex = group.tasks.findIndex(task => task.id.toString() === taskId)
           if (taskIndex !== -1) {
-            group.tasks[taskIndex] = updatedTask
+            const prev = group.tasks[taskIndex] as any
+            const merged = { ...prev, ...updatedTask }
+            // Preserve relationships if API didn't include them
+            if (merged.task_relationships == null && prev.task_relationships != null) {
+              merged.task_relationships = prev.task_relationships
+            }
+            // Keep relationships mirrored object too
+            if (merged.relationships == null && merged.task_relationships != null) {
+              (merged as any).relationships = merged.task_relationships
+            }
+            // Preserve custom_fields if API didn't include them
+            if ((merged as any).task_custom_fields == null && (prev as any).task_custom_fields != null) {
+              (merged as any).task_custom_fields = (prev as any).task_custom_fields
+            }
+            if ((merged as any).custom_fields == null && (prev as any).custom_fields != null) {
+              (merged as any).custom_fields = (prev as any).custom_fields
+            }
+            group.tasks[taskIndex] = merged as any
             break
           }
         }
@@ -432,7 +698,12 @@ export default function TaskActivityPage() {
         for (const group of updatedGroups) {
           const taskIndex = group.tasks.findIndex(task => task.id.toString() === taskId)
           if (taskIndex !== -1) {
-            group.tasks[taskIndex] = updatedTask
+            const prev = group.tasks[taskIndex] as any
+            const merged = { ...prev, ...updatedTask }
+            if (merged.task_relationships == null && prev.task_relationships != null) {
+              merged.task_relationships = prev.task_relationships
+            }
+            group.tasks[taskIndex] = merged as any
             break
           }
         }
@@ -537,7 +808,7 @@ export default function TaskActivityPage() {
       <SidebarInset className="overflow-hidden">
         <AppHeader />
         <div className="flex flex-1 flex-col gap-4 p-4 h-screen overflow-hidden max-w-full relative">
-          {/* Coming Soon Overlay */}
+          {/* Coming Soon Overlay (temporarily disabled)
           <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
             <div className="bg-card border rounded-lg p-8 max-w-md mx-4 text-center shadow-lg">
               <div className="mb-4">
@@ -577,6 +848,7 @@ export default function TaskActivityPage() {
               </Button>
             </div>
           </div>
+          */}
           {/* Header */}
           <div className="flex items-center justify-between flex-shrink-0 min-w-0">
             <div className="min-w-0">
@@ -646,7 +918,7 @@ export default function TaskActivityPage() {
             <CardHeader className="flex-shrink-0 pb-3">
               <CardTitle className="text-lg">Board View</CardTitle>
             </CardHeader>
-            <CardContent className="flex-1 p-0 overflow-x-auto">
+            <CardContent className="flex-1 p-0 overflow-x-auto kanban-hscrollbar">
               {isLoading ? (
                 <div className="flex items-center justify-center h-64">
                   <Loader2 className="h-8 w-8 animate-spin" />
@@ -661,11 +933,15 @@ export default function TaskActivityPage() {
                         title: task.title,
                         description: task.description,
                         priority: task.priority,
-                        assignee: task.assignee,
+                        assignee: '',
+                        assignees: (task as any).assignees || [],
                         dueDate: task.due_date,
+                        startDate: task.start_date,
                         tags: task.tags,
                         status: group.id.toString(),
-                        relationships: []
+                        relationships: (task as any).task_relationships ?? (task as any).relationships ?? [],
+                        custom_fields: (task as any).task_custom_fields ?? (task as any).custom_fields ?? [],
+                        attachments: (task as any).attachments ?? []
                       }))
                     )
                     

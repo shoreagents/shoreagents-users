@@ -40,6 +40,26 @@ export function HeaderUser({
   const router = useRouter()
   const { setUserLoggedOut } = useActivity()
 
+  const getInitials = (fullName?: string, email?: string) => {
+    const name = (fullName || '').trim()
+    if (name.length > 0) {
+      const parts = name.split(/\s+/).filter(Boolean)
+      if (parts.length >= 2) {
+        return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase()
+      }
+      return name.slice(0, 2).toUpperCase()
+    }
+    const mail = (email || '').trim()
+    if (mail.includes('@')) {
+      const [local, domain] = mail.split('@')
+      const a = local?.[0] || ''
+      const b = domain?.[0] || ''
+      const initials = `${a}${b}`
+      return initials ? initials.toUpperCase() : 'SA'
+    }
+    return 'SA'
+  }
+
   const handleLogout = async () => {
     console.log('🔄 Logout button clicked (header)')
     
@@ -84,7 +104,7 @@ export function HeaderUser({
         <Button variant="ghost" className="relative h-8 w-8 rounded-full cursor-pointer">
           <Avatar className="h-8 w-8">
             <AvatarImage src={user.avatar} alt={user.name} />
-            <AvatarFallback>AU</AvatarFallback>
+            <AvatarFallback>{getInitials(user.name, user.email)}</AvatarFallback>
           </Avatar>
         </Button>
       </DropdownMenuTrigger>

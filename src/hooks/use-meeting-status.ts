@@ -70,7 +70,8 @@ export function useMeetingStatus() {
       setConnectionStatus('connecting')
       
       // Connect to Socket.IO server with safer connection options
-      const socket = io('http://localhost:3001', {
+    const socketServerUrl = (process.env.NEXT_PUBLIC_SOCKET_URL || process.env.SOCKET_SERVER_URL || 'http://localhost:3001') as string
+      const socket = io(socketServerUrl, {
         reconnection: true,
         reconnectionAttempts: 3, // Further reduced attempts
         reconnectionDelay: 2000, // Longer delay

@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { TrendingUp, Target, Award } from "lucide-react"
 import { getCurrentUser } from "@/lib/ticket-utils"
-import {
+import { 
   AreaChart,
   Area,
   XAxis,
@@ -262,7 +262,7 @@ export default function AnalyticsPage() {
                 <CardTitle>Top Performers</CardTitle>
                 <CardDescription className="text-muted-foreground">
                   Highlighting those who lead in activity and stay consistently engaged this month.
-                </CardDescription>
+              </CardDescription>
               </div>
             </CardHeader>
             <CardContent>
@@ -294,11 +294,11 @@ export default function AnalyticsPage() {
                           <p className="text-sm font-semibold">{p.name}</p>
                           <p className="text-xs text-muted-foreground">Points: {score.toLocaleString()}</p>
                         </div>
-                      </div>
+                    </div>
                     )
                   })}
                   </div>
-                </div>
+              </div>
               )}
               {formatMonthLabel && (
                 <div className="pt-2 text-xs text-muted-foreground">{formatMonthLabel}</div>
@@ -351,4 +351,4 @@ export default function AnalyticsPage() {
       </SidebarInset>
     </SidebarProvider>
   )
-}
+} 

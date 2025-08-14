@@ -17,7 +17,9 @@ function getUserFromRequest(request: NextRequest) {
   }
 
   try {
-    const authData = JSON.parse(authCookie.value)
+    const raw = typeof authCookie.value === 'string' ? authCookie.value : ''
+    const decoded = (() => { try { return decodeURIComponent(raw) } catch { return raw } })()
+    const authData = JSON.parse(decoded)
     if (!authData.isAuthenticated || !authData.user) {
       return null
     }
@@ -76,7 +78,7 @@ export async function GET(
             client.removeListener('notification', onNotification)
             client.release()
             await pool.end().catch(() => {})
-            controller.close()
+            try { controller.close() } catch {}
           }
 
           const onNotification = (msg: any) => {
@@ -108,7 +110,11 @@ export async function GET(
           const originalClose = controller.close.bind(controller)
           controller.close = () => {
             clearInterval(interval)
-            originalClose()
+            try {
+              originalClose()
+            } catch (err) {
+              // Ignore double-close errors to prevent uncaught exceptions
+            }
           }
         },
       })
@@ -169,11 +175,13 @@ export async function GET(
           t.file_count,
           t.role_id,
           u.email as user_email,
+          TRIM(CONCAT(COALESCE(pi_resolver.first_name, ''), ' ', COALESCE(pi_resolver.last_name, ''))) as resolved_by_name,
           resolver.email as resolved_by_email,
           tc.name as category_name
         FROM tickets t
         LEFT JOIN users u ON t.user_id = u.id
         LEFT JOIN users resolver ON t.resolved_by = resolver.id
+        LEFT JOIN personal_info pi_resolver ON resolver.id = pi_resolver.user_id
         LEFT JOIN ticket_categories tc ON t.category_id = tc.id
         WHERE t.ticket_id = $1
       `
@@ -231,6 +239,7 @@ export async function GET(
         userId: row.user_id,
         userEmail: row.user_email,
         resolvedBy: row.resolved_by,
+        resolvedByName: row.resolved_by_name,
         resolvedByEmail: row.resolved_by_email,
         resolvedAt: row.resolved_at?.toLocaleString('en-US', { 
           timeZone: 'Asia/Manila',

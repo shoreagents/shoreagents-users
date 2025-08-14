@@ -2,6 +2,13 @@ const { app, BrowserWindow, Menu, Tray, shell, ipcMain, Notification, dialog } =
 const path = require('path');
 const fs = require('fs');
 const isDev = process.env.NODE_ENV === 'development';
+// Optional sound library (not required at runtime if unavailable)
+let soundPlay = null;
+try {
+  soundPlay = require('sound-play');
+} catch (_) {
+  soundPlay = null;
+}
 const ActivityTracker = require('./activity-tracker');
 
 // Keep a global reference of the window object
@@ -12,6 +19,51 @@ let tray = null;
 let isQuitting = false;
 let notificationBadgeCount = 0;
 let systemNotifications = [];
+// Attempt to play a custom notification sound from /public
+function getSoundPath(type = 'main') {
+  try {
+    const candidates = type === 'inactivity'
+      ? [
+          path.join(__dirname, '../public/notification.mp3'),
+          path.join(__dirname, '../public/notification.wav'),
+        ]
+      : [
+          path.join(__dirname, '../public/system.mp3'),
+          path.join(__dirname, '../public/system.wav'),
+          // Fallback to notification.* if system.* not found
+          path.join(__dirname, '../public/notification.mp3'),
+          path.join(__dirname, '../public/notification.wav'),
+        ]
+
+    return candidates.find(p => fs.existsSync(p)) || null
+  } catch {
+    return null
+  }
+}
+
+function hasCustomSoundAvailable(type = 'main') {
+  const p = getSoundPath(type)
+  return !!(p && soundPlay && typeof soundPlay.play === 'function')
+}
+
+function playCustomNotificationSound(type = 'main') {
+  try {
+    const soundPath = getSoundPath(type)
+    if (soundPath && soundPlay && typeof soundPlay.play === 'function') {
+      // Fire and forget; do not await to keep UI responsive
+      soundPlay.play(soundPath).catch(() => {
+        // Fallback to system beep if playback fails
+        try { shell.beep(); } catch {}
+      });
+    } else {
+      // No file or library available; fallback to system beep
+      try { shell.beep(); } catch {}
+    }
+  } catch {
+    try { shell.beep(); } catch {}
+  }
+}
+
 
 // Function to create a red badge with count
 function createBadgeImage(count) {
@@ -110,24 +162,24 @@ function getSimpleBadgePath() {
 }
 
 // Function to ensure notification sound plays consistently
-function createNotificationWithSound(title, body, icon) {
+function createNotificationWithSound(title, body, icon, type = 'main') {
   return new Promise((resolve) => {
+    const useCustom = hasCustomSoundAvailable(type);
     const notification = new Notification({
       title: title,
       body: body,
       icon: icon,
-      silent: false, // Use native Windows notification sound
+      silent: useCustom, // Mute OS sound if we play our own
       timeoutType: 'never'
     });
 
     // Show notification
     notification.show();
-    
-    // Ensure sound plays by showing again after a small delay
-    setTimeout(() => {
-      notification.show();
-      resolve(notification);
-    }, 50);
+    // Also play custom sound if available
+    if (useCustom) {
+      playCustomNotificationSound(type);
+    }
+    resolve(notification);
   });
 }
 
@@ -194,11 +246,12 @@ function showSystemNotification(notificationData) {
   // Use favicon for notifications
   const notificationIcon = path.join(__dirname, '../src/app/favicon.ico');
   
+  const useCustom = hasCustomSoundAvailable('main');
   const notification = new Notification({
     title: notificationData.title || 'ShoreAgents Dashboard',
     body: notificationData.message || 'You have a new notification',
     icon: notificationIcon,
-    silent: false,
+    silent: useCustom,
     timeoutType: 'default'
   });
   
@@ -222,6 +275,10 @@ function showSystemNotification(notificationData) {
   });
   
   notification.show();
+  // Play custom sound if available
+  if (useCustom) {
+    playCustomNotificationSound('main');
+  }
   
   // Update badge count
   const currentCount = systemNotifications.length;
@@ -307,7 +364,8 @@ ipcMain.handle('show-inactivity-notification', async (event, data) => {
     inactivityNotification = await createNotificationWithSound(
       'Inactivity Detected',
       `You've been inactive for ${timeText}. Move your mouse to resume.`,
-      path.join(__dirname, '../src/app/favicon.ico')
+      path.join(__dirname, '../src/app/favicon.ico'),
+      'inactivity'
     );
     
     return { success: true };
@@ -338,7 +396,8 @@ ipcMain.handle('update-inactivity-notification', async (event, data) => {
         inactivityNotification = await createNotificationWithSound(
           'Inactivity Detected',
           `You've been inactive for ${timeText}. Move your mouse to resume.`,
-          path.join(__dirname, '../src/app/favicon.ico')
+          path.join(__dirname, '../src/app/favicon.ico'),
+          'inactivity'
         );
       }, 100); // Increased delay for better cleanup
     }
@@ -429,7 +488,7 @@ function createWindow() {
   });
 
   // Load the app - always use the Next.js server
-  const serverUrl = 'http://localhost:3000';
+  const serverUrl = process.env.ELECTRON_APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
   mainWindow.loadURL(serverUrl);
   
   // Open DevTools in development
@@ -1332,14 +1391,18 @@ ipcMain.handle('resume-activity-tracking', () => {
 // Handle system notifications
 ipcMain.on('show-notification', (event, data) => {
   if (Notification.isSupported()) {
+    const useCustom = hasCustomSoundAvailable();
     const notification = new Notification({
       title: data.title || 'ShoreAgents Dashboard',
       body: data.body || 'Notification',
       icon: data.icon || path.join(__dirname, '../src/app/favicon.ico'),
-      silent: false
+      silent: useCustom
     });
     
     notification.show();
+    if (useCustom) {
+      playCustomNotificationSound();
+    }
   }
 });
 

@@ -48,6 +48,26 @@ export function NavUser({
   const router = useRouter()
   const { setUserLoggedOut } = useActivity()
 
+  const getInitials = (fullName?: string, email?: string) => {
+    const name = (fullName || '').trim()
+    if (name.length > 0) {
+      const parts = name.split(/\s+/).filter(Boolean)
+      if (parts.length >= 2) {
+        return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase()
+      }
+      return name.slice(0, 2).toUpperCase()
+    }
+    const mail = (email || '').trim()
+    if (mail.includes('@')) {
+      const [local, domain] = mail.split('@')
+      const a = local?.[0] || ''
+      const b = domain?.[0] || ''
+      const initials = `${a}${b}`
+      return initials ? initials.toUpperCase() : 'SA'
+    }
+    return 'SA'
+  }
+
   const handleLogout = async () => {
     console.log('🔄 Logout button clicked')
     
@@ -97,7 +117,7 @@ export function NavUser({
             >
               <Avatar className="h-8 w-8 rounded-lg">
                 <AvatarImage src={user.avatar} alt={user.name} />
-                <AvatarFallback className="rounded-lg">AU</AvatarFallback>
+                <AvatarFallback className="rounded-lg">{getInitials(user.name, user.email)}</AvatarFallback>
               </Avatar>
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-medium">{user.name}</span>
@@ -114,10 +134,10 @@ export function NavUser({
           >
             <DropdownMenuLabel className="p-0 font-normal">
               <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
-                <Avatar className="h-8 w-8 rounded-lg">
-                  <AvatarImage src={user.avatar} alt={user.name} />
-                  <AvatarFallback className="rounded-lg">AU</AvatarFallback>
-                </Avatar>
+                  <Avatar className="h-8 w-8 rounded-lg">
+                    <AvatarImage src={user.avatar} alt={user.name} />
+                    <AvatarFallback className="rounded-lg">{getInitials(user.name, user.email)}</AvatarFallback>
+                  </Avatar>
                 <div className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-medium">{user.name}</span>
                   <span className="truncate text-xs">{user.email}</span>

@@ -73,6 +73,7 @@ export function GlobalTimerDisplay() {
 
   // Check if user is authenticated and logged in
   const currentUser = getCurrentUser()
+  const isEmergencyPaused = !!(isBreakActive && breakStatus?.is_paused)
   
   // Don't show timer on login page or if not authenticated
   if (pathname === '/login' || pathname === '/' || !isAuthenticated || !currentUser) {
@@ -90,11 +91,13 @@ export function GlobalTimerDisplay() {
           className={`backdrop-blur-sm shadow-lg border rounded-full w-10 h-10 p-0 ${
             isVisible
               ? 'bg-card border-border text-foreground'
-              : isBreakActive
-                ? 'bg-yellow-100 dark:bg-yellow-950/20 border-yellow-300 dark:border-yellow-900/40'
-                : timerData?.isActive
-                  ? 'bg-green-100 dark:bg-green-950/20 border-green-300 dark:border-green-900/40'
-                  : 'bg-red-100 dark:bg-red-950/20 border-red-300 dark:border-red-900/40'
+              : isEmergencyPaused
+                ? 'bg-green-100 dark:bg-green-950/20 border-green-300 dark:border-green-900/40'
+                : isBreakActive
+                  ? 'bg-yellow-100 dark:bg-yellow-950/20 border-yellow-300 dark:border-yellow-900/40'
+                  : timerData?.isActive
+                    ? 'bg-green-100 dark:bg-green-950/20 border-green-300 dark:border-green-900/40'
+                    : 'bg-red-100 dark:bg-red-950/20 border-red-300 dark:border-red-900/40'
           }`}
           title={isVisible ? "Collapse Timer" : "Expand Timer"}
         >
@@ -104,11 +107,13 @@ export function GlobalTimerDisplay() {
                          <div className="relative">
                <ChevronUp className="w-4 h-4" />
                <div className={`absolute -top-1 -right-1 w-2 h-2 rounded-full ${
-                 isBreakActive 
-                   ? 'bg-yellow-500' 
-                   : timerData?.isActive 
-                   ? 'bg-green-500' 
-                   : 'bg-red-500'
+                 isEmergencyPaused
+                   ? 'bg-green-500'
+                   : isBreakActive 
+                     ? 'bg-yellow-500' 
+                     : timerData?.isActive 
+                       ? 'bg-green-500' 
+                       : 'bg-red-500'
                } animate-pulse`}></div>
              </div>
           )}

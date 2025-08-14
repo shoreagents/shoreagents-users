@@ -21,14 +21,27 @@ CREATE TABLE IF NOT EXISTS tasks (
     title VARCHAR(255) NOT NULL,
     description TEXT,
     priority VARCHAR(50) DEFAULT 'normal' CHECK (priority IN ('urgent', 'high', 'normal', 'low')),
-    assignee VARCHAR(255),
-    due_date DATE,
+    assignees INTEGER[] DEFAULT '{}', -- references users(id)
+    start_date TIMESTAMPTZ,
+    due_date TIMESTAMPTZ,
     tags TEXT[],
     position INTEGER NOT NULL DEFAULT 0,
     status VARCHAR(50) DEFAULT 'active' CHECK (status IN ('active', 'deleted')),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT (NOW() AT TIME ZONE 'Asia/Manila'),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT (NOW() AT TIME ZONE 'Asia/Manila')
+    created_at timestamptz DEFAULT now() NULL,
+    updated_at timestamptz DEFAULT now() NULL
 );
+
+-- If the table already existed, ensure new columns are present
+ALTER TABLE tasks
+  ADD COLUMN IF NOT EXISTS assignees INTEGER[] DEFAULT '{}',
+  ADD COLUMN IF NOT EXISTS start_date TIMESTAMPTZ;
+
+-- Remove legacy single-assignee column now that assignees[] exists
+ALTER TABLE tasks
+  DROP COLUMN IF EXISTS assignee;
+
+  ALTER TABLE tasks
+  DROP COLUMN IF EXISTS due_date;
 
 -- Create function to update updated_at
 CREATE OR REPLACE FUNCTION update_task_updated_at_column()

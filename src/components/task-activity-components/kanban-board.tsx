@@ -41,6 +41,8 @@ interface Task {
   description: string
   priority: "urgent" | "high" | "normal" | "low"
   assignee: string
+  assignees?: number[]
+  startDate?: string
   dueDate: string
   tags: string[]
   status: string
@@ -72,7 +74,8 @@ const TaskCard = ({
   isEditMode = false,
   onDelete,
   onRename,
-  availableGroups
+  availableGroups,
+  usersMap
 }: { 
   task: Task; 
   onMove: (newStatus: string) => void;
@@ -81,6 +84,7 @@ const TaskCard = ({
   onDelete?: (taskId: string) => void;
   onRename?: (taskId: string, newTitle: string) => void;
   availableGroups?: Array<{id: string, title: string}>;
+  usersMap?: Record<number, { name?: string; email?: string }>;
 }) => {
   const [isDragging, setIsDragging] = useState(false)
   const [isRenaming, setIsRenaming] = useState(false)
@@ -239,10 +243,10 @@ const TaskCard = ({
       >
         <Card className="w-full shadow-none border border-border/50 overflow-hidden">
           {/* Cover Photo */}
-          {task.attachments && task.attachments.length > 0 && (
+            {task.attachments && (task.attachments as any).length > 0 && (
             <div className="relative w-full h-32 bg-muted">
               <img
-                src={task.attachments[0].url}
+                src={(task.attachments as any)[0].url}
                 alt={task.attachments[0].name}
                 className="w-full h-full object-cover"
                 onError={(e) => {
@@ -259,9 +263,9 @@ const TaskCard = ({
                   `
                 }}
               />
-              {task.attachments && task.attachments.length > 1 && (
+               {task.attachments && (task.attachments as any).length > 1 && (
                 <div className="absolute top-2 right-2 bg-background/80 backdrop-blur-sm rounded-full px-2 py-1 text-xs font-medium">
-                  +{task.attachments.length - 1}
+                 +{(task.attachments as any).length - 1}
                 </div>
               )}
             </div>
@@ -342,33 +346,70 @@ const TaskCard = ({
             {/* Footer */}
             <div className="flex items-center justify-between min-w-0">
               <div className="flex items-center gap-2 min-w-0 flex-1">
-                {/* Priority */}
-                <div className="flex items-center gap-1 min-w-0">
-                  <Flag className={cn("h-3 w-3 flex-shrink-0", priorityColors[task.priority])} />
-                  <span className="text-xs capitalize truncate">{task.priority}</span>
-                </div>
-                
-                {/* Due Date */}
-                <div className="flex items-center gap-1 text-xs text-muted-foreground min-w-0">
-                  <Calendar className="h-3 w-3 flex-shrink-0" />
-                  <span className="truncate">{new Date(task.dueDate).toLocaleDateString()}</span>
+                <div className="flex flex-col items-start gap-1 min-w-0">
+                  {/* Priority */}
+                  <div className="flex items-center gap-1 min-w-0 mb-4">
+                    <Flag className={cn("h-3 w-3 flex-shrink-0", priorityColors[task.priority])} />
+                    <span className="text-xs capitalize truncate">{task.priority}</span>
+                    {/* Attachments */}
+                    {task.attachments && task.attachments.length > 0 && (
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <Paperclip className="h-3 w-3" />
+                        <span>{task.attachments.length}</span>
+                      </div>
+                    )}
+                  </div>
+                  
+
+                  {/* Dates (Start & Due) */}
+                  {(() => {
+                    const fmt = (value?: string) => {
+                      if (!value) return 'Not set'
+                      const d = new Date(value)
+                      return isNaN(d.getTime()) ? 'Not set' : d.toLocaleDateString()
+                    }
+                    const startStr = fmt(task.startDate)
+                    const dueStr = fmt(task.dueDate)
+                    return (
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground min-w-0">
+                        <Calendar className="h-3 w-3 flex-shrink-0" />
+                        <span className="truncate">Start: {startStr}</span>
+                        <span className="opacity-60">•</span>
+                        <span className="truncate">Due: {dueStr}</span>
+                      </div>
+                    )
+                  })()}
                 </div>
 
-                {/* Attachments */}
-                {task.attachments && task.attachments.length > 0 && (
-                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <Paperclip className="h-3 w-3" />
-                    <span>{task.attachments.length}</span>
-                  </div>
-                )}
+                
               </div>
               
-              {/* Assignee */}
-              <Avatar className="h-6 w-6">
-                <AvatarFallback className="text-xs">
-                  {getInitials(task.assignee)}
-                </AvatarFallback>
-              </Avatar>
+              {/* Assignees */}
+              {Array.isArray((task as any).assignees) && (task as any).assignees.length > 0 ? (
+                <div className="flex items-center gap-1">
+                  {(() => {
+                    const ids = ((task as any).assignees as number[])
+                    const first = ids[0]
+                    const label = usersMap?.[first]?.name || usersMap?.[first]?.email || String(first)
+                    const firstInitials = getInitials(label)
+                    const extraCount = ids.length - 1
+                    return (
+                      <>
+                        <Avatar className="h-6 w-6">
+                          <AvatarFallback className="text-xs">{firstInitials}</AvatarFallback>
+                        </Avatar>
+                        {extraCount > 0 && (
+                          <span className="text-xs text-muted-foreground px-1 rounded bg-muted/60">+{extraCount}</span>
+                        )}
+                      </>
+                    )
+                  })()}
+                </div>
+              ) : (
+                <Avatar className="h-6 w-6">
+                  <AvatarFallback className="text-xs">{getInitials(task.assignee)}</AvatarFallback>
+                </Avatar>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -386,7 +427,8 @@ const KanbanColumn = ({
   isEditMode = false,
   onTaskDelete,
   onTaskRename,
-  availableGroups
+  availableGroups,
+  usersMap
 }: { 
   column: Column; 
   tasks: Task[]; 
@@ -397,6 +439,7 @@ const KanbanColumn = ({
   onTaskDelete?: (taskId: string) => void;
   onTaskRename?: (taskId: string, newTitle: string) => void;
   availableGroups?: Array<{id: string, title: string}>;
+  usersMap: Record<number, { name?: string; email?: string }>;
 }) => {
   const [isDragOver, setIsDragOver] = useState(false)
   const [dropPosition, setDropPosition] = useState<number | null>(null)
@@ -502,8 +545,6 @@ const KanbanColumn = ({
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -20 }}
       whileDrag={{ 
-        scale: 1.03,
-        rotate: 1,
         zIndex: 1000,
         boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
         transition: { 
@@ -552,7 +593,7 @@ const KanbanColumn = ({
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         className={cn(
-          "flex-1 overflow-y-auto overflow-x-hidden transition-colors rounded-md",
+          "flex-1 overflow-y-auto overflow-x-hidden transition-colors rounded-md kanban-scrollbar",
           isDragOver && "bg-primary/10 border-2 border-dashed border-primary"
         )}
         transition={{ 
@@ -588,6 +629,7 @@ const KanbanColumn = ({
                 onDelete={onTaskDelete} // Pass onDelete to TaskCard
                 onRename={onTaskRename} // Pass onRename to TaskCard
                 availableGroups={availableGroups}
+                usersMap={usersMap}
               />
             </motion.div>
           ))}
@@ -634,6 +676,7 @@ export function KanbanBoard({ tasks, columns, onTaskMove, onTaskCreate, onTaskUp
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [localColumns, setLocalColumns] = useState(columns)
+  const [usersMap, setUsersMap] = useState<Record<number, { name?: string; email?: string }>>({})
   const [isScrolling, setIsScrolling] = useState(false)
   const [scrollStart, setScrollStart] = useState(0)
   const [scrollLeft, setScrollLeft] = useState(0)
@@ -646,18 +689,71 @@ export function KanbanBoard({ tasks, columns, onTaskMove, onTaskCreate, onTaskUp
   // Filter out deleted tasks
   const activeTasks = tasks.filter(task => task.status !== "deleted")
 
+  // Keep the open task detail dialog in sync with live updates to the task list
+  React.useEffect(() => {
+    if (!selectedTask) return
+    const latest = activeTasks.find(t => t.id === selectedTask.id)
+    if (!latest) return
+    const normalize = (t: any) => ({
+      id: String(t.id),
+      title: t.title,
+      description: t.description,
+      priority: t.priority,
+      group_id: (t as any).group_id,
+      status: t.status,
+      startDate: (t as any).startDate,
+      dueDate: (t as any).dueDate,
+      tags: Array.isArray(t.tags) ? [...t.tags].sort() : [],
+      assignees: Array.isArray((t as any).assignees) ? [...(t as any).assignees].sort() : [],
+      relationships: Array.isArray((t as any).relationships) ? [...(t as any).relationships].map((r:any)=>String(r.taskId)).sort() : [],
+      custom_fields: Array.isArray((t as any).custom_fields) ? [...(t as any).custom_fields].map((f:any)=>String(f.id)).sort() : [],
+      attachments: Array.isArray((t as any).attachments) ? [...(t as any).attachments].map((a:any)=>String(a.id)).sort() : [],
+      updated_at: (t as any).updated_at || null
+    })
+    const a = JSON.stringify(normalize(latest))
+    const b = JSON.stringify(normalize(selectedTask))
+    // Use a ref to avoid thrashing on equality checks across renders
+    ;(KanbanBoard as any).__lastSelectedSnapshot = (KanbanBoard as any).__lastSelectedSnapshot || ''
+    const last = (KanbanBoard as any).__lastSelectedSnapshot as string
+    if (a !== b && a !== last) {
+      (KanbanBoard as any).__lastSelectedSnapshot = a
+      setSelectedTask(prev => (prev ? { ...prev, ...latest } : latest))
+    }
+  }, [activeTasks, selectedTask])
+
   // Update localColumns when columns prop changes (e.g., when new groups are added)
   React.useEffect(() => {
     setLocalColumns(columns)
   }, [columns])
 
+  // Load minimal users map for initials on cards
+  React.useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      try {
+        const res = await fetch('/api/users?limit=500', { credentials: 'include' })
+        if (!res.ok) return
+        const data = await res.json()
+        if (data?.success && Array.isArray(data.users)) {
+          const map: Record<number, { name?: string; email?: string }> = {}
+          data.users.forEach((u: any) => {
+            map[Number(u.id)] = { name: (u.name || u.email || '').trim() || u.email, email: u.email }
+          })
+          if (!cancelled) setUsersMap(map)
+        }
+      } catch {}
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+
   const handleMouseDown = (e: React.MouseEvent) => {
     if (!scrollContainerRef.current) return
-    
+    if (isDialogOpen) return
     // Don't start scrolling if clicking on a draggable task card or in edit mode
     const target = e.target as HTMLElement
     const taskCard = target.closest('[draggable="true"]')
-    if (taskCard || isEditMode) return
+    if (taskCard || isEditMode || isDialogOpen) return
     
     setIsScrolling(true)
     setScrollStart(e.clientX - scrollContainerRef.current.offsetLeft)
@@ -665,7 +761,7 @@ export function KanbanBoard({ tasks, columns, onTaskMove, onTaskCreate, onTaskUp
   }
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isScrolling || !scrollContainerRef.current || isEditMode) return
+    if (!isScrolling || !scrollContainerRef.current || isEditMode || isDialogOpen) return
     
     e.preventDefault()
     const x = e.clientX - scrollContainerRef.current.offsetLeft
@@ -758,13 +854,13 @@ export function KanbanBoard({ tasks, columns, onTaskMove, onTaskCreate, onTaskUp
 
   return (
     <div 
-      className="h-full w-full p-4 pt-0 overflow-x-auto"
+      className="h-full w-full p-4 pt-0 overflow-x-auto kanban-hscrollbar"
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseLeave}
       ref={scrollContainerRef}
-      style={{ cursor: isEditMode ? 'default' : (isScrolling ? 'grabbing' : 'grab') }}
+      style={{ cursor: (isEditMode || isDialogOpen) ? 'default' : (isScrolling ? 'grabbing' : 'grab') }}
     >
       <Reorder.Group 
         axis="x" 
@@ -773,7 +869,7 @@ export function KanbanBoard({ tasks, columns, onTaskMove, onTaskCreate, onTaskUp
           setLocalColumns(newColumns)
           onColumnsReorder?.(newColumns)
         }}
-        className={`flex gap-4 h-full min-w-max overflow-hidden ${isEditMode ? 'cursor-grab active:cursor-grabbing' : ''}`}
+        className={`flex gap-4 h-full min-w-max ${isEditMode ? 'overflow-visible cursor-grab active:cursor-grabbing' : 'overflow-hidden'}`}
         style={{ 
           position: 'relative',
           width: 'max-content'
@@ -823,7 +919,6 @@ export function KanbanBoard({ tasks, columns, onTaskMove, onTaskCreate, onTaskUp
               <Reorder.Item
                 value={column}
                 whileDrag={{ 
-                  scale: 1.01,
                   zIndex: 50,
                   boxShadow: "0 2px 8px -2px rgba(0, 0, 0, 0.05)",
                   transition: { 
@@ -850,7 +945,7 @@ export function KanbanBoard({ tasks, columns, onTaskMove, onTaskCreate, onTaskUp
                   flexShrink: 0
                 }}
               >
-                              <KanbanColumn
+                <KanbanColumn
                   column={column}
                   tasks={activeTasks}
                   onTaskMove={onTaskMove}
@@ -860,6 +955,7 @@ export function KanbanBoard({ tasks, columns, onTaskMove, onTaskCreate, onTaskUp
                   onTaskDelete={handleTaskDelete}
                   onTaskRename={handleTaskRename}
                   availableGroups={localColumns.map(col => ({ id: col.id, title: col.title }))}
+                  usersMap={usersMap}
                 />
               </Reorder.Item>
             </div>
@@ -889,6 +985,13 @@ export function KanbanBoard({ tasks, columns, onTaskMove, onTaskCreate, onTaskUp
         isOpen={isDialogOpen}
         onClose={handleCloseDialog}
         onTaskUpdate={handleTaskUpdate}
+        onOpenTask={(openTaskId) => {
+          const next = activeTasks.find(t => t.id === String(openTaskId))
+          if (next) {
+            setSelectedTask(next)
+            setIsDialogOpen(true)
+          }
+        }}
       />
     </div>
   )

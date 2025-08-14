@@ -115,7 +115,11 @@ export function Leaderboard() {
               <div key={entry.userId} className="flex items-center gap-2 w-full">
                 <div className="flex items-center gap-1 flex-shrink-0 w-6">
                 {entry.isInBreak ? (
-                  <div className="h-1.5 w-1.5 bg-yellow-500 rounded-full animate-pulse"></div>
+                  entry.isCurrentlyActive ? (
+                    <div className="h-1.5 w-1.5 bg-green-500 rounded-full animate-pulse"></div>
+                  ) : (
+                    <div className="h-1.5 w-1.5 bg-yellow-500 rounded-full animate-pulse"></div>
+                  )
                 ) : entry.isCurrentlyActive ? (
                   <div className="h-1.5 w-1.5 bg-green-500 rounded-full animate-pulse"></div>
                 ) : (

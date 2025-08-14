@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { AppSidebar } from "@/components/app-sidebar"
 import { AppHeader } from "@/components/app-header"
+import { NotificationsSkeleton } from "@/components/skeleton-loaders"
 import {
   SidebarInset,
   SidebarProvider,
@@ -26,8 +27,12 @@ import {
   markNotificationAsRead, 
   deleteNotification,
   getUnreadCount,
-  formatTimeAgo
+  formatTimeAgo,
+  saveNotifications,
+  markAllNotificationsAsRead,
+  clearAllNotifications
 } from "@/lib/notification-service"
+import { getCurrentUser } from "@/lib/ticket-utils"
 import { useRouter } from "next/navigation"
 
 interface Notification {
@@ -45,27 +50,62 @@ export default function NotificationsPage() {
   const [notifications, setNotifications] = useState<any[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [highlightedNotificationId, setHighlightedNotificationId] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1)
   const notificationsPerPage = 10
 
-  // Load notifications
+  // Load notifications (hydrate from DB once, then keep in-memory updates)
   useEffect(() => {
-    const loadNotifications = () => {
+    const loadFromDb = async () => {
+      try {
+        const user = getCurrentUser()
+        if (!user?.email) return
+        const res = await fetch(`/api/notifications?email=${encodeURIComponent(user.email)}&limit=100`, { credentials: 'include' })
+        if (!res.ok) return
+        const data = await res.json()
+        if (data?.success && Array.isArray(data.notifications)) {
+          const mapped = data.notifications.map((n: any) => {
+            const payload = n.payload || {}
+            const actionUrl = payload.action_url
+              || (n.category === 'ticket' && (payload.ticket_id || payload.ticket_row_id) ? `/forms/${payload.ticket_id || ''}` : undefined)
+              || (n.category === 'break' ? '/status/breaks' : undefined)
+            const icon = n.category === 'ticket' ? 'FileText' : n.category === 'break' ? 'Clock' : 'Bell'
+            return {
+              id: `db_${n.id}`,
+              type: n.type,
+              title: n.title,
+              message: n.message,
+              time: new Date(n.created_at).getTime(),
+              read: !!n.is_read,
+              icon,
+              actionUrl,
+              actionData: payload,
+              category: n.category,
+              priority: 'medium' as const,
+              eventType: 'system' as const,
+            }
+          })
+          saveNotifications(mapped)
+          setNotifications(mapped)
+          setUnreadCount(mapped.filter((n: any) => !n.read).length)
+        }
+      } catch {}
+    }
+
+    const loadFromMemory = () => {
       const realNotifications = getNotifications()
       setNotifications(realNotifications)
       setUnreadCount(getUnreadCount())
     }
 
-    loadNotifications()
-    
-    // Update every 10 seconds for real-time responsiveness
-    const interval = setInterval(loadNotifications, 10000)
+    // Try DB hydrate first, then ensure memory state shown
+    loadFromDb().finally(() => { loadFromMemory(); setLoading(false) })
     
     // Listen for real-time notification updates
     const handleNotificationUpdate = () => {
-      loadNotifications()
+      loadFromMemory()
     }
     
     // Listen for highlight notification events from system notifications
@@ -94,17 +134,72 @@ export default function NotificationsPage() {
     window.addEventListener('notifications-updated', handleNotificationUpdate)
     
     return () => {
-      clearInterval(interval)
       window.removeEventListener('notifications-updated', handleNotificationUpdate)
     }
   }, [])
 
-  const handleDeleteNotification = (id: string) => {
+  const handleDeleteNotification = async (id: string) => {
+    // Update in-memory first
     deleteNotification(id)
-    // Update local state immediately
     const realNotifications = getNotifications()
     setNotifications(realNotifications)
     setUnreadCount(getUnreadCount())
+    // Persist delete to DB if possible
+    try {
+      const auth = JSON.parse(localStorage.getItem('shoreagents-auth') || '{}')
+      const email = auth?.user?.email
+      if (email) {
+        await fetch('/api/notifications/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ id, email })
+        })
+      }
+    } catch {}
+  }
+
+  const handleMarkAllRead = async () => {
+    if (notifications.length === 0) return
+    // Update in-memory
+    markAllNotificationsAsRead()
+    const real = getNotifications()
+    setNotifications(real)
+    setUnreadCount(0)
+    // Persist to DB
+    try {
+      const user = getCurrentUser()
+      if (user?.email) {
+        const ids = real.map((n: any) => n.id)
+        await fetch('/api/notifications/mark-read', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ ids, email: user.email })
+        })
+      }
+    } catch {}
+  }
+
+  const handleClearAll = async () => {
+    if (notifications.length === 0) return
+    const ids = notifications.map((n: any) => n.id)
+    // Update in-memory
+    clearAllNotifications()
+    setNotifications([])
+    setUnreadCount(0)
+    // Persist to DB
+    try {
+      const user = getCurrentUser()
+      if (user?.email) {
+        await fetch('/api/notifications/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ ids, email: user.email })
+        })
+      }
+    } catch {}
   }
 
   // Pagination logic
@@ -144,10 +239,34 @@ export default function NotificationsPage() {
                 Stay updated with your latest activities and system updates
               </p>
             </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8"
+                onClick={handleMarkAllRead}
+                disabled={unreadCount === 0}
+                title="Mark all as read"
+              >
+                Mark all read
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8"
+                onClick={handleClearAll}
+                disabled={notifications.length === 0}
+                title="Clear all notifications"
+              >
+                Clear all
+              </Button>
+            </div>
           </div>
 
-          <div className="space-y-4">
-            {currentNotifications.length === 0 ? (
+          <div className="space-y-2">
+            {loading ? (
+              <NotificationsSkeleton rows={6} />
+            ) : currentNotifications.length === 0 ? (
               <Card>
                 <CardContent className="flex flex-col items-center justify-center py-12">
                   <div className="text-muted-foreground text-center">
@@ -178,7 +297,7 @@ export default function NotificationsPage() {
                 <Card 
                   key={notification.id} 
                   id={`notification-${notification.id}`}
-                  className={`transition-all duration-200 cursor-pointer hover:bg-accent/50 ${
+                  className={`transition-all duration-200 cursor-pointer hover:bg-accent/30 ${
                     !notification.read 
                       ? 'border-blue-200 bg-blue-50/50 dark:bg-blue-950/10' 
                       : ''
@@ -191,38 +310,56 @@ export default function NotificationsPage() {
                     // Mark as read when clicking the card
                     if (!notification.read) {
                       markNotificationAsRead(notification.id)
+                      try {
+                        const auth = JSON.parse(localStorage.getItem('shoreagents-auth') || '{}')
+                        const email = auth?.user?.email
+                        if (email) {
+                          fetch('/api/notifications/mark-read', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            credentials: 'include',
+                            body: JSON.stringify({ id: notification.id, email })
+                          })
+                        }
+                      } catch {}
                     }
                     
                     // Navigate if actionUrl is provided
                     if (notification.actionUrl) {
                       router.push(notification.actionUrl)
+                      return
+                    }
+                    // Try to infer a path from actionData
+                    if (notification.actionData?.ticket_id) {
+                      router.push(`/forms/${notification.actionData.ticket_id}`)
+                      return
                     }
                   }}
                 >
-                    <CardContent className="p-4">
-                      <div className="flex items-start gap-4">
-                        <div className={`p-2 rounded-full ${getTypeColor(notification.type)}`}>
-                          <IconComponent className="h-5 w-5" />
+                    <CardContent className="p-3">
+                      <div className="flex items-start gap-3">
+                        <div className={`p-1.5 rounded-full ${getTypeColor(notification.type)}`}>
+                          <IconComponent className="h-4 w-4" />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-start justify-between gap-4">
+                          <div className="flex items-start justify-between gap-3">
                             <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-1">
-                                <h3 className={`font-semibold ${
+                              <div className="flex items-center gap-2">
+                                <h3 className={`text-sm font-semibold ${
                                   !notification.read ? 'text-foreground' : 'text-muted-foreground'
                                 }`}>
                                   {notification.title}
                                 </h3>
                                 {!notification.read && (
-                                  <Badge variant="secondary" className="text-xs">
+                                  <Badge variant="secondary" className="text-[10px] h-5">
                                     New
                                   </Badge>
                                 )}
                               </div>
-                              <p className="text-sm text-muted-foreground mb-2">
+                              <p className="text-xs text-muted-foreground line-clamp-1">
                                 {notification.message}
                               </p>
-                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
                                 <span>{formatTimeAgo(notification.time)}</span>
                                 <span>•</span>
                                 <span className="capitalize">{notification.type}</span>
@@ -231,11 +368,11 @@ export default function NotificationsPage() {
                             <div className="flex items-center gap-1">
                               <Button
                                 variant="ghost"
-                                size="sm"
-                                onClick={() => handleDeleteNotification(notification.id)}
-                                className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                                size="icon"
+                                onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleDeleteNotification(notification.id) }}
+                                className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
                               >
-                                <Trash2 className="h-4 w-4" />
+                                <Trash2 className="h-3.5 w-3.5" />
                               </Button>
                             </div>
                           </div>

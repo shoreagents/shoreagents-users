@@ -31,7 +31,12 @@ export async function GET(request: NextRequest) {
         const authCookie = request.cookies.get('shoreagents-auth')?.value;
         let userEmail: string | null = null;
         if (authCookie) {
-          const authData = JSON.parse(authCookie);
+          let authData: any = null;
+          try {
+            authData = JSON.parse(decodeURIComponent(authCookie));
+          } catch {
+            try { authData = JSON.parse(authCookie); } catch { authData = null; }
+          }
           userEmail = authData?.user?.email || null;
         } else {
           // Fallback to Authorization header JSON (legacy)

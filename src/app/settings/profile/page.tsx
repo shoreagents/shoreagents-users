@@ -85,6 +85,26 @@ export default function ProfilePage() {
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [error, setError] = useState<string | null>(null)
   
+  const getInitials = (first?: string, last?: string, email?: string) => {
+    const firstTrim = (first || '').trim()
+    const lastTrim = (last || '').trim()
+    if (firstTrim || lastTrim) {
+      const a = firstTrim ? firstTrim[0] : ''
+      const b = lastTrim ? lastTrim[0] : ''
+      const initials = `${a}${b}` || (firstTrim.slice(0, 2))
+      return initials.toUpperCase()
+    }
+    const mail = (email || '').trim()
+    if (mail.includes('@')) {
+      const [local, domain] = mail.split('@')
+      const a = local?.[0] || ''
+      const b = domain?.[0] || ''
+      const initials = `${a}${b}`
+      return initials ? initials.toUpperCase() : 'SA'
+    }
+    return 'SA'
+  }
+  
   useEffect(() => {
     const loadProfile = async () => {
       try {
@@ -509,9 +529,11 @@ export default function ProfilePage() {
                           className="w-24 h-24 rounded-full object-cover"
                         />
                       ) : (
-                      <div className="w-24 h-24 bg-muted rounded-full flex items-center justify-center">
-                        <User className="h-12 w-12 text-muted-foreground" />
-                      </div>
+                        <div className="w-24 h-24 bg-muted rounded-full flex items-center justify-center">
+                          <span className="text-xl font-semibold text-muted-foreground">
+                            {getInitials(profile.first_name, profile.last_name, profile.email)}
+                          </span>
+                        </div>
                       )}
                     </div>
                   </div>

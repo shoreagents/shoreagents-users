@@ -20,7 +20,7 @@ async function checkRedirectConfig() {
     
     // Test with the exact redirect URL from your email
     const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: 'http://localhost:3000/reset-password'
+      redirectTo: (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000') + '/reset-password'
     });
     
     if (resetError) {
@@ -30,15 +30,15 @@ async function checkRedirectConfig() {
         console.log('\n💡 This error suggests redirect URLs are not configured properly.');
         console.log('🔧 Please configure redirect URLs in Supabase dashboard:');
         console.log('   1. Go to: https://supabase.com/dashboard/project/sanljwkkoawwdpaxrper/authentication/url-configuration');
-        console.log('   2. Add: http://localhost:3000/reset-password');
-        console.log('   3. Add: http://localhost:3000');
+        console.log(`   2. Add: ${(process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000')}/reset-password`);
+        console.log(`   3. Add: ${(process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000')}`);
         console.log('   4. Save the changes');
       }
     } else {
       console.log('✅ Password reset email sent successfully');
       console.log('📧 Check your email for the reset link');
       console.log('\n💡 If the link still shows "invalid", try:');
-      console.log('   1. Use manual token entry at: http://localhost:3000/reset-password');
+      console.log(`   1. Use manual token entry at: ${(process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000')}/reset-password`);
       console.log('   2. Copy the token from the email URL');
       console.log('   3. Paste it in the token field');
     }

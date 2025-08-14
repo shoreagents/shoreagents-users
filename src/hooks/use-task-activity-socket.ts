@@ -25,11 +25,13 @@ export function useTaskActivitySocket(email: string | null): TaskActivitySocket 
     }
 
     // Connect to Socket.IO server
-    socketRef.current = io('http://localhost:3001')
+    const socketServerUrl = (process.env.NEXT_PUBLIC_SOCKET_URL || process.env.SOCKET_SERVER_URL || 'http://localhost:3001') as string
+    socketRef.current = io(socketServerUrl)
 
     socketRef.current.on('connect', () => {
       console.log('Task activity socket connected')
       isConnectedRef.current = true
+      try { (window as any)._saSocket = socketRef.current } catch {}
       
       // Authenticate with email
       socketRef.current?.emit('authenticate', email)
@@ -38,6 +40,7 @@ export function useTaskActivitySocket(email: string | null): TaskActivitySocket 
     socketRef.current.on('disconnect', () => {
       console.log('Task activity socket disconnected')
       isConnectedRef.current = false
+      try { if ((window as any)._saSocket === socketRef.current) (window as any)._saSocket = null } catch {}
     })
 
     socketRef.current.on('authenticated', (data) => {
@@ -50,6 +53,7 @@ export function useTaskActivitySocket(email: string | null): TaskActivitySocket 
         socketRef.current = null
       }
       isConnectedRef.current = false
+      try { (window as any)._saSocket = null } catch {}
     }
   }, [email])
 

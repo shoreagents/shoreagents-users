@@ -14,6 +14,7 @@ export interface Ticket {
   userId?: number // Use actual database user ID (integer)
   userEmail?: string // Keep email for localStorage key generation
   resolvedBy?: number // ID of user who resolved the ticket
+  resolvedByName?: string // Name of user who resolved the ticket
   resolvedByEmail?: string // Email of user who resolved the ticket
   resolvedAt?: string // Timestamp when ticket was resolved
   categoryId?: number // New field for category relationship
@@ -77,22 +78,7 @@ export const addTicketForUser = (userEmail: string, ticket: Ticket) => {
   tickets.push(newTicket)
   saveTicketsForUser(userEmail, tickets)
   
-  // Add smart notification for new ticket creation
-  if (typeof window !== 'undefined') {
-    const { addSmartNotification } = require('./notification-service')
-    addSmartNotification({
-      type: 'info',
-      title: 'New Support Ticket',
-      message: `Ticket "${newTicket.name}" has been created`,
-      icon: 'FileText',
-      category: 'ticket',
-      actionUrl: `/forms/${newTicket.id}`,
-      actionData: { ticketId: newTicket.id }
-    }, 'creation')
-    
-    // Trigger notification update event
-    window.dispatchEvent(new CustomEvent('notifications-updated'))
-  }
+  // Notification now handled server-side via database triggers and sockets
   
   return newTicket
 }
@@ -109,25 +95,7 @@ export const updateTicketForUser = (userEmail: string, ticketId: string, updates
   )
   saveTicketsForUser(userEmail, updatedTickets)
   
-  // Only create notification for significant status changes
-  if (typeof window !== 'undefined' && updates.status === 'Closed' && originalTicket.status !== 'Closed') {
-    const updatedTicket = updatedTickets.find(t => t.id === ticketId)
-    if (updatedTicket) {
-      const { addSmartNotification } = require('./notification-service')
-      addSmartNotification({
-        type: 'success',
-        title: 'Ticket Closed',
-        message: `Ticket "${updatedTicket.name}" has been closed`,
-        icon: 'CheckCircle',
-        category: 'ticket',
-        actionUrl: `/forms/${updatedTicket.id}`,
-        actionData: { ticketId: updatedTicket.id }
-      }, 'completion')
-      
-      // Trigger notification update event
-      window.dispatchEvent(new CustomEvent('notifications-updated'))
-    }
-  }
+  // Notification now handled server-side via database triggers and sockets
 }
 
 export const getCurrentUserTickets = (): Ticket[] => {

@@ -17,7 +17,9 @@ function getUserFromRequest(request: NextRequest) {
   }
 
   try {
-    const authData = JSON.parse(authCookie.value)
+    const raw = typeof authCookie.value === 'string' ? authCookie.value : ''
+    const decoded = (() => { try { return decodeURIComponent(raw) } catch { return raw } })()
+    const authData = JSON.parse(decoded)
     if (!authData.isAuthenticated || !authData.user) {
       return null
     }
