@@ -92,6 +92,19 @@ export function forceLogout() {
   window.location.href = '/login'
 }
 
+// Clear all auth artifacts without redirect (used before login to avoid stale state)
+export function clearAllAuthArtifacts() {
+  try {
+    localStorage.removeItem('shoreagents-auth')
+    localStorage.removeItem('sb-sanljwkkoawwdpaxrper-auth-token')
+  } catch {}
+  try {
+    document.cookie = 'shoreagents-auth=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;'
+    document.cookie = 'sb-sanljwkkoawwdpaxrper-auth-token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;'
+  } catch {}
+  try { sessionStorage.clear() } catch {}
+}
+
 /**
  * Check if user has valid authentication tokens
  */

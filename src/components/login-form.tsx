@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { useActivity } from "@/contexts/activity-context"
 import { getCurrentPhilippinesTime } from "@/lib/timezone-utils"
-import { setAuthCookie } from "@/lib/auth-utils"
+import { setAuthCookie, clearAllAuthArtifacts } from "@/lib/auth-utils"
 import { authHelpers, supabase } from "@/lib/supabase"
 
 export function LoginForm({
@@ -32,6 +32,8 @@ export function LoginForm({
     setError("")
 
     try {
+      // Clear any stale tokens/cookies before starting a new login to avoid the double-attempt redirect
+      clearAllAuthArtifacts()
       // Sign in with Supabase
       const { data, error } = await authHelpers.signInWithEmail(email, password)
       
@@ -84,7 +86,7 @@ export function LoginForm({
 
       if (data.user && data.session) {
         // Call the API route for hybrid validation (Supabase auth + Railway role check)
-        const response = await fetch('/api/auth/login', {
+          const response = await fetch('/api/auth/login', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

@@ -14,7 +14,7 @@ async function setupActualStartTime() {
     console.log('📄 Migration SQL loaded successfully');
     
     // Execute the migration
-    const response = await fetch('http://localhost:3000/api/database/migrate', {
+    const response = await fetch((process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000') + '/api/database/migrate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 

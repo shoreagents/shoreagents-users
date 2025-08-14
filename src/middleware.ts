@@ -73,7 +73,12 @@ export async function middleware(request: NextRequest) {
     
     if (authToken) {
       try {
-        const authData = JSON.parse(authToken)
+        let authData: any = null
+        try {
+          authData = JSON.parse(decodeURIComponent(authToken))
+        } catch {
+          authData = JSON.parse(authToken)
+        }
         
         // If using fallback authentication or legacy auth, allow it during transition
         if (authData.isAuthenticated === true) {

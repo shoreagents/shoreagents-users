@@ -48,7 +48,7 @@ async function checkSupabaseUser() {
     // Test if we can send a password reset
     console.log('\n🧪 Testing password reset...');
     const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: 'http://localhost:3000/reset-password'
+      redirectTo: (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000') + '/reset-password'
     });
     
     if (resetError) {

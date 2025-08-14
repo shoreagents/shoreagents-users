@@ -1,6 +1,4 @@
-import { getCurrentUser } from './ticket-utils'
-// import { getAllTasks, getNotStartedTaskCount } from './task-utils'
-import { getCurrentUserTickets } from './ticket-utils'
+// Notification service (socket/db-backed). Removed localStorage usage.
 
 export interface Notification {
   id: string
@@ -17,20 +15,10 @@ export interface Notification {
   eventType: 'creation' | 'status_change' | 'completion' | 'assignment' | 'system' // New event type
 }
 
-export interface NotificationData {
-  notifications: Notification[]
-  lastChecked: number
-  unreadCount: number
-  notificationSettings: {
-    taskUpdates: boolean
-    taskCompletions: boolean
-    ticketUpdates: boolean
-    ticketResolutions: boolean
-    systemAlerts: boolean
-  }
-}
+// In-memory store for current session notifications
+let inMemoryNotifications: Notification[] = []
 
-const NOTIFICATIONS_STORAGE_KEY = 'shoreagents-notifications'
+// LocalStorage key removed; notifications are not persisted in browser storage
 
 // Smart notification rules for dashboard
 const NOTIFICATION_RULES = {
@@ -79,57 +67,12 @@ function migrateNotificationTimes(notifications: Notification[]): Notification[]
 
 // Get notifications for current user
 export function getNotifications(): Notification[] {
-  if (typeof window === 'undefined') return []
-  
-  const user = getCurrentUser()
-  if (!user) return []
-  
-  const key = `${NOTIFICATIONS_STORAGE_KEY}-${user.email}`
-  
-  try {
-    const stored = localStorage.getItem(key)
-    if (!stored) return []
-    
-    const data: NotificationData = JSON.parse(stored)
-    const notifications = data.notifications || []
-    
-    // Migrate old notifications to new timestamp format
-    const migratedNotifications = migrateNotificationTimes(notifications)
-    
-    // Save migrated notifications back to localStorage
-    if (migratedNotifications.length !== notifications.length || 
-        migratedNotifications.some((n, i) => n.time !== notifications[i]?.time)) {
-      saveNotifications(migratedNotifications)
-    }
-    
-    return migratedNotifications
-  } catch {
-    return []
-  }
+  return migrateNotificationTimes(inMemoryNotifications)
 }
 
 // Save notifications for current user
 export function saveNotifications(notifications: Notification[]): void {
-  if (typeof window === 'undefined') return
-  
-  const user = getCurrentUser()
-  if (!user) return
-  
-  const key = `${NOTIFICATIONS_STORAGE_KEY}-${user.email}`
-  const data: NotificationData = {
-    notifications,
-    lastChecked: Date.now(),
-    unreadCount: notifications.filter(n => !n.read).length,
-    notificationSettings: {
-      taskUpdates: true,
-      taskCompletions: true,
-      ticketUpdates: true,
-      ticketResolutions: true,
-      systemAlerts: true
-    }
-  }
-  
-  localStorage.setItem(key, JSON.stringify(data))
+  inMemoryNotifications = notifications.slice(0)
 }
 
 // Smart notification addition with deduplication
@@ -278,10 +221,7 @@ export function addNotification(notification: Omit<Notification, 'id' | 'time' |
 
 // Mark notification as read
 export function markNotificationAsRead(id: string): void {
-  const notifications = getNotifications()
-  const updated = notifications.map(n => 
-    n.id === id ? { ...n, read: true } : n
-  )
+  const updated = getNotifications().map(n => n.id === id ? { ...n, read: true } : n)
   saveNotifications(updated)
   
   // Trigger a custom event to notify other components
@@ -300,8 +240,7 @@ export function markNotificationAsRead(id: string): void {
 
 // Mark all notifications as read
 export function markAllNotificationsAsRead(): void {
-  const notifications = getNotifications()
-  const updated = notifications.map(n => ({ ...n, read: true }))
+  const updated = getNotifications().map(n => ({ ...n, read: true }))
   saveNotifications(updated)
   
   // Trigger a custom event to notify other components
@@ -319,8 +258,7 @@ export function markAllNotificationsAsRead(): void {
 
 // Delete notification
 export function deleteNotification(id: string): void {
-  const notifications = getNotifications()
-  const updated = notifications.filter(n => n.id !== id)
+  const updated = getNotifications().filter(n => n.id !== id)
   saveNotifications(updated)
 }
 
@@ -350,8 +288,7 @@ export function removeDuplicateNotifications(): void {
 
 // Get unread count
 export function getUnreadCount(): number {
-  const notifications = getNotifications()
-  return notifications.filter(n => !n.read).length
+  return getNotifications().filter(n => !n.read).length
 }
 
 // Format time ago
@@ -416,17 +353,7 @@ export function checkAllNotifications(): void {
 
 // Check only for new notifications (preserves existing read status)
 export function checkForNewNotificationsOnly(): void {
-  const existingNotifications = getNotifications()
-  
-  // Only add notifications if we have very few (less than 5) or none
-  if (existingNotifications.length < 5) {
-    checkForNewTaskNotifications()
-    checkForTaskStatusNotifications()
-    checkForTicketNotifications()
-    checkForActivityNotifications()
-    checkForSystemNotifications()
-    addSampleNotifications()
-  }
+  // No-op: notifications are socket-driven
 }
 
 // Force regenerate all notifications from localStorage data
@@ -472,14 +399,8 @@ export function regenerateAllNotifications(): void {
 
 // Initialize notification checking
 export function initializeNotificationChecking(): void {
-  // Clean up any duplicate notifications first
-  removeDuplicateNotifications()
-  
-  // Only check for new notifications, don't regenerate existing ones
-  checkForNewNotificationsOnly()
-  
-  // Check every 5 minutes
-  setInterval(checkForNewNotificationsOnly, 5 * 60 * 1000)
+  // Legacy localStorage polling disabled; notifications now database-driven via sockets
+  return
 }
 
 // Add sample notifications for testing
@@ -509,7 +430,6 @@ export function addSampleNotifications(): void {
 // Clean up and refresh notifications
 export function cleanupAndRefreshNotifications(): void {
   removeDuplicateNotifications()
-  checkForNewNotificationsOnly()
 }
 
 // Remove "Unread Tasks" notifications

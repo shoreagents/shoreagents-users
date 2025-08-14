@@ -136,12 +136,32 @@ export async function POST(request: NextRequest) {
         role: userRecord.user_type.toLowerCase() // For compatibility with existing code
       }
 
-      return NextResponse.json({
+      // Also set app auth cookie server-side to avoid race conditions on first redirect
+      const authData = {
+        isAuthenticated: true,
+        user: {
+          id: userData.id,
+          email: userData.email,
+          name: userData.name,
+          role: userData.role,
+          user_type: userData.user_type,
+        },
+        timestamp: new Date().toISOString(),
+        usingFallback: true,
+      }
+
+      const resFallback = NextResponse.json({
         success: true,
         user: userData,
         message: 'Login successful (Railway fallback)',
         fallback: true
       })
+      resFallback.cookies.set(
+        'shoreagents-auth',
+        encodeURIComponent(JSON.stringify(authData)),
+        { path: '/', sameSite: 'lax', maxAge: 60 * 60 * 24 * 7 }
+      )
+      return resFallback
     }
 
     // If Supabase is not configured, use Railway only
@@ -252,13 +272,34 @@ export async function POST(request: NextRequest) {
       role: 'agent' // For compatibility with existing code
     }
 
-    return NextResponse.json({
+    // Also set our app auth cookie server-side to avoid needing a second login
+    const authData = {
+      isAuthenticated: true,
+      user: {
+        id: userData.id,
+        railway_id: userData.railway_id,
+        email: userData.email,
+        name: userData.name,
+        role: userData.role,
+        user_type: userData.user_type,
+      },
+      timestamp: new Date().toISOString(),
+      hybrid: true,
+    }
+
+    const resHybrid = NextResponse.json({
       success: true,
       user: userData,
       message: 'Login successful (Supabase + Railway validation)',
       session: data.session,
       hybrid: true
     })
+    resHybrid.cookies.set(
+      'shoreagents-auth',
+      encodeURIComponent(JSON.stringify(authData)),
+      { path: '/', sameSite: 'lax', maxAge: 60 * 60 * 24 * 7 }
+    )
+    return resHybrid
 
   } catch (error) {
     console.error('Login API error:', error)

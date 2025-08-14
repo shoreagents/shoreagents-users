@@ -197,6 +197,8 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         setTimeUntilReset(0)
         setFormattedTimeUntilReset('0s')
         console.log('⏰ Shift reset time has passed')
+        // Notify other layers to force a reset sync
+        window.dispatchEvent(new CustomEvent('shiftResetCountdownZero'))
       } else {
         // Update countdown
         setTimeUntilReset(timeRemaining)

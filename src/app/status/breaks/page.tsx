@@ -60,6 +60,8 @@ export default function BreaksPage() {
   const [activeBreak, setActiveBreak] = useState<BreakType | null>(null)
   const [breakStatus, setBreakStatus] = useState<DatabaseBreakStatus | null>(null)
   const [breakHistory, setBreakHistory] = useState<any>(null)
+  const [showAllHistory, setShowAllHistory] = useState(false)
+  const [loadingHistory, setLoadingHistory] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [autoEnding, setAutoEnding] = useState(false)
@@ -220,6 +222,7 @@ export default function BreaksPage() {
 
         // Get break history (last 7 days)
         try {
+          // Initial: load recent history window only
           const { success: historySuccess, data: historyData } = await getBreakHistory(7, true)
           if (historySuccess && historyData) {
             setBreakHistory(historyData)
@@ -881,7 +884,43 @@ export default function BreaksPage() {
 
                   {/* Break History Table */}
                   <div className="space-y-2">
-                    <h4 className="font-medium">Recent Break Sessions</h4>
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-medium">{showAllHistory ? 'All Break Sessions' : 'Recent Break Sessions'}</h4>
+                      {breakHistory && (
+                        <div className="flex items-center gap-2">
+                          {!showAllHistory ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={loadingHistory}
+                              onClick={async () => {
+                                try {
+                                  setLoadingHistory(true)
+                                  // Fetch a wider window for full history (last 90 days)
+                                  const { success, data } = await getBreakHistory(90, true)
+                                  if (success && data) {
+                                    setBreakHistory(data)
+                                    setShowAllHistory(true)
+                                  }
+                                } finally {
+                                  setLoadingHistory(false)
+                                }
+                              }}
+                            >
+                              {loadingHistory ? 'Loading…' : 'View all history'}
+                            </Button>
+                          ) : (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setShowAllHistory(false)}
+                            >
+                              Show recent only
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                    </div>
                     <div className="border rounded-lg overflow-hidden">
                       <table className="w-full">
                         <thead className="bg-muted/50">
@@ -895,10 +934,11 @@ export default function BreaksPage() {
                           </tr>
                         </thead>
                         <tbody className="divide-y">
-                          {[...(breakHistory.completed_breaks || []), ...(breakHistory.active_breaks || [])]
-                            .sort((a: any, b: any) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime())
-                            .slice(0, 10) // Show only last 10 sessions
-                            .map((breakSession: any) => {
+                          {(() => {
+                            const sessions = [...(breakHistory.completed_breaks || []), ...(breakHistory.active_breaks || [])]
+                              .sort((a: any, b: any) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime())
+                            const display = showAllHistory ? sessions : sessions.slice(0, 5)
+                            return display.map((breakSession: any) => {
                               const breakInfo = availableBreaks.find(b => b.id === breakSession.break_type)
                               const Icon = breakInfo?.icon || Clock
                               const sessionDate = new Date(breakSession.start_time)
@@ -934,7 +974,8 @@ export default function BreaksPage() {
                                   </td>
                                 </tr>
                               )
-                            })}
+                            })
+                          })()}
                         </tbody>
                       </table>
                     </div>

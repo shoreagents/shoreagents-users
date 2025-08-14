@@ -51,7 +51,7 @@ async function fixBreakDuration() {
     console.log('📝 Updating duration calculation function...');
     
     // Execute the SQL using the migration API
-    const response = await fetch('http://localhost:3000/api/database/migrate', {
+    const response = await fetch((process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000') + '/api/database/migrate', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -74,7 +74,7 @@ async function fixBreakDuration() {
 
     console.log('📝 Adding function comment...');
     
-    const commentResponse = await fetch('http://localhost:3000/api/database/migrate', {
+    const commentResponse = await fetch((process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000') + '/api/database/migrate', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -107,7 +107,7 @@ async function fixBreakDuration() {
   } catch (error) {
     console.error('❌ Failed to fix break duration calculation:', error);
     console.log('');
-    console.log('💡 Make sure your app is running on http://localhost:3000');
+    console.log(`💡 Make sure your app is running on ${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}`);
     console.log('💡 Or run: npm run dev');
     process.exit(1);
   }

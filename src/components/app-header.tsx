@@ -36,7 +36,9 @@ import {
   formatTimeAgo
 } from "@/lib/notification-service"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { BellNotificationsSkeleton } from "@/components/skeleton-loaders"
 import { AppSidebar } from "@/components/app-sidebar"
+import { useNotificationsSocket } from "@/hooks/use-notifications-socket"
 
 interface BreadcrumbItem {
   title: string
@@ -61,6 +63,10 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
 
   const [notifications, setNotifications] = useState<any[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
+  const [loadingBell, setLoadingBell] = useState(true)
+
+  // Start socket listener for DB notifications. The hook reacts to email changes.
+  useNotificationsSocket(user?.email || null)
 
   // Initialize notification checking
   useEffect(() => {
@@ -93,33 +99,51 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
     }
   }, [])
 
-  // Load notifications and update periodically
+  // Load notifications from DB on mount if available
   useEffect(() => {
-    const loadNotifications = () => {
-      const realNotifications = getNotifications()
-      // Show unread notifications first, then recent ones, limit to 8
-      const unreadNotifications = realNotifications.filter(n => !n.read)
-      const readNotifications = realNotifications.filter(n => n.read)
-      
-      // Combine unread first, then recent read ones
-      const recentNotifications = [
-        ...unreadNotifications,
-        ...readNotifications
-      ].slice(0, 8)
-      
-      setNotifications(recentNotifications)
-      setUnreadCount(getUnreadCount())
+    const user = getCurrentUser()
+    const loadFromDb = async () => {
+      try {
+        if (!user?.email) return
+        const res = await fetch(`/api/notifications?email=${encodeURIComponent(user.email)}&limit=50`, { credentials: 'include' })
+        if (!res.ok) return
+        const data = await res.json()
+        if (data?.success && Array.isArray(data.notifications)) {
+          const mapped = data.notifications.map((n: any) => {
+            const payload = n.payload || {}
+            const actionUrl = payload.action_url
+              || (n.category === 'ticket' && (payload.ticket_id || payload.ticket_row_id) ? `/forms/${payload.ticket_id || ''}` : undefined)
+              || (n.category === 'break' ? '/status/breaks' : undefined)
+            const icon = n.category === 'ticket' ? 'FileText' : n.category === 'break' ? 'Clock' : 'Bell'
+            return {
+              id: `db_${n.id}`,
+              type: n.type,
+              title: n.title,
+              message: n.message,
+              time: new Date(n.created_at).getTime(),
+              read: !!n.is_read,
+              icon,
+              actionUrl,
+              actionData: payload,
+              category: n.category,
+              priority: 'medium' as const,
+              eventType: 'system' as const,
+            }
+          })
+          // Save to in-memory store so bell uses the same source
+          const { saveNotifications } = await import('@/lib/notification-service')
+          saveNotifications(mapped)
+          // Render top 8
+          const unread = mapped.filter((n: any) => !n.read)
+          const read = mapped.filter((n: any) => n.read)
+          setNotifications([...unread, ...read].slice(0, 8))
+          setUnreadCount(unread.length)
+        }
+      } catch {}
+      finally { setLoadingBell(false) }
     }
-
-    loadNotifications()
-    
-    // Update every 30 seconds instead of 10 seconds to reduce load
-    const interval = setInterval(loadNotifications, 30000)
-    
-    return () => {
-      clearInterval(interval)
-    }
-  }, []) // Remove the event listener from this useEffect
+    loadFromDb()
+  }, [])
 
   // Separate useEffect for notification event handling only
   useEffect(() => {
@@ -291,10 +315,10 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
         title: 'Productivity'
       })
 
-      if (pathSegments[1] === 'tasks') {
+      if (pathSegments[1] === 'tasks' || pathSegments[1] === 'task-activity') {
         generatedBreadcrumbs.push({
-          title: 'Task Tracker',
-          href: '/productivity/tasks'
+          title: 'Task',
+          href: pathSegments[1] === 'task-activity' ? '/productivity/task-activity' : '/productivity/tasks'
         })
       } else if (pathSegments.length === 1) {
         // Productivity home page - make it clickable
@@ -404,24 +428,7 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
             <span className="hidden dark:inline"><Sun className="h-4 w-4" /></span>
           </Button>
 
-          <DropdownMenu onOpenChange={(open) => {
-            // Mark all notifications as read when dropdown opens
-            if (open && unreadCount > 0) {
-              markAllNotificationsAsRead();
-              // Update local state immediately
-              const updatedNotifications = getNotifications();
-              setNotifications(updatedNotifications);
-              setUnreadCount(0);
-              
-              // Trigger notification update event to sync with system tray
-              window.dispatchEvent(new CustomEvent('notifications-updated'));
-              
-              // Immediately update system tray badge
-              if (window.electronAPI?.send) {
-                window.electronAPI.send('notification-count-changed', { count: 0 });
-              }
-            }
-          }}>
+          <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
                 variant="ghost"
@@ -442,16 +449,52 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
             <DropdownMenuContent className="w-80" align="end" forceMount>
               <div className="flex items-center justify-between p-4 pb-2">
                 <h3 className="text-sm font-semibold">Notifications</h3>
-                {unreadCount > 0 && (
-                  <Badge variant="destructive" className="text-xs bg-red-500 text-white">
-                    {unreadCount} new
-                  </Badge>
-                )}
+                <div className="flex items-center gap-2">
+                  {unreadCount > 0 && (
+                    <Badge variant="destructive" className="text-xs bg-red-500 text-white">
+                      {unreadCount} new
+                    </Badge>
+                  )}
+                  {notifications.length > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      onClick={async () => {
+                        markAllNotificationsAsRead()
+                        const updated = getNotifications()
+                        setNotifications(updated)
+                        setUnreadCount(0)
+                        // Persist to DB
+                        try {
+                          const currentUser = getCurrentUser()
+                          if (currentUser?.email) {
+                            const ids = updated.map(n => n.id) // after markAll, ids still needed for persistence
+                            await fetch('/api/notifications/mark-read', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              credentials: 'include',
+                              body: JSON.stringify({ ids, email: currentUser.email })
+                            })
+                          }
+                        } catch {}
+                        // Update system tray badge
+                        if (window.electronAPI?.send) {
+                          window.electronAPI.send('notification-count-changed', { count: 0 })
+                        }
+                      }}
+                    >
+                      Mark all read
+                    </Button>
+                  )}
+                </div>
               </div>
               <DropdownMenuSeparator />
               <ScrollArea className="h-96">
                 <div className="p-2">
-                  {notifications.length === 0 ? (
+                  {loadingBell ? (
+                    <BellNotificationsSkeleton rows={6} />
+                  ) : notifications.length === 0 ? (
                     <div className="p-4 text-center text-sm text-muted-foreground">
                       No notifications
                     </div>
@@ -482,8 +525,20 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
                                 : 'hover:bg-muted/40 dark:hover:bg-muted/20'
                             }`}
                             onClick={() => {
-                              // Mark as read
+                              // Mark as read (UI)
                               markNotificationAsRead(notification.id)
+                              // Persist in DB
+                              try {
+                                const currentUser = getCurrentUser()
+                                if (currentUser?.email) {
+                                  fetch('/api/notifications/mark-read', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    credentials: 'include',
+                                    body: JSON.stringify({ id: notification.id, email: currentUser.email })
+                                  })
+                                }
+                              } catch {}
                               
                               // Update local state immediately
                               const updatedNotifications = getNotifications()
@@ -499,7 +554,7 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
                               setNotifications(recentNotifications)
                               setUnreadCount(getUnreadCount())
                               
-                              // Navigate if actionUrl is provided
+                               // Navigate if actionUrl is provided
                               if (notification.actionUrl) {
                                 router.push(notification.actionUrl)
                               }

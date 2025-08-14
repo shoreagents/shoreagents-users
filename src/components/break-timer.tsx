@@ -273,14 +273,21 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
     <div className="fixed inset-0 bg-background z-50 flex items-center justify-center p-4">
       <div className="w-full h-full flex items-center justify-center">
         <Card className="border-2 border-primary/20 w-full h-full max-w-none max-h-none m-0 rounded-none">
-          <CardHeader className="text-center pb-6 pt-8">
-            <div className="flex items-center justify-center gap-3 mb-4">
-              <div className={`p-3 rounded-full ${breakInfo.color} text-white`}>
-                <Icon className="h-8 w-8" />
+          <CardHeader className="text-center pt-8">
+            <div className="flex justify-center mb-4">
+              <img
+                src="/shoreagents-logo.png"
+                alt="ShoreAgents"
+                className="h-12 sm:h-16 object-contain"
+              />
+            </div>
+            <div className="flex items-center justify-center gap-4 mb-4">
+              <div className={`p-4 rounded-full ${breakInfo.color} text-white`}>
+                <Icon className="h-12 w-12" />
               </div>
               <div>
-                <CardTitle className="text-3xl">{breakInfo.name}</CardTitle>
-                <p className="text-muted-foreground">{breakInfo.description}</p>
+                <CardTitle className="text-4xl sm:text-5xl font-bold leading-tight">{breakInfo.name}</CardTitle>
+                <p className="text-lg text-muted-foreground">{breakInfo.description}</p>
               </div>
             </div>
             
@@ -297,7 +304,7 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
           <CardContent className="space-y-8 flex-1 flex flex-col justify-center">
             {/* Timer Display */}
             <div className="text-center flex-1 flex flex-col justify-center">
-              <div className="text-[12rem] font-mono font-bold text-primary mb-8">
+              <div className="font-mono font-bold text-primary  text-[clamp(8rem,20vw,20rem)]">
                 {formatTime(timeLeft)}
               </div>
               

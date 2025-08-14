@@ -14,13 +14,16 @@ export interface Task {
   title: string
   description: string
   priority: 'urgent' | 'high' | 'normal' | 'low'
-  assignee: string
+  assignees?: number[]
+  assignee?: string
+  start_date?: string
   due_date: string
   tags: string[]
   position: number
   status: string
   created_at: string
   updated_at: string
+  task_custom_fields?: Array<{ id: number; title: string; description: string; position: number }>
 }
 
 // Fetch all task groups and tasks for the current user
@@ -174,7 +177,7 @@ export async function moveTask(taskId: number, newGroupId: number, targetPositio
 }
 
 // Update a task
-export async function updateTask(taskId: number, updates: Partial<Task>): Promise<Task> {
+export async function updateTask(taskId: number, updates: Partial<Task> & { assignees?: number[] }): Promise<Task> {
   try {
     // Get current user from localStorage
     const authData = localStorage.getItem("shoreagents-auth")

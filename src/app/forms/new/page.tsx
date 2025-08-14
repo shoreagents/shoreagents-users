@@ -228,16 +228,7 @@ export default function NewTicketPage() {
       }
       
       if (result.success) {
-        // Add notification for successful ticket creation
-        addSmartNotification({
-          type: 'success',
-          title: 'Ticket Created',
-          message: `Ticket "${result.ticket.id}" created successfully`,
-          actionUrl: `/forms/${result.ticket.id}`,
-          icon: 'FileText',
-          category: 'ticket',
-          actionData: { ticketId: result.ticket.id }
-        }, 'creation');
+        // Notification now handled server-side via database + sockets
         
         // Save ticket ID for success display
         setTicketId(result.ticket.id)

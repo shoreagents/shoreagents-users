@@ -8,19 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -42,10 +30,8 @@ import {
   Plus,
   Tag,
   Upload,
-  User,
   Users,
-  Zap,
-  MessageSquare,
+
   Search,
   Bell,
   Settings,
@@ -64,6 +50,8 @@ import {
 import { cn } from "@/lib/utils"
 import React from "react"
 import { Card } from "@/components/ui/card"
+import { Reorder } from "framer-motion"
+import { useTaskActivitySocket } from "@/hooks/use-task-activity-socket"
 
 interface Task {
   id: string
@@ -76,6 +64,8 @@ interface Task {
   status: string
   group_id?: number
   relationships?: Array<{ taskId: string; type: string }>
+  custom_fields?: Array<{ id: string; title: string; description: string; position?: number }>
+  attachments?: Array<{ id: string; name: string; url: string; type: string }>
 }
 
 interface Column {
@@ -91,9 +81,25 @@ interface TaskDetailDialogProps {
   isOpen: boolean
   onClose: () => void
   onTaskUpdate: (taskId: string, updates: Partial<Task>) => void
+  onOpenTask?: (taskId: string) => void
 }
 
-export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTaskUpdate }: TaskDetailDialogProps) {
+export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTaskUpdate, onOpenTask }: TaskDetailDialogProps) {
+  // Real-time: listen for task activity events
+  const [events, setEvents] = useState<Array<{id:number; action:string; created_at:string; details:any; actor_user_id:number}>>([])
+  const [socketInstance, setSocketInstance] = useState<any>(null)
+  React.useEffect(() => {
+    const id = setInterval(() => {
+      try {
+        const s = (window as any)._saSocket
+        if (s && s.connected) {
+          setSocketInstance(s)
+          clearInterval(id)
+        }
+      } catch {}
+    }, 250)
+    return () => clearInterval(id)
+  }, [])
   const [activeTab, setActiveTab] = useState("details")
   const [comment, setComment] = useState("")
   const [isStatusOpen, setIsStatusOpen] = useState(false)
@@ -120,6 +126,7 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
   const [customFields, setCustomFields] = useState<Array<{id: string, title: string, description: string}>>([])
   const [isDragOver, setIsDragOver] = useState(false)
   const [uploadedFiles, setUploadedFiles] = useState<Array<{id: string, name: string, size: number}>>([])
+  const [existingAttachments, setExistingAttachments] = useState<Array<{id: string, name: string, url: string, size?: number}>>([])
   const [isAttachmentsOpen, setIsAttachmentsOpen] = useState(false)
   const [selectedAssignees, setSelectedAssignees] = useState<Array<{id: string, name: string, email: string, avatar: string}>>([])
 
@@ -138,41 +145,41 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
     low: "text-gray-500"
   }
 
-  // Initialize selected assignees from task data
+  // Load assignee candidates from database users
+  const [peopleList, setPeopleList] = React.useState<Array<{id: string, name: string, email: string, avatar: string, verified?: boolean}>>([])
   React.useEffect(() => {
-    if (task?.assignee) {
-      // Parse assignee data if it's stored as JSON, otherwise treat as single assignee
+    const loadUsers = async () => {
       try {
-        const assigneeData = JSON.parse(task.assignee)
-        if (Array.isArray(assigneeData)) {
-          setSelectedAssignees(assigneeData)
-        } else {
-          setSelectedAssignees([{ id: "current-1", name: task.assignee, email: `${task.assignee.toLowerCase().replace(' ', '.')}@shoreagents.com`, avatar: "" }])
+        const res = await fetch('/api/users?limit=50', { credentials: 'include' })
+        if (!res.ok) return
+        const data = await res.json()
+        if (data?.success && Array.isArray(data.users)) {
+          const mapped = data.users.map((u: any) => ({
+            id: String(u.id),
+            name: (u.name || u.email || '').trim() || u.email,
+            email: u.email,
+            avatar: u.avatar || ''
+          }))
+          setPeopleList(mapped)
         }
-      } catch {
-        // If not JSON, treat as single assignee string
-        setSelectedAssignees([{ id: "current-1", name: task.assignee, email: `${task.assignee.toLowerCase().replace(' ', '.')}@shoreagents.com`, avatar: "" }])
-      }
+      } catch {}
+    }
+    loadUsers()
+  }, [])
+
+  // Initialize selected assignees from task.assignees (array of user ids)
+  React.useEffect(() => {
+    if (task && Array.isArray((task as any).assignees)) {
+      const ids: number[] = (task as any).assignees
+      const mapped = ids.map((uid) => {
+        const person = peopleList.find((p) => Number(p.id) === Number(uid))
+        return person || { id: String(uid), name: `User #${uid}`, email: '', avatar: '' }
+      })
+      setSelectedAssignees(mapped)
     } else {
       setSelectedAssignees([])
     }
-  }, [task])
-
-  const peopleList = [
-    { id: "people-1", name: "Me", email: "me@example.com", avatar: "", isCurrentUser: true },
-    { id: "people-2", name: "Kath Macenas", email: "kath@example.com", avatar: "", verified: true },
-    { id: "people-3", name: "Kevin Macabanti", email: "kevin@example.com", avatar: "", verified: true },
-    { id: "people-4", name: "Charmine Salas", email: "charmine@example.com", avatar: "" },
-    { id: "people-5", name: "Mark Nobleza", email: "mark@example.com", avatar: "", verified: true },
-    { id: "people-6", name: "Jose Recede", email: "jose@example.com", avatar: "" },
-    { id: "people-7", name: "Stephen Atcheler", email: "stephen@example.com", avatar: "", verified: true },
-  ]
-
-  const teamList = [
-    { id: "team-1", name: "Development Team", members: 8, avatar: "" },
-    { id: "team-2", name: "Design Team", members: 4, avatar: "" },
-    { id: "team-3", name: "QA Team", members: 6, avatar: "" },
-  ]
+  }, [task, peopleList])
 
   // Convert columns to status options with default colors
   const statusOptions = columns && columns.length > 0 ? columns.map(column => ({
@@ -196,7 +203,13 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
     return colorMap[statusId] || 'bg-slate-500' // Default color for custom statuses
   }
 
-  const currentStatus = statusOptions.find(s => s.id === task?.group_id?.toString()) || statusOptions[0] || { id: task?.group_id?.toString() || '', label: task?.group_id?.toString() || '', color: 'bg-gray-500' }
+  const currentStatus = React.useMemo(() => {
+    // Prefer group_id if present, else fall back to status string
+    const byGroupId = statusOptions.find(s => s.id === task?.group_id?.toString())
+    if (byGroupId) return byGroupId
+    const byStatus = statusOptions.find(s => s.id === (task?.status || '').toString())
+    return byStatus || statusOptions[0] || { id: task?.group_id?.toString() || task?.status || '', label: task?.group_id?.toString() || task?.status || '', color: 'bg-gray-500' }
+  }, [statusOptions, task?.group_id, task?.status])
   const filteredStatuses = statusOptions.filter(status => 
     status.label.toLowerCase().includes(statusSearch.toLowerCase())
   )
@@ -215,8 +228,140 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
         setStartTime(timeString)
         setShowTimeInput(true)
       }
+    } else {
+      // Reset when task has no start date
+      setSelectedStartDate(undefined)
+      setStartTime("")
+      setShowTimeInput(false)
     }
   }, [task])
+
+  // Initialize attachments from task when dialog opens or task changes
+  React.useEffect(() => {
+    if (task && Array.isArray((task as any).attachments)) {
+      const list = ((task as any).attachments as any[]).map((a: any) => ({
+        id: String(a.id),
+        name: a.name || 'Attachment',
+        url: a.url,
+        size: a.size,
+      }))
+      setExistingAttachments(list)
+    } else {
+      setExistingAttachments([])
+    }
+  }, [task, JSON.stringify((task as any)?.attachments)])
+
+  // Ensure unique custom fields by id to avoid duplicate React keys
+  const uniqueCustomFields = React.useMemo((): Array<{ id: string; title: string; description: string }> => {
+    const seen = new Set<string>()
+    const result: Array<{ id: string; title: string; description: string }> = []
+    for (let i = 0; i < customFields.length; i++) {
+      const item = customFields[i] as unknown as { id: string; title: string; description: string }
+      const norm: { id: string; title: string; description: string } = {
+        id: String(item.id),
+        title: String(item.title || ''),
+        description: String(item.description || '')
+      }
+      if (!seen.has(norm.id)) {
+        seen.add(norm.id)
+        result.push(norm)
+      }
+    }
+    return result
+  }, [customFields])
+
+  // Helpers to get current user email for API calls
+  const getCurrentUserEmail = (): string | null => {
+    try {
+      const raw = localStorage.getItem('shoreagents-auth')
+      if (!raw) return null
+      const parsed = JSON.parse(raw)
+      return parsed?.user?.email || null
+    } catch {
+      return null
+    }
+  }
+
+  // Current user email (lowercased) for marking "(me)" in lists
+  const currentEmail = React.useMemo(() => {
+    try {
+      const e = getCurrentUserEmail()
+      return e ? e.toLowerCase() : null
+    } catch {
+      return null
+    }
+  }, [])
+
+  const taskIdNum = React.useMemo(() => {
+    const n = parseInt(task?.id || '0', 10)
+    return Number.isFinite(n) ? n : 0
+  }, [task?.id])
+
+  // API: create custom field
+  const createCustomField = async () => {
+    if (!taskIdNum) return
+    const email = getCurrentUserEmail()
+    const res = await fetch(`/api/task-activity/custom-fields?email=${encodeURIComponent(email || '')}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task_id: taskIdNum, title: '', description: '' })
+    })
+    if (!res.ok) return
+    const data = await res.json()
+    if (data?.success && data.field) {
+      const next = [
+        ...customFields,
+        { id: String(data.field.id), title: data.field.title || '', description: data.field.description || '' }
+      ]
+      setCustomFields(next)
+      // Propagate after render without triggering API call
+      setTimeout(() => onTaskUpdate(task!.id, { custom_fields: next, __localOnly: true } as any), 0)
+    }
+  }
+
+  // API: update custom field (title/description)
+  const persistCustomField = async (fieldId: string, updates: { title?: string; description?: string }) => {
+    const email = getCurrentUserEmail()
+    await fetch(`/api/task-activity/custom-fields/${fieldId}?email=${encodeURIComponent(email || '')}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates)
+    })
+    // After persisting, propagate latest local array to parent (local only)
+    setTimeout(() => onTaskUpdate(task!.id, { custom_fields: uniqueCustomFields, __localOnly: true } as any), 0)
+  }
+
+  // API: delete custom field
+  const deleteCustomField = async (fieldId: string) => {
+    const email = getCurrentUserEmail()
+    await fetch(`/api/task-activity/custom-fields/${fieldId}?email=${encodeURIComponent(email || '')}`, {
+      method: 'DELETE'
+    })
+    const next = uniqueCustomFields.filter(f => f.id !== fieldId)
+    setCustomFields(next)
+    setTimeout(() => onTaskUpdate(task!.id, { custom_fields: next, __localOnly: true } as any), 0)
+  }
+
+  // API: reorder custom fields
+  const reorderCustomFields = async (orderedIds: string[]) => {
+    if (!taskIdNum) return
+    const email = getCurrentUserEmail()
+    await fetch(`/api/task-activity/custom-fields?email=${encodeURIComponent(email || '')}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task_id: taskIdNum, ordered_ids: orderedIds.map(id => parseInt(id, 10)) })
+    })
+    // No-op: parent was already updated optimistically in onReorder
+  }
+
+  // Debounce reorder to avoid spamming PATCH while dragging
+  const reorderTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const queueReorder = (ids: string[]) => {
+    if (reorderTimerRef.current) clearTimeout(reorderTimerRef.current)
+    reorderTimerRef.current = setTimeout(() => {
+      void reorderCustomFields(ids)
+    }, 250)
+  }
 
   // Initialize edited title when task changes
   React.useEffect(() => {
@@ -224,6 +369,33 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
       setEditedTitle(task.title)
     }
   }, [task])
+
+  // Initialize/sync custom fields from task, but do not clobber local state if order/content is unchanged
+  React.useEffect(() => {
+    if (task && Array.isArray((task as any).custom_fields)) {
+      const incoming: Array<{ id: string; title: string; description: string }> = (task as any).custom_fields
+        .slice()
+        .sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0))
+        .map((f: any) => ({ id: String(f.id), title: f.title || '', description: f.description || '' }))
+
+      const a = incoming
+      const b = customFields
+      let different = false
+      if (a.length !== b.length) {
+        different = true
+      } else {
+        for (let i = 0; i < a.length; i++) {
+          if (a[i].id !== b[i].id || a[i].title !== b[i].title || a[i].description !== b[i].description) {
+            different = true
+            break
+          }
+        }
+      }
+      if (different) setCustomFields(incoming)
+    } else if (!task) {
+      setCustomFields([])
+    }
+  }, [task, JSON.stringify((task as any)?.custom_fields)])
 
   // Initialize due date from task data
   React.useEffect(() => {
@@ -239,8 +411,213 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
         setDueTime(timeString)
         setShowDueTimeInput(true)
       }
+    } else {
+      // Reset when task has no due date
+      setSelectedDueDate(undefined)
+      setDueTime("")
+      setShowDueTimeInput(false)
     }
   }, [task])
+
+  // Load activity events on open
+  React.useEffect(() => {
+    const load = async () => {
+      if (!isOpen || !task?.id) return
+      try {
+        const res = await fetch(`/api/task-activity/events?task_id=${encodeURIComponent(task.id)}`)
+        if (!res.ok) return
+        const data = await res.json()
+        if (data?.success && Array.isArray(data.events)) {
+          setEvents(prev => {
+            const map = new Map<number, any>()
+            ;[...data.events, ...prev].forEach((e: any) => { if (!map.has(e.id)) map.set(e.id, e) })
+            return Array.from(map.values())
+          })
+        }
+      } catch {}
+    }
+    void load()
+  }, [isOpen, task?.id])
+
+  // Real-time apply task-level field changes when parent state updates task
+  React.useEffect(() => {
+    if (!isOpen || !task) return
+    // Sync editable local fields from latest task props
+    setEditedTitle(task.title)
+    // Dates
+    if ((task as any).startDate) {
+      const d = new Date((task as any).startDate)
+      setSelectedStartDate(d)
+      const h = d.getHours(); const m = d.getMinutes()
+      setStartTime(`${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}`)
+      setShowTimeInput(h !== 0 || m !== 0)
+    }
+    if (task.dueDate) {
+      const d = new Date(task.dueDate)
+      setSelectedDueDate(d)
+      const h = d.getHours(); const m = d.getMinutes()
+      setDueTime(`${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}`)
+      setShowDueTimeInput(h !== 0 || m !== 0)
+    }
+    // Custom fields
+    if (Array.isArray((task as any).custom_fields)) {
+      const incoming = ((task as any).custom_fields as any[])
+        .slice()
+        .sort((a:any,b:any)=> (a.position??0)-(b.position??0))
+        .map((f:any)=>({ id:String(f.id), title:f.title||'', description:f.description||'' }))
+      setCustomFields(incoming)
+    }
+    // Attachments
+    if (Array.isArray((task as any).attachments)) {
+      const list = ((task as any).attachments as any[]).map((a:any)=>({ id:String(a.id), name:a.name||'Attachment', url:a.url, size:a.size }))
+      setExistingAttachments(list)
+    }
+    // Assignees
+    if (Array.isArray((task as any).assignees)) {
+      const ids: number[] = (task as any).assignees
+      const mapped = ids.map((uid) => {
+        const person = peopleList.find((p) => Number(p.id) === Number(uid))
+        return person || { id: String(uid), name: `User #${uid}`, email: '', avatar: '' }
+      })
+      setSelectedAssignees(mapped)
+    }
+  }, [task, isOpen])
+
+  // Subscribe to realtime activity events
+  React.useEffect(() => {
+    if (!socketInstance || !task?.id) return
+    const handler = (payload: any) => {
+      try {
+        const msg = typeof payload === 'string' ? JSON.parse(payload) : payload
+        const ev = msg?.event
+        if (ev?.task_id && String(ev.task_id) === String(task.id)) {
+          setEvents(prev => (prev.some((e: any) => e.id === ev.id) ? prev : [ev, ...prev]))
+        }
+      } catch {}
+    }
+    socketInstance.on('task_activity_event', handler)
+    return () => { socketInstance.off('task_activity_event', handler) }
+  }, [socketInstance, task?.id])
+
+  // Helpers to render activity events
+  const formatRelative = (iso: string) => {
+    try {
+      const then = new Date(iso).getTime()
+      const now = Date.now()
+      const diff = Math.max(0, Math.floor((now - then) / 1000))
+      if (diff < 60) return `${diff}s`
+      const m = Math.floor(diff / 60)
+      if (m < 60) return `${m}m`
+      const h = Math.floor(m / 60)
+      if (h < 24) return `${h}h`
+      const d = Math.floor(h / 24)
+      if (d < 7) return `${d}d`
+      const w = Math.floor(d / 7)
+      if (w < 52) return `${w}w`
+      const y = Math.floor(d / 365)
+      return `${y}y`
+    } catch { return '' }
+  }
+
+  const toLocalDate = (v: string) => {
+    try { return new Date(v).toLocaleDateString() } catch { return v }
+  }
+
+  const renderEventSummary = (ev: any): string[] => {
+    const d = ev?.details || {}
+    const actions: any[] = Array.isArray(d.actions) ? d.actions : []
+    const out: string[] = []
+    for (const a of actions) {
+      switch (a.type) {
+        case 'title_changed':
+          out.push('Title updated')
+          break
+        case 'description_changed':
+          out.push('Description updated')
+          break
+        case 'priority_changed':
+          out.push(`Priority set to ${a.to}`)
+          break
+        case 'status_changed':
+          out.push(`Status changed${a.toLabel ? ` to ${a.toLabel}` : ''}`)
+          break
+        case 'start_date_set':
+          out.push(`Start date set to ${toLocalDate(a.to)}`)
+          break
+        case 'due_date_set':
+          out.push(`Due date set to ${toLocalDate(a.to)}`)
+          break
+        case 'tags_added':
+          if (Array.isArray(a.tags) && a.tags.length) out.push(`Tags added: ${a.tags.join(', ')}`)
+          break
+        case 'tags_removed':
+          if (Array.isArray(a.tags) && a.tags.length) out.push(`Tags removed: ${a.tags.join(', ')}`)
+          break
+        case 'assignees_added':
+          if (Array.isArray(a.assignees) && a.assignees.length) out.push(`Assignees added: ${a.assignees.map((x:any)=>x.name||x.id).join(', ')}`)
+          break
+        case 'assignees_removed':
+          if (Array.isArray(a.assignees) && a.assignees.length) out.push(`Assignees removed: ${a.assignees.map((x:any)=>x.name||x.id).join(', ')}`)
+          break
+        case 'relationships_added':
+          if (Array.isArray(a.tasks) && a.tasks.length) out.push(`Relationships added: ${a.tasks.map((x:any)=>x.title||x.id).join(', ')}`)
+          else if (Array.isArray(a.taskIds)) out.push(`Relationships added: ${a.taskIds.join(', ')}`)
+          break
+        case 'relationships_removed':
+          if (Array.isArray(a.tasks) && a.tasks.length) out.push(`Relationships removed: ${a.tasks.map((x:any)=>x.title||x.id).join(', ')}`)
+          else if (Array.isArray(a.taskIds)) out.push(`Relationships removed: ${a.taskIds.join(', ')}`)
+          break
+        default:
+          break
+      }
+    }
+    if (out.length) return out
+    // Fallback to coarse info if actions not present
+    if (d.priority) out.push(`Priority set to ${d.priority}`)
+    if (d.start_date) out.push(`Start date set to ${toLocalDate(d.start_date)}`)
+    if (d.due_date) out.push(`Due date set to ${toLocalDate(d.due_date)}`)
+    if (d.title) out.push('Title updated')
+    if (d.description) out.push('Description updated')
+    if (d.tags) out.push('Tags updated')
+    if (d.group_id != null) out.push('Status changed')
+    if (Array.isArray(d.assignees)) out.push('Assignees updated')
+    if (d.relationships) out.push('Relationships updated')
+    return out.length ? out : [ev?.action?.replace(/_/g, ' ') || 'Updated']
+  }
+
+  const renderEventIcon = (ev: any) => {
+    const d = ev?.details || {}
+    const actions: any[] = Array.isArray(d.actions) ? d.actions : []
+    const primary = actions[0]?.type || (
+      d.start_date ? 'start_date_set' :
+      d.due_date ? 'due_date_set' :
+      d.tags ? 'tags_changed' :
+      Array.isArray(d.assignees) ? 'assignees_changed' :
+      d.group_id != null ? 'status_changed' :
+      d.priority ? 'priority_changed' :
+      d.title ? 'title_changed' :
+      d.description ? 'description_changed' :
+      'default'
+    )
+    switch (primary) {
+      case 'start_date_set':
+      case 'due_date_set':
+        return <CalendarIcon className="h-3 w-3" />
+      case 'tags_added':
+      case 'tags_removed':
+      case 'tags_changed':
+        return <Tag className="h-3 w-3" />
+      case 'assignees_added':
+      case 'assignees_removed':
+      case 'assignees_changed':
+        return <Users className="h-3 w-3" />
+      case 'relationships_added':
+      case 'relationships_removed':
+        return <Link className="h-3 w-3" />
+      default:
+        return <Flag className="h-3 w-3" />
+    }
+  }
 
   if (!task) return null
 
@@ -248,9 +625,18 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
     return name.split(' ').map(n => n[0]).join('').toUpperCase()
   }
 
+  // Related task ids to hide from the picker (avoid duplicate/bidirectional re-adding)
+  const relatedIds = new Set<string>((task.relationships || []).map(rel => String(rel.taskId)))
+
   const handleStatusChange = (newStatus: string) => {
-    // Update the group_id instead of status for proper task movement
-    onTaskUpdate(task.id, { group_id: parseInt(newStatus) })
+    // Update both: group_id numeric and status string for UI consistency
+    const groupIdNum = Number(newStatus)
+    const updates: any = {}
+    if (!Number.isNaN(groupIdNum)) {
+      updates.group_id = groupIdNum
+    }
+    updates.status = newStatus
+    onTaskUpdate(task.id, updates)
     setIsStatusOpen(false)
   }
 
@@ -325,24 +711,14 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
     }
   }
 
-  const addCustomField = () => {
-    const newField = {
-      id: `field-${Date.now()}`,
-      title: "",
-      description: ""
-    }
-    setCustomFields(prev => [...prev, newField])
-  }
+  const addCustomField = () => { void createCustomField() }
 
   const updateCustomField = (fieldId: string, updates: Partial<{title: string, description: string}>) => {
-    setCustomFields(prev => 
-      prev.map(field => 
-        field.id === fieldId ? { ...field, ...updates } : field
-      )
-    )
+    setCustomFields(prev => prev.map(field => field.id === fieldId ? { ...field, ...updates } : field))
   }
 
-  const removeCustomField = (fieldId: string) => {
+  const removeCustomField = async (fieldId: string) => {
+    await deleteCustomField(fieldId)
     setCustomFields(prev => prev.filter(field => field.id !== fieldId))
   }
 
@@ -361,8 +737,11 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
       'application/zip', 'application/x-rar-compressed', 'application/x-7z-compressed'
     ]
     
+    const MAX_BYTES = 5 * 1024 * 1024
     const validFiles = files.filter(file => {
-      return allowedTypes.some(type => file.type.startsWith(type))
+      const typeOk = allowedTypes.some(type => file.type.startsWith(type))
+      const sizeOk = file.size <= MAX_BYTES
+      return typeOk && sizeOk
     })
     
     const newFiles = validFiles.map(file => ({
@@ -372,6 +751,34 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
     }))
     
     setUploadedFiles(prev => [...prev, ...newFiles])
+    // Upload to Supabase tasks bucket via API
+    if (validFiles.length > 0) {
+      const form = new FormData()
+      form.append('taskId', task.id)
+      validFiles.forEach(f => form.append('files', f))
+      fetch('/api/task-activity/upload', { method: 'POST', body: form })
+        .then(async (res) => {
+          if (!res.ok) return
+          const data = await res.json()
+          if (data?.files?.length) {
+            const serverFiles = (data.files as any[]).map(f => ({ id: String(f.id), name: f.name, url: f.url, size: f.size }))
+            const deduped = (() => {
+              const map = new Map<string, { id: any; name: string; url: string; size?: number }>()
+              ;[...existingAttachments, ...serverFiles].forEach(f => {
+                const key = f.id ? `id:${f.id}` : `ns:${f.name}:${f.size}`
+                map.set(key, f as any)
+              })
+              return Array.from(map.values())
+            })()
+            setExistingAttachments(deduped)
+            // Remove previews that were just saved (match by name+size)
+            setUploadedFiles(prev => prev.filter(p => !serverFiles.some(sf => sf.name === p.name && sf.size === p.size)))
+            // Update parent so Kanban card reflects attachment count/cover immediately
+            setTimeout(() => onTaskUpdate(task!.id, { attachments: deduped as any, __localOnly: true } as any), 0)
+          }
+        })
+        .catch(() => {})
+    }
   }
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -386,8 +793,11 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
       'application/zip', 'application/x-rar-compressed', 'application/x-7z-compressed'
     ]
     
+    const MAX_BYTES = 5 * 1024 * 1024
     const validFiles = files.filter(file => {
-      return allowedTypes.some(type => file.type.startsWith(type))
+      const typeOk = allowedTypes.some(type => file.type.startsWith(type))
+      const sizeOk = file.size <= MAX_BYTES
+      return typeOk && sizeOk
     })
     
     const newFiles = validFiles.map(file => ({
@@ -397,9 +807,50 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
     }))
     
     setUploadedFiles(prev => [...prev, ...newFiles])
+    // Upload to Supabase tasks bucket via API
+    if (validFiles.length > 0) {
+      const form = new FormData()
+      form.append('taskId', task.id)
+      validFiles.forEach(f => form.append('files', f))
+      fetch('/api/task-activity/upload', { method: 'POST', body: form })
+        .then(async (res) => {
+          if (!res.ok) return
+          const data = await res.json()
+          if (data?.files?.length) {
+            const serverFiles = (data.files as any[]).map(f => ({ id: String(f.id), name: f.name, url: f.url, size: f.size }))
+            const deduped = (() => {
+              const map = new Map<string, { id: any; name: string; url: string; size?: number }>()
+              ;[...existingAttachments, ...serverFiles].forEach(f => {
+                const key = f.id ? `id:${f.id}` : `ns:${f.name}:${f.size}`
+                map.set(key, f as any)
+              })
+              return Array.from(map.values())
+            })()
+            setExistingAttachments(deduped)
+            setUploadedFiles(prev => prev.filter(p => !serverFiles.some(sf => sf.name === p.name && sf.size === p.size)))
+            setTimeout(() => onTaskUpdate(task!.id, { attachments: deduped as any, __localOnly: true } as any), 0)
+          }
+        })
+        .catch(() => {})
+    }
   }
 
-  const removeFile = (fileId: string) => {
+  const removeFile = async (fileId: string) => {
+    // If it's an existing DB attachment, id will be numeric in existingAttachments with key `att-${id}` above
+    const existing = existingAttachments.find(a => `att-${a.id}` === fileId)
+    if (existing) {
+      try {
+        const idNum = Number(existing.id)
+        if (Number.isFinite(idNum)) {
+          const res = await fetch(`/api/task-activity/attachments/${idNum}`, { method: 'DELETE' })
+          if (!res.ok) return
+          setExistingAttachments(prev => prev.filter(a => a.id !== existing.id))
+          setTimeout(() => onTaskUpdate(task!.id, { attachments: existingAttachments.filter(a => a.id !== existing.id) as any, __localOnly: true } as any), 0)
+        }
+      } catch {}
+      return
+    }
+    // Otherwise it's a just-added preview file in this session
     setUploadedFiles(prev => prev.filter(file => file.id !== fileId))
   }
 
@@ -417,28 +868,32 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
       avatar: assignee.avatar
     }
     
-    const updatedAssignees = [...selectedAssignees, assigneeData]
+    // Prevent duplicates
+    const exists = selectedAssignees.some(a => a.id === assigneeData.id)
+    const updatedAssignees = exists ? selectedAssignees : [...selectedAssignees, assigneeData]
     setSelectedAssignees(updatedAssignees)
-    // Update task with assignee data
-    onTaskUpdate(task.id, { assignee: JSON.stringify(updatedAssignees) })
+    // Persist to DB using join table (array of user IDs)
+    const assigneeIds = updatedAssignees
+      .map((a) => Number(a.id))
+      .filter((n) => Number.isFinite(n)) as number[]
+    onTaskUpdate(task.id, { assignees: assigneeIds } as any)
   }
 
   const handleRemoveAssignee = (assigneeId: string) => {
     const updatedAssignees = selectedAssignees.filter(a => a.id !== assigneeId)
     setSelectedAssignees(updatedAssignees)
-    // Update task with assignee data
-    onTaskUpdate(task.id, { assignee: updatedAssignees.length > 0 ? JSON.stringify(updatedAssignees) : "" })
+    // Persist to DB using join table (array of user IDs)
+    const assigneeIds = updatedAssignees
+      .map((a) => Number(a.id))
+      .filter((n) => Number.isFinite(n)) as number[]
+    onTaskUpdate(task.id, { assignees: assigneeIds } as any)
   }
 
   // Filter people list to exclude already selected assignees
-  const availablePeople = peopleList.filter(person => 
-    !selectedAssignees.some(selected => selected.id === person.id)
-  )
+  // Derived value (not a hook) to avoid hook-order issues when task is initially null
+  const availablePeople = peopleList.filter(person => !selectedAssignees.some(selected => selected.id === person.id))
 
-  // Filter team list to exclude already selected teams
-  const availableTeams = teamList.filter(team => 
-    !selectedAssignees.some(selected => selected.id === team.id)
-  )
+  // No team list; using only peopleList
 
   // Helper functions for quick date selections
   const getQuickDate = (type: string): Date => {
@@ -493,16 +948,15 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
       // Update task with new start date
       onTaskUpdate(task.id, { startDate: finalDate.toISOString() } as any)
     }
-    
-    // Only close popover if time input is not shown/active
-    if (!showTimeInput && !startTime) {
-      setIsStartDateOpen(false)
-    }
   }
 
   const handleQuickDateSelect = (type: string) => {
     const date = getQuickDate(type)
-    handleStartDateChange(date)
+    if (datePickerMode === "start") {
+      handleStartDateChange(date)
+    } else {
+      handleDueDateChange(date)
+    }
   }
 
   const handleTimeChange = (time: string) => {
@@ -545,11 +999,6 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
       
       // Update task with new due date
       onTaskUpdate(task.id, { dueDate: finalDate.toISOString() } as any)
-    }
-    
-    // Only close popover if time input is not shown/active
-    if (!showDueTimeInput && !dueTime) {
-      setIsStartDateOpen(false)
     }
   }
 
@@ -753,7 +1202,7 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                                       <div className={cn("w-3 h-3 rounded-full", status.color)} />
                                       <span className="text-sm">{status.label}</span>
                                     </div>
-                                    {status.id === task.group_id?.toString() && (
+                                    {(status.id === task.group_id?.toString() || status.id === task.status?.toString()) && (
                                       <Check className="h-4 w-4 text-green-600" />
                                     )}
                                   </Button>
@@ -830,7 +1279,12 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                                           </AvatarFallback>
                                         </Avatar>
                                         <div className="flex flex-col">
-                                          <span className="text-sm">{assignee.name}</span>
+										<span className="text-sm">
+											{assignee.name}
+											{currentEmail && assignee.email && assignee.email.toLowerCase() === currentEmail && (
+												<span className="ml-1 text-xs text-muted-foreground">(you)</span>
+											)}
+										</span>
                                           <span className="text-xs text-muted-foreground">{assignee.email}</span>
                                         </div>
                                       </div>
@@ -872,7 +1326,12 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                                       </Avatar>
                                       <div className="flex flex-col items-start flex-1">
                                         <div className="flex items-center gap-2">
-                                          <span className="text-sm">{person.name}</span>
+												<span className="text-sm">
+													{person.name}
+													{currentEmail && person.email && person.email.toLowerCase() === currentEmail && (
+														<span className="ml-1 text-xs text-muted-foreground">(you)</span>
+													)}
+												</span>
                                           {person.verified && (
                                             <div className="w-3 h-3 bg-blue-500 rounded-full flex items-center justify-center">
                                               <Check className="h-2 w-2 text-white" />
@@ -887,46 +1346,43 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
 
                               <div className="h-2"></div>
 
-                              {/* Team Section */}
-                              <div className="text-xs font-medium text-muted-foreground mb-2 px-2">
-                                Team
-                              </div>
-                              {availableTeams
-                                .filter(team => 
-                                  team.name.toLowerCase().includes(assigneeSearch.toLowerCase())
-                                )
-                                .map((team) => (
-                                  <Button
-                                    key={team.id}
-                                    variant="ghost"
-                                    className="w-full justify-start h-auto p-2"
-                                    onClick={() => handleAddAssignee(team)}
-                                  >
-                                    <div className="flex items-center gap-3 w-full">
-                                      <Avatar className="h-6 w-6">
-                                        <AvatarFallback className="text-xs">
-                                          {team.name.split(' ').map(n => n[0]).join('').toUpperCase()}
-                                        </AvatarFallback>
-                                      </Avatar>
-                                      <div className="flex flex-col items-start flex-1">
-                                        <span className="text-sm">{team.name}</span>
-                                        <span className="text-xs text-muted-foreground">{team.members} members</span>
-                                      </div>
-                                    </div>
-                                  </Button>
-                                ))}
+                              {/* Team Section removed */}
                             </div>
                           </ScrollArea>
                         </PopoverContent>
                       </Popover>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Avatar className="h-8 w-8">
-                        <AvatarFallback className="text-xs">
-                          {getInitials(task.assignee)}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span className="text-sm">{task.assignee}</span>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {selectedAssignees.length > 0 ? (
+                        selectedAssignees.slice(0, 5).map((assignee) => (
+                          <div key={assignee.id} className="flex items-center gap-1.5 border rounded-md px-1.5 py-0.5 text-xs">
+                            <Avatar className="h-5 w-5">
+                              <AvatarFallback className="text-[10px]">
+                                {assignee.name.split(' ').map((n: string) => n[0]).join('').toUpperCase()}
+                              </AvatarFallback>
+                            </Avatar>
+                                    <span className="text-xs">
+										{assignee.name}
+										{currentEmail && assignee.email && assignee.email.toLowerCase() === currentEmail && (
+											<span className="ml-1 text-xs text-muted-foreground">(you)</span>
+										)}
+									</span>
+                            <button
+                              type="button"
+                              className="ml-1 text-[10px] text-muted-foreground hover:text-destructive"
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleRemoveAssignee(assignee.id) }}
+                              title="Remove"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ))
+                      ) : (
+                        <span className="text-sm text-muted-foreground italic">Unassigned</span>
+                      )}
+                      {selectedAssignees.length > 5 && (
+                        <span className="text-xs text-muted-foreground">+{selectedAssignees.length - 5} more</span>
+                      )}
                     </div>
                   </div>
 
@@ -1327,7 +1783,8 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                               </div>
                               {tasks
                                 ?.filter(t => 
-                                  t.id !== task.id && 
+                                  t.id !== task.id &&
+                                  !relatedIds.has(String(t.id)) &&
                                   (t.title.toLowerCase().includes(relationshipSearch.toLowerCase()) ||
                                    t.id.toLowerCase().includes(relationshipSearch.toLowerCase()))
                                 )
@@ -1343,22 +1800,6 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                                       </div>
                                     </div>
                                     <div className="flex gap-1 ml-8">
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-6 text-xs"
-                                        onClick={() => handleAddRelationship(relatedTask.id, "blocks")}
-                                      >
-                                        Blocks
-                                      </Button>
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-6 text-xs"
-                                        onClick={() => handleAddRelationship(relatedTask.id, "depends_on")}
-                                      >
-                                        Depends on
-                                      </Button>
                                       <Button
                                         variant="ghost"
                                         size="sm"
@@ -1391,7 +1832,11 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                               const relatedTask = tasks?.find(t => t.id === relationship.taskId)
                               return relatedTask ? (
                                 <div key={index} className="flex items-center justify-between p-2 border rounded">
-                                  <div className="flex items-center gap-2">
+                                  <div 
+                                    className="flex items-center gap-2 cursor-pointer hover:bg-accent rounded px-1 py-0.5"
+                                    onClick={() => onOpenTask?.(relatedTask.id)}
+                                    title="Open related task"
+                                  >
                                     <span className="text-xs text-muted-foreground capitalize">{relationship.type.replace('_', ' ')}</span>
                                     <span className="text-sm font-medium">{relatedTask.title}</span>
                                   </div>
@@ -1494,40 +1939,61 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                         <div className="space-y-2 max-h-48">
                           <ScrollArea className="h-48">
                             <div className="space-y-2 pr-4">
-                              {customFields.length > 0 ? (
-                                customFields.map((field, index) => (
-                                  <Card key={field.id} className="p-3">
-                                    <div className="flex items-start gap-3">
-                                      <div className="flex-1 space-y-2">
-                                        <div className="flex items-center gap-2">
-                                          <Badge variant="outline" className="text-xs">
-                                            Field {index + 1}
-                                          </Badge>
-                                          <Input
-                                            value={field.title}
-                                            onChange={(e) => updateCustomField(field.id, { title: e.target.value })}
-                                            placeholder="Field title"
-                                            className="h-8 text-sm"
-                                          />
+                              {uniqueCustomFields.length > 0 ? (
+                                <Reorder.Group
+                                  axis="y"
+                                  values={uniqueCustomFields}
+                                  onReorder={(newOrder) => {
+                                    setCustomFields(newOrder)
+                                    // Immediately propagate the new visual order to parent so reopen reflects it
+                                    setTimeout(() => onTaskUpdate(task!.id, { custom_fields: newOrder, __localOnly: true } as any), 0)
+                                    // Persist order in the background (debounced)
+                                    queueReorder(newOrder.map(f => f.id))
+                                  }}
+                                >
+                                  {uniqueCustomFields.map((field, index) => (
+                                    <Reorder.Item key={`cf-${field.id}`} value={field}>
+                                      <Card className="p-3">
+                                        <div className="flex items-start gap-3">
+                                          <div className="flex-1 space-y-2">
+                                            <div className="flex items-center gap-2">
+                                              <span className="inline-flex items-center gap-2 text-xs text-muted-foreground cursor-grab">
+                                                <svg width="12" height="12" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                                  <circle cx="4" cy="4" r="1.5"/><circle cx="10" cy="4" r="1.5"/><circle cx="16" cy="4" r="1.5"/>
+                                                  <circle cx="4" cy="10" r="1.5"/><circle cx="10" cy="10" r="1.5"/><circle cx="16" cy="10" r="1.5"/>
+                                                  <circle cx="4" cy="16" r="1.5"/><circle cx="10" cy="16" r="1.5"/><circle cx="16" cy="16" r="1.5"/>
+                                                </svg>
+                                                Drag
+                                              </span>
+                                              <Input
+                                                value={field.title}
+                                                onChange={(e) => updateCustomField(field.id, { title: e.target.value })}
+                                                onBlur={() => persistCustomField(field.id, { title: field.title })}
+                                                placeholder="Field title"
+                                                className="h-8 text-sm"
+                                              />
+                                            </div>
+                                            <Input
+                                              value={field.description}
+                                              onChange={(e) => updateCustomField(field.id, { description: e.target.value })}
+                                              onBlur={() => persistCustomField(field.id, { description: field.description })}
+                                              placeholder="Field value"
+                                              className="h-8 text-sm"
+                                            />
+                                          </div>
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                                            onClick={() => removeCustomField(field.id)}
+                                          >
+                                            ×
+                                          </Button>
                                         </div>
-                                        <Input
-                                          value={field.description}
-                                          onChange={(e) => updateCustomField(field.id, { description: e.target.value })}
-                                          placeholder="Field value"
-                                          className="h-8 text-sm"
-                                        />
-                                      </div>
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
-                                        onClick={() => removeCustomField(field.id)}
-                                      >
-                                        ×
-                                      </Button>
-                                    </div>
-                                  </Card>
-                                ))
+                                      </Card>
+                                    </Reorder.Item>
+                                  ))}
+                                </Reorder.Group>
                               ) : (
                                 <div className="text-center py-6 text-muted-foreground">
                                   <div className="flex flex-col items-center gap-2">
@@ -1585,7 +2051,7 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                           )}
                         </div>
                         
-                        {uploadedFiles.length > 0 && (
+                        {(() => { const count = existingAttachments.length + uploadedFiles.length; return count > 0 })() && (
                           <div className="mt-3">
                             <DropdownMenu open={isAttachmentsOpen} onOpenChange={setIsAttachmentsOpen}>
                               <DropdownMenuTrigger asChild>
@@ -1596,7 +2062,7 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                                   <div className="flex items-center gap-2">
                                     <Paperclip className="h-4 w-4" />
                                     <span className="text-sm">
-                                      {uploadedFiles.length} attachment{uploadedFiles.length !== 1 ? 's' : ''}
+                                      {(existingAttachments.length + uploadedFiles.length)} attachment{(existingAttachments.length + uploadedFiles.length) !== 1 ? 's' : ''}
                                     </span>
                                   </div>
                                   <ChevronDown className="h-4 w-4" />
@@ -1605,8 +2071,48 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                               <DropdownMenuContent align="start" className="w-64">
                                 <div className="p-2">
                                   <div className="text-xs font-medium text-muted-foreground mb-2">
-                                    Attachments ({uploadedFiles.length})
+                                    Attachments ({existingAttachments.length + uploadedFiles.length})
                                   </div>
+                                  {existingAttachments.map((file, idx) => (
+                                    <div key={`att-${file.id}`} className="flex items-center justify-between p-2 rounded hover:bg-accent">
+                                      <a href={file.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 flex-1 min-w-0 text-sm truncate">
+                                        <Paperclip className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+                                        <span className="truncate">{file.name}</span>
+                                      </a>
+                                      <div className="flex items-center gap-1">
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          className="h-6 px-1 text-xs"
+                                          onClick={async () => {
+                                            try {
+                                              const ordered = [file.id, ...existingAttachments.filter(f => f.id !== file.id).map(f => f.id)]
+                                              const res = await fetch('/api/task-activity/attachments', {
+                                                method: 'PATCH',
+                                                headers: { 'Content-Type': 'application/json' },
+                                                body: JSON.stringify({ task_id: Number(task.id), ordered_ids: ordered.map(id => Number(id)) })
+                                              })
+                                              if (!res.ok) return
+                                              const next = [file, ...existingAttachments.filter(f => f.id !== file.id)]
+                                              setExistingAttachments(next)
+                                              setTimeout(() => onTaskUpdate(task!.id, { attachments: next as any, __localOnly: true } as any), 0)
+                                            } catch {}
+                                          }}
+                                          title={idx === 0 ? 'Cover' : 'Set as cover'}
+                                        >
+                                          {idx === 0 ? 'Cover' : 'Make cover'}
+                                        </Button>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          className="h-6 w-6 p-0 flex-shrink-0"
+                                          onClick={() => removeFile(`att-${file.id}`)}
+                                        >
+                                          ×
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  ))}
                                   {uploadedFiles.map(file => (
                                     <div key={file.id} className="flex items-center justify-between p-2 rounded hover:bg-accent">
                                       <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -1664,53 +2170,21 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                     }}
                   >
                     <div className="space-y-3 p-2">
-                      <div className="text-xs text-muted-foreground">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span>You set priority to</span>
-                          <Flag className={cn("h-3 w-3", priorityColors[task.priority])} />
-                          <span className="font-medium capitalize">{task.priority}</span>
-                        </div>
-                        <span>6 mins</span>
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span>Task created</span>
-                        </div>
-                        <span>2 hours</span>
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span>Assigned to</span>
-                          <span className="font-medium">{task.assignee}</span>
-                        </div>
-                        <span>3 hours</span>
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span>Due date set to</span>
-                          <span className="font-medium">{new Date(task.dueDate).toLocaleDateString()}</span>
-                        </div>
-                        <span>1 day</span>
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span>Description updated</span>
-                        </div>
-                        <span>2 days</span>
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span>Tags added</span>
-                        </div>
-                        <span>3 days</span>
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span>Task moved to</span>
-                          <span className="font-medium">In Progress</span>
-                        </div>
-                        <span>1 week</span>
-                      </div>
+                      {events.length === 0 ? (
+                        <div className="text-xs text-muted-foreground">No recent activity</div>
+                      ) : (
+                        events.map(ev => (
+                          <div key={ev.id} className="text-xs text-muted-foreground">
+                          {renderEventSummary(ev).map((line, idx) => (
+                              <div key={`${ev.id}-${idx}`} className={idx === 0 ? 'mb-1 flex items-center gap-2' : ''}>
+                                {idx === 0 && renderEventIcon(ev)}
+                                <span className={idx === 0 ? 'font-normal' : ''}>{line}</span>
+                              </div>
+                            ))}
+                            <span>{formatRelative(ev.created_at)}</span>
+                          </div>
+                        ))
+                      )}
                     </div>
                   </ScrollArea>
 

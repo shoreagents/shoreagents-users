@@ -2,6 +2,78 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Custom scrollbar styling for Kanban columns */
+.kanban-scrollbar::-webkit-scrollbar {
+  width: 10px;
+}
+.kanban-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.kanban-scrollbar::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--muted));
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.kanban-scrollbar:hover::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--muted-foreground));
+  background-clip: padding-box;
+}
+
+/* Firefox */
+.kanban-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted)) transparent;
+}
+
+/* Horizontal scrollbar styling for board container */
+.kanban-hscrollbar::-webkit-scrollbar {
+  height: 12px;
+}
+.kanban-hscrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.kanban-hscrollbar::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--muted));
+  border-radius: 9999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+.kanban-hscrollbar:hover::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--muted-foreground));
+}
+.kanban-hscrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted)) transparent;
+}
+
+/* Global app scrollbar (page-level) */
+html,
+body {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted)) transparent;
+}
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+html::-webkit-scrollbar-track,
+body::-webkit-scrollbar-track {
+  background: transparent;
+}
+html::-webkit-scrollbar-thumb,
+body::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--muted));
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+html:hover::-webkit-scrollbar-thumb,
+body:hover::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--muted-foreground));
+}
+
 @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&display=swap');
 
 @layer base {

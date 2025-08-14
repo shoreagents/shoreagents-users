@@ -34,6 +34,8 @@ export const useSocketTimer = (email: string | null): UseSocketTimerReturn => {
   const socketRef = useRef<Socket | null>(null)
   const lastActivityStateRef = useRef<boolean | null>(null)
   const timerUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const lastServerShiftIdRef = useRef<string | null>(null)
+  const lastServerResetAtRef = useRef<number | null>(null)
 
   // Initialize Socket.IO connection
   useEffect(() => {
@@ -73,7 +75,8 @@ export const useSocketTimer = (email: string | null): UseSocketTimerReturn => {
       if (!isActive.current) return
 
       // Connect to Socket.IO server with safer connection options
-      const socket = io('http://localhost:3001', {
+      const socketServerUrl = (process.env.NEXT_PUBLIC_SOCKET_URL || process.env.SOCKET_SERVER_URL || 'http://localhost:3001') as string
+      const socket = io(socketServerUrl, {
         reconnection: true,
         reconnectionAttempts: 3, // Further reduced attempts
         reconnectionDelay: 2000, // Longer delay
@@ -141,6 +144,10 @@ export const useSocketTimer = (email: string | null): UseSocketTimerReturn => {
         setError('Reconnection failed')
       })
 
+      // Expose socket globally for other hooks (e.g., comments)
+      ;(window as any)._saSocket = socket
+      try { window.dispatchEvent(new Event('sa-socket-ready')) } catch {}
+
       // Handle authentication response
       socket.on('authenticated', (data: TimerData) => {
         if (!isActive.current) return
@@ -163,15 +170,34 @@ export const useSocketTimer = (email: string | null): UseSocketTimerReturn => {
       })
 
       // Handle shift reset events from server
-      socket.on('shiftReset', (data: TimerData & { resetReason?: string }) => {
+      socket.on('shiftReset', (data: TimerData & { resetReason?: string, shiftId?: string }) => {
         if (!isActive.current) return
         console.log('🔄 Shift reset received from server:', data)
         setTimerData(data)
+        // Record server reset to avoid client forcing a duplicate reset for the same shift
+        if (data && (data as any).shiftId) {
+          lastServerShiftIdRef.current = (data as any).shiftId as string
+        }
+        lastServerResetAtRef.current = Date.now()
         
         // Emit a custom event to notify other components about the shift reset
         window.dispatchEvent(new CustomEvent('shiftReset', { 
           detail: { ...data, resetReason: data.resetReason || 'shift_change' }
         }))
+      })
+
+      // When client-side countdown detects 0s, ask server to force a reset write
+      window.addEventListener('shiftResetCountdownZero', () => {
+        try {
+          // Guard: if we recently received a server-driven reset (within 2 minutes), skip
+          if (lastServerResetAtRef.current && (Date.now() - lastServerResetAtRef.current) < 120000) {
+            console.log('⏭️ Skipping client forceShiftReset: recent server reset detected')
+            return
+          }
+          // Guard: if we have a shiftId from server and timerData has shiftInfo, avoid duplicate for same shift period
+          // Note: shiftId derivation on client is not available; rely on time-based guard above primarily.
+          socket.emit('forceShiftReset')
+        } catch {}
       })
 
       // Handle errors
