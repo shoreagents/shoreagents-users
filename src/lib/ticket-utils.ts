@@ -1,16 +1,26 @@
 export interface Ticket {
-  id: string
+  id: string // ticket_id from database
   name: string
   date: string
   concern: string
-  comments: string
   category: string
   details: string
   email: string
   files: string[]
-  status: 'pending' | 'in-progress' | 'resolved'
+  status: 'For Approval' | 'On Hold' | 'In Progress' | 'Approved' | 'Stuck' | 'Actioned' | 'Closed'
+  position: number
   createdAt: string
-  userId?: string // Add user ID to track ownership
+  updatedAt?: string
+  userId?: number // Use actual database user ID (integer)
+  userEmail?: string // Keep email for localStorage key generation
+  resolvedBy?: number // ID of user who resolved the ticket
+  resolvedByName?: string // Name of user who resolved the ticket
+  resolvedByEmail?: string // Email of user who resolved the ticket
+  resolvedAt?: string // Timestamp when ticket was resolved
+  categoryId?: number // New field for category relationship
+  roleId?: number // New field for role relationship
+  supportingFiles?: string[] // New field for file attachments
+  fileCount?: number // New field for file count
 }
 
 export const getCurrentUser = () => {
@@ -21,7 +31,18 @@ export const getCurrentUser = () => {
   
   try {
     const parsed = JSON.parse(authData)
-    return parsed.user
+    const user = parsed.user
+    
+    // For hybrid authentication, prioritize Railway ID for database operations
+    if (user && parsed.hybrid && user.railway_id) {
+      return {
+        ...user,
+        id: user.railway_id, // Use Railway ID for database queries
+        supabase_id: user.id, // Keep Supabase ID for reference
+      }
+    }
+    
+    return user
   } catch {
     return null
   }
@@ -48,18 +69,33 @@ export const saveTicketsForUser = (userEmail: string, tickets: Ticket[]) => {
 
 export const addTicketForUser = (userEmail: string, ticket: Ticket) => {
   const tickets = getTicketsForUser(userEmail)
-  const newTicket = { ...ticket, userId: userEmail }
+  const currentUser = getCurrentUser()
+  const newTicket = { 
+    ...ticket, 
+    userId: currentUser?.id ? Number(currentUser.id) : undefined, // Use actual database user ID as number
+    userEmail: userEmail // Keep email for reference
+  }
   tickets.push(newTicket)
   saveTicketsForUser(userEmail, tickets)
+  
+  // Notification now handled server-side via database triggers and sockets
+  
   return newTicket
 }
 
 export const updateTicketForUser = (userEmail: string, ticketId: string, updates: Partial<Ticket>) => {
   const tickets = getTicketsForUser(userEmail)
+  const ticketIndex = tickets.findIndex(t => t.id === ticketId)
+  
+  if (ticketIndex === -1) return
+  
+  const originalTicket = tickets[ticketIndex]
   const updatedTickets = tickets.map(ticket => 
     ticket.id === ticketId ? { ...ticket, ...updates } : ticket
   )
   saveTicketsForUser(userEmail, updatedTickets)
+  
+  // Notification now handled server-side via database triggers and sockets
 }
 
 export const getCurrentUserTickets = (): Ticket[] => {

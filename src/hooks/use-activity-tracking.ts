@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { startActiveSession, startInactiveSession, updateLastActivity, initializeUserActivity, pauseActivityForSystemSuspend, resumeActivityFromSystemSuspend } from '@/lib/activity-storage';
+// import { startActiveSession, startInactiveSession, updateLastActivity, initializeUserActivity, pauseActivityForSystemSuspend, resumeActivityFromSystemSuspend } from '@/lib/activity-storage';
 import { getCurrentUser } from '@/lib/ticket-utils';
 
 interface ActivityData {
@@ -59,7 +59,7 @@ export const useActivityTracking = () => {
       
       if (result && result.success) {
         setIsTracking(false);
-        console.log('✅ Activity tracking stopped successfully');
+        // Activity tracking stopped successfully;
         
         // Check if we have enhanced diagnostics
         if (result.wasTracking !== undefined) {
@@ -204,7 +204,8 @@ export const useActivityTracking = () => {
     setInactivityData(null);
     
     // Only update last activity time, don't start new sessions on every movement
-    updateLastActivity(currentUser.email);
+    // TODO: Replace with database-driven activity update
+    // updateLastActivity(currentUser.email);
   }, [isTracking, stopTracking]);
 
   // Handle inactivity alerts
@@ -243,7 +244,8 @@ export const useActivityTracking = () => {
     setShowInactivityDialog(true);
     
     // Start inactive session when inactivity is detected
-    startInactiveSession(currentUser.email);
+    // TODO: Replace with database-driven inactive session
+    // startInactiveSession(currentUser.email);
   }, [isTracking, stopTracking]);
 
   // Handle activity reset
@@ -261,14 +263,16 @@ export const useActivityTracking = () => {
     setInactivityData(null);
     
     // Just update last activity time when activity is reset
-    updateLastActivity(currentUser.email);
+    // TODO: Replace with database-driven activity update
+    // updateLastActivity(currentUser.email);
   }, []);
 
   // Handle system suspend events
   const handleSystemSuspend = useCallback(() => {
     const currentUser = getCurrentUser();
     if (currentUser) {
-      pauseActivityForSystemSuspend(currentUser.email);
+      // TODO: Replace with database-driven system suspend
+      // pauseActivityForSystemSuspend(currentUser.email);
     }
     setShowInactivityDialog(false); // Close any inactivity dialogs
   }, []);
@@ -277,7 +281,8 @@ export const useActivityTracking = () => {
   const handleSystemResume = useCallback(() => {
     const currentUser = getCurrentUser();
     if (currentUser) {
-      resumeActivityFromSystemSuspend(currentUser.email);
+      // TODO: Replace with database-driven system resume
+      // resumeActivityFromSystemSuspend(currentUser.email);
     }
   }, []);
 

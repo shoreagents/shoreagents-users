@@ -7,7 +7,7 @@ try {
   // Send messages to main process
   send: (channel, data) => {
     // Whitelist channels
-    const validChannels = ['new-ticket', 'save-ticket', 'load-tickets', 'show-notification'];
+    const validChannels = ['new-ticket', 'save-ticket', 'load-tickets', 'show-notification', 'notification-count-changed'];
     if (validChannels.includes(channel)) {
       ipcRenderer.send(channel, data);
     }
@@ -15,7 +15,7 @@ try {
   
   // Receive messages from main process
   receive: (channel, func) => {
-    const validChannels = ['new-ticket', 'ticket-saved', 'tickets-loaded', 'activity-update', 'inactivity-alert', 'activity-reset', 'app-closing', 'system-suspend', 'system-resume', 'force-logout-before-quit', 'navigate-to'];
+    const validChannels = ['new-ticket', 'ticket-saved', 'tickets-loaded', 'activity-update', 'inactivity-alert', 'activity-reset', 'app-closing', 'system-suspend', 'system-resume', 'force-logout-before-quit', 'navigate-to', 'mark-notification-read', 'notifications-updated', 'highlight-notification'];
     if (validChannels.includes(channel)) {
       try {
         // Deliberately strip event as it includes `sender` 
@@ -34,7 +34,7 @@ try {
   
   // Remove all listeners for a channel
   removeAllListeners: (channel) => {
-    const validChannels = ['new-ticket', 'ticket-saved', 'tickets-loaded', 'activity-update', 'inactivity-alert', 'activity-reset', 'app-closing', 'force-logout-before-quit', 'navigate-to'];
+    const validChannels = ['new-ticket', 'ticket-saved', 'tickets-loaded', 'activity-update', 'inactivity-alert', 'activity-reset', 'app-closing', 'force-logout-before-quit', 'navigate-to', 'mark-notification-read', 'notifications-updated', 'highlight-notification'];
     if (validChannels.includes(channel)) {
       ipcRenderer.removeAllListeners(channel);
     }
@@ -56,6 +56,13 @@ try {
     show: (data) => ipcRenderer.invoke('show-inactivity-notification', data),
     update: (data) => ipcRenderer.invoke('update-inactivity-notification', data),
     close: () => ipcRenderer.invoke('close-inactivity-notification')
+  },
+
+  // System notification methods
+  systemNotifications: {
+    show: (notificationData) => ipcRenderer.invoke('show-system-notification', notificationData),
+    clear: () => ipcRenderer.invoke('clear-system-notifications'),
+    getCount: () => ipcRenderer.invoke('get-notification-count')
   },
 
   // Logout and quit methods

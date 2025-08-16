@@ -1,0 +1,340 @@
+import { Coffee, Utensils, Sun } from "lucide-react"
+
+/**
+ * Shift-based Break Utilities
+ * Determines break titles and valid times based on agent's shift period and time
+ */
+
+export interface ShiftInfo {
+  shift_period: string // "Day Shift", "Night Shift", etc.
+  shift_schedule: string // "Monday-Friday", "Tuesday-Saturday", etc.
+  shift_time: string // "6:00 AM - 3:00 PM", "10:00 PM - 7:00 AM", etc.
+}
+
+export interface BreakInfo {
+  id: string
+  name: string
+  duration: number // in minutes
+  startTime: string // 24-hour format
+  endTime: string // 24-hour format
+  icon: React.ComponentType<any>
+  description: string
+  color: string
+  validForShifts: string[] // which shifts this break applies to
+}
+
+// Parse shift time string (e.g., "6:00 AM - 3:00 PM")
+export function parseShiftTime(shiftTime: string): { start: string; end: string } | null {
+  if (!shiftTime) return null
+  
+  const parts = shiftTime.split(' - ')
+  if (parts.length !== 2) return null
+  
+  const startTime = parts[0].trim()
+  const endTime = parts[1].trim()
+  
+  return { start: startTime, end: endTime }
+}
+
+// Convert 12-hour time to 24-hour format
+export function convertTo24Hour(time12h: string): string {
+  const [time, modifier] = time12h.split(' ')
+  let [hours, minutes] = time.split(':')
+  
+  hours = hours.padStart(2, '0')
+  minutes = minutes.padStart(2, '0')
+  
+  if (hours === '12') {
+    hours = modifier === 'PM' ? '12' : '00'
+  } else if (modifier === 'PM') {
+    hours = String(parseInt(hours) + 12)
+  }
+  
+  return `${hours}:${minutes}`
+}
+
+// Convert 24-hour time to 12-hour format
+export function convertTo12Hour(time24h: string): string {
+  const [hours, minutes] = time24h.split(':')
+  const hour = parseInt(hours)
+  const ampm = hour >= 12 ? 'PM' : 'AM'
+  const hour12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour
+  
+  return `${hour12}:${minutes} ${ampm}`
+}
+
+// Determine if shift is night shift (crosses midnight)
+export function isNightShift(shiftTime: string): boolean {
+  const parsed = parseShiftTime(shiftTime)
+  if (!parsed) return false
+  
+  const start24 = convertTo24Hour(parsed.start)
+  const end24 = convertTo24Hour(parsed.end)
+  
+  const startHour = parseInt(start24.split(':')[0])
+  const endHour = parseInt(end24.split(':')[0])
+  
+  // Night shift: start time is later than end time (e.g., 10 PM - 7 AM)
+  return startHour > endHour
+}
+
+// Calculate break times based on shift time
+function calculateBreakTimes(shiftTime: string): { morning: { start: string; end: string }; lunch: { start: string; end: string }; afternoon: { start: string; end: string } } | null {
+  const parsed = parseShiftTime(shiftTime)
+  if (!parsed) return null
+  
+  const start24 = convertTo24Hour(parsed.start)
+  const end24 = convertTo24Hour(parsed.end)
+  
+  const [startHour, startMinute] = start24.split(':').map(Number)
+  const [endHour, endMinute] = end24.split(':').map(Number)
+  
+  const isNight = isNightShift(shiftTime)
+  
+  // Calculate total shift duration
+  let shiftDuration: number
+  if (isNight) {
+    // Night shift crosses midnight
+    shiftDuration = (24 - startHour) + endHour
+  } else {
+    // Day shift within same day
+    shiftDuration = endHour - startHour
+  }
+  
+  if (isNight) {
+    // Night shift breaks with fixed lunch duration
+    const firstBreakStart = startHour
+    const firstBreakEnd = (startHour + 4) % 24 // First 4 hours
+    const lunchStart = (startHour + 4) % 24
+    const lunchEnd = (startHour + 7) % 24 // 3-hour lunch window
+    const secondBreakStart = (startHour + 7) % 24
+    const secondBreakEnd = endHour // Until shift ends
+    
+    return {
+      morning: {
+        start: `${firstBreakStart.toString().padStart(2, '0')}:00`,
+        end: `${firstBreakEnd.toString().padStart(2, '0')}:00`
+      },
+      lunch: {
+        start: `${lunchStart.toString().padStart(2, '0')}:00`,
+        end: `${lunchEnd.toString().padStart(2, '0')}:00`
+      },
+      afternoon: {
+        start: `${secondBreakStart.toString().padStart(2, '0')}:00`,
+        end: `${secondBreakEnd.toString().padStart(2, '0')}:00`
+      }
+    }
+  } else {
+    // Day shift breaks with fixed lunch duration
+    const morningBreakStart = startHour
+    const morningBreakEnd = startHour + 4 // First 4 hours
+    const lunchStart = startHour + 4
+    const lunchEnd = startHour + 7 // 3-hour lunch window (10 AM - 1 PM for 6 AM shift)
+    const afternoonBreakStart = startHour + 7
+    const afternoonBreakEnd = endHour // Until shift ends
+    
+    return {
+      morning: {
+        start: `${morningBreakStart.toString().padStart(2, '0')}:00`,
+        end: `${morningBreakEnd.toString().padStart(2, '0')}:00`
+      },
+      lunch: {
+        start: `${lunchStart.toString().padStart(2, '0')}:00`,
+        end: `${lunchEnd.toString().padStart(2, '0')}:00`
+      },
+      afternoon: {
+        start: `${afternoonBreakStart.toString().padStart(2, '0')}:00`,
+        end: `${afternoonBreakEnd.toString().padStart(2, '0')}:00`
+      }
+    }
+  }
+}
+
+// Get break configuration based on shift
+export function getBreaksForShift(shiftInfo: ShiftInfo): BreakInfo[] {
+  const isNight = isNightShift(shiftInfo.shift_time)
+  const shiftPeriod = shiftInfo.shift_period?.toLowerCase() || ''
+  
+  // Calculate break times based on actual shift
+  const breakTimes = calculateBreakTimes(shiftInfo.shift_time)
+  if (!breakTimes) {
+    // Fallback to static times if shift parsing fails
+    return []
+  }
+  
+  // Base break configurations with dynamic times
+  const baseBreaks: BreakInfo[] = [
+    {
+      id: "Morning",
+      name: "Morning Break",
+      duration: 15,
+      startTime: breakTimes.morning.start,
+      endTime: breakTimes.morning.end,
+      icon: Coffee,
+      description: "Take a 15-minute morning break",
+      color: "bg-orange-500",
+      validForShifts: ["day shift", "morning shift"]
+    },
+    {
+      id: "Lunch",
+      name: "Lunch Break",
+      duration: 60,
+      startTime: breakTimes.lunch.start,
+      endTime: breakTimes.lunch.end,
+      icon: Utensils,
+      description: "Take a 1-hour lunch break",
+      color: "bg-green-500",
+      validForShifts: ["day shift", "morning shift", "afternoon shift"]
+    },
+    {
+      id: "Afternoon",
+      name: "Afternoon Break",
+      duration: 15,
+      startTime: breakTimes.afternoon.start,
+      endTime: breakTimes.afternoon.end,
+      icon: Sun,
+      description: "Take a 15-minute afternoon break",
+      color: "bg-blue-500",
+      validForShifts: ["day shift", "afternoon shift"]
+    }
+  ]
+  
+  // Night shift specific breaks with dynamic times
+  const nightBreaks: BreakInfo[] = [
+    {
+      id: "FirstNight",
+      name: "First Night Break",
+      duration: 15,
+      startTime: breakTimes.morning.start,
+      endTime: breakTimes.morning.end,
+      icon: Coffee,
+      description: "Take a 15-minute night break",
+      color: "bg-purple-500",
+      validForShifts: ["night shift", "graveyard shift"]
+    },
+    {
+      id: "Midnight",
+      name: "Midnight Break",
+      duration: 30,
+      startTime: breakTimes.lunch.start,
+      endTime: breakTimes.lunch.end,
+      icon: Utensils,
+      description: "Take a 30-minute midnight meal break",
+      color: "bg-indigo-500",
+      validForShifts: ["night shift", "graveyard shift"]
+    },
+    {
+      id: "SecondNight",
+      name: "Second Night Break",
+      duration: 15,
+      startTime: breakTimes.afternoon.start,
+      endTime: breakTimes.afternoon.end,
+      icon: Sun,
+      description: "Take a 15-minute early morning break",
+      color: "bg-yellow-500",
+      validForShifts: ["night shift", "graveyard shift"]
+    }
+  ]
+  
+  // Return appropriate breaks based on shift type
+  if (isNight) {
+    return nightBreaks
+  } else {
+    return baseBreaks
+  }
+}
+
+// Get break title based on shift and time
+export function getBreakTitle(breakId: string, shiftInfo: ShiftInfo): string {
+  const isNight = isNightShift(shiftInfo.shift_time)
+  
+     const breakTitles: Record<string, Record<string, string>> = {
+     day: {
+       Morning: "Morning Break",
+       Lunch: "Lunch Break", 
+       Afternoon: "Afternoon Break"
+     },
+     night: {
+       FirstNight: "First Night Break",
+       Midnight: "Midnight Meal Break",
+       SecondNight: "Second Night Break"
+     }
+   }
+  
+  const shiftType = isNight ? 'night' : 'day'
+  return breakTitles[shiftType][breakId] || breakId
+}
+
+// Check if a break is currently valid based on current time and shift
+export function isBreakTimeValid(breakInfo: BreakInfo, shiftInfo: ShiftInfo, currentTime: Date = new Date()): boolean {
+  const parsedShift = parseShiftTime(shiftInfo.shift_time)
+  if (!parsedShift) return false
+  
+  const currentHour = currentTime.getHours()
+  const currentMinute = currentTime.getMinutes()
+  const currentTime24 = `${currentHour.toString().padStart(2, '0')}:${currentMinute.toString().padStart(2, '0')}`
+  
+  const [breakStartHour, breakStartMinute] = breakInfo.startTime.split(':').map(Number)
+  const [breakEndHour, breakEndMinute] = breakInfo.endTime.split(':').map(Number)
+  
+  const breakStartMinutes = breakStartHour * 60 + breakStartMinute
+  const breakEndMinutes = breakEndHour * 60 + breakEndMinute
+  const currentMinutes = currentHour * 60 + currentMinute
+  
+  // Handle night shift breaks that cross midnight
+  if (isNightShift(shiftInfo.shift_time)) {
+    if (breakStartHour > breakEndHour) {
+      // Break crosses midnight (e.g., 23:00 - 01:00)
+      if (currentHour >= breakStartHour || currentHour < breakEndHour) {
+        return true
+      }
+    } else {
+      // Break within same day (e.g., 00:00 - 02:00)
+      if (currentMinutes >= breakStartMinutes && currentMinutes <= breakEndMinutes) {
+        return true
+      }
+    }
+  } else {
+    // Day shift - simple time comparison
+    if (currentMinutes >= breakStartMinutes && currentMinutes <= breakEndMinutes) {
+      return true
+    }
+  }
+  
+  return false
+}
+
+// Get next valid break time
+export function getNextBreakTime(breakInfo: BreakInfo, shiftInfo: ShiftInfo, currentTime: Date = new Date()): Date | null {
+  const currentHour = currentTime.getHours()
+  const currentMinute = currentTime.getMinutes()
+  const currentMinutes = currentHour * 60 + currentMinute
+  
+  const [breakStartHour, breakStartMinute] = breakInfo.startTime.split(':').map(Number)
+  const breakStartMinutes = breakStartHour * 60 + breakStartMinute
+  
+  if (isNightShift(shiftInfo.shift_time)) {
+    // For night shifts, calculate next occurrence
+    const nextBreak = new Date(currentTime)
+    
+    if (breakStartHour > currentHour || (breakStartHour === currentHour && breakStartMinute > currentMinute)) {
+      // Break is later today
+      nextBreak.setHours(breakStartHour, breakStartMinute, 0, 0)
+    } else {
+      // Break is tomorrow
+      nextBreak.setDate(nextBreak.getDate() + 1)
+      nextBreak.setHours(breakStartHour, breakStartMinute, 0, 0)
+    }
+    
+    return nextBreak
+  } else {
+    // For day shifts, if break time has passed, it's not available today
+    if (currentMinutes >= breakStartMinutes) {
+      return null
+    }
+    
+    const nextBreak = new Date(currentTime)
+    nextBreak.setHours(breakStartHour, breakStartMinute, 0, 0)
+    return nextBreak
+  }
+} 

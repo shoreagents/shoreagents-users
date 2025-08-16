@@ -3,15 +3,7 @@
 import { useState, useEffect } from "react"
 import { AppSidebar } from "@/components/app-sidebar"
 import { AppHeader } from "@/components/app-header"
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb"
-import { Separator } from "@/components/ui/separator"
+
 import {
   SidebarInset,
   SidebarProvider,
@@ -21,7 +13,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { 
-  ArrowLeft, 
   HelpCircle, 
   Mail, 
   Phone, 
@@ -102,12 +93,6 @@ export default function ContactSupportPage() {
         <AppHeader />
         <div className="flex flex-1 flex-col gap-6 p-6 pt-2">
           <div className="flex items-center gap-4">
-            <Link href="/dashboard">
-              <Button variant="outline" size="sm">
-                <ArrowLeft className="mr-2 h-4 w-4" />
-                Back
-              </Button>
-            </Link>
             <div>
               <h1 className="text-3xl font-bold text-foreground">Contact Support</h1>
               <p className="text-muted-foreground">Get in touch with our support team through multiple channels</p>
@@ -235,12 +220,7 @@ export default function ContactSupportPage() {
                       Browse FAQ
                     </Button>
                   </Link>
-                  <Link href="/help/docs">
-                    <Button variant="outline" className="w-full justify-start">
-                      <AlertTriangle className="mr-2 h-4 w-4" />
-                      Documentation
-                    </Button>
-                  </Link>
+                  {/* Documentation link removed */}
                 </CardContent>
               </Card>
 

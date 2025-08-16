@@ -1,0 +1,35 @@
+📋 [PROJECT NAME] Checklist
+
+✅ COMPLETED
+- [x] [Feature 1]
+- [x] [Feature 2]
+- [x] [Feature 3]
+
+🔄 IN PROGRESS
+- [ ] [Current task 1]
+- [ ] [Current task 2]
+
+🚀 TODO
+- [ ] [Future task 1]
+- [ ] [Future task 2]
+- [ ] [Future task 3]
+
+🐛 BUGS FIXED
+- [x] [Bug 1]
+- [x] [Bug 2]
+
+📊 STATUS
+Current State: [Status]
+Tech Stack: [Technologies]
+Team: [Names]
+
+🎯 NEXT STEPS
+1. [Next task]
+2. [Next task]
+3. [Next task]
+
+---
+Last Updated: [Date]
+
+INSTRUCTIONS:
+Replace [bracketed items] with your project details 
