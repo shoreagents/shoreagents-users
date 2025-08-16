@@ -6,7 +6,6 @@ import {
   Bell,
   ChevronsUpDown,
   LogOut,
-  Power,
 } from "lucide-react"
 
 import {
@@ -25,6 +24,9 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Button } from "@/components/ui/button"
 import { useActivity } from "@/contexts/activity-context"
+import { getCurrentUser } from "@/lib/ticket-utils"
+import { hasOngoingMeeting, endMeeting } from "@/lib/meeting-utils"
+import { forceLogout } from "@/lib/auth-utils"
 
 export function HeaderUser({
   user,
@@ -38,12 +40,56 @@ export function HeaderUser({
   const router = useRouter()
   const { setUserLoggedOut } = useActivity()
 
-  const handleLogout = () => {
-    // Clear authentication data first
-    localStorage.removeItem("shoreagents-auth")
+  const getInitials = (fullName?: string, email?: string) => {
+    const name = (fullName || '').trim()
+    if (name.length > 0) {
+      const parts = name.split(/\s+/).filter(Boolean)
+      if (parts.length >= 2) {
+        return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase()
+      }
+      return name.slice(0, 2).toUpperCase()
+    }
+    const mail = (email || '').trim()
+    if (mail.includes('@')) {
+      const [local, domain] = mail.split('@')
+      const a = local?.[0] || ''
+      const b = domain?.[0] || ''
+      const initials = `${a}${b}`
+      return initials ? initials.toUpperCase() : 'SA'
+    }
+    return 'SA'
+  }
+
+  const handleLogout = async () => {
+    console.log('🔄 Logout button clicked (header)')
     
-    // Clear cookie
-    document.cookie = "shoreagents-auth=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;"
+    // Get current user before clearing auth
+    const currentUser = getCurrentUser()
+    console.log('👤 Current user (header):', currentUser)
+    
+    // Check if user has an ongoing meeting and end it
+    try {
+      const hasOngoing = await hasOngoingMeeting()
+      if (hasOngoing) {
+        console.log('📞 User has ongoing meeting - ending it before logout')
+        
+        // Get meetings to find the active one
+        const { getMeetings } = await import('@/lib/meeting-utils')
+        const meetings = await getMeetings()
+        const activeMeeting = meetings.find(m => m.status === 'in-progress')
+        
+        if (activeMeeting) {
+          await endMeeting(activeMeeting.id)
+          console.log('✅ Active meeting ended successfully before logout')
+        }
+      }
+    } catch (error) {
+      console.error('Error ending meeting during logout:', error)
+      // Continue with logout even if meeting cleanup fails
+    }
+    
+    // Use the new forceLogout utility function
+    forceLogout()
     
     // Stop activity tracking (this will be picked up by the auth monitor)
     setUserLoggedOut()
@@ -52,29 +98,13 @@ export function HeaderUser({
     router.push("/login")
   }
 
-  const handleLogoutAndQuit = async () => {
-    // Only available in Electron
-    if (typeof window !== 'undefined' && window.electronAPI?.app?.confirmLogoutAndQuit) {
-      try {
-        await window.electronAPI.app.confirmLogoutAndQuit()
-      } catch (error) {
-        console.error('Error triggering logout and quit:', error)
-        // Fallback to regular logout
-        handleLogout()
-      }
-    } else {
-      // Fallback to regular logout if not in Electron
-      handleLogout()
-    }
-  }
-
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" className="relative h-8 w-8 rounded-full cursor-pointer">
           <Avatar className="h-8 w-8">
             <AvatarImage src={user.avatar} alt={user.name} />
-            <AvatarFallback>{user.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
+            <AvatarFallback>{getInitials(user.name, user.email)}</AvatarFallback>
           </Avatar>
         </Button>
       </DropdownMenuTrigger>
@@ -103,12 +133,6 @@ export function HeaderUser({
           <LogOut className="mr-2 h-4 w-4" />
           <span>Log out</span>
         </DropdownMenuItem>
-        {typeof window !== 'undefined' && window.electronAPI && (
-          <DropdownMenuItem onClick={handleLogoutAndQuit}>
-            <Power className="mr-2 h-4 w-4" />
-            <span>Logout & Quit App</span>
-          </DropdownMenuItem>
-        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )

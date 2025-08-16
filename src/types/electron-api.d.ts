@@ -18,6 +18,11 @@ declare global {
         update: (data: any) => Promise<any>;
         close: () => Promise<any>;
       };
+      systemNotifications: {
+        show: (notificationData: any) => Promise<any>;
+        clear: () => Promise<any>;
+        getCount: () => Promise<any>;
+      };
       app: {
         confirmLogoutAndQuit: () => Promise<any>;
         logoutCompleted: () => Promise<any>;

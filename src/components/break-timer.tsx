@@ -1,11 +1,12 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
-import {
+import { 
   Dialog,
   DialogContent,
   DialogDescription,
@@ -22,7 +23,8 @@ import {
   CheckCircle
 } from "lucide-react"
 import { useBreak } from "@/contexts/break-context"
-import { saveBreakTimerState, clearBreakTimerState } from "@/lib/break-storage"
+
+import { getCurrentBreak } from "@/lib/break-manager"
 
 interface BreakInfo {
   id: string
@@ -38,7 +40,7 @@ interface BreakInfo {
 interface BreakTimerProps {
   breakInfo: BreakInfo
   onEnd: () => void
-  onPause: () => void
+  onPause: (timeRemainingSeconds: number) => void
   onResume: () => void
   isPaused: boolean
   savedTimeLeft?: number
@@ -48,9 +50,23 @@ interface BreakTimerProps {
 }
 
 export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, savedTimeLeft, savedStartTime, savedPauseTime, emergencyPauseUsed }: BreakTimerProps) {
+  const router = useRouter()
+  
   // Calculate correct time remaining when resuming from pause or reload
   const calculateTimeLeft = () => {
     const now = Date.now()
+    
+    // Check if this is a resumed break from localStorage with saved timer state
+    const currentBreak = getCurrentBreak()
+    if (currentBreak && currentBreak.time_remaining_seconds && !currentBreak.is_paused) {
+      // If we have a recent update, use the saved time remaining
+      if (currentBreak.last_updated) {
+        const timeSinceUpdate = Math.floor((now - currentBreak.last_updated) / 1000)
+        const adjustedTimeLeft = Math.max(0, currentBreak.time_remaining_seconds - timeSinceUpdate)
+        return adjustedTimeLeft
+      }
+      return currentBreak.time_remaining_seconds
+    }
     
     // If we have saved time left from a currently paused break, use it
     if (savedTimeLeft && emergencyPauseUsed && isPaused) {
@@ -86,6 +102,72 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
     }
   }, [emergencyPauseUsed])
 
+  // Prevent page reload during active break
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isRunning && !hasEnded && timeLeft > 0) {
+        e.preventDefault()
+        e.returnValue = 'You have an active break timer running. Are you sure you want to leave?'
+        return 'You have an active break timer running. Are you sure you want to leave?'
+      }
+    }
+
+    const handleVisibilityChange = () => {
+      // Page hidden during active break - timer continues in background
+    }
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Prevent F5, Ctrl+R, Ctrl+Shift+R (hard refresh) silently
+      if (isRunning && !hasEnded && timeLeft > 0) {
+        if (e.key === 'F5' || 
+            (e.ctrlKey && e.key === 'r') || 
+            (e.ctrlKey && e.shiftKey && e.key === 'R')) {
+          e.preventDefault()
+          e.stopPropagation()
+          return false
+        }
+      }
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    document.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isRunning, hasEnded, timeLeft])
+
+  // Save timer state to localStorage periodically
+  useEffect(() => {
+    if (isRunning && !hasEnded && timeLeft > 0) {
+      const saveTimerState = () => {
+        const currentBreak = getCurrentBreak()
+        if (currentBreak) {
+          // Update the current break with current timer state
+          const updatedBreak = {
+            ...currentBreak,
+            time_remaining_seconds: timeLeft,
+            start_time: startTime,
+            last_updated: Date.now()
+          }
+          localStorage.setItem('currentBreak', JSON.stringify(updatedBreak))
+        }
+      }
+
+      // Save state every 5 seconds
+      const interval = setInterval(saveTimerState, 5000)
+      
+      // Also save when component unmounts
+      return () => {
+        clearInterval(interval)
+        saveTimerState()
+      }
+    }
+  }, [isRunning, hasEnded, timeLeft, startTime])
+
   // Update timeLeft when resuming from pause with saved state
   useEffect(() => {
     if (savedTimeLeft && savedPauseTime && emergencyPauseUsed) {
@@ -109,7 +191,7 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
     if (!isRunning || isPaused) return
 
     const interval = setInterval(() => {
-      setTimeLeft((prev) => {
+      setTimeLeft((prev: number) => {
         if (prev <= 1) {
           setIsRunning(false)
           return 0
@@ -122,7 +204,7 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
   }, [isRunning, isPaused])
 
   // Handle pause button click
-  const handlePause = useCallback(() => {
+  const handlePause = useCallback(async () => {
     if (hasPaused) {
       setShowPauseWarning(true)
       setTimeout(() => setShowPauseWarning(false), 3000)
@@ -131,13 +213,25 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
 
     setHasPaused(true)
     setIsRunning(false)
-    onPause()
-    // Save timer state with exact pause time
+    
+    try {
+      // Call the database pause API - this should NOT end the break
+      await onPause(timeLeft) // Pass remaining time in seconds to database
+      
+      // Pause break via API
     const pauseTime = Date.now()
-    saveBreakTimerState(breakInfo.id, timeLeft, startTime, pauseTime)
-    // Return to breaks page when emergency pause is used
-    onEnd()
-  }, [hasPaused, onPause, onEnd, breakInfo.id, timeLeft, startTime])
+      
+      // Return to breaks page WITHOUT ending the break session  
+      // The break should remain active but paused in database
+      router.push('/status/breaks') // Navigate specifically to breaks page
+      
+    } catch (error) {
+      console.error('Failed to pause break:', error)
+      // If pause fails, continue with break
+      setHasPaused(false)
+      setIsRunning(true)
+    }
+  }, [hasPaused, onPause, breakInfo.id, timeLeft, startTime])
 
   // Handle resume - this should restore the timer from where it was paused
   const handleResume = () => {
@@ -152,8 +246,6 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
     if (timeLeft === 0) {
       setTimeout(() => {
         setBreakActive(false)
-        // Clear saved timer state when break ends naturally
-        clearBreakTimerState(breakInfo.id)
         onEnd()
       }, 2000) // Give user 2 seconds to see completion
     }
@@ -168,8 +260,6 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
   const confirmEndBreak = () => {
     setHasEnded(true)
     setBreakActive(false)
-    // Clear saved timer state when break ends manually
-    clearBreakTimerState(breakInfo.id)
     onEnd()
     setShowEndConfirm(false)
   }
@@ -183,14 +273,21 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
     <div className="fixed inset-0 bg-background z-50 flex items-center justify-center p-4">
       <div className="w-full h-full flex items-center justify-center">
         <Card className="border-2 border-primary/20 w-full h-full max-w-none max-h-none m-0 rounded-none">
-          <CardHeader className="text-center pb-6 pt-8">
-            <div className="flex items-center justify-center gap-3 mb-4">
-              <div className={`p-3 rounded-full ${breakInfo.color} text-white`}>
-                <Icon className="h-8 w-8" />
+          <CardHeader className="text-center pt-8">
+            <div className="flex justify-center mb-4">
+              <img
+                src="/shoreagents-logo.png"
+                alt="ShoreAgents"
+                className="h-12 sm:h-16 object-contain"
+              />
+            </div>
+            <div className="flex items-center justify-center gap-4 mb-4">
+              <div className={`p-4 rounded-full ${breakInfo.color} text-white`}>
+                <Icon className="h-12 w-12" />
               </div>
               <div>
-                <CardTitle className="text-3xl">{breakInfo.name}</CardTitle>
-                <p className="text-muted-foreground">{breakInfo.description}</p>
+                <CardTitle className="text-4xl sm:text-5xl font-bold leading-tight">{breakInfo.name}</CardTitle>
+                <p className="text-lg text-muted-foreground">{breakInfo.description}</p>
               </div>
             </div>
             
@@ -200,16 +297,34 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
                 Paused - Emergency Break
               </Badge>
             )}
+            
+
           </CardHeader>
 
           <CardContent className="space-y-8 flex-1 flex flex-col justify-center">
             {/* Timer Display */}
             <div className="text-center flex-1 flex flex-col justify-center">
-              <div className="text-[12rem] font-mono font-bold text-primary mb-8">
+              <div className="font-mono font-bold text-primary  text-[clamp(8rem,20vw,20rem)]">
                 {formatTime(timeLeft)}
               </div>
               
-              <Progress value={progress} className="h-4 mb-6" />
+              <div className="relative mb-6">
+                <div className="w-full h-4 bg-gray-50 rounded-full overflow-hidden border border-gray-200">
+                  <div 
+                    className={`h-full rounded-full transition-all duration-1000 ease-out ${
+                      progress >= 90 
+                        ? 'bg-gradient-to-r from-green-400 to-green-500 animate-pulse shadow-lg shadow-green-200' 
+                        : progress >= 75 
+                        ? 'bg-gradient-to-r from-yellow-400 to-yellow-500 shadow-md shadow-yellow-200' 
+                        : 'bg-gradient-to-r from-primary to-primary/80 shadow-sm shadow-primary/20'
+                    }`}
+                    style={{ 
+                      width: `${progress}%`,
+                      transition: 'width 1s ease-out, box-shadow 0.3s ease-out'
+                    }}
+                  />
+                </div>
+              </div>
               
               <div className="flex items-center justify-center gap-2 text-lg text-muted-foreground">
                 <Clock className="h-5 w-5" />

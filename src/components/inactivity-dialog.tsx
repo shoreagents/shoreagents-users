@@ -57,9 +57,8 @@ export function InactivityDialog({
 
   const handleClose = () => {
     // Simply close the dialog - activity will naturally resume when user becomes active
-    setTimeout(() => {
-      onClose()
-    }, 0)
+    // Removed setTimeout delay for immediate response
+    onClose()
   }
 
   const formatTime = (seconds: number) => {
@@ -101,9 +100,6 @@ export function InactivityDialog({
               <span className="font-medium">{formatTime(elapsedTime)}</span>
             </div>
             <Progress value={((elapsedTime % 60) / 60) * 100} className="w-full" />
-            <p className="text-xs text-muted-foreground">
-              Progress bar cycles every minute (infinite indicator)
-            </p>
           </div>
           
           <div className="flex items-center gap-2 text-sm text-muted-foreground">

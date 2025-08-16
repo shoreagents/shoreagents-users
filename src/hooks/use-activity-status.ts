@@ -2,21 +2,37 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { getCurrentUser } from '@/lib/ticket-utils'
-import { getCurrentSessionStatus, trackUserActivity } from '@/lib/activity-storage'
+import { useTimer } from '@/contexts/timer-context'
+import { useMeetingStatus } from '@/hooks/use-meeting-status'
 
 export function useActivityStatus() {
   const [isActive, setIsActive] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+  const { isInitialized, isBreakActive, timerData, lastActivityState, breakStatus } = useTimer()
+  const { isInMeeting } = useMeetingStatus()
 
   const checkActivityStatus = useCallback(() => {
     try {
       const currentUser = getCurrentUser()
-      if (currentUser?.email) {
-        const sessionStatus = getCurrentSessionStatus(currentUser.email)
+      if (currentUser?.email && isInitialized) {
+        // Use database-driven activity status from timer context
+        // User is active if they have recent activity and are not on break
+        const hasRecentActivity = timerData?.isActive === true || lastActivityState === true
+        const isOnBreak = isBreakActive === true
         
-        // User is active if they have an active session (not break, inactive, or none)
-        const active = sessionStatus?.type === 'active'
-        setIsActive(active)
+        // Check if break is paused (emergency pause)
+        // When break is paused, user should be considered active since they're working
+        const isBreakPaused = breakStatus?.is_paused === true
+        
+        // User is active if:
+        // 1. They have recent activity AND are not on break AND not in meeting, OR
+        // 2. They are on break but it's paused (emergency pause)
+        const isActive = (hasRecentActivity && !isOnBreak && !isInMeeting) || (isOnBreak && isBreakPaused)
+        
+        // Only log activity status changes (not every evaluation)
+        // Removed frequent console logs to reduce noise
+        
+        setIsActive(isActive)
       } else {
         setIsActive(false)
       }
@@ -26,7 +42,7 @@ export function useActivityStatus() {
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [isInitialized, isBreakActive, isInMeeting, timerData?.isActive, breakStatus?.is_paused, lastActivityState])
 
   useEffect(() => {
     // Check immediately
@@ -36,12 +52,11 @@ export function useActivityStatus() {
     const interval = setInterval(checkActivityStatus, 500)
 
     // Add event listeners for real-time activity detection
-    const handleActivity = () => {
+    const handleActivity = async () => {
       const currentUser = getCurrentUser()
       if (currentUser?.email) {
-        // Track activity immediately
-        trackUserActivity(currentUser.email)
-        // Check status after a brief delay
+        // TODO: Replace with database-driven activity tracking
+        // For now, just check status after a brief delay
         setTimeout(checkActivityStatus, 50)
       }
     }
@@ -55,11 +70,11 @@ export function useActivityStatus() {
     window.addEventListener('touchstart', handleActivity, { passive: true })
 
     // Listen for visibility changes (tab switching)
-    const handleVisibilityChange = () => {
+    const handleVisibilityChange = async () => {
       if (!document.hidden) {
         const currentUser = getCurrentUser()
         if (currentUser?.email) {
-          trackUserActivity(currentUser.email)
+          // TODO: Replace with database-driven activity tracking
           setTimeout(checkActivityStatus, 50)
         }
       }
