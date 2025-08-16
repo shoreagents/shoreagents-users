@@ -7,7 +7,7 @@ A desktop application for managing support tickets, built with Next.js and Elect
 - 🎫 Create and manage support tickets
 - 📊 Dashboard with ticket statistics
 - 🎨 Modern UI with ShoreAgents branding
-- 💾 Local storage for ticket data
+- 💾 Database for ticket data
 - 🔍 Search and filter tickets
 - 📱 Responsive design
 
