@@ -224,7 +224,7 @@ export function formatTimeUntilReset(milliseconds: number): string {
  */
 export function getResetTypeDescription(shiftInfo: ShiftInfo | null): string {
   if (!shiftInfo) {
-    return 'Daily reset at midnight';
+    return 'New data at midnight';
   }
   
   const startTime = shiftInfo.startTime.toLocaleTimeString('en-US', { 
@@ -234,9 +234,9 @@ export function getResetTypeDescription(shiftInfo: ShiftInfo | null): string {
   });
   
   if (shiftInfo.isNightShift) {
-    return `Shift reset at ${startTime}`;
+    return `New data at ${startTime}`;
   } else {
-    return `Daily reset at ${startTime}`;
+    return `New data at ${startTime}`;
   }
 }
 

@@ -39,6 +39,7 @@ import { getCurrentUserInfo } from "@/lib/user-profiles"
 import { useBreak } from "@/contexts/break-context"
 import { useTimer } from "@/contexts/timer-context"
 import { useMeeting } from "@/contexts/meeting-context"
+
 import { endMeeting } from "@/lib/meeting-utils"
 import { 
   getBreaksForShift, 

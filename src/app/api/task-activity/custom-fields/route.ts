@@ -37,11 +37,25 @@ export async function POST(request: NextRequest) {
       actualUserId = userRes.rows[0].id
     }
 
-    // Ensure the task belongs to the user
-    const taskRes = await pool.query('SELECT id FROM tasks WHERE id = $1 AND user_id = $2', [task_id, actualUserId])
+    // Ensure the user has access to the task (creator OR assignee)
+    const taskRes = await pool.query(
+      `SELECT t.id, t.user_id as creator_id,
+              EXISTS(SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = $2) as is_assignee
+       FROM tasks t WHERE t.id = $1`,
+      [task_id, actualUserId]
+    )
     if (taskRes.rows.length === 0) {
       await pool.end()
-      return NextResponse.json({ error: 'Task not found or not owned by user' }, { status: 404 })
+      return NextResponse.json({ error: 'Task not found' }, { status: 404 })
+    }
+    
+    const taskPermission = taskRes.rows[0]
+    const isCreator = Number(taskPermission.creator_id) === Number(actualUserId)
+    const isAssignee = taskPermission.is_assignee
+    
+    if (!isCreator && !isAssignee) {
+      await pool.end()
+      return NextResponse.json({ error: 'You do not have permission to modify this task' }, { status: 403 })
     }
 
     const posRes = await pool.query('SELECT COALESCE(MAX(position), 0) + 1 AS next_pos FROM task_custom_fields WHERE task_id = $1', [task_id])
@@ -87,11 +101,25 @@ export async function PATCH(request: NextRequest) {
       actualUserId = userRes.rows[0].id
     }
 
-    // Ensure the task belongs to the user
-    const taskRes = await pool.query('SELECT id FROM tasks WHERE id = $1 AND user_id = $2', [task_id, actualUserId])
+    // Ensure the user has access to the task (creator OR assignee)
+    const taskRes = await pool.query(
+      `SELECT t.id, t.user_id as creator_id,
+              EXISTS(SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = $2) as is_assignee
+       FROM tasks t WHERE t.id = $1`,
+      [task_id, actualUserId]
+    )
     if (taskRes.rows.length === 0) {
       await pool.end()
-      return NextResponse.json({ error: 'Task not found or not owned by user' }, { status: 404 })
+      return NextResponse.json({ error: 'Task not found' }, { status: 404 })
+    }
+    
+    const taskPermission = taskRes.rows[0]
+    const isCreator = Number(taskPermission.creator_id) === Number(actualUserId)
+    const isAssignee = taskPermission.is_assignee
+    
+    if (!isCreator && !isAssignee) {
+      await pool.end()
+      return NextResponse.json({ error: 'You do not have permission to modify this task' }, { status: 403 })
     }
 
     const client = await pool.connect()

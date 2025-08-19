@@ -74,6 +74,26 @@ export const refreshAuthDataFormat = () => {
 }
 
 /**
+ * Normalize Auth on app entry. Ensures localStorage and cookie are aligned
+ * to avoid double-login redirects after long idle sessions or forced logouts.
+ */
+export function normalizeAuthOnEntry() {
+  try {
+    const cookieAuth = getAuthCookie()
+    const lsAuthRaw = localStorage.getItem('shoreagents-auth')
+    const lsAuth = lsAuthRaw ? JSON.parse(lsAuthRaw) : null
+    // If cookie shows authenticated but localStorage is empty or out-of-date, sync it
+    if (cookieAuth?.isAuthenticated && JSON.stringify(lsAuth) !== JSON.stringify(cookieAuth)) {
+      localStorage.setItem('shoreagents-auth', JSON.stringify(cookieAuth))
+    }
+    // If cookie was cleared but localStorage still has auth, clear LS to prevent loops
+    if (!cookieAuth && lsAuth) {
+      localStorage.removeItem('shoreagents-auth')
+    }
+  } catch {}
+}
+
+/**
  * Clear all authentication data and redirect to login
  */
 export function forceLogout() {

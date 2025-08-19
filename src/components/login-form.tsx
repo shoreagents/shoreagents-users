@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { FileText, Eye, EyeOff } from "lucide-react"
 
@@ -26,114 +26,56 @@ export function LoginForm({
   const router = useRouter()
   const { setUserLoggedIn } = useActivity()
 
+  // Proactively clear any stale tokens/cookies when arriving at the login page
+  useEffect(() => {
+    clearAllAuthArtifacts()
+  }, [])
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
     setError("")
 
     try {
-      // Clear any stale tokens/cookies before starting a new login to avoid the double-attempt redirect
-      clearAllAuthArtifacts()
-      // Sign in with Supabase
-      const { data, error } = await authHelpers.signInWithEmail(email, password)
-      
-      if (error) {
-        // If Supabase is not configured, fallback to Railway system
-        if (error.message.includes('SUPABASE') || error.message.includes('supabaseKey')) {
-          // Fallback to Railway authentication
-          const response = await fetch('/api/auth/login', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            credentials: 'include',
-            body: JSON.stringify({ email, password, fallback: true }),
-          })
+      // Single-call login flow handled entirely on the server to avoid races
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ email, password })
+      })
 
-          const fallbackData = await response.json()
-          
-          if (fallbackData.success && fallbackData.user) {
-            // Store authentication data with fallback flag
-            const authData = {
-              isAuthenticated: true,
-              user: {
-                id: fallbackData.user.id,
-                email: fallbackData.user.email,
-                name: fallbackData.user.name,
-                role: fallbackData.user.role,
-                user_type: fallbackData.user.user_type
-              },
-              timestamp: getCurrentPhilippinesTime(),
-              usingFallback: true
-            }
+      const data = await response.json()
 
-            setAuthCookie(authData, 7)
-            localStorage.setItem("shoreagents-auth", JSON.stringify(authData))
-            setUserLoggedIn()
-            // Give the browser a tick to persist cookies, then hard-navigate
-            await new Promise(r => setTimeout(r, 50))
-            window.location.href = "/dashboard"
-            return
-          } else {
-            setError(fallbackData.error || "Login failed. Please try again.")
-            setIsLoading(false)
-            return
-          }
-        }
-        
-        setError(error.message || "Login failed. Please try again.")
+      if (!response.ok || !data?.success || !data?.user) {
+        setError(data?.error || 'Login failed. Please try again.')
         setIsLoading(false)
         return
       }
 
-      if (data.user && data.session) {
-        // Call the API route for hybrid validation (Supabase auth + Railway role check)
-          const response = await fetch('/api/auth/login', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include',
-          body: JSON.stringify({ email, password }),
-        })
-
-        const validationData = await response.json()
-        
-        if (validationData.success && validationData.user) {
-          // Store authentication data with hybrid information
-          const authData = {
-            isAuthenticated: true,
-            user: {
-              id: validationData.user.id, // Supabase UUID
-              railway_id: validationData.user.railway_id, // Railway ID for compatibility
-              email: validationData.user.email,
-              name: validationData.user.name,
-              role: validationData.user.role,
-              user_type: validationData.user.user_type
-            },
-            timestamp: getCurrentPhilippinesTime(),
-            hybrid: true // Flag to indicate hybrid authentication
-          }
-
-          // Set cookie using the new utility function
-          setAuthCookie(authData, 7)
-          
-          // Store same minimal data in localStorage for client-side access
-          localStorage.setItem("shoreagents-auth", JSON.stringify(authData))
-
-          // Start activity tracking for the logged-in user
-          setUserLoggedIn()
-
-          // Give the browser a tick to persist cookies, then hard-navigate
-          await new Promise(r => setTimeout(r, 50))
-          window.location.href = "/dashboard"
-        } else {
-          // Validation failed - sign out from Supabase
-          await authHelpers.signOut()
-          setError(validationData.error || "Access denied. Please contact administrator.")
-          setIsLoading(false)
-        }
+      // Mirror server cookie to localStorage for client access
+      const authData = {
+        isAuthenticated: true,
+        user: {
+          id: data.user.id,
+          railway_id: data.user.railway_id,
+          email: data.user.email,
+          name: data.user.name,
+          role: data.user.role,
+          user_type: data.user.user_type
+        },
+        timestamp: getCurrentPhilippinesTime(),
+        hybrid: !!data.hybrid || !!data.fallback
       }
+
+      // Optional: set client cookie duplicate (server already set); harmless if duplicated
+      setAuthCookie(authData, 7)
+      localStorage.setItem('shoreagents-auth', JSON.stringify(authData))
+      setUserLoggedIn()
+
+      await new Promise(r => setTimeout(r, 120))
+      window.location.href = '/dashboard'
+      return
     } catch (error) {
       setError("Network error. Please check your connection and try again.")
     }
