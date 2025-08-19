@@ -30,16 +30,27 @@ export async function PUT(request: NextRequest, context: { params: Promise<{ id:
       actualUserId = userRes.rows[0].id
     }
 
-    // Ensure field belongs to a task owned by user
+    // Ensure user has access to the task (creator OR assignee)
     const ownRes = await pool.query(
-      `SELECT tcf.id FROM task_custom_fields tcf
+      `SELECT tcf.id, t.user_id as creator_id,
+              EXISTS(SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = $2) as is_assignee
+       FROM task_custom_fields tcf
        JOIN tasks t ON t.id = tcf.task_id
-       WHERE tcf.id = $1 AND t.user_id = $2`,
+       WHERE tcf.id = $1`,
       [fieldId, actualUserId]
     )
     if (ownRes.rows.length === 0) {
       await pool.end()
-      return NextResponse.json({ error: 'Field not found or not owned by user' }, { status: 404 })
+      return NextResponse.json({ error: 'Field not found' }, { status: 404 })
+    }
+    
+    const fieldPermission = ownRes.rows[0]
+    const isCreator = Number(fieldPermission.creator_id) === Number(actualUserId)
+    const isAssignee = fieldPermission.is_assignee
+    
+    if (!isCreator && !isAssignee) {
+      await pool.end()
+      return NextResponse.json({ error: 'You do not have permission to modify this field' }, { status: 403 })
     }
 
     const updRes = await pool.query(
@@ -81,16 +92,27 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
       actualUserId = userRes.rows[0].id
     }
 
-    // Ensure field belongs to a task owned by user
+    // Ensure user has access to the task (creator OR assignee)
     const ownRes = await pool.query(
-      `SELECT tcf.task_id FROM task_custom_fields tcf
+      `SELECT tcf.task_id, t.user_id as creator_id,
+              EXISTS(SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = $2) as is_assignee
+       FROM task_custom_fields tcf
        JOIN tasks t ON t.id = tcf.task_id
-       WHERE tcf.id = $1 AND t.user_id = $2`,
+       WHERE tcf.id = $1`,
       [fieldId, actualUserId]
     )
     if (ownRes.rows.length === 0) {
       await pool.end()
-      return NextResponse.json({ error: 'Field not found or not owned by user' }, { status: 404 })
+      return NextResponse.json({ error: 'Field not found' }, { status: 404 })
+    }
+    
+    const fieldPermission = ownRes.rows[0]
+    const isCreator = Number(fieldPermission.creator_id) === Number(actualUserId)
+    const isAssignee = fieldPermission.is_assignee
+    
+    if (!isCreator && !isAssignee) {
+      await pool.end()
+      return NextResponse.json({ error: 'You do not have permission to delete this field' }, { status: 403 })
     }
     const taskId = ownRes.rows[0].task_id
 

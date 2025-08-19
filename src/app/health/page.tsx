@@ -213,7 +213,7 @@ export default function HealthPage() {
           <AppHeader />
           <div className="flex flex-1 flex-col gap-6 p-6 pt-2 relative">
             {/* Coming Soon Overlay */}
-            <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
+            {/* <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
               <div className="bg-card border rounded-lg p-8 max-w-md mx-4 text-center shadow-lg">
                 <div className="mb-4">
                   <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -251,7 +251,7 @@ export default function HealthPage() {
                   Go Back
                 </Button>
               </div>
-            </div>
+            </div> */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
                 <Button
@@ -365,7 +365,7 @@ export default function HealthPage() {
         <AppHeader />
         <div className="flex flex-1 flex-col gap-6 p-6 pt-2 relative">
           {/* Coming Soon Overlay */}
-          <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
+          {/* <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
             <div className="bg-card border rounded-lg p-8 max-w-md mx-4 text-center shadow-lg">
               <div className="mb-4">
                 <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -403,7 +403,7 @@ export default function HealthPage() {
                 Go Back
               </Button>
             </div>
-          </div>
+          </div> */}
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-3xl font-bold text-foreground">Health Check</h1>

@@ -6,6 +6,7 @@ import { getCurrentUser } from '@/lib/ticket-utils'
 import { useActivity } from './activity-context'
 import { useMeeting } from '@/contexts/meeting-context'
 import { isBreakTimeValid, getBreaksForShift } from '@/lib/shift-break-utils'
+import { parseShiftTime } from '@/lib/shift-utils'
 
 interface TimerContextType {
   timerData: any
@@ -307,6 +308,36 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
 
     // Start real-time counting immediately
     const interval = setInterval(() => {
+      // Guard: do not count before shift start or after shift end (Philippines time)
+      try {
+        const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
+        let shiftStartDate: Date | null = null
+        let shiftEndDate: Date | null = null
+        
+        if (shiftInfo?.startTime && shiftInfo?.endTime) {
+          shiftStartDate = new Date(shiftInfo.startTime)
+          shiftEndDate = new Date(shiftInfo.endTime)
+        } else if (userProfile?.shift_time) {
+          const parsed = parseShiftTime(userProfile.shift_time, nowPH)
+          if (parsed?.startTime && parsed?.endTime) {
+            shiftStartDate = parsed.startTime
+            shiftEndDate = parsed.endTime
+          }
+        }
+        
+        // Stop counting before shift start
+        if (shiftStartDate && nowPH < shiftStartDate) {
+          return // Skip counting until shift start
+        }
+        
+        // Stop counting after shift end
+        if (shiftEndDate && nowPH > shiftEndDate) {
+          return // Skip counting after shift end
+        }
+      } catch (_) {
+        // ignore guard errors; fallback to counting rules below
+      }
+
       // Check if break is active and not paused (emergency pause)
       const isBreakPaused = breakStatus?.is_paused === true
       
@@ -331,7 +362,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     }, 1000)
 
     return () => clearInterval(interval)
-  }, [timerData?.isActive, lastActivityState, isAuthenticated, hasLoggedIn, isBreakActive, breakStatus?.is_paused, isInMeeting])
+  }, [timerData?.isActive, lastActivityState, isAuthenticated, hasLoggedIn, isBreakActive, breakStatus?.is_paused, isInMeeting, shiftInfo, userProfile])
 
   // Real-time countdown timer for shift reset
   useEffect(() => {
@@ -408,6 +439,36 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
   // Sync live timer values to Socket.IO server (less frequent to prevent flashing)
   useEffect(() => {
     if (timerData && isAuthenticated && hasLoggedIn) {
+      // Guard: do not sync timer data before shift start or after shift end (Philippines time)
+      try {
+        const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
+        let shiftStartDate: Date | null = null
+        let shiftEndDate: Date | null = null
+        
+        if (shiftInfo?.startTime && shiftInfo?.endTime) {
+          shiftStartDate = new Date(shiftInfo.startTime)
+          shiftEndDate = new Date(shiftInfo.endTime)
+        } else if (userProfile?.shift_time) {
+          const parsed = parseShiftTime(userProfile.shift_time, nowPH)
+          if (parsed?.startTime && parsed?.endTime) {
+            shiftStartDate = parsed.startTime
+            shiftEndDate = parsed.endTime
+          }
+        }
+        
+        // Stop syncing before shift start
+        if (shiftStartDate && nowPH < shiftStartDate) {
+          return // Skip syncing until shift start
+        }
+        
+        // Stop syncing after shift end
+        if (shiftEndDate && nowPH > shiftEndDate) {
+          return // Skip syncing after shift end
+        }
+      } catch (_) {
+        // ignore guard errors; fallback to sync logic below
+      }
+
       const serverActive = timerData.activeSeconds || 0
       const serverInactive = timerData.inactiveSeconds || 0
       
@@ -417,7 +478,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         updateTimerData(liveActiveSeconds, liveInactiveSeconds);
       }
     }
-  }, [liveActiveSeconds, liveInactiveSeconds, timerData, updateTimerData, isAuthenticated, hasLoggedIn]);
+  }, [liveActiveSeconds, liveInactiveSeconds, timerData, updateTimerData, isAuthenticated, hasLoggedIn, shiftInfo, userProfile]);
 
   // Activity detection - use Electron activity tracking if available
   useEffect(() => {

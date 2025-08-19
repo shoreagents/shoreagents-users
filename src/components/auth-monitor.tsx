@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { getCurrentUser, hasValidAuthTokens, forceLogout } from '@/lib/auth-utils'
 
 interface AuthMonitorProps {
@@ -10,6 +10,7 @@ interface AuthMonitorProps {
 
 export function AuthMonitor({ children }: AuthMonitorProps) {
   const router = useRouter()
+  const pathname = usePathname()
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
   const lastCheckRef = useRef<{
     shoreagentsAuth: string | null
@@ -57,6 +58,10 @@ export function AuthMonitor({ children }: AuthMonitorProps) {
 
   // Function to check if user should be logged out
   const checkAuthStatus = () => {
+    // Do not enforce auto-logout logic while on the login page to avoid double-login loops
+    if (pathname === '/login') {
+      return
+    }
     const currentUser = getCurrentUser()
     const currentAuth = getCurrentAuthState()
     
@@ -113,26 +118,33 @@ export function AuthMonitor({ children }: AuthMonitorProps) {
     const currentAuth = getCurrentAuthState()
     lastCheckRef.current = currentAuth
 
-    // Set up periodic checking
-    intervalRef.current = setInterval(checkAuthStatus, 1000) // Check every second
+    // Clear any existing interval
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current)
+      intervalRef.current = null
+    }
+
+    // Set up periodic checking only when not on login page
+    if (pathname !== '/login') {
+      intervalRef.current = setInterval(checkAuthStatus, 1000)
+    }
 
     // Listen for storage events (cross-tab detection)
     window.addEventListener('storage', handleStorageChange)
 
     // Listen for beforeunload to detect manual clearing
-    const handleBeforeUnload = () => {
-      // This is a backup - the interval will catch most cases
-    }
+    const handleBeforeUnload = () => {}
     window.addEventListener('beforeunload', handleBeforeUnload)
 
     return () => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current)
+        intervalRef.current = null
       }
       window.removeEventListener('storage', handleStorageChange)
       window.removeEventListener('beforeunload', handleBeforeUnload)
     }
-  }, [router])
+  }, [router, pathname])
 
   return <>{children}</>
 } 
