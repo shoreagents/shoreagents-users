@@ -166,7 +166,28 @@ export const useSocketTimer = (email: string | null): UseSocketTimerReturn => {
       // Handle timer updates from server
       socket.on('timerUpdated', (data: TimerData) => {
         if (!isActive.current) return
-        setTimerData(data)
+        
+        // IMPROVED ACTIVITY STATE SYNCHRONIZATION
+        // Only update if we have new, valid data
+        if (data && typeof data.isActive === 'boolean') {
+          // Log activity state changes for debugging
+          if (timerData && timerData.isActive !== data.isActive) {
+            console.log(`🔄 Server activity state changed: ${timerData.isActive} → ${data.isActive}`)
+          }
+          
+          // Update timer data
+          setTimerData(data)
+          
+          // Update local activity state reference
+          lastActivityStateRef.current = data.isActive
+          
+          // Emit custom event for other components
+          window.dispatchEvent(new CustomEvent('serverActivityUpdate', { 
+            detail: { isActive: data.isActive, timestamp: Date.now() }
+          }))
+        } else {
+          console.warn('Received invalid timer data from server:', data)
+        }
       })
 
       // Handle shift reset events from server
@@ -275,11 +296,28 @@ export const useSocketTimer = (email: string | null): UseSocketTimerReturn => {
 
     timerUpdateIntervalRef.current = setInterval(() => {
       if (timerData && socketRef.current) {
-        console.log(`⏰ Periodic sync: ${timerData.activeSeconds}s active, ${timerData.inactiveSeconds}s inactive`)
-        socketRef.current.emit('timerUpdate', {
-          activeSeconds: timerData.activeSeconds,
-          inactiveSeconds: timerData.inactiveSeconds
-        })
+        // IMPROVED TIMER SYNC: Only sync if we have valid data
+        const hasValidData = typeof timerData.activeSeconds === 'number' && 
+                           typeof timerData.inactiveSeconds === 'number' &&
+                           typeof timerData.isActive === 'boolean'
+        
+        if (hasValidData) {
+          console.log(`⏰ Periodic sync: ${timerData.activeSeconds}s active, ${timerData.inactiveSeconds}s inactive, Active: ${timerData.isActive}`)
+          
+          // Send timer update to server
+          socketRef.current.emit('timerUpdate', {
+            activeSeconds: timerData.activeSeconds,
+            inactiveSeconds: timerData.inactiveSeconds
+          })
+          
+          // Also sync activity state if it changed
+          if (lastActivityStateRef.current !== timerData.isActive) {
+            console.log(`🔄 Syncing activity state: ${lastActivityStateRef.current} → ${timerData.isActive}`)
+            lastActivityStateRef.current = timerData.isActive
+          }
+        } else {
+          console.warn('⚠️ Skipping timer sync - invalid data:', timerData)
+        }
       }
     }, 15000) // 15 seconds (reduced frequency)
 

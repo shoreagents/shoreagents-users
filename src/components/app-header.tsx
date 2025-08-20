@@ -581,6 +581,14 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
                               setNotifications(recentNotifications)
                               setUnreadCount(getUnreadCount())
                               
+                              // Dispatch notification-clicked event for task notifications
+                              if (notification.category === 'task') {
+                                const notificationClickEvent = new CustomEvent('notification-clicked', { 
+                                  detail: notification 
+                                })
+                                window.dispatchEvent(notificationClickEvent)
+                              }
+                              
                                // Navigate if actionUrl is provided
                               if (notification.actionUrl) {
                                 router.push(notification.actionUrl)

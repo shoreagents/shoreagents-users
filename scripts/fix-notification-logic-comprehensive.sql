@@ -101,41 +101,43 @@ BEGIN
         payload_data := jsonb_build_object('reminder_type', 'missed_break', 'break_type', p_break_type, 'action_url', '/status/breaks');
 
     ELSIF p_notification_type = 'ending_soon' THEN
-        -- Calculate actual minutes remaining and get break type name
+        -- Default names based on provided break type (if any)
+        user_friendly_name := CASE p_break_type
+            WHEN 'Morning' THEN 'Morning'
+            WHEN 'Lunch' THEN 'Lunch'
+            WHEN 'Afternoon' THEN 'Afternoon'
+            WHEN 'NightFirst' THEN 'First Night'
+            WHEN 'NightMeal' THEN 'Night Meal'
+            WHEN 'NightSecond' THEN 'Second Night'
+            ELSE 'break'
+        END;
+        break_type_name := COALESCE(p_break_type::text, 'break');
+
+        -- Calculate actual minutes remaining and try to refine break type from windows
         minutes_remaining := 0;
-        break_type_name := 'break';
-        user_friendly_name := 'break';
+        break_end_time := NULL;
 
-        -- Get agent shift information to determine which break is ending
         SELECT * INTO shift_info FROM get_agent_shift_info(p_agent_user_id) LIMIT 1;
-
         IF FOUND AND shift_info.shift_time IS NOT NULL THEN
-            -- Get break windows for this shift
             SELECT * INTO break_windows FROM calculate_break_windows(shift_info.shift_time) LIMIT 1;
-
             IF FOUND THEN
-                -- Determine which break window is ending soon by checking each one
-                -- Morning break ending soon?
                 IF current_time_only >= (break_windows.morning_end - INTERVAL '15 minutes')::TIME
                    AND current_time_only < break_windows.morning_end::TIME THEN
                     break_type_name := 'Morning';
-                    break_end_time := break_windows.morning_end;
                     user_friendly_name := 'Morning';
-                -- Lunch break ending soon?
+                    break_end_time := break_windows.morning_end;
                 ELSIF current_time_only >= (break_windows.lunch_end - INTERVAL '15 minutes')::TIME
                       AND current_time_only < break_windows.lunch_end::TIME THEN
                     break_type_name := 'Lunch';
-                    break_end_time := break_windows.lunch_end;
                     user_friendly_name := 'Lunch';
-                -- Afternoon break ending soon?
+                    break_end_time := break_windows.lunch_end;
                 ELSIF current_time_only >= (break_windows.afternoon_end - INTERVAL '15 minutes')::TIME
                       AND current_time_only < break_windows.afternoon_end::TIME THEN
                     break_type_name := 'Afternoon';
-                    break_end_time := break_windows.afternoon_end;
                     user_friendly_name := 'Afternoon';
+                    break_end_time := break_windows.afternoon_end;
                 END IF;
 
-                -- Calculate actual minutes remaining
                 IF break_end_time IS NOT NULL THEN
                     minutes_remaining := EXTRACT(EPOCH FROM (break_end_time - current_time_only)) / 60;
                     IF minutes_remaining < 0 THEN
@@ -146,12 +148,23 @@ BEGIN
         END IF;
 
         -- Create dynamic message based on actual minutes remaining
-        IF minutes_remaining > 0 THEN
-            title_text := format('%s break ending soon', user_friendly_name);
-            message_text := format('Your %s break will end in %s minutes', user_friendly_name, minutes_remaining::text);
+        IF user_friendly_name = 'break' THEN
+            -- Generic phrasing to avoid "break break"
+            IF minutes_remaining > 0 THEN
+                title_text := 'Break ending soon';
+                message_text := format('Your break will end in %s minutes', minutes_remaining::text);
+            ELSE
+                title_text := 'Break ending soon';
+                message_text := 'Your break will end soon';
+            END IF;
         ELSE
-            title_text := format('%s break ending soon', user_friendly_name);
-            message_text := format('Your %s break will end soon', user_friendly_name);
+            IF minutes_remaining > 0 THEN
+                title_text := format('%s break ending soon', user_friendly_name);
+                message_text := format('Your %s break will end in %s minutes', user_friendly_name, minutes_remaining::text);
+            ELSE
+                title_text := format('%s break ending soon', user_friendly_name);
+                message_text := format('Your %s break will end soon', user_friendly_name);
+            END IF;
         END IF;
 
         notif_type := 'warning';

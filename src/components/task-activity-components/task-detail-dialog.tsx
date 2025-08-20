@@ -480,20 +480,74 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
   React.useEffect(() => {
     const load = async () => {
       if (!isOpen || !task?.id) return
+      
+      // Clear previous events immediately when switching tasks
+      setEvents([])
+      
       try {
         const res = await fetch(`/api/task-activity/events?task_id=${encodeURIComponent(task.id)}`)
         if (!res.ok) return
         const data = await res.json()
         if (data?.success && Array.isArray(data.events)) {
-          setEvents(prev => {
-            const map = new Map<number, any>()
-            ;[...data.events, ...prev].forEach((e: any) => { if (!map.has(e.id)) map.set(e.id, e) })
-            return Array.from(map.values())
-          })
+          // Replace events completely instead of merging with previous
+          setEvents(data.events)
         }
       } catch {}
     }
-    void load()
+    
+    // Clear events when dialog opens or task changes
+    if (isOpen && task?.id) {
+      void load()
+    } else {
+      // Clear events when dialog is not open or no task
+      setEvents([])
+    }
+    
+    // Cleanup: clear events when component unmounts or dependencies change
+    return () => {
+      setEvents([])
+    }
+  }, [isOpen, task?.id])
+
+  // Comprehensive cleanup when switching tasks
+  React.useEffect(() => {
+    if (!isOpen || !task?.id) {
+      // Clear all task-specific state when dialog is not open or no task
+      setEvents([])
+      setTaskComments([])
+      setComment("")
+      setEditingCommentId(null)
+      setEditingCommentText("")
+      setCommentActionsVisibleId(null)
+      setActiveTab("details")
+      setIsStatusOpen(false)
+      setStatusSearch("")
+      setIsAssigneeOpen(false)
+      setAssigneeSearch("")
+      setIsStartDateOpen(false)
+      setIsPriorityOpen(false)
+      setIsRelationshipsOpen(false)
+      setRelationshipSearch("")
+      setIsAttachmentsOpen(false)
+      setNewTag("")
+      setIsAddingTag(false)
+      setIsEditingTitle(false)
+      setIsEditingDescription(false)
+      setEditedTitle("")
+      setEditedDescription("")
+      setCustomFields([])
+      setUploadedFiles([])
+      setExistingAttachments([])
+      setSelectedAssignees([])
+      setSelectedStartDate(undefined)
+      setSelectedDueDate(undefined)
+      setStartTime("")
+      setDueTime("")
+      setShowTimeInput(false)
+      setShowDueTimeInput(false)
+      setDatePickerMode("start")
+      setIsDragOver(false)
+    }
   }, [isOpen, task?.id])
 
   // Real-time apply task-level field changes when parent state updates task
@@ -2055,6 +2109,18 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                         >
                           <div className="space-y-2 pr-4">
                             {(task.relationships || []).map((relationship, index) => {
+                              // Skip invalid relationships
+                              if (!relationship || typeof relationship !== 'object') {
+                                console.warn('Invalid relationship object:', relationship)
+                                return null
+                              }
+                              
+                              // Skip relationships with invalid taskId
+                              if (!relationship?.taskId) {
+                                console.warn('Relationship missing taskId:', relationship)
+                                return null
+                              }
+                              
                               const relatedTask = tasks?.find(t => t.id === relationship.taskId)
                               
                               // Handle accessible relationships (task found in user's list)
@@ -2066,7 +2132,9 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                                       onClick={() => onOpenTask?.(relatedTask.id)}
                                       title="Open related task"
                                     >
-                                      <span className="text-xs text-muted-foreground capitalize">{relationship.type.replace('_', ' ')}</span>
+                                      <span className="text-xs text-muted-foreground capitalize">
+                                        {relationship.type ? relationship.type.replace('_', ' ') : 'Unknown'}
+                                      </span>
                                       <span className="text-sm font-medium">{relatedTask.title}</span>
                                     </div>
                                     <Button
@@ -2085,7 +2153,9 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                               return (
                                 <div key={index} className="flex items-center justify-between p-2 border rounded bg-muted/30">
                                   <div className="flex items-center gap-2">
-                                    <span className="text-xs text-muted-foreground capitalize">{relationship.type.replace('_', ' ')}</span>
+                                    <span className="text-xs text-muted-foreground capitalize">
+                                      {relationship.type ? relationship.type.replace('_', ' ') : 'Unknown'}
+                                    </span>
                                     <span className="text-sm text-muted-foreground flex items-center gap-1">
                                       🔒 Private Task
                                       <span className="text-xs bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
@@ -2104,7 +2174,7 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                                   </Button>
                                 </div>
                               )
-                            })}
+                            }).filter(Boolean)}
                           </div>
                         </ScrollArea>
                       ) : (

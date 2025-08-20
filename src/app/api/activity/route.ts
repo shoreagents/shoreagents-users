@@ -139,25 +139,36 @@ export async function GET(request: NextRequest) {
     const [currentHour, currentMinute] = currentTime.split(':').map(Number);
     const currentMinutes = currentHour * 60 + currentMinute;
     
-    // Calculate effective date: if we're before shift start, use previous day
+    // Calculate effective date anchored to shift start
     let effectiveDate = philippinesTime;
     if (currentMinutes < shiftStartMinutes) {
       effectiveDate.setDate(effectiveDate.getDate() - 1);
     }
-    
+
     const effectiveDateStr = effectiveDate.toISOString().split('T')[0]; // YYYY-MM-DD
-    
+    const manilaTodayStr = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' })).toISOString().split('T')[0];
+
     const query = `
       SELECT ad.*, u.email
       FROM activity_data ad
       JOIN users u ON ad.user_id = u.id
       WHERE ad.user_id = $1 AND ad.today_date = $2`;
-    const result = await pool.query(query, [actualUserId, effectiveDateStr]);
-    
+
+    // Primary fetch: shift-anchored effective date
+    let result = await pool.query(query, [actualUserId, effectiveDateStr]);
+
+    // Enhancement: Before shift start, if a pre-created row for "today" exists, prefer it
+    if (result.rows.length === 0 && currentMinutes < shiftStartMinutes) {
+      const todayResult = await pool.query(query, [actualUserId, manilaTodayStr]);
+      if (todayResult.rows.length > 0) {
+        return NextResponse.json(todayResult.rows[0]);
+      }
+    }
+
     if (result.rows.length === 0) {
       return NextResponse.json({ error: 'Activity data not found' }, { status: 404 });
     }
-    
+
     return NextResponse.json(result.rows[0]);
   } catch (error) {
     console.error('Error fetching activity data:', error);

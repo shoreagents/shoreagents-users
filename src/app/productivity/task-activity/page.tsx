@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { AppSidebar } from "@/components/app-sidebar"
 import { AppHeader } from "@/components/app-header"
 import {
@@ -97,46 +97,158 @@ export default function TaskActivityPage() {
   }, [canManageGroups, isEditMode])
 
   // Handle URL parameters to open specific task
+  const currentUrlRef = useRef<string>('')
+  
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search)
     const taskId = urlParams.get('taskId')
+    const currentUrl = window.location.search
     
-    if (taskId && groups.length > 0) {
-      // Find the task in the groups
-      const allTasks = groups.flatMap(group => 
-        (group.tasks || []).map(task => ({
-          id: task.id.toString(),
-          creator_id: (task as any).creator_id,
-          is_owner: (task as any).is_owner,
-          title: task.title,
-          description: task.description,
-          priority: task.priority,
-          assignee: '',
-          assignees: (task as any).assignees || [],
-          dueDate: task.due_date,
-          startDate: task.start_date,
-          tags: task.tags,
-          status: group.id.toString(),
-          relationships: (task as any).task_relationships ?? (task as any).relationships ?? [],
-          custom_fields: (task as any).task_custom_fields ?? (task as any).custom_fields ?? [],
-          attachments: (task as any).attachments ?? []
-        }))
-      )
+    // Only process if URL has changed and we have a taskId
+    if (taskId && currentUrl !== currentUrlRef.current) {
+      currentUrlRef.current = currentUrl
       
-      const targetTask = allTasks.find(task => task.id === taskId)
-      if (targetTask) {
-        // Open the task detail dialog
-        console.log('Opening task from notification:', targetTask.title)
-        // We'll need to trigger the task click handler
-        setTimeout(() => {
-          const taskClickEvent = new CustomEvent('openTask', { detail: targetTask })
-          window.dispatchEvent(taskClickEvent)
-        }, 500) // Small delay to ensure components are ready
+      if (groups.length > 0) {
+        // Find the task in the groups
+        const allTasks = groups.flatMap(group => 
+          (group.tasks || []).map(task => ({
+            id: task.id.toString(),
+            creator_id: (task as any).creator_id,
+            is_owner: (task as any).is_owner,
+            title: task.title,
+            description: task.description,
+            priority: task.priority,
+            assignee: '',
+            assignees: (task as any).assignees || [],
+            dueDate: task.due_date,
+            startDate: task.start_date,
+            tags: task.tags,
+            status: group.id.toString(),
+            relationships: (task as any).task_relationships ?? (task as any).relationships ?? [],
+            custom_fields: (task as any).task_custom_fields ?? (task as any).custom_fields ?? [],
+            attachments: (task as any).attachments ?? []
+          }))
+        )
         
-        // Clean up URL parameter
-        const newUrl = window.location.pathname
-        window.history.replaceState({}, '', newUrl)
+        const targetTask = allTasks.find(task => task.id === taskId)
+        if (targetTask) {
+          // Open the task detail dialog
+          console.log('Opening task from notification:', targetTask.title)
+          // We'll need to trigger the task click handler
+          setTimeout(() => {
+            const taskClickEvent = new CustomEvent('openTask', { detail: targetTask })
+            window.dispatchEvent(taskClickEvent)
+          }, 500) // Small delay to ensure components are ready
+          
+          // Clean up URL parameter
+          const newUrl = window.location.pathname
+          window.history.replaceState({}, '', newUrl)
+        }
       }
+    }
+  }, [groups]) // Only depend on groups
+  
+  // Watch for URL changes to handle navigation from system notifications
+  useEffect(() => {
+    const handleUrlChange = () => {
+      const urlParams = new URLSearchParams(window.location.search)
+      const taskId = urlParams.get('taskId')
+      
+      if (taskId && groups.length > 0) {
+        // Process the taskId parameter
+        const allTasks = groups.flatMap(group => 
+          (group.tasks || []).map(task => ({
+            id: task.id.toString(),
+            creator_id: (task as any).creator_id,
+            is_owner: (task as any).is_owner,
+            title: task.title,
+            description: task.description,
+            priority: task.priority,
+            assignee: '',
+            assignees: (task as any).assignees || [],
+            dueDate: task.due_date,
+            startDate: task.start_date,
+            tags: task.tags,
+            status: group.id.toString(),
+            relationships: (task as any).task_relationships ?? (task as any).relationships ?? [],
+            custom_fields: (task as any).task_custom_fields ?? (task as any).custom_fields ?? [],
+            attachments: (task as any).attachments ?? []
+          }))
+        )
+        
+        const targetTask = allTasks.find(task => task.id === taskId)
+        if (targetTask) {
+          console.log('Opening task from URL change:', targetTask.title)
+          setTimeout(() => {
+            const taskClickEvent = new CustomEvent('openTask', { detail: targetTask })
+            window.dispatchEvent(taskClickEvent)
+          }, 500)
+          
+          // Clean up URL parameter
+          const newUrl = window.location.pathname
+          window.history.replaceState({}, '', newUrl)
+        }
+      }
+    }
+    
+    // Check URL on mount
+    handleUrlChange()
+    
+    // Listen for popstate events (back/forward navigation)
+    window.addEventListener('popstate', handleUrlChange)
+    
+    return () => {
+      window.removeEventListener('popstate', handleUrlChange)
+    }
+  }, [groups])
+
+  // Listen for notification clicks to open tasks even when already on task-activity page
+  useEffect(() => {
+    const handleNotificationClick = (event: CustomEvent) => {
+      const notification = event.detail
+      if (!notification || !groups.length) return
+      
+      // Check if this is a task notification
+      if (notification.category === 'task' && notification.actionData?.task_id) {
+        const taskId = notification.actionData.task_id.toString()
+        
+        // Find the task in the groups
+        const allTasks = groups.flatMap(group => 
+          (group.tasks || []).map(task => ({
+            id: task.id.toString(),
+            creator_id: (task as any).creator_id,
+            is_owner: (task as any).is_owner,
+            title: task.title,
+            description: task.description,
+            priority: task.priority,
+            assignee: '',
+            assignees: (task as any).assignees || [],
+            dueDate: task.due_date,
+            startDate: task.start_date,
+            tags: task.tags,
+            status: group.id.toString(),
+            relationships: (task as any).task_relationships ?? (task as any).relationships ?? [],
+            custom_fields: (task as any).task_custom_fields ?? (task as any).custom_fields ?? [],
+            attachments: (task as any).attachments ?? []
+          }))
+        )
+        
+        const targetTask = allTasks.find(task => task.id === taskId)
+        if (targetTask) {
+          console.log('Opening task from notification click (already on page):', targetTask.title)
+          setTimeout(() => {
+            const taskClickEvent = new CustomEvent('openTask', { detail: targetTask })
+            window.dispatchEvent(taskClickEvent)
+          }, 100) // Shorter delay since we're already on the page
+        }
+      }
+    }
+    
+    // Listen for notification click events
+    window.addEventListener('notification-clicked', handleNotificationClick as EventListener)
+    
+    return () => {
+      window.removeEventListener('notification-clicked', handleNotificationClick as EventListener)
     }
   }, [groups])
 
