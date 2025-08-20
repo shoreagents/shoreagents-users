@@ -133,3 +133,48 @@ AFTER UPDATE ON public.break_sessions
 FOR EACH ROW EXECUTE FUNCTION public.create_break_status_notification();
 
 
+-- Task due date proximity notifications
+-- Notifies the owner when a task is created/updated whose due_date is within the next 24 hours
+CREATE OR REPLACE FUNCTION public.notify_task_due_soon()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  due_ts timestamptz;
+  now_ts timestamptz := now() AT TIME ZONE 'Asia/Manila';
+  hours_diff numeric;
+  title_text text;
+  message_text text;
+BEGIN
+  IF TG_OP = 'INSERT' OR TG_OP = 'UPDATE' THEN
+    due_ts := NEW.due_date;
+    IF due_ts IS NULL THEN
+      RETURN NEW;
+    END IF;
+    -- Compute hours until due
+    hours_diff := EXTRACT(EPOCH FROM (due_ts - now_ts)) / 3600.0;
+    -- If due within next 24h and still active, create a warning notification
+    IF hours_diff <= 24 AND hours_diff >= 0 AND NEW.status = 'active' THEN
+      title_text := 'Task due soon';
+      message_text := format('"%s" is due on %s', NEW.title, to_char(due_ts AT TIME ZONE 'Asia/Manila', 'Mon DD, YYYY HH24:MI'));
+      INSERT INTO public.notifications (user_id, category, type, title, message, payload)
+      VALUES (
+        NEW.user_id,
+        'task',
+        'warning',
+        title_text,
+        message_text,
+        json_build_object('task_id', NEW.id, 'group_id', NEW.group_id, 'due_date', NEW.due_date, 'action_url', '/productivity/task-activity')
+      );
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_task_due_soon ON public.tasks;
+CREATE TRIGGER trg_task_due_soon
+AFTER INSERT OR UPDATE OF due_date, status ON public.tasks
+FOR EACH ROW EXECUTE FUNCTION public.notify_task_due_soon();
+
+

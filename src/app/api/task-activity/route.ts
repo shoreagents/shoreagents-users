@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'userId or email parameter is required' }, { status: 400 });
     }
     
-    // Get all task groups and tasks for the user
+    // Get all task groups and tasks for the user (both owned and assigned)
     const query = `
        SELECT 
         tg.id as group_id,
@@ -91,6 +91,7 @@ export async function GET(request: NextRequest) {
         tg.position as group_position,
         tg.is_default,
         t.id as task_id,
+        t.user_id as task_creator_id,
         t.title as task_title,
         t.description as task_description,
         t.priority as task_priority,
@@ -104,9 +105,11 @@ export async function GET(request: NextRequest) {
         t.position as task_position,
         t.status as task_status,
         t.created_at as task_created_at,
-        t.updated_at as task_updated_at
+        t.updated_at as task_updated_at,
+        CASE WHEN t.user_id = $1 THEN true ELSE false END as is_owner
       FROM task_groups tg
-      LEFT JOIN tasks t ON tg.id = t.group_id AND t.status = 'active'
+      LEFT JOIN tasks t ON tg.id = t.group_id AND t.status = 'active' 
+        AND (t.user_id = $1 OR EXISTS(SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = $1))
       LEFT JOIN LATERAL (
         SELECT COALESCE(array_agg(DISTINCT ta.user_id), '{}') AS assignees
         FROM task_assignees ta WHERE ta.task_id = t.id
@@ -153,7 +156,6 @@ export async function GET(request: NextRequest) {
                ) AS attachments
         FROM task_attachments ta WHERE ta.task_id = t.id
       ) att ON TRUE
-      WHERE tg.user_id = $1
       ORDER BY group_position, t.position
     `
     
@@ -179,6 +181,8 @@ export async function GET(request: NextRequest) {
       if (row.task_id) {
         groups.get(groupId).tasks.push({
           id: row.task_id,
+          creator_id: row.task_creator_id,
+          is_owner: row.is_owner,
           title: row.task_title,
           description: row.task_description,
           priority: row.task_priority,
@@ -279,11 +283,22 @@ export async function POST(request: NextRequest) {
           nextPosition
         ])
         
+        const createdTask = taskResult.rows[0]
+        
+        // Automatically assign the creator as an assignee
+        await pool.query(
+          'INSERT INTO task_assignees (task_id, user_id) VALUES ($1, $2)',
+          [createdTask.id, actualUserId]
+        )
+        
         await pool.end()
         
         return NextResponse.json({
           success: true,
-          task: taskResult.rows[0]
+          task: {
+            ...createdTask,
+            assignees: [actualUserId] // Include the creator in the response
+          }
         })
         
       case 'create_group':
@@ -330,20 +345,30 @@ export async function POST(request: NextRequest) {
         try {
           await client.query('BEGIN')
           
-          // Check if the task exists and belongs to the user
+          // Check if user has permission to move this task (creator OR assignee)
           const taskCheckQuery = `
-            SELECT id, group_id, position 
-            FROM tasks 
-            WHERE id = $1 AND user_id = $2 AND status = 'active'
+            SELECT t.id, t.group_id, t.position, t.user_id as creator_id,
+                   EXISTS(SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = $2) as is_assignee
+            FROM tasks t
+            WHERE t.id = $1 AND t.status = 'active'
           `
           const taskCheckResult = await client.query(taskCheckQuery, [task_id, actualUserId])
           
           if (taskCheckResult.rows.length === 0) {
-            throw new Error('Task not found or not accessible')
+            throw new Error('Task not found')
+          }
+          
+          const taskPermission = taskCheckResult.rows[0]
+          const isCreator = Number(taskPermission.creator_id) === Number(actualUserId)
+          const isAssignee = taskPermission.is_assignee
+          
+          if (!isCreator && !isAssignee) {
+            throw new Error('You do not have permission to move this task')
           }
           
           const currentTask = taskCheckResult.rows[0]
           console.log('Current task:', currentTask)
+          console.log('Permission check:', { isCreator, isAssignee })
           
           // If moving to a different group, re-index the source group first
           if (currentTask.group_id !== parseInt(new_group_id)) {
@@ -431,15 +456,14 @@ export async function POST(request: NextRequest) {
             const moveTaskQuery = `
               UPDATE tasks 
               SET group_id = $1, position = $2, updated_at = NOW() AT TIME ZONE 'Asia/Manila'
-              WHERE id = $3 AND user_id = $4
+              WHERE id = $3
               RETURNING *
             `
             
             const moveResult = await client.query(moveTaskQuery, [
               new_group_id,
               target_position,
-              task_id,
-              actualUserId
+              task_id
             ])
             
             await client.query('COMMIT')
@@ -480,15 +504,14 @@ export async function POST(request: NextRequest) {
             const moveTaskQuery = `
               UPDATE tasks 
               SET group_id = $1, position = $2, updated_at = NOW() AT TIME ZONE 'Asia/Manila'
-              WHERE id = $3 AND user_id = $4
+              WHERE id = $3
               RETURNING *
             `
             
             const moveResult = await client.query(moveTaskQuery, [
               new_group_id,
               moveNextPosition,
-              task_id,
-              actualUserId
+              task_id
             ])
             
             await client.query('COMMIT')
@@ -562,6 +585,42 @@ export async function POST(request: NextRequest) {
         
         try {
           await updateClient.query('BEGIN')
+          
+          // Check if user has permission to update this task (creator OR assignee)
+          const permissionCheck = await updateClient.query(
+            `SELECT t.id, t.user_id as creator_id,
+                    EXISTS(SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = $2) as is_assignee
+             FROM tasks t WHERE t.id = $1`,
+            [updateTaskId, actualUserId]
+          )
+          
+          if (permissionCheck.rows.length === 0) {
+            throw new Error('Task not found')
+          }
+          
+          const taskPermission = permissionCheck.rows[0]
+          const isCreator = Number(taskPermission.creator_id) === Number(actualUserId)
+          const isAssignee = taskPermission.is_assignee
+          
+          if (!isCreator && !isAssignee) {
+            throw new Error('You do not have permission to update this task')
+          }
+          
+          // Define which fields require creator permissions vs assignee permissions
+          const creatorOnlyFields = ['title', 'assignees'] // Only title and assignees are creator-only
+          const assigneeAllowedFields = ['relationships', 'group_id', 'description', 'priority', 'start_date', 'due_date', 'tags'] // Assignees can update most fields
+          
+          // Check if non-creator is trying to update creator-only fields
+          if (!isCreator) {
+            const attemptedFields = Object.keys(updates)
+            const restrictedFields = attemptedFields.filter(field => 
+              creatorOnlyFields.includes(field) && !assigneeAllowedFields.includes(field)
+            )
+            
+            if (restrictedFields.length > 0) {
+              throw new Error(`Only task creators can update these fields: ${restrictedFields.join(', ')}`)
+            }
+          }
           
           // Capture BEFORE state for precise diffing
           const beforeTaskRes = await updateClient.query(
@@ -702,12 +761,12 @@ export async function POST(request: NextRequest) {
           }
           
           // Add task_id and user_id to the values array
-          updateValues.push(updateTaskId, actualUserId)
+          updateValues.push(updateTaskId)
           
           const updateQuery = `
             UPDATE tasks 
             SET ${updateFields.join(', ')}
-            WHERE id = $${paramIndex} AND user_id = $${paramIndex + 1}
+            WHERE id = $${paramIndex}
             RETURNING *
           `
           

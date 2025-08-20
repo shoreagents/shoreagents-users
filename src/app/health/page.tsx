@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { AppSidebar } from "@/components/app-sidebar"
 import { AppHeader } from "@/components/app-header"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -18,13 +18,19 @@ import {
   ArrowLeft,
   Calendar,
   Filter,
-  Settings
+  Settings,
+  AlertCircle,
+  Loader2
 } from "lucide-react"
 import {
   SidebarInset,
   SidebarProvider,
 } from "@/components/ui/sidebar"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { useHealthCheckSocket, HealthCheckRecord } from "@/hooks/use-health-check-socket"
+import { getCurrentUser } from "@/lib/ticket-utils"
 
 export default function HealthPage() {
   const [currentTime, setCurrentTime] = useState(new Date())
@@ -32,6 +38,20 @@ export default function HealthPage() {
   const [requestSent, setRequestSent] = useState(false)
   const [showAllHealthChecks, setShowAllHealthChecks] = useState(false)
   const [dateFilter, setDateFilter] = useState("")
+  const [showRequestForm, setShowRequestForm] = useState(false)
+  const [complaint, setComplaint] = useState("")
+  const [symptoms, setSymptoms] = useState("")
+  const [priority, setPriority] = useState<'low' | 'normal' | 'high' | 'urgent'>('normal')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [currentUser, setCurrentUser] = useState<any>(null)
+
+  // Get current user
+  useEffect(() => {
+    const user = getCurrentUser()
+    if (user) {
+      setCurrentUser(user)
+    }
+  }, [])
 
   // Update current time every minute
   useEffect(() => {
@@ -42,39 +62,58 @@ export default function HealthPage() {
     return () => clearInterval(interval)
   }, [])
 
-  // Nurse Ron's shift: 6:00 AM - 3:00 PM
-  const shiftStart = "06:00"
-  const shiftEnd = "15:00"
+  // Use health check socket hook
+  const {
+    isConnected,
+    records,
+    availability,
+    fetchRecords,
+    fetchAvailability,
+    createRequest,
+    isNurseOnDuty
+  } = useHealthCheckSocket(currentUser?.email || null)
 
-  const isNurseOnDuty = () => {
-    const now = currentTime
-    const currentTimeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`
-    return currentTimeStr >= shiftStart && currentTimeStr < shiftEnd
-  }
+  // Fetch data on mount
+  useEffect(() => {
+    if (currentUser?.id) {
+      fetchRecords(currentUser.id, 10, 0)
+      fetchAvailability(1) // Fetch Nurse Ron's availability (user_id 1)
+    }
+  }, [currentUser?.id, fetchRecords, fetchAvailability])
 
-  // Simulate nurse break times (you can make this more sophisticated later)
-  const isNurseOnBreak = () => {
-    const now = currentTime
-    const currentTimeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`
-    
-    // Example break times: 10:00-10:15 (morning break), 12:00-13:00 (lunch)
-    const morningBreakStart = "10:00"
-    const morningBreakEnd = "10:15"
-    const lunchBreakStart = "12:00"
-    const lunchBreakEnd = "13:00"
-    
-    return (currentTimeStr >= morningBreakStart && currentTimeStr <= morningBreakEnd) ||
-           (currentTimeStr >= lunchBreakStart && currentTimeStr <= lunchBreakEnd)
-  }
+  // Check nurse status
+  const nurseStatus = isNurseOnDuty(1) // Nurse Ron (user_id 1)
+  const nurseOnDuty = nurseStatus && typeof nurseStatus === 'object' ? nurseStatus.onDuty : false
+  const nurseOnBreak = nurseStatus && typeof nurseStatus === 'object' ? nurseStatus.onBreak : false
 
-  const handleRequestHealthCheck = () => {
-    setRequestSent(true)
-    setShowNotification(true)
+  const handleRequestHealthCheck = async () => {
+    if (!currentUser?.id || !complaint.trim()) return
     
-    // Hide notification after 10 seconds
-    setTimeout(() => {
-      setShowNotification(false)
-    }, 10000)
+    setIsSubmitting(true)
+    try {
+      await createRequest({
+        user_id: currentUser.id,
+        complaint: complaint.trim(),
+        symptoms: symptoms.trim() || undefined,
+        priority
+      })
+      
+      setRequestSent(true)
+      setShowRequestForm(false)
+      setComplaint("")
+      setSymptoms("")
+      setPriority('normal')
+      
+    } catch (error) {
+      console.error('Error creating health check request:', error)
+      // Show error notification
+      setShowNotification(true)
+      setTimeout(() => {
+        setShowNotification(false)
+      }, 5000)
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   const formatTime = (timeStr: string) => {
@@ -85,121 +124,116 @@ export default function HealthPage() {
     return `${displayHour}:${minutes} ${ampm}`
   }
 
-  const nurseOnDuty = isNurseOnDuty()
-  const nurseOnBreak = isNurseOnBreak()
+  // Filter health check records based on date
+  const filteredRecords = dateFilter 
+    ? records.filter(record => record.visit_date.includes(dateFilter))
+    : records
 
-  // Mock health check data - will be replaced with real data from external app
-  const allHealthChecks = [
-    {
-      date: "2024-01-15",
-      time: "10:30 AM",
-      complaint: "Headache and mild fever",
-      medicines: "Paracetamol 500mg (2 tablets)",
-      supplies: "Thermometer reading chart",
-      issuedBy: "Nurse Ron"
-    },
-    {
-      date: "2024-01-12",
-      time: "3:20 PM",
-      complaint: "Eye strain from computer work",
-      medicines: "Eye drops (artificial tears)",
-      supplies: "Computer usage guidelines sheet",
-      issuedBy: "Nurse Ron"
-    },
-    {
-      date: "2024-01-10",
-      time: "9:15 AM",
-      complaint: "Back pain from sitting",
-      medicines: "Ibuprofen 400mg",
-      supplies: "Posture correction guide, Lumbar support cushion",
-      issuedBy: "Nurse Ron"
-    },
-    {
-      date: "2024-01-08",
-      time: "2:15 PM", 
-      complaint: "Minor cut on finger",
-      medicines: "Antiseptic solution",
-      supplies: "Adhesive bandage, Gauze pad",
-      issuedBy: "Nurse Ron"
-    },
-    {
-      date: "2024-01-05",
-      time: "11:00 AM",
-      complaint: "Seasonal allergies",
-      medicines: "Antihistamine tablets",
-      supplies: "Allergy management pamphlet",
-      issuedBy: "Nurse Ron"
-    },
-    {
-      date: "2024-01-03",
-      time: "11:45 AM",
-      complaint: "Blood pressure check (routine)",
-      medicines: "None",
-      supplies: "BP monitoring card",
-      issuedBy: "Nurse Ron"
-    },
-    {
-      date: "2023-12-28",
-      time: "1:30 PM",
-      complaint: "Stress and fatigue",
-      medicines: "Vitamin B complex",
-      supplies: "Stress management techniques guide",
-      issuedBy: "Nurse Ron"
-    },
-    {
-      date: "2023-12-20",
-      time: "10:45 AM",
-      complaint: "Mild cold symptoms",
-      medicines: "Cough syrup, Vitamin C tablets",
-      supplies: "Face mask, Hand sanitizer",
-      issuedBy: "Nurse Ron"
-    }
-  ]
-
-  // Recent health checks (last 3)
-  const recentHealthChecks = allHealthChecks.slice(0, 3)
-
-  // Filter health checks based on date
-  const filteredHealthChecks = dateFilter 
-    ? allHealthChecks.filter(record => record.date.includes(dateFilter))
-    : allHealthChecks
+  // Recent health check records (last 3)
+  const recentRecords = records.slice(0, 3)
 
   // Render component for a health check record
-  const HealthCheckRecord = ({ record, index }: { record: any, index: number }) => (
-    <div key={index} className="p-4 border rounded-lg bg-card">
-      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-5">
-        <div>
-          <h5 className="font-medium text-sm text-muted-foreground mb-1">Date & Time</h5>
-          <p className="text-sm font-medium">{new Date(record.date).toLocaleDateString('en-US', { 
-            month: 'short', 
-            day: 'numeric', 
-            year: 'numeric' 
-          })}</p>
-          <p className="text-xs text-muted-foreground">{record.time}</p>
-        </div>
-        <div>
-          <h5 className="font-medium text-sm text-muted-foreground mb-1">Chief Complaint/Illness</h5>
-          <p className="text-sm">{record.complaint}</p>
-        </div>
-        <div>
-          <h5 className="font-medium text-sm text-muted-foreground mb-1">Medicines Issued</h5>
-          <p className="text-sm">{record.medicines}</p>
-        </div>
-        <div>
-          <h5 className="font-medium text-sm text-muted-foreground mb-1">Supplies Issued</h5>
-          <p className="text-sm">{record.supplies}</p>
-        </div>
-        <div>
-          <h5 className="font-medium text-sm text-muted-foreground mb-1">Issued By</h5>
+  const HealthCheckRecord = ({ record, index }: { record: HealthCheckRecord, index: number }) => (
+    <div key={index} className="p-6 border rounded-xl bg-card ">
+      <div className="space-y-6">
+        {/* Header Row */}
+        <div className="flex items-center justify-between pb-4 border-b border-border/50">
+          <div className="flex items-center gap-4">
+            <div className="p-2 bg-primary/10 rounded-lg">
+              <Calendar className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <h4 className="font-semibold text-lg">
+                {new Date(record.visit_date).toLocaleDateString('en-US', { 
+                  month: 'long', 
+                  day: 'numeric', 
+                  year: 'numeric' 
+                })}
+              </h4>
+              <p className="text-sm text-muted-foreground">{record.visit_time}</p>
+            </div>
+          </div>
           <div className="flex items-center gap-2">
-            <Avatar className="h-6 w-6">
-              <AvatarFallback className="bg-blue-500 text-white text-xs">
-                RN
+            <Avatar className="h-8 w-8">
+              <AvatarFallback className="bg-blue-500 text-white text-sm font-medium">
+                {record.nurse_name ? record.nurse_name.split(' ').map(n => n[0]).join('') : 'RN'}
               </AvatarFallback>
             </Avatar>
-            <p className="text-sm font-medium">{record.issuedBy}</p>
+            <div className="text-right">
+              <p className="text-sm font-medium">{record.nurse_name || 'Nurse Ron'}</p>
+              <p className="text-xs text-muted-foreground">Attending Nurse</p>
+            </div>
           </div>
         </div>
+
+        {/* Main Content Grid */}
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          <div className="space-y-3">
+            <h5 className="font-medium text-sm text-muted-foreground uppercase tracking-wide">Chief Complaint</h5>
+            <p className="text-base font-medium p-3 bg-muted/50 rounded-lg">{record.chief_complaint}</p>
+          </div>
+
+          <div className="space-y-3">
+            <h5 className="font-medium text-sm text-muted-foreground uppercase tracking-wide">Medicines Issued</h5>
+            <div className="p-3 bg-muted/50 rounded-lg">
+              {record.medicines_issued ? (
+                <p className="text-base">{record.medicines_issued}</p>
+              ) : (
+                <p className="text-sm text-muted-foreground italic">No medicines prescribed</p>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <h5 className="font-medium text-sm text-muted-foreground uppercase tracking-wide">Supplies Issued</h5>
+            <div className="p-3 bg-muted/50 rounded-lg">
+              {record.supplies_issued ? (
+                <p className="text-base">{record.supplies_issued}</p>
+              ) : (
+                <p className="text-sm text-muted-foreground italic">No supplies issued</p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Follow-up Section */}
+        {record.follow_up_required && (
+          <div className="pt-4 border-t border-border/50">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="p-2 bg-orange-500/10 rounded-lg">
+                <AlertCircle className="h-4 w-4 text-orange-500" />
+              </div>
+              <h5 className="font-medium text-sm text-orange-500 uppercase tracking-wide">Follow-up Required</h5>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <h6 className="text-sm font-medium text-muted-foreground">Follow-up Date</h6>
+                {record.follow_up_date ? (
+                  <p className="text-base font-medium p-3 bg-orange-500/10 rounded-lg text-orange-700 dark:text-orange-300">
+                    {new Date(record.follow_up_date).toLocaleDateString('en-US', { 
+                      weekday: 'long',
+                      month: 'long', 
+                      day: 'numeric', 
+                      year: 'numeric' 
+                    })}
+                  </p>
+                ) : (
+                  <p className="text-sm text-muted-foreground italic p-3 bg-muted/30 rounded-lg">Not scheduled yet</p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <h6 className="text-sm font-medium text-muted-foreground">Follow-up Notes</h6>
+                {record.follow_up_notes ? (
+                  <p className="text-base p-3 bg-orange-500/10 rounded-lg text-orange-700 dark:text-orange-300">
+                    {record.follow_up_notes}
+                  </p>
+                ) : (
+                  <p className="text-sm text-muted-foreground italic p-3 bg-muted/30 rounded-lg">No specific instructions</p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -212,46 +246,6 @@ export default function HealthPage() {
         <SidebarInset>
           <AppHeader />
           <div className="flex flex-1 flex-col gap-6 p-6 pt-2 relative">
-            {/* Coming Soon Overlay */}
-            <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
-              <div className="bg-card border rounded-lg p-8 max-w-md mx-4 text-center shadow-lg">
-                <div className="mb-4">
-                  <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <Settings className="h-8 w-8 text-primary" />
-                  </div>
-                  <h2 className="text-2xl font-bold mb-2">Coming Soon</h2>
-                  <p className="text-muted-foreground mb-6">
-                    The Health Check feature is currently under development. 
-                    We're working hard to bring you comprehensive health services.
-                  </p>
-                  <div className="flex flex-col gap-3 text-sm text-muted-foreground">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 bg-primary rounded-full"></div>
-                      <span>Digital health records</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 bg-primary rounded-full"></div>
-                      <span>Real-time nurse availability</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 bg-primary rounded-full"></div>
-                      <span>Appointment scheduling</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 bg-primary rounded-full"></div>
-                      <span>Health monitoring</span>
-                    </div>
-                  </div>
-                </div>
-                <Button 
-                  variant="outline" 
-                  onClick={() => window.history.back()}
-                  className="w-full"
-                >
-                  Go Back
-                </Button>
-              </div>
-            </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
                 <Button
@@ -312,7 +306,7 @@ export default function HealthPage() {
                     </Button>
                   )}
                   <div className="ml-auto text-sm text-muted-foreground">
-                    Showing {filteredHealthChecks.length} of {allHealthChecks.length} records
+                    Showing {filteredRecords.length} of {records.length} records
                   </div>
                 </div>
               </CardContent>
@@ -335,8 +329,8 @@ export default function HealthPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {filteredHealthChecks.length > 0 ? (
-                    filteredHealthChecks.map((record, index) => (
+                  {filteredRecords.length > 0 ? (
+                    filteredRecords.map((record, index) => (
                       <HealthCheckRecord key={index} record={record} index={index} />
                     ))
                   ) : (
@@ -364,46 +358,6 @@ export default function HealthPage() {
       <SidebarInset>
         <AppHeader />
         <div className="flex flex-1 flex-col gap-6 p-6 pt-2 relative">
-          {/* Coming Soon Overlay */}
-          <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
-            <div className="bg-card border rounded-lg p-8 max-w-md mx-4 text-center shadow-lg">
-              <div className="mb-4">
-                <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Settings className="h-8 w-8 text-primary" />
-                </div>
-                <h2 className="text-2xl font-bold mb-2">Coming Soon</h2>
-                <p className="text-muted-foreground mb-6">
-                  The Health Check feature is currently under development. 
-                  We're working hard to bring you comprehensive health services.
-                </p>
-                <div className="flex flex-col gap-3 text-sm text-muted-foreground">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 bg-primary rounded-full"></div>
-                    <span>Digital health records</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 bg-primary rounded-full"></div>
-                    <span>Real-time nurse availability</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 bg-primary rounded-full"></div>
-                    <span>Appointment scheduling</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 bg-primary rounded-full"></div>
-                    <span>Health monitoring</span>
-                  </div>
-                </div>
-              </div>
-              <Button 
-                variant="outline" 
-                onClick={() => window.history.back()}
-                className="w-full"
-              >
-                Go Back
-              </Button>
-            </div>
-          </div>
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-3xl font-bold text-foreground">Health Check</h1>
@@ -421,18 +375,20 @@ export default function HealthPage() {
             </div>
           </div>
 
-          {/* Notification */}
+          {/* Error Notification Only */}
           {showNotification && (
-            <Card className="border-green-200 bg-green-50">
+            <Card className="border-2 border-red-200 bg-red-50">
               <CardContent className="p-4">
                 <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-full bg-green-500 text-white">
-                    <CheckCircle className="h-5 w-5" />
+                  <div className="p-2 rounded-full bg-red-500 text-white">
+                    <AlertCircle className="h-5 w-5" />
                   </div>
                   <div>
-                    <h4 className="font-medium text-green-800">Health Check Request Approved</h4>
-                    <p className="text-sm text-green-700">
-                      You may now go to the clinic at <strong>Unit 2 left side of black room</strong>
+                    <h4 className="font-medium text-red-800">
+                      Error Submitting Request
+                    </h4>
+                    <p className="text-sm text-red-700">
+                      There was an error submitting your request. Please try again.
                     </p>
                   </div>
                 </div>
@@ -487,7 +443,7 @@ export default function HealthPage() {
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-muted-foreground">Shift:</span>
                     <span className="text-sm font-medium">
-                      {formatTime(shiftStart)} - {formatTime(shiftEnd)}
+                      6:00 AM - 3:00 PM
                     </span>
                   </div>
 
@@ -497,6 +453,13 @@ export default function HealthPage() {
                       <MapPin className="h-3 w-3" />
                       Unit 2 Clinic
                     </div>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Connection:</span>
+                    <Badge variant={isConnected ? "default" : "destructive"}>
+                      {isConnected ? "Connected" : "Disconnected"}
+                    </Badge>
                   </div>
                 </div>
 
@@ -521,52 +484,122 @@ export default function HealthPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="space-y-3">
-                  <div className="p-3 bg-muted rounded-lg">
-                    <h4 className="font-medium text-sm mb-2">Clinic Information</h4>
-                    <div className="text-sm text-muted-foreground space-y-1">
-                      <div className="flex items-center gap-2">
-                        <MapPin className="h-3 w-3" />
-                        <span>Unit 2, left side of black room</span>
+                {!showRequestForm ? (
+                  <>
+                    <div className="space-y-3">
+                      <div className="p-3 bg-muted rounded-lg">
+                        <h4 className="font-medium text-sm mb-2">Clinic Information</h4>
+                        <div className="text-sm text-muted-foreground space-y-1">
+                          <div className="flex items-center gap-2">
+                            <MapPin className="h-3 w-3" />
+                            <span>Unit 2, left side of black room</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Clock className="h-3 w-3" />
+                            <span>Available: 6:00 AM - 3:00 PM</span>
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Clock className="h-3 w-3" />
-                        <span>Available: 6:00 AM - 3:00 PM</span>
-                      </div>
+
+                      {!nurseOnDuty && (
+                        <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                          <p className="text-sm text-orange-800">
+                            <strong>Notice:</strong> Nurse Ron is currently off duty. Health check requests can only be processed during shift hours (6:00 AM - 3:00 PM).
+                          </p>
+                        </div>
+                      )}
+
+                      {nurseOnDuty && nurseOnBreak && (
+                        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                          <p className="text-sm text-blue-800">
+                            <strong>Notice:</strong> Nurse Ron is currently on break. Your request will be processed when he returns.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    <Button 
+                      onClick={() => setShowRequestForm(true)}
+                      disabled={!nurseOnDuty || requestSent}
+                      className="w-full"
+                      size="lg"
+                    >
+                      <Bell className="mr-2 h-4 w-4" />
+                      {requestSent ? "Request Sent" : "Request Health Check"}
+                    </Button>
+
+                    {requestSent && (
+                      <p className="text-sm text-center text-muted-foreground">
+                        Your health check request has been submitted. Please wait for approval.
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-sm font-medium">Complaint/Issue *</label>
+                      <Textarea
+                        placeholder="Describe your health concern..."
+                        value={complaint}
+                        onChange={(e) => setComplaint(e.target.value)}
+                        className="mt-1"
+                        rows={3}
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="text-sm font-medium">Symptoms (Optional)</label>
+                      <Textarea
+                        placeholder="List any symptoms you're experiencing..."
+                        value={symptoms}
+                        onChange={(e) => setSymptoms(e.target.value)}
+                        className="mt-1"
+                        rows={2}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-sm font-medium">Priority</label>
+                      <Select value={priority} onValueChange={(value) => setPriority(value as any)}>
+                        <SelectTrigger className="w-full mt-1">
+                          <SelectValue placeholder="Select priority" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="low">Low</SelectItem>
+                          <SelectItem value="normal">Normal</SelectItem>
+                          <SelectItem value="high">High</SelectItem>
+                          <SelectItem value="urgent">Urgent</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={() => setShowRequestForm(false)}
+                        variant="outline"
+                        className="flex-1"
+                      >
+                        Cancel
+                      </Button>
+                      <Button 
+                        onClick={handleRequestHealthCheck}
+                        disabled={!complaint.trim() || isSubmitting}
+                        className="flex-1"
+                      >
+                        {isSubmitting ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Submitting...
+                          </>
+                        ) : (
+                          <>
+                            <Bell className="mr-2 h-4 w-4" />
+                            Submit Request
+                          </>
+                        )}
+                      </Button>
                     </div>
                   </div>
-
-                  {!nurseOnDuty && (
-                    <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg">
-                      <p className="text-sm text-orange-800">
-                        <strong>Notice:</strong> Nurse Ron is currently off duty. Health check requests can only be processed during shift hours (6:00 AM - 3:00 PM).
-                      </p>
-                    </div>
-                  )}
-
-                  {nurseOnDuty && nurseOnBreak && (
-                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                      <p className="text-sm text-blue-800">
-                        <strong>Notice:</strong> Nurse Ron is currently on break. Your request will be processed when he returns.
-                      </p>
-                    </div>
-                  )}
-                </div>
-
-                <Button 
-                  onClick={handleRequestHealthCheck}
-                  disabled={!nurseOnDuty || requestSent}
-                  className="w-full"
-                  size="lg"
-                >
-                  <Bell className="mr-2 h-4 w-4" />
-                  {requestSent ? "Request Sent" : "Request Health Check"}
-                </Button>
-
-                {requestSent && (
-                  <p className="text-sm text-center text-muted-foreground">
-                    Your health check request has been submitted. Please wait for approval.
-                  </p>
                 )}
               </CardContent>
             </Card>
@@ -597,8 +630,8 @@ export default function HealthPage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {recentHealthChecks.length > 0 ? (
-                  recentHealthChecks.map((record, index) => (
+                {recentRecords.length > 0 ? (
+                  recentRecords.map((record, index) => (
                     <HealthCheckRecord key={index} record={record} index={index} />
                   ))
                 ) : (

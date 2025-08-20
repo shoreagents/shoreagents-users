@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTimer } from '@/contexts/timer-context'
 import { Button } from '@/components/ui/button'
 import { ChevronUp, ChevronDown, Pause, Clock, RotateCcw } from 'lucide-react'
@@ -8,6 +8,7 @@ import { getCurrentUser } from '@/lib/ticket-utils'
 import { usePathname } from 'next/navigation'
 import { useMeeting } from '@/contexts/meeting-context'
 import { useShiftResetTimer } from '@/hooks/use-shift-reset-timer'
+import { parseShiftTime } from '@/lib/shift-utils'
 
 export function GlobalTimerDisplay() {
   const [isVisible, setIsVisible] = useState(true)
@@ -20,7 +21,8 @@ export function GlobalTimerDisplay() {
     liveActiveSeconds,
     liveInactiveSeconds,
     isBreakActive,
-    breakStatus
+    breakStatus,
+    shiftInfo
   } = useTimer()
   const { isInMeeting } = useMeeting()
   const { 
@@ -29,6 +31,22 @@ export function GlobalTimerDisplay() {
     isLoading: isShiftLoading,
     error: shiftError
   } = useShiftResetTimer()
+
+  // Persist expand/collapse state in localStorage
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('sa-global-timer-visible')
+      if (stored !== null) {
+        setIsVisible( stored === 'true')
+      }
+    } catch {}
+  }, [])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('sa-global-timer-visible', isVisible ? 'true' : 'false')
+    } catch {}
+  }, [isVisible])
 
   // Utility function to format seconds into readable time
   const formatTime = (seconds: number) => {
@@ -57,6 +75,37 @@ export function GlobalTimerDisplay() {
         return 'bg-gray-400'
     }
   }
+
+  // Check if shift has ended
+  const isShiftEnded = () => {
+    try {
+      const currentUser = getCurrentUser()
+      if (!currentUser) return false
+
+      // Get current Philippines time
+      const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
+      
+      // Check if we have shift info from timer context
+      if (shiftInfo?.endTime) {
+        const shiftEndDate = new Date(shiftInfo.endTime)
+        return nowPH > shiftEndDate
+      }
+
+      // Fallback: try to parse from shift time string if available
+      if (shiftInfo?.time) {
+        const parsed = parseShiftTime(shiftInfo.time, nowPH)
+        if (parsed?.endTime) {
+          return nowPH > parsed.endTime
+        }
+      }
+
+      return false
+    } catch (error) {
+      return false
+    }
+  }
+
+  const shiftEnded = isShiftEnded()
 
   const getConnectionStatusText = () => {
     switch (connectionStatus) {
@@ -144,7 +193,9 @@ export function GlobalTimerDisplay() {
               <div className="flex items-center justify-between">
                  <span className="text-xs text-muted-foreground">Status:</span>
                                    <span className={`px-2 py-1 rounded text-xs font-medium ${
-                    isInMeeting
+                    shiftEnded
+                      ? 'bg-gray-100 text-gray-800 dark:bg-gray-950/20 dark:text-gray-300'
+                      : isInMeeting
                       ? 'bg-purple-100 text-purple-800 dark:bg-purple-950/20 dark:text-purple-300'
                       : isBreakActive && breakStatus?.is_paused
                       ? 'bg-green-100 text-green-800 dark:bg-green-950/20 dark:text-green-300'
@@ -154,7 +205,9 @@ export function GlobalTimerDisplay() {
                       ? 'bg-green-100 text-green-800 dark:bg-green-950/20 dark:text-green-300'
                       : 'bg-red-100 text-red-800 dark:bg-red-950/20 dark:text-red-300'
                   }`}>
-                    {isInMeeting
+                    {shiftEnded
+                      ? 'Shift Ended'
+                      : isInMeeting
                       ? 'In Meeting'
                       : isBreakActive && breakStatus?.is_paused
                       ? 'Emergency Pause'
@@ -173,7 +226,12 @@ export function GlobalTimerDisplay() {
                    <div className={`text-lg font-bold ${isBreakActive || isInMeeting ? 'text-muted-foreground' : 'text-green-600 dark:text-green-400'}`}>
                      {formatTime(liveActiveSeconds)}
                    </div>
-                                       {timerData.isActive && !isBreakActive && !isInMeeting && (
+                                       {shiftEnded ? (
+                      <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
+                        <span className="w-1 h-1 bg-gray-400 rounded-full"></span>
+                        Shift Ended
+                      </div>
+                    ) : timerData.isActive && !isBreakActive && !isInMeeting && (
                       <div className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
                         <span className="w-1 h-1 bg-green-500 rounded-full animate-pulse"></span>
                         Counting...
@@ -206,7 +264,12 @@ export function GlobalTimerDisplay() {
                    <div className={`text-lg font-bold ${isBreakActive || isInMeeting ? 'text-muted-foreground' : 'text-red-600 dark:text-red-400'}`}>
                      {formatTime(liveInactiveSeconds)}
                    </div>
-                                       {!timerData.isActive && !isBreakActive && !isInMeeting && (
+                                       {shiftEnded ? (
+                      <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
+                        <span className="w-1 h-1 bg-gray-400 rounded-full"></span>
+                        Shift Ended
+                      </div>
+                    ) : !timerData.isActive && !isBreakActive && !isInMeeting && (
                       <div className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
                         <span className="w-1 h-1 bg-red-500 rounded-full animate-pulse"></span>
                         Counting...

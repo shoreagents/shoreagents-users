@@ -5,7 +5,7 @@
 
 import { getCurrentUserInfo } from './user-profiles';
 
-export type BreakType = 'Morning' | 'Lunch' | 'Afternoon' | 'FirstNight' | 'Midnight' | 'SecondNight';
+export type BreakType = 'Morning' | 'Lunch' | 'Afternoon' | 'NightFirst' | 'NightMeal' | 'NightSecond';
 
 export interface CurrentBreak {
   id?: number;

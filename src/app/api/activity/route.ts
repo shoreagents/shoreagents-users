@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Pool, Client } from 'pg';
+import { parseShiftTime } from '../../../lib/shift-utils';
 
 const databaseConfig = {
   connectionString: process.env.DATABASE_URL,
@@ -15,6 +16,93 @@ const getPool = () => {
   }
   return pool;
 };
+
+// Resolve user ID from either explicit userId or email
+async function resolveUserId(pool: Pool, userId: string | null, email: string | null): Promise<number | null> {
+  if (userId) return parseInt(userId);
+  if (!email) return null;
+  const userResult = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
+  if (userResult.rows.length === 0) return null;
+  return userResult.rows[0].id as number;
+}
+
+// Get user's shift start time as 24h string (HH:MM) from job_info; fallback to 06:00 if missing
+async function getUserShiftStartTime(pool: Pool, actualUserId: number): Promise<string> {
+  try {
+    const result = await pool.query(
+      `SELECT ji.shift_time
+       FROM job_info ji
+       WHERE (ji.agent_user_id = $1 OR ji.internal_user_id = $1)
+         AND ji.shift_time IS NOT NULL
+       ORDER BY ji.id DESC
+       LIMIT 1`,
+      [actualUserId]
+    );
+    if (result.rows.length > 0) {
+      const shiftTimeStr = result.rows[0].shift_time as string;
+      const info = parseShiftTime(shiftTimeStr);
+      if (info && info.startTime) {
+        const hh = String(info.startTime.getHours()).padStart(2, '0');
+        const mm = String(info.startTime.getMinutes()).padStart(2, '0');
+        return `${hh}:${mm}`;
+      }
+    }
+  } catch (_) {
+    // ignore and use default
+  }
+  return '06:00';
+}
+
+// Check if we're starting a new shift period (not just a new day)
+async function isNewShiftPeriod(pool: Pool, actualUserId: number, effectiveDateStr: string): Promise<boolean> {
+  try {
+    // Get the most recent activity data for this user
+    const recentResult = await pool.query(
+      `SELECT today_date, updated_at, is_currently_active
+       FROM activity_data 
+       WHERE user_id = $1 
+       ORDER BY updated_at DESC 
+       LIMIT 1`,
+      [actualUserId]
+    );
+    
+    if (recentResult.rows.length === 0) {
+      // No previous data, this is definitely a new shift
+      return true;
+    }
+    
+    const mostRecent = recentResult.rows[0];
+    
+    // If the most recent data is from a different date, this is a new shift
+    if (mostRecent.today_date !== effectiveDateStr) {
+      return true;
+    }
+    
+    // If the most recent data is from the same date, check if we're starting fresh
+    // (e.g., user just logged in after shift ended)
+    const now = new Date();
+    const lastUpdate = new Date(mostRecent.updated_at);
+    const hoursSinceLastUpdate = (now.getTime() - lastUpdate.getTime()) / (1000 * 60 * 60);
+    
+    // If more than 2 hours have passed since last update, consider it a new shift
+    // This handles cases where user logs in after a long break
+    if (hoursSinceLastUpdate > 2) {
+      return true;
+    }
+    
+    // If user was inactive and is now becoming active, this might be a new session
+    // but not necessarily a new shift
+    if (!mostRecent.is_currently_active) {
+      return false;
+    }
+    
+    return false;
+  } catch (error) {
+    console.error('Error checking if new shift period:', error);
+    // Default to creating new row if there's an error
+    return true;
+  }
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -32,25 +120,55 @@ export async function GET(request: NextRequest) {
       return handleRealtimeRequest(request, email, userId);
     }
     
-    // Regular GET request - get current day's activity (Philippines timezone)
-    let query = 'SELECT ad.*, u.email FROM activity_data ad JOIN users u ON ad.user_id = u.id WHERE ad.today_date = (NOW() AT TIME ZONE \'Asia/Manila\')::date';
-    let params: any[] = [];
-    
-    if (userId) {
-      query += ' AND ad.user_id = $1';
-      params.push(userId);
-    } else if (email) {
-      query += ' AND u.email = $1';
-      params.push(email);
-    }
-    
+    // Regular GET request - use user-specific shift start time from job_info when available
     const pool = getPool();
-    const result = await pool.query(query, params);
+    const actualUserId = await resolveUserId(pool, userId, email);
+    if (!actualUserId) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
+    const shiftStart = await getUserShiftStartTime(pool, actualUserId);
+
+    // Calculate the effective date based on shift start time and current time
+    const now = new Date();
+    const philippinesTime = new Date(now.toLocaleString("en-US", {timeZone: "Asia/Manila"}));
+    const currentTime = philippinesTime.toTimeString().slice(0, 5); // HH:MM format
     
+    // Parse shift start time
+    const [shiftHour, shiftMinute] = shiftStart.split(':').map(Number);
+    const shiftStartMinutes = shiftHour * 60 + shiftMinute;
+    const [currentHour, currentMinute] = currentTime.split(':').map(Number);
+    const currentMinutes = currentHour * 60 + currentMinute;
+    
+    // Calculate effective date anchored to shift start
+    let effectiveDate = philippinesTime;
+    if (currentMinutes < shiftStartMinutes) {
+      effectiveDate.setDate(effectiveDate.getDate() - 1);
+    }
+
+    const effectiveDateStr = effectiveDate.toISOString().split('T')[0]; // YYYY-MM-DD
+    const manilaTodayStr = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' })).toISOString().split('T')[0];
+
+    const query = `
+      SELECT ad.*, u.email
+      FROM activity_data ad
+      JOIN users u ON ad.user_id = u.id
+      WHERE ad.user_id = $1 AND ad.today_date = $2`;
+
+    // Primary fetch: shift-anchored effective date
+    let result = await pool.query(query, [actualUserId, effectiveDateStr]);
+
+    // Enhancement: Before shift start, if a pre-created row for "today" exists, prefer it
+    if (result.rows.length === 0 && currentMinutes < shiftStartMinutes) {
+      const todayResult = await pool.query(query, [actualUserId, manilaTodayStr]);
+      if (todayResult.rows.length > 0) {
+        return NextResponse.json(todayResult.rows[0]);
+      }
+    }
+
     if (result.rows.length === 0) {
       return NextResponse.json({ error: 'Activity data not found' }, { status: 404 });
     }
-    
+
     return NextResponse.json(result.rows[0]);
   } catch (error) {
     console.error('Error fetching activity data:', error);
@@ -61,19 +179,11 @@ export async function GET(request: NextRequest) {
 async function handleRealtimeRequest(request: NextRequest, email: string | null, userId: string | null) {
   try {
     const pool = getPool();
-    let actualUserId: number;
-
-    if (userId) {
-      actualUserId = parseInt(userId);
-    } else if (email) {
-      const userResult = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
-      if (userResult.rows.length === 0) {
-        return NextResponse.json({ error: 'User not found' }, { status: 404 });
-      }
-      actualUserId = userResult.rows[0].id;
-    } else {
-      return NextResponse.json({ error: 'userId or email parameter is required' }, { status: 400 });
+    const resolved = await resolveUserId(pool, userId, email);
+    if (!resolved) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
+    const actualUserId: number = resolved;
 
     // Set up Server-Sent Events headers
     const encoder = new TextEncoder();
@@ -162,13 +272,40 @@ export async function POST(request: NextRequest) {
       actualUserId = userResult.rows[0].id;
     }
     
-    // Get or create activity data for current day (Philippines timezone)
+    // Get user-specific shift start time
+    const shiftStart = await getUserShiftStartTime(pool, Number(actualUserId));
+    
+    // Calculate the effective date based on shift start time and current time
+    // This ensures each shift gets its own row and preserves historical data
+    const now = new Date();
+    const philippinesTime = new Date(now.toLocaleString("en-US", {timeZone: "Asia/Manila"}));
+    const currentTime = philippinesTime.toTimeString().slice(0, 5); // HH:MM format
+    
+    // Parse shift start time
+    const [shiftHour, shiftMinute] = shiftStart.split(':').map(Number);
+    const shiftStartMinutes = shiftHour * 60 + shiftMinute;
+    const [currentHour, currentMinute] = currentTime.split(':').map(Number);
+    const currentMinutes = currentHour * 60 + currentMinute;
+    
+    // Calculate effective date: if we're before shift start, use previous day
+    let effectiveDate = philippinesTime;
+    if (currentMinutes < shiftStartMinutes) {
+      effectiveDate.setDate(effectiveDate.getDate() - 1);
+    }
+    
+    const effectiveDateStr = effectiveDate.toISOString().split('T')[0]; // YYYY-MM-DD
+    
+    // Check if we're starting a new shift period
+    const isNewShift = await isNewShiftPeriod(pool, actualUserId, effectiveDateStr);
+    
+    // Check if we already have a row for this effective date
     const existingResult = await pool.query(
-      'SELECT * FROM activity_data WHERE user_id = $1 AND today_date = (NOW() AT TIME ZONE \'Asia/Manila\')::date', 
-      [actualUserId]
+      `SELECT * FROM activity_data 
+       WHERE user_id = $1 AND today_date = $2`, 
+      [actualUserId, effectiveDateStr]
     );
     
-    if (existingResult.rows.length > 0) {
+    if (existingResult.rows.length > 0 && !isNewShift) {
       const existing = existingResult.rows[0];
       
       // Only update if state is changing
@@ -197,7 +334,7 @@ export async function POST(request: NextRequest) {
           sessionStart = new Date(); // Use application time for session start
         }
         
-        // Update existing record with time tracking for current day (Philippines timezone)
+        // Update existing record with time tracking for current shift-anchored day
         const updateResult = await pool.query(
           `UPDATE activity_data 
            SET is_currently_active = $1, 
@@ -205,9 +342,9 @@ export async function POST(request: NextRequest) {
                today_inactive_seconds = $3, 
                last_session_start = $4, 
                updated_at = NOW() 
-           WHERE user_id = $5 AND today_date = (NOW() AT TIME ZONE 'Asia/Manila')::date
+           WHERE user_id = $5 AND today_date = $6
            RETURNING *`,
-          [isCurrentlyActive, newActiveSeconds, newInactiveSeconds, sessionStart, actualUserId]
+          [isCurrentlyActive, newActiveSeconds, newInactiveSeconds, sessionStart, actualUserId, effectiveDateStr]
         );
         
         return NextResponse.json(updateResult.rows[0]);
@@ -216,24 +353,41 @@ export async function POST(request: NextRequest) {
         const updateResult = await pool.query(
           `UPDATE activity_data 
            SET updated_at = NOW() 
-           WHERE user_id = $1 AND today_date = (NOW() AT TIME ZONE 'Asia/Manila')::date
+           WHERE user_id = $1 AND today_date = $2
            RETURNING *`,
-          [actualUserId]
+          [actualUserId, effectiveDateStr]
         );
         
         return NextResponse.json(updateResult.rows[0]);
       }
-    } else {
-      // Create new record for current day (Philippines timezone)
+    } else if (existingResult.rows.length > 0 && isNewShift) {
+      // We have an existing row but this is a new shift period
+      // Create a new row with 0 values for the new shift
       const now = new Date();
       const sessionStart = isCurrentlyActive ? now : null;
       
       const insertResult = await pool.query(
         `INSERT INTO activity_data 
-         (user_id, is_currently_active, last_session_start, today_date) 
-         VALUES ($1, $2, $3, (NOW() AT TIME ZONE 'Asia/Manila')::date) 
+         (user_id, is_currently_active, last_session_start, today_date, 
+          today_active_seconds, today_inactive_seconds) 
+         VALUES ($1, $2, $3, $4, 0, 0) 
          RETURNING *`,
-        [actualUserId, isCurrentlyActive, sessionStart]
+        [actualUserId, isCurrentlyActive, sessionStart, effectiveDateStr]
+      );
+      
+      return NextResponse.json(insertResult.rows[0], { status: 201 });
+    } else {
+      // Create new record for current shift-anchored day (Philippines timezone)
+      const now = new Date();
+      const sessionStart = isCurrentlyActive ? now : null;
+      
+      const insertResult = await pool.query(
+        `INSERT INTO activity_data 
+         (user_id, is_currently_active, last_session_start, today_date, 
+          today_active_seconds, today_inactive_seconds) 
+         VALUES ($1, $2, $3, $4, 0, 0) 
+         RETURNING *`,
+        [actualUserId, isCurrentlyActive, sessionStart, effectiveDateStr]
       );
       
       return NextResponse.json(insertResult.rows[0], { status: 201 });
@@ -268,13 +422,37 @@ export async function PUT(request: NextRequest) {
     
     console.log('Actual user ID:', actualUserId);
     
-    // Get current activity data for today (Philippines timezone)
+    // Get current activity data for current shift-anchored day
+    const shiftStart = await getUserShiftStartTime(pool, Number(actualUserId));
+    
+    // Calculate the effective date based on shift start time and current time
+    const now = new Date();
+    const philippinesTime = new Date(now.toLocaleString("en-US", {timeZone: "Asia/Manila"}));
+    const currentTime = philippinesTime.toTimeString().slice(0, 5); // HH:MM format
+    
+    // Parse shift start time
+    const [shiftHour, shiftMinute] = shiftStart.split(':').map(Number);
+    const shiftStartMinutes = shiftHour * 60 + shiftMinute;
+    const [currentHour, currentMinute] = currentTime.split(':').map(Number);
+    const currentMinutes = currentHour * 60 + currentMinute;
+    
+    // Calculate effective date: if we're before shift start, use previous day
+    let effectiveDate = philippinesTime;
+    if (currentMinutes < shiftStartMinutes) {
+      effectiveDate.setDate(effectiveDate.getDate() - 1);
+    }
+    
+    const effectiveDateStr = effectiveDate.toISOString().split('T')[0]; // YYYY-MM-DD
+    
+    // Check if we're starting a new shift period
+    const isNewShift = await isNewShiftPeriod(pool, actualUserId, effectiveDateStr);
+    
     const existingResult = await pool.query(
-      'SELECT * FROM activity_data WHERE user_id = $1 AND today_date = (NOW() AT TIME ZONE \'Asia/Manila\')::date', 
-      [actualUserId]
+      `SELECT * FROM activity_data WHERE user_id = $1 AND today_date = $2`, 
+      [actualUserId, effectiveDateStr]
     );
     
-    if (existingResult.rows.length > 0) {
+    if (existingResult.rows.length > 0 && !isNewShift) {
       const existing = existingResult.rows[0];
       
       // If frontend values are provided, use them directly
@@ -284,9 +462,9 @@ export async function PUT(request: NextRequest) {
            SET today_active_seconds = $1, 
                today_inactive_seconds = $2, 
                updated_at = NOW() 
-           WHERE user_id = $3 AND today_date = (NOW() AT TIME ZONE 'Asia/Manila')::date
+           WHERE user_id = $3 AND today_date = $4
            RETURNING *`,
-          [frontendActiveSeconds || 0, frontendInactiveSeconds || 0, actualUserId]
+          [frontendActiveSeconds || 0, frontendInactiveSeconds || 0, actualUserId, effectiveDateStr]
         );
         
         return NextResponse.json(updateResult.rows[0]);
@@ -325,15 +503,15 @@ export async function PUT(request: NextRequest) {
           newInactiveSeconds += secondsDiff;
         }
         
-                // Update the record with accumulated time for current day (Philippines timezone)
+                // Update the record with accumulated time for current day
         const updateResult = await pool.query(
           `UPDATE activity_data 
            SET today_active_seconds = $1, 
                today_inactive_seconds = $2, 
                updated_at = NOW() 
-           WHERE user_id = $3 AND today_date = (NOW() AT TIME ZONE 'Asia/Manila')::date
+           WHERE user_id = $3 AND today_date = $4
            RETURNING *`,
-          [newActiveSeconds, newInactiveSeconds, actualUserId]
+          [newActiveSeconds, newInactiveSeconds, actualUserId, effectiveDateStr]
         );
         
         return NextResponse.json(updateResult.rows[0]);
@@ -342,12 +520,25 @@ export async function PUT(request: NextRequest) {
         const updateResult = await pool.query(
           `UPDATE activity_data 
            SET updated_at = NOW() 
-           WHERE user_id = $1 AND today_date = (NOW() AT TIME ZONE 'Asia/Manila')::date
+           WHERE user_id = $1 AND today_date = $2
            RETURNING *`,
-          [actualUserId]
+          [actualUserId, effectiveDateStr]
         );
         return NextResponse.json(updateResult.rows[0]);
       }
+    } else if (existingResult.rows.length > 0 && isNewShift) {
+      // We have an existing row but this is a new shift period
+      // Create a new row with 0 values for the new shift
+      const insertResult = await pool.query(
+        `INSERT INTO activity_data 
+         (user_id, is_currently_active, last_session_start, today_date, 
+          today_active_seconds, today_inactive_seconds) 
+         VALUES ($1, $2, $3, $4, 0, 0) 
+         RETURNING *`,
+        [actualUserId, false, null, effectiveDateStr]
+      );
+      
+      return NextResponse.json(insertResult.rows[0], { status: 201 });
     } else {
       return NextResponse.json({ error: 'Activity data not found' }, { status: 404 });
     }

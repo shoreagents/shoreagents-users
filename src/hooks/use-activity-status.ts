@@ -15,22 +15,66 @@ export function useActivityStatus() {
     try {
       const currentUser = getCurrentUser()
       if (currentUser?.email && isInitialized) {
-        // Use database-driven activity status from timer context
-        // User is active if they have recent activity and are not on break
-        const hasRecentActivity = timerData?.isActive === true || lastActivityState === true
+        // IMPROVED ACTIVITY STATUS DETERMINATION
+        // Use database-driven activity status from timer context with better validation
+        
+        // Primary source: server activity state
+        const serverActivityState = timerData?.isActive
+        
+        // Secondary source: local activity state
+        const localActivityState = lastActivityState
+        
+        // Determine if user is on break
         const isOnBreak = isBreakActive === true
         
         // Check if break is paused (emergency pause)
         // When break is paused, user should be considered active since they're working
         const isBreakPaused = breakStatus?.is_paused === true
         
-        // User is active if:
-        // 1. They have recent activity AND are not on break AND not in meeting, OR
-        // 2. They are on break but it's paused (emergency pause)
-        const isActive = (hasRecentActivity && !isOnBreak && !isInMeeting) || (isOnBreak && isBreakPaused)
+        // IMPROVED LOGIC: Trust server state over local state when available
+        let isActive = false
         
-        // Only log activity status changes (not every evaluation)
-        // Removed frequent console logs to reduce noise
+        if (serverActivityState !== undefined) {
+          // Server has explicit state - trust it as primary source
+          isActive = serverActivityState
+          
+          // Log when server state differs from local state
+          if (localActivityState !== null && localActivityState !== serverActivityState) {
+            console.log(`🔄 Server activity state (${serverActivityState}) differs from local state (${localActivityState}) - using server state`)
+          }
+        } else if (localActivityState !== null) {
+          // Fall back to local state if server state unavailable
+          isActive = localActivityState
+          console.log(`⚠️ Using local activity state (${localActivityState}) - server state unavailable`)
+        } else {
+          // No state available - default to active to prevent false inactive
+          isActive = true
+          console.log(`⚠️ No activity state available - defaulting to active to prevent false inactive`)
+        }
+        
+        // Apply break and meeting logic
+        if (isOnBreak && !isBreakPaused) {
+          // User is on break and break is not paused - consider inactive
+          isActive = false
+        } else if (isOnBreak && isBreakPaused) {
+          // User is on break but it's paused (emergency pause) - consider active
+          isActive = true
+        }
+        
+        // Meeting status overrides activity
+        if (isInMeeting) {
+          isActive = false
+        }
+        
+        // Final validation: if we're about to set inactive, double-check
+        if (!isActive) {
+          // Additional validation for inactive state
+          const inactiveValidation = validateInactiveState(serverActivityState, localActivityState, isOnBreak, isInMeeting)
+          if (!inactiveValidation) {
+            console.log('⚠️ Inactive state validation failed, defaulting to active')
+            isActive = true
+          }
+        }
         
         setIsActive(isActive)
       } else {
@@ -38,11 +82,38 @@ export function useActivityStatus() {
       }
     } catch (error) {
       console.error('Error checking activity status:', error)
-      setIsActive(false)
+      // On error, default to active to prevent false inactive
+      setIsActive(true)
     } finally {
       setIsLoading(false)
     }
   }, [isInitialized, isBreakActive, isInMeeting, timerData?.isActive, breakStatus?.is_paused, lastActivityState])
+
+  // Helper function to validate inactive state
+  const validateInactiveState = useCallback((
+    serverActivityState: boolean | undefined, 
+    localActivityState: boolean | null, 
+    isOnBreak: boolean, 
+    isInMeeting: boolean
+  ): boolean => {
+    // If server explicitly says inactive, trust it
+    if (serverActivityState === false) {
+      return true
+    }
+    
+    // If local state says inactive but server says active, don't trust local
+    if (localActivityState === false && serverActivityState === true) {
+      return false
+    }
+    
+    // If we have conflicting information, be conservative
+    if (localActivityState !== null && serverActivityState !== undefined && localActivityState !== serverActivityState) {
+      return false
+    }
+    
+    // Only trust inactive if we have consistent inactive state
+    return localActivityState === false
+  }, [])
 
   useEffect(() => {
     // Check immediately
