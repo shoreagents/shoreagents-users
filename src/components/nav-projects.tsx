@@ -15,11 +15,11 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 export function NavProjects({
   projects,
@@ -41,27 +41,45 @@ export function NavProjects({
           const isActive = pathname === item.url
           return (
             <SidebarMenuItem key={item.name}>
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-              <SidebarMenuButton 
-                asChild 
-                isActive={isActive}
-                className={isActive ? "bg-primary/10 text-primary border-l-2 border-primary" : ""}
-              >
-                <Link href={item.url}>
-                  <item.icon />
-                        {state === "expanded" && <span>{item.name}</span>}
-                </Link>
-              </SidebarMenuButton>
-                  </TooltipTrigger>
-                  {state === "collapsed" && (
-                    <TooltipContent side="right">
-                      <p>{item.name}</p>
-                    </TooltipContent>
-                  )}
-                </Tooltip>
-              </TooltipProvider>
+              {state === "collapsed" ? (
+                // When collapsed, show dropdown menu on hover instead of tooltip
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <SidebarMenuButton 
+                      isActive={isActive}
+                      className={isActive ? "bg-primary/10 text-primary border-l-2 border-primary" : ""}
+                    >
+                      <item.icon />
+                      <span className="sr-only">{item.name}</span>
+                    </SidebarMenuButton>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent side="right" align="start" className="w-40">
+                    <div className="px-2 py-1.5 text-sm font-medium text-muted-foreground border-b">
+                      Quick Action
+                    </div>
+                    <DropdownMenuItem asChild>
+                      <Link 
+                        href={item.url}
+                        className="flex items-center justify-between w-full"
+                      >
+                        <span>{item.name}</span>
+                      </Link>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : (
+                // When expanded, show normal button with text
+                <SidebarMenuButton 
+                  asChild 
+                  isActive={isActive}
+                  className={isActive ? "bg-primary/10 text-primary border-l-2 border-primary" : ""}
+                >
+                  <Link href={item.url}>
+                    <item.icon />
+                    <span>{item.name}</span>
+                  </Link>
+                </SidebarMenuButton>
+              )}
             </SidebarMenuItem>
           )
         })}

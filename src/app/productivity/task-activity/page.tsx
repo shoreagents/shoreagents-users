@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { AppSidebar } from "@/components/app-sidebar"
 import { AppHeader } from "@/components/app-header"
 import {
@@ -10,7 +10,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { KanbanBoard } from "@/components/task-activity-components/kanban-board"
 import { Button } from "@/components/ui/button"
-import { Plus, Settings, Loader2 } from "lucide-react"
+import { Plus, Settings, Loader2, ZoomIn, ZoomOut, RotateCcw } from "lucide-react"
 
 import {
   Dialog,
@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { fetchTaskActivityData, createTask, createGroup, moveTask, reorderGroups, updateTask, TaskGroup, Task } from "@/lib/task-activity-utils"
+import { fetchTaskActivityData, createTask, createGroup, moveTask, reorderGroups, updateTask, deleteTask as deleteTaskApi, TaskGroup, Task } from "@/lib/task-activity-utils"
 import { useTaskActivitySocket } from "@/hooks/use-task-activity-socket"
 
 // Utility function to generate unique IDs
@@ -36,9 +36,38 @@ export default function TaskActivityPage() {
   const [isAddGroupOpen, setIsAddGroupOpen] = useState(false)
   const [newGroupName, setNewGroupName] = useState("")
   const [isEditMode, setIsEditMode] = useState(false)
+  const [canManageGroups, setCanManageGroups] = useState(false)
+
+  // Zoom functionality
+  const [zoomLevel, setZoomLevel] = useState(100)
+  const [minZoom] = useState(50)
+  const [maxZoom] = useState(200)
+  const [zoomStep] = useState(25)
+
+  // Zoom control functions
+  const handleZoomIn = () => {
+    setZoomLevel(prev => Math.min(prev + zoomStep, maxZoom))
+  }
+
+  const handleZoomOut = () => {
+    setZoomLevel(prev => Math.max(prev - zoomStep, minZoom))
+  }
+
+  const handleZoomReset = () => {
+    setZoomLevel(100)
+  }
+
+  const handleWheelZoom = (event: WheelEvent) => {
+    if (event.ctrlKey) {
+      event.preventDefault()
+      const delta = event.deltaY > 0 ? -zoomStep : zoomStep
+      setZoomLevel(prev => Math.max(minZoom, Math.min(prev + delta, maxZoom)))
+    }
+  }
 
   // Get current user email for Socket.IO
   const [userEmail, setUserEmail] = useState<string | null>(null)
+  const [currentUser, setCurrentUser] = useState<any>(null)
   const [socketInstance, setSocketInstance] = useState<any>(null)
   
   // Socket.IO for real-time updates
@@ -51,16 +80,221 @@ export default function TaskActivityPage() {
       try {
         const parsed = JSON.parse(authData)
         setUserEmail(parsed.user.email)
+        setCurrentUser(parsed.user)
+        const role: string | undefined = (parsed.user?.role || parsed.user?.type || '').toString()
+        setCanManageGroups(/^(internal)$/i.test(role || ''))
       } catch (error) {
         console.error('Error parsing auth data:', error)
       }
     }
   }, [])
 
+  // Automatically disable edit mode for non-internal users
+  useEffect(() => {
+    if (!canManageGroups && isEditMode) {
+      setIsEditMode(false)
+    }
+  }, [canManageGroups, isEditMode])
+
+  // Handle URL parameters to open specific task
+  const currentUrlRef = useRef<string>('')
+  
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search)
+    const taskId = urlParams.get('taskId')
+    const currentUrl = window.location.search
+    
+    // Only process if URL has changed and we have a taskId
+    if (taskId && currentUrl !== currentUrlRef.current) {
+      currentUrlRef.current = currentUrl
+      
+      if (groups.length > 0) {
+        // Find the task in the groups
+        const allTasks = groups.flatMap(group => 
+          (group.tasks || []).map(task => ({
+            id: task.id.toString(),
+            creator_id: (task as any).creator_id,
+            is_owner: (task as any).is_owner,
+            title: task.title,
+            description: task.description,
+            priority: task.priority,
+            assignee: '',
+            assignees: (task as any).assignees || [],
+            dueDate: task.due_date,
+            startDate: task.start_date,
+            tags: task.tags,
+            status: group.id.toString(),
+            relationships: (task as any).task_relationships ?? (task as any).relationships ?? [],
+            custom_fields: (task as any).task_custom_fields ?? (task as any).custom_fields ?? [],
+            attachments: (task as any).attachments ?? []
+          }))
+        )
+        
+        const targetTask = allTasks.find(task => task.id === taskId)
+        if (targetTask) {
+          // Open the task detail dialog
+          console.log('Opening task from notification:', targetTask.title)
+          // We'll need to trigger the task click handler
+          setTimeout(() => {
+            const taskClickEvent = new CustomEvent('openTask', { detail: targetTask })
+            window.dispatchEvent(taskClickEvent)
+          }, 500) // Small delay to ensure components are ready
+          
+          // Clean up URL parameter
+          const newUrl = window.location.pathname
+          window.history.replaceState({}, '', newUrl)
+        }
+      }
+    }
+  }, [groups]) // Only depend on groups
+  
+  // Watch for URL changes to handle navigation from system notifications
+  useEffect(() => {
+    const handleUrlChange = () => {
+      const urlParams = new URLSearchParams(window.location.search)
+      const taskId = urlParams.get('taskId')
+      
+      if (taskId && groups.length > 0) {
+        // Process the taskId parameter
+        const allTasks = groups.flatMap(group => 
+          (group.tasks || []).map(task => ({
+            id: task.id.toString(),
+            creator_id: (task as any).creator_id,
+            is_owner: (task as any).is_owner,
+            title: task.title,
+            description: task.description,
+            priority: task.priority,
+            assignee: '',
+            assignees: (task as any).assignees || [],
+            dueDate: task.due_date,
+            startDate: task.start_date,
+            tags: task.tags,
+            status: group.id.toString(),
+            relationships: (task as any).task_relationships ?? (task as any).relationships ?? [],
+            custom_fields: (task as any).task_custom_fields ?? (task as any).custom_fields ?? [],
+            attachments: (task as any).attachments ?? []
+          }))
+        )
+        
+        const targetTask = allTasks.find(task => task.id === taskId)
+        if (targetTask) {
+          console.log('Opening task from URL change:', targetTask.title)
+          setTimeout(() => {
+            const taskClickEvent = new CustomEvent('openTask', { detail: targetTask })
+            window.dispatchEvent(taskClickEvent)
+          }, 500)
+          
+          // Clean up URL parameter
+          const newUrl = window.location.pathname
+          window.history.replaceState({}, '', newUrl)
+        }
+      }
+    }
+    
+    // Check URL on mount
+    handleUrlChange()
+    
+    // Listen for popstate events (back/forward navigation)
+    window.addEventListener('popstate', handleUrlChange)
+    
+    return () => {
+      window.removeEventListener('popstate', handleUrlChange)
+    }
+  }, [groups])
+
+  // Listen for notification clicks to open tasks even when already on task-activity page
+  useEffect(() => {
+    const handleNotificationClick = (event: CustomEvent) => {
+      const notification = event.detail
+      if (!notification || !groups.length) return
+      
+      // Check if this is a task notification
+      if (notification.category === 'task' && notification.actionData?.task_id) {
+        const taskId = notification.actionData.task_id.toString()
+        
+        // Find the task in the groups
+        const allTasks = groups.flatMap(group => 
+          (group.tasks || []).map(task => ({
+            id: task.id.toString(),
+            creator_id: (task as any).creator_id,
+            is_owner: (task as any).is_owner,
+            title: task.title,
+            description: task.description,
+            priority: task.priority,
+            assignee: '',
+            assignees: (task as any).assignees || [],
+            dueDate: task.due_date,
+            startDate: task.start_date,
+            tags: task.tags,
+            status: group.id.toString(),
+            relationships: (task as any).task_relationships ?? (task as any).relationships ?? [],
+            custom_fields: (task as any).task_custom_fields ?? (task as any).custom_fields ?? [],
+            attachments: (task as any).attachments ?? []
+          }))
+        )
+        
+        const targetTask = allTasks.find(task => task.id === taskId)
+        if (targetTask) {
+          console.log('Opening task from notification click (already on page):', targetTask.title)
+          setTimeout(() => {
+            const taskClickEvent = new CustomEvent('openTask', { detail: targetTask })
+            window.dispatchEvent(taskClickEvent)
+          }, 100) // Shorter delay since we're already on the page
+        }
+      }
+    }
+    
+    // Listen for notification click events
+    window.addEventListener('notification-clicked', handleNotificationClick as EventListener)
+    
+    return () => {
+      window.removeEventListener('notification-clicked', handleNotificationClick as EventListener)
+    }
+  }, [groups])
+
   // Fetch task data on component mount
   useEffect(() => {
     loadTaskData()
   }, [])
+
+  // Handle wheel zoom events
+  useEffect(() => {
+    const handleWheel = (event: WheelEvent) => {
+      if (event.ctrlKey) {
+        event.preventDefault()
+        const delta = event.deltaY > 0 ? -zoomStep : zoomStep
+        setZoomLevel(prev => Math.max(minZoom, Math.min(prev + delta, maxZoom)))
+      }
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.ctrlKey) {
+        switch (event.key) {
+          case '=':
+          case '+':
+            event.preventDefault()
+            handleZoomIn()
+            break
+          case '-':
+            event.preventDefault()
+            handleZoomOut()
+            break
+          case '0':
+            event.preventDefault()
+            handleZoomReset()
+            break
+        }
+      }
+    }
+
+    document.addEventListener('wheel', handleWheel, { passive: false })
+    document.addEventListener('keydown', handleKeyDown)
+    
+    return () => {
+      document.removeEventListener('wheel', handleWheel)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [zoomStep, minZoom, maxZoom])
 
   // Fallback: pick up global socket when available
   useEffect(() => {
@@ -108,7 +342,8 @@ export default function TaskActivityPage() {
         let foundGroupIdx = -1
         let foundTaskIdx = -1
         for (let gi = 0; gi < next.length; gi++) {
-          const idx = next[gi].tasks.findIndex((task: any) => Number(task.id) === idNum)
+          const arr = next[gi].tasks || (next[gi].tasks = [])
+          const idx = arr.findIndex((task: any) => Number(task.id) === idNum)
           if (idx !== -1) { foundGroupIdx = gi; foundTaskIdx = idx; break }
         }
         if (foundGroupIdx !== -1) {
@@ -116,13 +351,41 @@ export default function TaskActivityPage() {
           const merged = { ...previous, ...t }
           // Move if needed
           if (t.group_id && Number(t.group_id) !== Number(prev[foundGroupIdx].id)) {
-            next[foundGroupIdx].tasks.splice(foundTaskIdx, 1)
+            ;(next[foundGroupIdx].tasks || (next[foundGroupIdx].tasks = [])).splice(foundTaskIdx, 1)
             const targetIdx = next.findIndex((g: any) => Number(g.id) === Number(t.group_id))
             if (targetIdx !== -1) {
-              next[targetIdx].tasks.push(merged)
+              ;(next[targetIdx].tasks || (next[targetIdx].tasks = [])).push(merged)
             }
           } else {
-            next[foundGroupIdx].tasks[foundTaskIdx] = merged
+            ;(next[foundGroupIdx].tasks || (next[foundGroupIdx].tasks = []))[foundTaskIdx] = merged
+          }
+        } else if ((msg.table === 'tasks' && msg.action === 'INSERT') || (msg.type === 'INSERT')) {
+          // New task inserted directly in DB → add to the correct group
+          const targetIdx = next.findIndex((g: any) => Number(g.id) === Number(t.group_id))
+          if (targetIdx !== -1) {
+            const newTask = {
+              id: Number(t.id),
+              title: t.title || 'New Task',
+              description: t.description || '',
+              priority: t.priority || 'normal',
+              assignees: (t as any).assignees || [],
+              task_relationships: (t as any).task_relationships || [],
+              task_custom_fields: (t as any).task_custom_fields || [],
+              attachments: (t as any).attachments || [],
+              tags: Array.isArray(t.tags) ? t.tags : [],
+              position: Number(t.position) || (next[targetIdx].tasks.length + 1),
+              status: t.status || 'active',
+              created_at: t.created_at || new Date().toISOString(),
+              updated_at: t.updated_at || new Date().toISOString(),
+              group_id: Number(t.group_id)
+            }
+            if (newTask.status === 'active') {
+              // Insert by position if provided
+              const insertIndex = Math.max(0, Math.min((newTask.position || 1) - 1, next[targetIdx].tasks.length))
+              next[targetIdx].tasks.splice(insertIndex, 0, newTask)
+              // Re-index positions
+              next[targetIdx].tasks.forEach((task: any, idx: number) => { task.position = idx + 1 })
+            }
           }
         }
         return next
@@ -137,6 +400,19 @@ export default function TaskActivityPage() {
       const row = msg.new || msg.old
       const taskId = Number(row.task_id)
       const userId = Number(row.user_id)
+      
+      // Check if the current user is being assigned/unassigned
+      const currentUserId = currentUser?.id
+      const isCurrentUserAffected = currentUserId && Number(userId) === Number(currentUserId)
+      
+      // For any assignee change, do a full data refresh to ensure task visibility is correct
+      // This handles cases where:
+      // 1. Current user gets assigned to a new task (task should appear)
+      // 2. Current user gets removed from a task (task should disappear if they're not the creator)
+      // 3. Other users get assigned/removed (task assignee list should update)
+      setTimeout(() => refreshTaskDataSilently(), 300) // Small delay to ensure DB is updated
+      
+      // Also update the current state immediately for better UX
       setGroups(prev => prev.map(g => ({
         ...g,
         tasks: g.tasks.map((task: any) => {
@@ -246,7 +522,11 @@ export default function TaskActivityPage() {
       const msg = parse(payload)
       if (!msg?.table || msg.table !== 'task_groups') return
       if (msg.action === 'INSERT' && msg.new) {
-        setGroups(prev => ([...prev, { ...msg.new, tasks: [] }]))
+        setGroups(prev => {
+          const exists = prev.some(g => Number(g.id) === Number(msg.new.id))
+          if (exists) return prev
+          return ([...prev, { ...msg.new, tasks: [] }])
+        })
       } else if (msg.action === 'UPDATE' && msg.new) {
         setGroups(prev => prev.map(g => (Number(g.id) === Number(msg.new.id) ? { ...g, ...msg.new } : g)))
       } else if (msg.action === 'DELETE' && msg.old) {
@@ -319,7 +599,11 @@ export default function TaskActivityPage() {
 
     // Listen for group created events
     s.on('groupCreated', ({ group }: { group: any }) => {
-      setGroups(prevGroups => [...prevGroups, group])
+      setGroups(prevGroups => {
+        const exists = prevGroups.some(g => Number(g.id) === Number(group.id))
+        if (exists) return prevGroups
+        return [...prevGroups, group]
+      })
     })
 
     // Listen for groups reordered events
@@ -363,6 +647,17 @@ export default function TaskActivityPage() {
     }
   }
 
+  // Lightweight refresh that does not toggle the global loading spinner.
+  // Use this for real-time updates such as assignee changes to avoid UI flicker.
+  const refreshTaskDataSilently = async () => {
+    try {
+      const data = await fetchTaskActivityData()
+      setGroups(data)
+    } catch (error) {
+      console.error('Error silently refreshing task data:', error)
+    }
+  }
+
   const handleTaskMove = async (taskId: string, newGroupId: string, targetPosition?: number) => {
     try {
       // Optimistic update - immediately update the UI
@@ -374,14 +669,15 @@ export default function TaskActivityPage() {
         // Find the task and remove it from its current group
         let sourceGroup: any = null
         for (const group of updatedGroups) {
-          const taskIndex = group.tasks.findIndex(task => task.id.toString() === taskId)
+          const taskArray = group.tasks || (group.tasks = [])
+          const taskIndex = taskArray.findIndex(task => task.id.toString() === taskId)
           if (taskIndex !== -1) {
-            movedTask = group.tasks[taskIndex]
+            movedTask = taskArray[taskIndex]
             sourceGroup = group
-            group.tasks.splice(taskIndex, 1)
+            taskArray.splice(taskIndex, 1)
             
             // Re-index remaining tasks in the source group
-            group.tasks.forEach((task, index) => {
+            taskArray.forEach((task, index) => {
               task.position = index + 1
             })
             console.log(`Re-indexed ${group.tasks.length} tasks in source group`)
@@ -397,25 +693,27 @@ export default function TaskActivityPage() {
             const updatedTask = {
               ...movedTask,
               group_id: parseInt(newGroupId),
-              position: targetPosition || targetGroup.tasks.length + 1
+              position: targetPosition || ((targetGroup.tasks || []).length + 1)
             }
             
             if (targetPosition) {
               // Insert at specific position
               const insertIndex = targetPosition - 1
               console.log(`Inserting task at index ${insertIndex} (position ${targetPosition})`)
-              console.log(`Current tasks in group: ${targetGroup.tasks.length}`)
-              targetGroup.tasks.splice(insertIndex, 0, updatedTask)
+              const tgArray = targetGroup.tasks || (targetGroup.tasks = [])
+              console.log(`Current tasks in group: ${tgArray.length}`)
+              tgArray.splice(insertIndex, 0, updatedTask)
               
               // Update positions for all tasks in the group
-              targetGroup.tasks.forEach((task, index) => {
+              tgArray.forEach((task, index) => {
                 task.position = index + 1
               })
-              console.log(`After insertion: ${targetGroup.tasks.length} tasks`)
+              console.log(`After insertion: ${tgArray.length} tasks`)
             } else {
               // Add to end
-              targetGroup.tasks.push(updatedTask)
-              updatedTask.position = targetGroup.tasks.length
+              const tgArray = targetGroup.tasks || (targetGroup.tasks = [])
+              tgArray.push(updatedTask)
+              updatedTask.position = tgArray.length
             }
           }
         }
@@ -519,13 +817,14 @@ export default function TaskActivityPage() {
           // Find and remove the task from its current group
           let movedTask: any = null
           for (const group of updatedGroups) {
-            const taskIndex = group.tasks.findIndex(task => task.id.toString() === taskId)
+            const taskIndex = (group.tasks || []).findIndex(task => task.id.toString() === taskId)
             if (taskIndex !== -1) {
-              movedTask = { ...group.tasks[taskIndex], ...updates }
-              group.tasks.splice(taskIndex, 1)
+              const arr = group.tasks || (group.tasks = [])
+              movedTask = { ...arr[taskIndex], ...updates }
+              arr.splice(taskIndex, 1)
               
               // Re-index remaining tasks in the source group
-              group.tasks.forEach((task, index) => {
+              arr.forEach((task, index) => {
                 task.position = index + 1
               })
               break
@@ -537,8 +836,9 @@ export default function TaskActivityPage() {
             const targetGroup = updatedGroups.find(group => group.id.toString() === newGroupId)
             if (targetGroup) {
               movedTask.group_id = updates.group_id
-              targetGroup.tasks.push(movedTask)
-              movedTask.position = targetGroup.tasks.length
+              const arr = targetGroup.tasks || (targetGroup.tasks = [])
+              arr.push(movedTask)
+              movedTask.position = arr.length
             }
           }
           
@@ -554,7 +854,8 @@ export default function TaskActivityPage() {
             // Find previous relationships for this task
             let previousRels: Array<{ taskId: string; type: string }> = []
             for (const g of updatedGroups) {
-              const t = g.tasks.find(t => t.id.toString() === taskId)
+              const arr = g.tasks || (g.tasks = [])
+              const t = arr.find(t => t.id.toString() === taskId)
               if (t) {
                 previousRels = (t as any).relationships || (t as any).task_relationships || []
                 break
@@ -568,7 +869,7 @@ export default function TaskActivityPage() {
             // Remove inverse link from counterpart tasks
             if (removedIds.length > 0) {
               for (const g of updatedGroups) {
-                g.tasks = g.tasks.map((t: any) => {
+                g.tasks = (g.tasks || []).map((t: any) => {
                   if (removedIds.includes(String(t.id))) {
                     const list = (t.relationships || t.task_relationships || []) as Array<{ taskId: string; type: string }>
                     const filtered = list.filter(rel => String(rel.taskId) !== String(taskId))
@@ -582,7 +883,7 @@ export default function TaskActivityPage() {
             // Add inverse link to counterpart tasks
             if (addedIds.length > 0) {
               for (const g of updatedGroups) {
-                g.tasks = g.tasks.map((t: any) => {
+                g.tasks = (g.tasks || []).map((t: any) => {
                   if (addedIds.includes(String(t.id))) {
                     const list = (t.relationships || t.task_relationships || []) as Array<{ taskId: string; type: string }>
                     const exists = list.some(rel => String(rel.taskId) === String(taskId))
@@ -597,11 +898,12 @@ export default function TaskActivityPage() {
           
           // Find and update the task
           for (const group of updatedGroups) {
-            const taskIndex = group.tasks.findIndex(task => task.id.toString() === taskId)
+            const taskIndex = (group.tasks || []).findIndex(task => task.id.toString() === taskId)
             if (taskIndex !== -1) {
               // Update the task with new data
+              const base = (group.tasks || (group.tasks = []))[taskIndex]
               group.tasks[taskIndex] = {
-                ...group.tasks[taskIndex],
+                ...base,
                 ...updates,
                 ...(updates.custom_fields ? { custom_fields: updates.custom_fields, task_custom_fields: updates.custom_fields } : {}),
                 // Merge server shape if present (e.g., assignees array)
@@ -629,9 +931,9 @@ export default function TaskActivityPage() {
         const updatedGroups = [...prevGroups]
         
         for (const group of updatedGroups) {
-          const taskIndex = group.tasks.findIndex(task => task.id.toString() === taskId)
+          const taskIndex = (group.tasks || []).findIndex(task => task.id.toString() === taskId)
           if (taskIndex !== -1) {
-            const prev = group.tasks[taskIndex] as any
+            const prev = (group.tasks || (group.tasks = []))[taskIndex] as any
             const merged = { ...prev, ...updatedTask }
             // Preserve relationships if API didn't include them
             if (merged.task_relationships == null && prev.task_relationships != null) {
@@ -673,7 +975,7 @@ export default function TaskActivityPage() {
         
         // Find and update the task title
         for (const group of updatedGroups) {
-          const taskIndex = group.tasks.findIndex(task => task.id.toString() === taskId)
+          const taskIndex = (group.tasks || []).findIndex(task => task.id.toString() === taskId)
           if (taskIndex !== -1) {
             group.tasks[taskIndex] = {
               ...group.tasks[taskIndex],
@@ -696,7 +998,7 @@ export default function TaskActivityPage() {
         const updatedGroups = [...prevGroups]
         
         for (const group of updatedGroups) {
-          const taskIndex = group.tasks.findIndex(task => task.id.toString() === taskId)
+          const taskIndex = (group.tasks || []).findIndex(task => task.id.toString() === taskId)
           if (taskIndex !== -1) {
             const prev = group.tasks[taskIndex] as any
             const merged = { ...prev, ...updatedTask }
@@ -714,6 +1016,23 @@ export default function TaskActivityPage() {
     } catch (error) {
       console.error('Error renaming task:', error)
       // Revert optimistic update on error
+      await loadTaskData()
+    }
+  }
+
+  const handleTaskDeletePermanent = async (taskId: string) => {
+    try {
+      // Optimistic local removal
+      setGroups(prev => prev.map(g => ({
+        ...g,
+        tasks: (g.tasks || []).filter(t => String(t.id) !== String(taskId))
+      })))
+
+      // Call API to delete
+      await deleteTaskApi(parseInt(taskId), true)
+    } catch (err) {
+      console.error('Error deleting task:', err)
+      // Reload to restore consistency if needed
       await loadTaskData()
     }
   }
@@ -756,6 +1075,10 @@ export default function TaskActivityPage() {
   }
 
   const toggleEditMode = () => {
+    // Only allow internal users to toggle edit mode
+    if (!canManageGroups) {
+      return
+    }
     setIsEditMode(!isEditMode)
   }
 
@@ -806,171 +1129,242 @@ export default function TaskActivityPage() {
     <SidebarProvider>
       <AppSidebar />
       <SidebarInset className="overflow-hidden">
+        <div className="flex flex-col h-screen">
         <AppHeader />
-        <div className="flex flex-1 flex-col gap-4 p-4 h-screen overflow-hidden max-w-full relative">
-          {/* Coming Soon Overlay (temporarily disabled)
-          <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
-            <div className="bg-card border rounded-lg p-8 max-w-md mx-4 text-center shadow-lg">
-              <div className="mb-4">
-                <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Settings className="h-8 w-8 text-primary" />
-                </div>
-                <h2 className="text-2xl font-bold mb-2">Coming Soon</h2>
-                <p className="text-muted-foreground mb-6">
-                  The Task Activity feature is currently under development. 
-                  We're working hard to bring you an amazing task management experience.
-                </p>
-                <div className="flex flex-col gap-3 text-sm text-muted-foreground">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 bg-primary rounded-full"></div>
-                    <span>Advanced Kanban boards</span>
+          <div className="flex flex-1 flex-col gap-4 p-4 h-screen overflow-hidden max-w-full relative">
+            {/* Coming Soon Overlay (temporarily disabled)
+            <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
+              <div className="bg-card border rounded-lg p-8 max-w-md mx-4 text-center shadow-lg">
+                <div className="mb-4">
+                  <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <Settings className="h-8 w-8 text-primary" />
                   </div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 bg-primary rounded-full"></div>
-                    <span>Real-time collaboration</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 bg-primary rounded-full"></div>
-                    <span>Task automation</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 bg-primary rounded-full"></div>
-                    <span>Progress tracking</span>
-                  </div>
-                </div>
-              </div>
-              <Button 
-                variant="outline" 
-                onClick={() => window.history.back()}
-                className="w-full"
-              >
-                Go Back
-              </Button>
-            </div>
-          </div>
-          */}
-          {/* Header */}
-          <div className="flex items-center justify-between flex-shrink-0 min-w-0">
-            <div className="min-w-0">
-              <h1 className="text-2xl font-bold tracking-tight">Task Activity</h1>
-              <p className="text-muted-foreground">
-                Manage your tasks with drag and drop Kanban boards
-              </p>
-            </div>
-            
-            <div className="flex items-center gap-2 flex-shrink-0">
-              <Button
-                variant={isEditMode ? "default" : "outline"}
-                size="sm"
-                onClick={toggleEditMode}
-                className={`flex items-center gap-2 ${isEditMode ? 'bg-blue-600 hover:bg-blue-700' : ''}`}
-              >
-                <Settings className={`h-4 w-4 ${isEditMode ? 'animate-spin' : ''}`} />
-                {isEditMode ? "Exit Edit Mode" : "Edit Board"}
-              </Button>
-
-              <Dialog open={isAddGroupOpen} onOpenChange={setIsAddGroupOpen}>
-                <DialogTrigger asChild>
-                  <Button size="sm">
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Group
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-[425px]">
-                  <DialogHeader>
-                    <DialogTitle>Add New Group</DialogTitle>
-                    <DialogDescription>
-                      Add a new group to organize your tasks.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="grid gap-4 py-4">
-                    <div className="grid grid-cols-4 items-center gap-4">
-                      <Label htmlFor="group-name" className="text-right">
-                        Name
-                      </Label>
-                      <Input
-                        id="group-name"
-                        value={newGroupName}
-                        onChange={(e) => setNewGroupName(e.target.value)}
-                        placeholder="e.g., On Hold"
-                        className="col-span-3"
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            handleAddGroup()
-                          }
-                        }}
-                      />
+                  <h2 className="text-2xl font-bold mb-2">Coming Soon</h2>
+                  <p className="text-muted-foreground mb-6">
+                    The Task Activity feature is currently under development. 
+                    We're working hard to bring you an amazing task management experience.
+                  </p>
+                  <div className="flex flex-col gap-3 text-sm text-muted-foreground">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-primary rounded-full"></div>
+                      <span>Advanced Kanban boards</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-primary rounded-full"></div>
+                      <span>Real-time collaboration</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-primary rounded-full"></div>
+                      <span>Task automation</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-primary rounded-full"></div>
+                      <span>Progress tracking</span>
                     </div>
                   </div>
-                  <div className="flex justify-end gap-2">
-                    <Button variant="outline" onClick={() => setIsAddGroupOpen(false)}>
-                      Cancel
-                    </Button>
-                    <Button onClick={handleAddGroup}>Add Group</Button>
-                  </div>
-                </DialogContent>
-              </Dialog>
-            </div>
-          </div>
-
-          {/* Kanban Board Card */}
-          <Card className="flex-1 flex flex-col min-h-0 min-w-0">
-            <CardHeader className="flex-shrink-0 pb-3">
-              <CardTitle className="text-lg">Board View</CardTitle>
-            </CardHeader>
-            <CardContent className="flex-1 p-0 overflow-x-auto kanban-hscrollbar">
-              {isLoading ? (
-                <div className="flex items-center justify-center h-64">
-                  <Loader2 className="h-8 w-8 animate-spin" />
-                  <span className="ml-2">Loading tasks...</span>
                 </div>
-              ) : (
-              <KanbanBoard 
-                  tasks={(() => {
-                    const allTasks = groups.flatMap(group => 
-                      group.tasks.map(task => ({
-                        id: task.id.toString(),
-                        title: task.title,
-                        description: task.description,
-                        priority: task.priority,
-                        assignee: '',
-                        assignees: (task as any).assignees || [],
-                        dueDate: task.due_date,
-                        startDate: task.start_date,
-                        tags: task.tags,
-                        status: group.id.toString(),
-                        relationships: (task as any).task_relationships ?? (task as any).relationships ?? [],
-                        custom_fields: (task as any).task_custom_fields ?? (task as any).custom_fields ?? [],
-                        attachments: (task as any).attachments ?? []
-                      }))
-                    )
-                    
-                    // Remove duplicates and log if any are found
-                    const uniqueTasks = allTasks.filter((task, index, self) => {
-                      const isDuplicate = index !== self.findIndex(t => t.id === task.id)
-                      if (isDuplicate) {
-                        console.warn(`Duplicate task found with ID: ${task.id}, removing duplicate`)
-                      }
-                      return !isDuplicate
-                    })
-                    
-                    return uniqueTasks
-                  })()} 
-                  columns={groups.map(group => ({
-                    id: group.id.toString(),
-                    title: group.title,
-                    color: group.color
-                  }))}
-                  onTaskMove={(taskId, newStatus, targetPosition) => handleTaskMove(taskId, newStatus, targetPosition)}
-                onTaskCreate={handleTaskCreate}
-                onTaskUpdate={handleTaskUpdate}
-                  onTaskRename={handleTaskRename}
-                onColumnsReorder={handleColumnsReorder}
-                isEditMode={isEditMode}
-              />
-              )}
-            </CardContent>
-          </Card>
+                <Button 
+                  variant="outline" 
+                  onClick={() => window.history.back()}
+                  className="w-full"
+                >
+                  Go Back
+                </Button>
+              </div>
+            </div>
+            */}
+            {/* Header */}
+            <div className="flex items-center justify-between flex-shrink-0 min-w-0">
+              <div className="min-w-0">
+                <h1 className="text-2xl font-bold tracking-tight">Task Activity</h1>
+                <p className="text-muted-foreground">
+                  Manage your tasks with drag and drop Kanban boards
+                </p>
+              </div>
+              
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {/* Zoom Controls */}
+                <div className="flex items-center gap-1 border rounded-md p-1 bg-muted/50">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleZoomOut}
+                    disabled={zoomLevel <= minZoom}
+                    className="h-7 w-7 p-0 hover:bg-muted disabled:opacity-50"
+                    title="Zoom Out (Ctrl + -)"
+                  >
+                    <ZoomOut className="h-3 w-3" />
+                  </Button>
+                  <div className="flex flex-col items-center px-2 min-w-[3rem]">
+                    <span className="text-xs font-medium">
+                      {zoomLevel}%
+                    </span>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleZoomIn}
+                    disabled={zoomLevel >= maxZoom}
+                    className="h-7 w-7 p-0 hover:bg-muted disabled:opacity-50"
+                    title="Zoom In (Ctrl + +)"
+                  >
+                    <ZoomIn className="h-3 w-3" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleZoomReset}
+                    className="h-7 w-7 p-0 hover:bg-muted"
+                    title="Reset Zoom (Ctrl + 0)"
+                  >
+                    <RotateCcw className="h-3 w-3" />
+                  </Button>
+                </div>
+
+                <Button
+                  variant={isEditMode ? "default" : "outline"}
+                  size="sm"
+                  onClick={toggleEditMode}
+                  disabled={!canManageGroups}
+                  className={`flex items-center gap-2 ${isEditMode ? 'bg-blue-600 hover:bg-blue-700' : ''} ${!canManageGroups ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  title={!canManageGroups ? 'Only Internal users can edit the board' : undefined}
+                >
+                  <Settings className={`h-4 w-4 ${isEditMode ? 'animate-spin' : ''}`} />
+                  {isEditMode ? "Exit Edit Mode" : "Edit Board"}
+                </Button>
+
+                <Dialog open={isAddGroupOpen} onOpenChange={setIsAddGroupOpen}>
+                  <div className={(!canManageGroups ? 'cursor-not-allowed' : '')}>
+                    <DialogTrigger asChild>
+                      <Button size="sm" disabled={!canManageGroups} title={!canManageGroups ? 'Only internal users can add groups' : undefined}>
+                        <Plus className="h-4 w-4 mr-2" />
+                        Add Group
+                      </Button>
+                    </DialogTrigger>
+                  </div>
+                  <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                      <DialogTitle>Add New Group</DialogTitle>
+                      <DialogDescription>
+                        Add a new group to organize your tasks.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                      <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="group-name" className="text-right">
+                          Name
+                        </Label>
+                        <Input
+                          id="group-name"
+                          value={newGroupName}
+                          onChange={(e) => setNewGroupName(e.target.value)}
+                          placeholder="e.g., On Hold"
+                          className="col-span-3"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              handleAddGroup()
+                            }
+                          }}
+                        />
+                      </div>
+                    </div>
+                    <div className="flex justify-end gap-2">
+                      <Button variant="outline" onClick={() => setIsAddGroupOpen(false)}>
+                        Cancel
+                      </Button>
+                      <div className={(!canManageGroups ? 'cursor-not-allowed' : '')}>
+                        <Button onClick={handleAddGroup} disabled={!canManageGroups} title={!canManageGroups ? 'Only internal users can add groups' : undefined}>Add Group</Button>
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              </div>
+            </div>
+
+            {/* Kanban Board Card */}
+            <Card className="flex-1 flex flex-col min-h-0 min-w-0">
+              <CardHeader className="flex-shrink-0 pb-3">
+                <CardTitle className="text-lg">Board View</CardTitle>
+              </CardHeader>
+              <CardContent className="flex-1 p-0 overflow-y-auto overflow-x-hidden">
+                  {isLoading ? (
+                    <div className="flex items-center justify-center h-64">
+                      <Loader2 className="h-8 w-8 animate-spin" />
+                      <span className="ml-2">Loading tasks...</span>
+                    </div>
+                  ) : (
+                  <KanbanBoard 
+                      zoom={zoomLevel}
+                      tasks={(() => {
+                        const allTasks = groups.flatMap(group => 
+                          (group.tasks || []).map(task => ({
+                            id: task.id.toString(),
+                            creator_id: (task as any).creator_id,
+                            is_owner: (task as any).is_owner,
+                            title: task.title,
+                            description: task.description,
+                            priority: task.priority,
+                            assignee: '',
+                            assignees: (task as any).assignees || [],
+                            dueDate: task.due_date,
+                            startDate: task.start_date,
+                            tags: task.tags,
+                            status: group.id.toString(),
+                            relationships: (task as any).task_relationships ?? (task as any).relationships ?? [],
+                            custom_fields: (task as any).task_custom_fields ?? (task as any).custom_fields ?? [],
+                            attachments: (task as any).attachments ?? []
+                          }))
+                        )
+                        
+                        // Remove duplicates and log if any are found
+                        const uniqueTasks = allTasks.filter((task, index, self) => {
+                          const isDuplicate = index !== self.findIndex(t => t.id === task.id)
+                          if (isDuplicate) {
+                            console.warn(`Duplicate task found with ID: ${task.id}, removing duplicate`)
+                          }
+                          return !isDuplicate
+                        })
+                        // Add due-soon UI flag for tasks due within 24 hours, overdue indicator for expired tasks, and done indicator for completed tasks
+                        const now = new Date()
+                        const withFlags = uniqueTasks.map(t => {
+                          const due = t.dueDate ? new Date(t.dueDate) : null
+                          const hoursLeft = due ? (due.getTime() - now.getTime()) / 3600000 : null
+                          
+                          // Find the column/group for this task to check if it's "Done"
+                          const taskColumn = groups.find(group => group.id.toString() === t.status)
+                          const isDoneColumn = taskColumn && taskColumn.title.toLowerCase() === 'done'
+                          
+                          // Show overdue indicator if not in Done column and due date has passed
+                          const isOverdue = hoursLeft !== null && hoursLeft < 0 && !isDoneColumn
+                          
+                          // Show due soon indicator if not in Done column and due within 24 hours (but not overdue)
+                          const dueSoon = hoursLeft !== null && hoursLeft <= 24 && hoursLeft >= 0 && !isDoneColumn
+                          
+                          // Show done indicator if in Done column
+                          const isDone = isDoneColumn
+                          
+                          return { ...t, dueSoon, isDone, isOverdue }
+                        })
+                        return withFlags
+                      })()} 
+                      columns={groups.map(group => ({
+                        id: group.id.toString(),
+                        title: group.title,
+                        color: group.color
+                      }))}
+                      onTaskMove={(taskId, newStatus, targetPosition) => handleTaskMove(taskId, newStatus, targetPosition)}
+                      onTaskCreate={handleTaskCreate}
+                      onTaskUpdate={handleTaskUpdate}
+                      onTaskRename={handleTaskRename}
+                      onColumnsReorder={handleColumnsReorder}
+                      isEditMode={isEditMode}
+                      // Wire delete from board to hard delete API
+                      onTaskDelete={(taskId: string) => handleTaskDeletePermanent(taskId)}
+                  />
+                  )}
+              </CardContent>
+            </Card>
+          </div>
         </div>
       </SidebarInset>
     </SidebarProvider>

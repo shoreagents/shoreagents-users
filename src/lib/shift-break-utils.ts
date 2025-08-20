@@ -102,49 +102,58 @@ function calculateBreakTimes(shiftTime: string): { morning: { start: string; end
   }
   
   if (isNight) {
-    // Night shift breaks with fixed lunch duration
-    const firstBreakStart = startHour
-    const firstBreakEnd = (startHour + 4) % 24 // First 4 hours
-    const lunchStart = (startHour + 4) % 24
-    const lunchEnd = (startHour + 7) % 24 // 3-hour lunch window
-    const secondBreakStart = (startHour + 7) % 24
-    const secondBreakEnd = endHour // Until shift ends
+    // Night shift breaks - same pattern as day shifts (relative to shift start)
+    // Morning: 2 hours after start (1 hour duration)
+    // Lunch: 4 hours after start (3 hours duration) 
+    // Afternoon: 7h45m after start (1 hour duration)
+    const morningStart = startHour + 2
+    const morningEnd = startHour + 3
+    const lunchStart = startHour + 4
+    const lunchEnd = startHour + 7
+    const afternoonStart = startHour + 7.75 // 7 hours 45 minutes
+    const afternoonEnd = startHour + 8.75   // 8 hours 45 minutes
     
     return {
       morning: {
-        start: `${firstBreakStart.toString().padStart(2, '0')}:00`,
-        end: `${firstBreakEnd.toString().padStart(2, '0')}:00`
+        start: `${Math.floor(morningStart % 24).toString().padStart(2, '0')}:${Math.floor((morningStart % 1) * 60).toString().padStart(2, '0')}`,
+        end: `${Math.floor(morningEnd % 24).toString().padStart(2, '0')}:${Math.floor((morningEnd % 1) * 60).toString().padStart(2, '0')}`
       },
       lunch: {
-        start: `${lunchStart.toString().padStart(2, '0')}:00`,
-        end: `${lunchEnd.toString().padStart(2, '0')}:00`
+        start: `${Math.floor(lunchStart % 24).toString().padStart(2, '0')}:${Math.floor((lunchStart % 1) * 60).toString().padStart(2, '0')}`,
+        end: `${Math.floor(lunchEnd % 24).toString().padStart(2, '0')}:${Math.floor((lunchEnd % 1) * 60).toString().padStart(2, '0')}`
       },
       afternoon: {
-        start: `${secondBreakStart.toString().padStart(2, '0')}:00`,
-        end: `${secondBreakEnd.toString().padStart(2, '0')}:00`
+        start: `${Math.floor(afternoonStart % 24).toString().padStart(2, '0')}:${Math.floor((afternoonStart % 1) * 60).toString().padStart(2, '0')}`,
+        end: `${Math.floor(afternoonEnd % 24).toString().padStart(2, '0')}:${Math.floor((afternoonEnd % 1) * 60).toString().padStart(2, '0')}`
       }
     }
   } else {
-    // Day shift breaks with fixed lunch duration
-    const morningBreakStart = startHour
-    const morningBreakEnd = startHour + 4 // First 4 hours
+    // Day shift breaks - relative to shift start time
+    // Morning: 2 hours after start (1 hour duration)
+    // Lunch: 4 hours after start (3 hours duration) 
+    // Afternoon: 7.75 hours after start (1 hour duration)
+    
+    const morningStart = startHour + 2
+    const morningEnd = startHour + 3
+    
     const lunchStart = startHour + 4
-    const lunchEnd = startHour + 7 // 3-hour lunch window (10 AM - 1 PM for 6 AM shift)
-    const afternoonBreakStart = startHour + 7
-    const afternoonBreakEnd = endHour // Until shift ends
+    const lunchEnd = startHour + 7
+    
+    const afternoonStart = startHour + 7.75 // 7 hours 45 minutes
+    const afternoonEnd = startHour + 8.75   // 8 hours 45 minutes
     
     return {
       morning: {
-        start: `${morningBreakStart.toString().padStart(2, '0')}:00`,
-        end: `${morningBreakEnd.toString().padStart(2, '0')}:00`
+        start: `${Math.floor(morningStart).toString().padStart(2, '0')}:${((morningStart % 1) * 60).toString().padStart(2, '0')}`,
+        end: `${Math.floor(morningEnd).toString().padStart(2, '0')}:${((morningEnd % 1) * 60).toString().padStart(2, '0')}`
       },
       lunch: {
-        start: `${lunchStart.toString().padStart(2, '0')}:00`,
-        end: `${lunchEnd.toString().padStart(2, '0')}:00`
+        start: `${Math.floor(lunchStart).toString().padStart(2, '0')}:${((lunchStart % 1) * 60).toString().padStart(2, '0')}`,
+        end: `${Math.floor(lunchEnd).toString().padStart(2, '0')}:${((lunchEnd % 1) * 60).toString().padStart(2, '0')}`
       },
       afternoon: {
-        start: `${afternoonBreakStart.toString().padStart(2, '0')}:00`,
-        end: `${afternoonBreakEnd.toString().padStart(2, '0')}:00`
+        start: `${Math.floor(afternoonStart).toString().padStart(2, '0')}:${Math.floor((afternoonStart % 1) * 60).toString().padStart(2, '0')}`,
+        end: `${Math.floor(afternoonEnd).toString().padStart(2, '0')}:${Math.floor((afternoonEnd % 1) * 60).toString().padStart(2, '0')}`
       }
     }
   }
@@ -202,7 +211,7 @@ export function getBreaksForShift(shiftInfo: ShiftInfo): BreakInfo[] {
   // Night shift specific breaks with dynamic times
   const nightBreaks: BreakInfo[] = [
     {
-      id: "FirstNight",
+      id: "NightFirst",
       name: "First Night Break",
       duration: 15,
       startTime: breakTimes.morning.start,
@@ -213,18 +222,18 @@ export function getBreaksForShift(shiftInfo: ShiftInfo): BreakInfo[] {
       validForShifts: ["night shift", "graveyard shift"]
     },
     {
-      id: "Midnight",
-      name: "Midnight Break",
+      id: "NightMeal",
+      name: "Night Meal Break",
       duration: 30,
       startTime: breakTimes.lunch.start,
       endTime: breakTimes.lunch.end,
       icon: Utensils,
-      description: "Take a 30-minute midnight meal break",
+      description: "Take a 30-minute night meal break",
       color: "bg-indigo-500",
       validForShifts: ["night shift", "graveyard shift"]
     },
     {
-      id: "SecondNight",
+      id: "NightSecond",
       name: "Second Night Break",
       duration: 15,
       startTime: breakTimes.afternoon.start,
@@ -255,9 +264,9 @@ export function getBreakTitle(breakId: string, shiftInfo: ShiftInfo): string {
        Afternoon: "Afternoon Break"
      },
      night: {
-       FirstNight: "First Night Break",
-       Midnight: "Midnight Meal Break",
-       SecondNight: "Second Night Break"
+       NightFirst: "First Night Break",
+       NightMeal: "Night Meal Break",
+       NightSecond: "Second Night Break"
      }
    }
   

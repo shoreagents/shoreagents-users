@@ -216,11 +216,16 @@ export async function updateTask(taskId: number, updates: Partial<Task> & { assi
 }
 
 // Delete a task (soft delete)
-export async function deleteTask(taskId: number): Promise<boolean> {
+export async function deleteTask(taskId: number, hard: boolean = false): Promise<boolean> {
   try {
-    const response = await fetch(`/api/task-activity/${taskId}`, {
-      method: 'DELETE'
-    })
+    // Include identifying info for scoping on the server
+    const authData = localStorage.getItem("shoreagents-auth")
+    const email = authData ? (() => { try { return JSON.parse(authData)?.user?.email } catch { return null } })() : null
+    const qp = new URLSearchParams()
+    if (email) qp.set('email', email)
+    if (hard) qp.set('hard', '1')
+    const url = qp.toString() ? `/api/task-activity/${taskId}?${qp.toString()}` : `/api/task-activity/${taskId}`
+    const response = await fetch(url, { method: 'DELETE' })
     
     const data = await response.json()
     

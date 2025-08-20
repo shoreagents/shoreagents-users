@@ -35,17 +35,27 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
       ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
     })
 
-    // Ensure ownership and fetch path
+    // Ensure user has access to the task (creator OR assignee)
     const rowRes = await pool.query(
-      `SELECT ta.path, ta.url, ta.task_id
+      `SELECT ta.path, ta.url, ta.task_id, t.user_id as creator_id,
+              EXISTS(SELECT 1 FROM task_assignees ta2 WHERE ta2.task_id = t.id AND ta2.user_id = $2) as is_assignee
        FROM task_attachments ta
        JOIN tasks t ON t.id = ta.task_id
-       WHERE ta.id = $1 AND t.user_id = $2`,
+       WHERE ta.id = $1`,
       [attId, userId]
     )
     if (rowRes.rows.length === 0) {
       await pool.end()
       return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })
+    }
+    
+    const attachmentPermission = rowRes.rows[0]
+    const isCreator = Number(attachmentPermission.creator_id) === Number(userId)
+    const isAssignee = attachmentPermission.is_assignee
+    
+    if (!isCreator && !isAssignee) {
+      await pool.end()
+      return NextResponse.json({ error: 'You do not have permission to delete this attachment' }, { status: 403 })
     }
     const { path } = rowRes.rows[0]
 

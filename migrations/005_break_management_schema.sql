@@ -6,9 +6,9 @@ CREATE TYPE IF NOT EXISTS public.break_type_enum AS ENUM (
 	'Morning',
 	'Lunch',
 	'Afternoon',
-	'FirstNight',
-	'Midnight',
-	'SecondNight'
+	'NightFirst',
+	'NightMeal',
+	'NightSecond'
 );
 
 -- Create break_sessions table (referencing agents table as per DDL)

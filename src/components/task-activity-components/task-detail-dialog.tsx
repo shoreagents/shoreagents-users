@@ -48,6 +48,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
+import { toast } from "sonner"
 import React from "react"
 import { Card } from "@/components/ui/card"
 import { Reorder } from "framer-motion"
@@ -55,6 +56,8 @@ import { useTaskActivitySocket } from "@/hooks/use-task-activity-socket"
 
 interface Task {
   id: string
+  creator_id?: number
+  is_owner?: boolean
   title: string
   description: string
   priority: "urgent" | "high" | "normal" | "low"
@@ -163,33 +166,42 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
     low: "text-gray-500"
   }
 
-  // Load assignee candidates from database users
-  const [peopleList, setPeopleList] = React.useState<Array<{id: string, name: string, email: string, avatar: string, verified?: boolean}>>([])
+  // Load assignee candidates from database users (only same team/company)
+  const [peopleList, setPeopleList] = React.useState<Array<{id: string, name: string, email: string, avatar: string, verified?: boolean, team_name?: string}>>([])
+  const [teamInfo, setTeamInfo] = React.useState<{member_id: number, company: string, badge_color?: string} | null>(null)
+  
   React.useEffect(() => {
-    const loadUsers = async () => {
+    const loadTeamAgents = async () => {
       try {
-        const res = await fetch('/api/users?limit=50', { credentials: 'include' })
+        const res = await fetch('/api/agents/team?limit=50', { credentials: 'include' })
         if (!res.ok) return
         const data = await res.json()
-        if (data?.success && Array.isArray(data.users)) {
-          const mapped = data.users.map((u: any) => ({
+        if (data?.success && Array.isArray(data.agents)) {
+          const mapped = data.agents.map((u: any) => ({
             id: String(u.id),
             name: (u.name || u.email || '').trim() || u.email,
             email: u.email,
-            avatar: u.avatar || ''
+            avatar: u.avatar || '',
+            team_name: u.team_name || ''
           }))
           setPeopleList(mapped)
+          setTeamInfo(data.team)
         }
       } catch {}
     }
-    loadUsers()
+    loadTeamAgents()
   }, [])
 
   // Initialize selected assignees from task.assignees (array of user ids)
   React.useEffect(() => {
     if (task && Array.isArray((task as any).assignees)) {
       const ids: number[] = (task as any).assignees
-      const mapped = ids.map((uid) => {
+      const creatorId = task.creator_id
+      
+      // Always include the task creator in assignees (they are the one who assigned the task)
+      const allAssigneeIds = [...new Set([...ids, ...(creatorId ? [creatorId] : [])])]
+      
+      const mapped = allAssigneeIds.map((uid) => {
         const person = peopleList.find((p) => Number(p.id) === Number(uid))
         return person || { id: String(uid), name: `User #${uid}`, email: '', avatar: '' }
       })
@@ -238,14 +250,12 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
       const startDate = new Date((task as any).startDate)
       setSelectedStartDate(startDate)
       
-      // Extract time if it's not midnight
+      // Always extract time (including midnight)
       const hours = startDate.getHours()
       const minutes = startDate.getMinutes()
-      if (hours !== 0 || minutes !== 0) {
-        const timeString = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`
-        setStartTime(timeString)
-        setShowTimeInput(true)
-      }
+      const timeString = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`
+      setStartTime(timeString)
+      setShowTimeInput(hours !== 0 || minutes !== 0) // Only show time input if not midnight
     } else {
       // Reset when task has no start date
       setSelectedStartDate(undefined)
@@ -446,8 +456,8 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
 
   // Initialize due date from task data
   React.useEffect(() => {
-    if (task && task.dueDate) {
-      const dueDate = new Date(task.dueDate)
+    if (task && (task as any).dueDate) {
+      const dueDate = new Date((task as any).dueDate)
       setSelectedDueDate(dueDate)
       
       // Extract time if it's not midnight
@@ -470,20 +480,74 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
   React.useEffect(() => {
     const load = async () => {
       if (!isOpen || !task?.id) return
+      
+      // Clear previous events immediately when switching tasks
+      setEvents([])
+      
       try {
         const res = await fetch(`/api/task-activity/events?task_id=${encodeURIComponent(task.id)}`)
         if (!res.ok) return
         const data = await res.json()
         if (data?.success && Array.isArray(data.events)) {
-          setEvents(prev => {
-            const map = new Map<number, any>()
-            ;[...data.events, ...prev].forEach((e: any) => { if (!map.has(e.id)) map.set(e.id, e) })
-            return Array.from(map.values())
-          })
+          // Replace events completely instead of merging with previous
+          setEvents(data.events)
         }
       } catch {}
     }
-    void load()
+    
+    // Clear events when dialog opens or task changes
+    if (isOpen && task?.id) {
+      void load()
+    } else {
+      // Clear events when dialog is not open or no task
+      setEvents([])
+    }
+    
+    // Cleanup: clear events when component unmounts or dependencies change
+    return () => {
+      setEvents([])
+    }
+  }, [isOpen, task?.id])
+
+  // Comprehensive cleanup when switching tasks
+  React.useEffect(() => {
+    if (!isOpen || !task?.id) {
+      // Clear all task-specific state when dialog is not open or no task
+      setEvents([])
+      setTaskComments([])
+      setComment("")
+      setEditingCommentId(null)
+      setEditingCommentText("")
+      setCommentActionsVisibleId(null)
+      setActiveTab("details")
+      setIsStatusOpen(false)
+      setStatusSearch("")
+      setIsAssigneeOpen(false)
+      setAssigneeSearch("")
+      setIsStartDateOpen(false)
+      setIsPriorityOpen(false)
+      setIsRelationshipsOpen(false)
+      setRelationshipSearch("")
+      setIsAttachmentsOpen(false)
+      setNewTag("")
+      setIsAddingTag(false)
+      setIsEditingTitle(false)
+      setIsEditingDescription(false)
+      setEditedTitle("")
+      setEditedDescription("")
+      setCustomFields([])
+      setUploadedFiles([])
+      setExistingAttachments([])
+      setSelectedAssignees([])
+      setSelectedStartDate(undefined)
+      setSelectedDueDate(undefined)
+      setStartTime("")
+      setDueTime("")
+      setShowTimeInput(false)
+      setShowDueTimeInput(false)
+      setDatePickerMode("start")
+      setIsDragOver(false)
+    }
   }, [isOpen, task?.id])
 
   // Real-time apply task-level field changes when parent state updates task
@@ -499,8 +563,8 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
       setStartTime(`${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}`)
       setShowTimeInput(h !== 0 || m !== 0)
     }
-    if (task.dueDate) {
-      const d = new Date(task.dueDate)
+    if ((task as any).dueDate) {
+      const d = new Date((task as any).dueDate)
       setSelectedDueDate(d)
       const h = d.getHours(); const m = d.getMinutes()
       setDueTime(`${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}`)
@@ -522,7 +586,12 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
     // Assignees
     if (Array.isArray((task as any).assignees)) {
       const ids: number[] = (task as any).assignees
-      const mapped = ids.map((uid) => {
+      const creatorId = task.creator_id
+      
+      // Always include the task creator in assignees (they are the one who assigned the task)
+      const allAssigneeIds = [...new Set([...ids, ...(creatorId ? [creatorId] : [])])]
+      
+      const mapped = allAssigneeIds.map((uid) => {
         const person = peopleList.find((p) => Number(p.id) === Number(uid))
         return person || { id: String(uid), name: `User #${uid}`, email: '', avatar: '' }
       })
@@ -967,6 +1036,14 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
   }
 
   const handleAddAssignee = (assignee: {id: string, name: string, email?: string, avatar: string, members?: number}) => {
+    // Only task creators can add assignees
+    const isTaskCreator = task?.creator_id && currentUserId && Number(task.creator_id) === Number(currentUserId)
+    
+    if (!isTaskCreator) {
+      // Non-creators cannot add assignees
+      return
+    }
+    
     // Convert team to assignee format if it's a team
     const assigneeData = {
       id: assignee.id,
@@ -987,6 +1064,21 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
   }
 
   const handleRemoveAssignee = (assigneeId: string) => {
+    // Only task creators can manage assignees
+    const isTaskCreator = task?.creator_id && currentUserId && Number(task.creator_id) === Number(currentUserId)
+    
+    if (!isTaskCreator) {
+      // Non-creators cannot remove any assignees (including themselves)
+      return
+    }
+    
+    // Prevent task creator from removing themselves as an assignee
+    const isRemovingSelf = currentUserId && Number(assigneeId) === Number(currentUserId)
+    if (isRemovingSelf) {
+      // Task creator cannot remove themselves
+      return
+    }
+    
     const updatedAssignees = selectedAssignees.filter(a => a.id !== assigneeId)
     setSelectedAssignees(updatedAssignees)
     // Persist to DB using join table (array of user IDs)
@@ -1053,7 +1145,7 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
       }
       
       // Update task with new start date
-      onTaskUpdate(task.id, { startDate: finalDate.toISOString() } as any)
+      onTaskUpdate(task.id, { start_date: finalDate.toISOString() } as any)
     }
   }
 
@@ -1075,7 +1167,7 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
       dateWithTime.setHours(hours, minutes, 0, 0)
       
       // Update task with date including time
-      onTaskUpdate(task.id, { startDate: dateWithTime.toISOString() } as any)
+      onTaskUpdate(task.id, { start_date: dateWithTime.toISOString() } as any)
     }
   }
 
@@ -1088,7 +1180,7 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
       dateWithTime.setHours(hours, minutes, 0, 0)
       
       // Update task with due date including time
-      onTaskUpdate(task.id, { dueDate: dateWithTime.toISOString() } as any)
+      onTaskUpdate(task.id, { due_date: dateWithTime.toISOString() } as any)
     }
   }
 
@@ -1105,7 +1197,7 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
       }
       
       // Update task with new due date
-      onTaskUpdate(task.id, { dueDate: finalDate.toISOString() } as any)
+      onTaskUpdate(task.id, { due_date: finalDate.toISOString() } as any)
     }
   }
 
@@ -1151,6 +1243,16 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
   }
 
   const handleTitleEdit = () => {
+    // Check if user has permission to edit the title
+    const isTaskOwner = task.is_owner === true
+    if (!isTaskOwner) {
+      toast.error("Cannot rename task", {
+        description: "Only the task creator can rename tasks. Contact the creator to request changes.",
+        duration: 4000,
+      })
+      return
+    }
+    
     setEditedTitle(task.title)
     setIsEditingTitle(true)
   }
@@ -1204,8 +1306,8 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
       })
     }
     
-    // Add time if it's set and not midnight
-    if (time && time !== "00:00") {
+    // Add time if it's set (always show time, including midnight)
+    if (time) {
       const timeStr = new Date(`2000-01-01T${time}`).toLocaleTimeString('en-US', { 
         hour: 'numeric', 
         minute: '2-digit',
@@ -1336,7 +1438,14 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
                         <Users className="h-4 w-4 text-muted-foreground" />
-                        <span className="text-sm font-medium">Assignees</span>
+                        <span className="text-sm font-medium">
+                          Assignees
+                          {teamInfo && (
+                            <span className="ml-2 text-xs text-muted-foreground">
+                              ({teamInfo.company})
+                            </span>
+                          )}
+                        </span>
                       </div>
                       <Popover open={isAssigneeOpen} onOpenChange={setIsAssigneeOpen}>
                         <PopoverTrigger asChild>
@@ -1389,67 +1498,104 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
 											{currentEmail && assignee.email && assignee.email.toLowerCase() === currentEmail && (
 												<span className="ml-1 text-xs text-muted-foreground">(you)</span>
 											)}
+											{task?.creator_id && Number(task.creator_id) === Number(assignee.id) && (
+												<span className="ml-1 text-xs bg-blue-100 text-blue-700 dark:bg-blue-950/20 dark:text-blue-400 px-1.5 py-0.5 rounded-full">creator</span>
+											)}
 										</span>
                                           <span className="text-xs text-muted-foreground">{assignee.email}</span>
                                         </div>
                                       </div>
-                                      <Button 
-                                        variant="ghost" 
-                                        size="sm" 
-                                        className="h-6 w-6 p-0"
-                                        onClick={() => handleRemoveAssignee(assignee.id)}
-                                      >
-                                        ×
-                                      </Button>
+                                      {(() => {
+                                        const isTaskCreator = task?.creator_id && currentUserId && Number(task.creator_id) === Number(currentUserId)
+                                        const isAssigneeTheCreator = task?.creator_id && Number(task.creator_id) === Number(assignee.id)
+                                        const isRemovingSelf = currentUserId && Number(assignee.id) === Number(currentUserId)
+                                        
+                                        // Only task creators can remove assignees, and they cannot remove themselves
+                                        const canRemove = isTaskCreator && !(isAssigneeTheCreator && isRemovingSelf)
+                                        
+                                        let tooltipText = "Remove assignee"
+                                        if (!isTaskCreator) {
+                                          tooltipText = "Only task creator can manage assignees"
+                                        } else if (isAssigneeTheCreator && isRemovingSelf) {
+                                          tooltipText = "Task creator cannot remove themselves"
+                                        }
+                                        
+                                        return (
+                                          <Button 
+                                            variant="ghost" 
+                                            size="sm" 
+                                            className={cn(
+                                              "h-6 w-6 p-0",
+                                              !canRemove && "opacity-50 cursor-not-allowed"
+                                            )}
+                                            onClick={() => canRemove && handleRemoveAssignee(assignee.id)}
+                                            disabled={!canRemove}
+                                            title={tooltipText}
+                                          >
+                                            ×
+                                          </Button>
+                                        )
+                                      })()}
                                     </div>
                                   ))}
                                   <div className="h-2"></div>
                                 </>
                               )}
 
-                              {/* People Section */}
-                              <div className="text-xs font-medium text-muted-foreground mb-2 px-2">
-                                People
-                              </div>
-                              {availablePeople
-                                .filter(person => 
-                                  person.name.toLowerCase().includes(assigneeSearch.toLowerCase()) ||
-                                  person.email.toLowerCase().includes(assigneeSearch.toLowerCase())
-                                )
-                                .map((person) => (
-                                  <Button
-                                    key={person.id}
-                                    variant="ghost"
-                                    className="w-full justify-start h-auto p-2"
-                                    onClick={() => handleAddAssignee(person)}
-                                  >
-                                    <div className="flex items-center gap-3 w-full">
-                                      <Avatar className="h-6 w-6">
-                                        <AvatarFallback className="text-xs">
-                                          {person.name.split(' ').map(n => n[0]).join('').toUpperCase()}
-                                        </AvatarFallback>
-                                      </Avatar>
-                                      <div className="flex flex-col items-start flex-1">
-                                        <div className="flex items-center gap-2">
-												<span className="text-sm">
-													{person.name}
-													{currentEmail && person.email && person.email.toLowerCase() === currentEmail && (
-														<span className="ml-1 text-xs text-muted-foreground">(you)</span>
-													)}
-												</span>
-                                          {person.verified && (
-                                            <div className="w-3 h-3 bg-blue-500 rounded-full flex items-center justify-center">
-                                              <Check className="h-2 w-2 text-white" />
-                                            </div>
-                                          )}
-                                        </div>
-                                        <span className="text-xs text-muted-foreground">{person.email}</span>
-                                      </div>
+                              {/* People Section - Only show for task creators */}
+                              {task?.creator_id && currentUserId && Number(task.creator_id) === Number(currentUserId) && (
+                                <>
+                                  <div className="text-xs font-medium text-muted-foreground mb-2 px-2">
+                                    {teamInfo ? `Team: ${teamInfo.company}` : 'Team Members'}
+                                  </div>
+                                                                    {availablePeople.length === 0 ? (
+                                    <div className="text-center py-4 text-muted-foreground text-sm">
+                                      <p>No team members found</p>
+                                      <p className="text-xs">You can only assign tasks to agents in your team</p>
                                     </div>
-                                  </Button>
-                                ))}
+                                  ) : (
+                                    availablePeople
+                                      .filter(person => 
+                                        person.name.toLowerCase().includes(assigneeSearch.toLowerCase()) ||
+                                        person.email.toLowerCase().includes(assigneeSearch.toLowerCase())
+                                      )
+                                      .map((person) => (
+                                        <Button
+                                          key={person.id}
+                                          variant="ghost"
+                                          className="w-full justify-start h-auto p-2"
+                                          onClick={() => handleAddAssignee(person)}
+                                        >
+                                          <div className="flex items-center gap-3 w-full">
+                                            <Avatar className="h-6 w-6">
+                                              <AvatarFallback className="text-xs">
+                                                {person.name.split(' ').map(n => n[0]).join('').toUpperCase()}
+                                              </AvatarFallback>
+                                            </Avatar>
+                                            <div className="flex flex-col items-start flex-1">
+                                              <div className="flex items-center gap-2">
+                                                <span className="text-sm">
+                                                  {person.name}
+                                                  {currentEmail && person.email && person.email.toLowerCase() === currentEmail && (
+                                                    <span className="ml-1 text-xs text-muted-foreground">(you)</span>
+                                                  )}
+                                                </span>
+                                                {person.verified && (
+                                                  <div className="w-3 h-3 bg-blue-500 rounded-full flex items-center justify-center">
+                                                    <Check className="h-2 w-2 text-white" />
+                                                  </div>
+                                                )}
+                                              </div>
+                                              <span className="text-xs text-muted-foreground">{person.email}</span>
+                                            </div>
+                                          </div>
+                                        </Button>
+                                                                             ))
+                                   )}
 
-                              <div className="h-2"></div>
+                                  <div className="h-2"></div>
+                                </>
+                              )}
 
                               {/* Team Section removed */}
                             </div>
@@ -1471,15 +1617,44 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
 										{currentEmail && assignee.email && assignee.email.toLowerCase() === currentEmail && (
 											<span className="ml-1 text-xs text-muted-foreground">(you)</span>
 										)}
+										{task?.creator_id && Number(task.creator_id) === Number(assignee.id) && (
+											<span className="ml-1 text-[10px] bg-blue-100 text-blue-700 dark:bg-blue-950/20 dark:text-blue-400 px-1 py-0.5 rounded-full">creator</span>
+										)}
 									</span>
-                            <button
-                              type="button"
-                              className="ml-1 text-[10px] text-muted-foreground hover:text-destructive"
-                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleRemoveAssignee(assignee.id) }}
-                              title="Remove"
-                            >
-                              ×
-                            </button>
+                            {(() => {
+                              const isTaskCreator = task?.creator_id && currentUserId && Number(task.creator_id) === Number(currentUserId)
+                              const isAssigneeTheCreator = task?.creator_id && Number(task.creator_id) === Number(assignee.id)
+                              const isRemovingSelf = currentUserId && Number(assignee.id) === Number(currentUserId)
+                              
+                              // Only task creators can remove assignees, and they cannot remove themselves
+                              const canRemove = isTaskCreator && !(isAssigneeTheCreator && isRemovingSelf)
+                              
+                              let tooltipText = "Remove"
+                              if (!isTaskCreator) {
+                                tooltipText = "Only task creator can manage assignees"
+                              } else if (isAssigneeTheCreator && isRemovingSelf) {
+                                tooltipText = "Task creator cannot remove themselves"
+                              }
+                              
+                              return (
+                                <button
+                                  type="button"
+                                  className={cn(
+                                    "ml-1 text-[10px] text-muted-foreground hover:text-destructive",
+                                    !canRemove && "opacity-50 cursor-not-allowed"
+                                  )}
+                                  onClick={(e) => { 
+                                    e.preventDefault(); 
+                                    e.stopPropagation(); 
+                                    if (canRemove) handleRemoveAssignee(assignee.id)
+                                  }}
+                                  disabled={!canRemove}
+                                  title={tooltipText}
+                                >
+                                  ×
+                                </button>
+                              )
+                            })()}
                           </div>
                         ))
                       ) : (
@@ -1658,9 +1833,9 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                                               // Update task to remove time
                                               if (getCurrentDate()) {
                                                 if (datePickerMode === "start") {
-                                                  onTaskUpdate(task.id, { startDate: getCurrentDate()!.toISOString() } as any)
+                                                  onTaskUpdate(task.id, { start_date: getCurrentDate()!.toISOString() } as any)
                                                 } else {
-                                                  onTaskUpdate(task.id, { dueDate: getCurrentDate()!.toISOString() } as any)
+                                                  onTaskUpdate(task.id, { due_date: getCurrentDate()!.toISOString() } as any)
                                                 }
                                               }
                                             }}
@@ -1934,28 +2109,72 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                         >
                           <div className="space-y-2 pr-4">
                             {(task.relationships || []).map((relationship, index) => {
+                              // Skip invalid relationships
+                              if (!relationship || typeof relationship !== 'object') {
+                                console.warn('Invalid relationship object:', relationship)
+                                return null
+                              }
+                              
+                              // Skip relationships with invalid taskId
+                              if (!relationship?.taskId) {
+                                console.warn('Relationship missing taskId:', relationship)
+                                return null
+                              }
+                              
                               const relatedTask = tasks?.find(t => t.id === relationship.taskId)
-                              return relatedTask ? (
-                                <div key={index} className="flex items-center justify-between p-2 border rounded">
-                                  <div 
-                                    className="flex items-center gap-2 cursor-pointer hover:bg-accent rounded px-1 py-0.5"
-                                    onClick={() => onOpenTask?.(relatedTask.id)}
-                                    title="Open related task"
-                                  >
-                                    <span className="text-xs text-muted-foreground capitalize">{relationship.type.replace('_', ' ')}</span>
-                                    <span className="text-sm font-medium">{relatedTask.title}</span>
+                              
+                              // Handle accessible relationships (task found in user's list)
+                              if (relatedTask) {
+                                return (
+                                  <div key={index} className="flex items-center justify-between p-2 border rounded">
+                                    <div 
+                                      className="flex items-center gap-2 cursor-pointer hover:bg-accent rounded px-1 py-0.5"
+                                      onClick={() => onOpenTask?.(relatedTask.id)}
+                                      title="Open related task"
+                                    >
+                                      <span className="text-xs text-muted-foreground capitalize">
+                                        {relationship.type ? relationship.type.replace('_', ' ') : 'Unknown'}
+                                      </span>
+                                      <span className="text-sm font-medium">{relatedTask.title}</span>
+                                    </div>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-6 w-6 p-0"
+                                      onClick={() => handleRemoveRelationship(relationship)}
+                                    >
+                                      ×
+                                    </Button>
+                                  </div>
+                                )
+                              }
+                              
+                              // Handle private relationships (task not accessible)
+                              return (
+                                <div key={index} className="flex items-center justify-between p-2 border rounded bg-muted/30">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs text-muted-foreground capitalize">
+                                      {relationship.type ? relationship.type.replace('_', ' ') : 'Unknown'}
+                                    </span>
+                                    <span className="text-sm text-muted-foreground flex items-center gap-1">
+                                      🔒 Private Task
+                                      <span className="text-xs bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
+                                        No access
+                                      </span>
+                                    </span>
                                   </div>
                                   <Button
                                     variant="ghost"
                                     size="sm"
                                     className="h-6 w-6 p-0"
                                     onClick={() => handleRemoveRelationship(relationship)}
+                                    title="Remove relationship"
                                   >
                                     ×
                                   </Button>
                                 </div>
-                              ) : null
-                            })}
+                              )
+                            }).filter(Boolean)}
                           </div>
                         </ScrollArea>
                       ) : (

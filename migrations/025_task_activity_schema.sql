@@ -36,6 +36,9 @@ ALTER TABLE tasks
   ADD COLUMN IF NOT EXISTS assignees INTEGER[] DEFAULT '{}',
   ADD COLUMN IF NOT EXISTS start_date TIMESTAMPTZ;
 
+ALTER TABLE tasks
+  ADD COLUMN IF NOT EXISTS due_date TIMESTAMPTZ;
+
 -- Remove legacy single-assignee column now that assignees[] exists
 ALTER TABLE tasks
   DROP COLUMN IF EXISTS assignee;

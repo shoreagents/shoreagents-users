@@ -5,6 +5,7 @@ const { createServer } = require('http');
 const { Server } = require('socket.io');
 const { Pool } = require('pg');
 const cors = require('cors');
+const BreakReminderScheduler = require('./scripts/break-reminder-scheduler');
 
 const app = express();
 app.use(cors());
@@ -27,8 +28,36 @@ const pool = new Pool({
 pool.query('SELECT NOW()', (err, result) => {
   if (err) {
     console.error('Database connection failed:', err.message);
+  } else {
+    console.log('✅ Database connected successfully');
   }
 });
+
+// Initialize break reminder scheduler
+const breakReminderScheduler = new BreakReminderScheduler();
+console.log('🔔 Initializing break reminder scheduler...');
+breakReminderScheduler.start();
+
+// Monitor database connection pool
+setInterval(() => {
+  if (pool) {
+    const poolStatus = {
+      total: pool.totalCount,
+      idle: pool.idleCount,
+      waiting: pool.waitingCount
+    };
+    
+    // Log warning if too many connections
+    if (poolStatus.total > 10) {
+      console.warn(`⚠️ High database connections: ${poolStatus.total} total, ${poolStatus.idle} idle, ${poolStatus.waiting} waiting`);
+    }
+    
+    // Log every 5 minutes for monitoring
+    if (Date.now() % 300000 < 1000) { // Every 5 minutes
+      console.log(`📊 Database pool status: ${poolStatus.total} total, ${poolStatus.idle} idle, ${poolStatus.waiting} waiting`);
+    }
+  }
+}, 60000); // Check every minute
 
 // In-memory storage for testing (since PostgreSQL is not running)
 const connectedUsers = new Map();
@@ -48,7 +77,7 @@ userData.set('bob@example.com', {
 // Keep track of active connections per user
 const userConnections = new Map(); // email -> Set of socket IDs
 // Track last break-availability notifications to avoid spamming
-const lastBreakAvailabilityNotify = new Map(); // email -> { [breakType]: timestamp }
+// REMOVED: No longer needed since database functions handle all notifications
 
 // Shift utility functions (Node.js compatible version)
 function parseShiftTime(shiftTimeString, referenceDate = new Date()) {
@@ -111,16 +140,58 @@ function parseTimeString(timeStr, baseDate) {
 function shouldResetForShift(lastActivityTime, currentTime, shiftInfo) {
   if (!shiftInfo) {
     // Fallback to daily reset if no shift info
-    const lastDate = lastActivityTime.toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
-    const currentDate = currentTime.toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+    // Use UTC-based date comparison to avoid timezone issues
+    const lastDate = lastActivityTime.toISOString().split('T')[0];
+    const currentDate = currentTime.toISOString().split('T')[0];
     return lastDate !== currentDate;
   }
 
-  // Compute the start boundary for the shift window that the CURRENT time belongs to
-  const currentShiftStart = getShiftStartForDate(currentTime, shiftInfo);
-  // Reset only when we CROSS the shift start boundary:
-  // previous activity happened before the current window's start, and now time is after it
-  return (lastActivityTime < currentShiftStart) && (currentTime >= currentShiftStart);
+  try {
+    // Compute the start boundary for the shift window that the CURRENT time belongs to
+    const currentShiftStart = getShiftStartForDate(currentTime, shiftInfo);
+    
+    // Add debug logging
+    console.log(`🕐 Shift reset check for ${shiftInfo.period}:`, {
+      lastActivity: lastActivityTime.toISOString(),
+      currentTime: currentTime.toISOString(),
+      currentShiftStart: currentShiftStart.toISOString(),
+      timeDiff: currentTime.getTime() - currentShiftStart.getTime(),
+      shouldReset: (lastActivityTime < currentShiftStart) && (currentTime >= currentShiftStart)
+    });
+    
+    // Reset when we CROSS the shift start boundary OR when we're at the exact shift start time
+    // This handles both cases: crossing the boundary and being exactly at the boundary
+    const isAtOrPastShiftStart = currentTime >= currentShiftStart;
+    const wasBeforeShiftStart = lastActivityTime < currentShiftStart;
+    
+    // Also check if we're within 10 seconds of the shift start time (for edge cases)
+    const timeDiff = Math.abs(currentTime.getTime() - currentShiftStart.getTime());
+    const isNearShiftStart = timeDiff <= 10000; // 10 seconds
+    
+    // More aggressive reset detection: reset if we're very close to shift start time
+    const shouldReset = (wasBeforeShiftStart && isAtOrPastShiftStart) || isNearShiftStart;
+    
+    // Special case: if we're exactly at or just passed the shift start time, always reset
+    const isExactlyAtShiftStart = timeDiff <= 1000; // Within 1 second
+    const isJustPassedShiftStart = currentTime.getTime() >= currentShiftStart.getTime() && timeDiff <= 5000; // Within 5 seconds after
+    
+    if (isExactlyAtShiftStart || isJustPassedShiftStart) {
+      console.log(`🎯 Exact shift start time detected: isExactly=${isExactlyAtShiftStart}, isJustPassed=${isJustPassedShiftStart}`);
+      return true;
+    }
+    
+    if (shouldReset) {
+      console.log(`🔄 Shift reset condition met: wasBefore=${wasBeforeShiftStart}, isAtOrPast=${isAtOrPastShiftStart}, isNear=${isNearShiftStart}, timeDiff=${timeDiff}ms`);
+    }
+    
+    return shouldReset;
+  } catch (error) {
+    console.error('Error in shouldResetForShift:', error);
+    // Fallback to daily reset on error
+    const lastDate = lastActivityTime.toISOString().split('T')[0];
+    const currentDate = currentTime.toISOString().split('T')[0];
+    return lastDate !== currentDate;
+  }
 }
 
 // Function to check if current time has passed shift start time for today
@@ -141,24 +212,32 @@ function getNextShiftStart(currentTime, shiftInfo) {
     return tomorrow;
   }
 
-  const currentShiftStart = getShiftStartForDate(currentTime, shiftInfo);
-  
-  if (currentTime < currentShiftStart) {
-    // Shift hasn't started today yet
-    return currentShiftStart;
-  } else {
-    // Shift has started today, get next shift start
-    const nextShiftStart = new Date(currentShiftStart);
-    nextShiftStart.setDate(nextShiftStart.getDate() + 1);
-    return nextShiftStart;
+  try {
+    const currentShiftStart = getShiftStartForDate(currentTime, shiftInfo);
+    
+    if (currentTime < currentShiftStart) {
+      // Shift hasn't started today yet
+      return currentShiftStart;
+    } else {
+      // Shift has started today, get next shift start
+      const nextShiftStart = new Date(currentShiftStart);
+      nextShiftStart.setDate(nextShiftStart.getDate() + 1);
+      return nextShiftStart;
+    }
+  } catch (error) {
+    console.error('Error calculating next shift start:', error);
+    // Fallback to next day at midnight
+    const fallback = new Date(currentTime);
+    fallback.setDate(fallback.getDate() + 1);
+    fallback.setHours(0, 0, 0, 0);
+    return fallback;
   }
 }
 
 // Compute standard break windows relative to shift start
 function getBreakWindows(shiftInfo) {
   // Returns map of break_type -> { start: Date, end: Date }
-  // Heuristics: day shift has Morning (~+2h, 30m), Lunch (~+4h, 60m), Afternoon (~+6h, 30m)
-  // Night shift uses FirstNight, Midnight, SecondNight similarly
+  // Uses consistent pattern for ALL shifts: Morning (+2h, 1h), Lunch (+4h, 3h), Afternoon (+7h45m, 1h)
   const windows = new Map();
   const base = getShiftStartForDate(new Date(), shiftInfo);
   const addWindow = (breakType, offsetMinutes, durationMinutes) => {
@@ -166,14 +245,21 @@ function getBreakWindows(shiftInfo) {
     const e = new Date(s.getTime() + durationMinutes * 60 * 1000);
     windows.set(breakType, { start: s, end: e });
   };
+  
+  // ALL SHIFTS NOW USE THE SAME CONSISTENT PATTERN
+  // Morning: 2 hours after start (1 hour duration)
+  // Lunch: 4 hours after start (3 hours duration) 
+  // Afternoon: 7h45m after start (1 hour duration)
   if (shiftInfo?.isNightShift) {
-    addWindow('FirstNight', 120, 45);
-    addWindow('Midnight', 270, 60);
-    addWindow('SecondNight', 390, 45);
+    // Night shift uses same timing pattern but different break type names
+                    addWindow('NightFirst', 120, 60);    // Morning equivalent: +2h, 1h
+                addWindow('NightMeal', 240, 180);    // Lunch equivalent: +4h, 3h
+                addWindow('NightSecond', 465, 60);   // Afternoon equivalent: +7h45m, 1h
   } else {
-    addWindow('Morning', 120, 30);
-    addWindow('Lunch', 240, 60);
-    addWindow('Afternoon', 360, 30);
+    // Day shift with consistent timing
+    addWindow('Morning', 120, 60);       // +2h, 1h
+    addWindow('Lunch', 240, 180);        // +4h, 3h
+    addWindow('Afternoon', 465, 60);     // +7h45m, 1h
   }
   return windows;
 }
@@ -182,55 +268,7 @@ function isWithinWindow(now, window) {
   return now >= window.start && now <= window.end;
 }
 
-async function notifyBreakAvailabilityIfAny(email, userId, shiftInfo) {
-  if (!shiftInfo) return; // require shift to derive windows
-  const now = new Date();
-  const windows = getBreakWindows(shiftInfo);
 
-  // Query current break counts and whether agent can still take each type today
-  try {
-    const res = await pool.query(
-      'SELECT * FROM get_agent_daily_breaks($1) as (break_type text, break_count bigint, can_take_break boolean, last_break_time timestamp)',
-      [userId]
-    );
-    const canMap = new Map();
-    res.rows.forEach(r => canMap.set(r.break_type, r.can_take_break));
-
-    const lastByType = lastBreakAvailabilityNotify.get(email) || {};
-
-    for (const [breakType, win] of windows.entries()) {
-      const canTake = canMap.get(breakType) !== false; // default true if not present
-      if (!canTake) continue;
-      if (!isWithinWindow(now, win)) continue;
-
-      const lastSent = lastByType[breakType];
-      if (lastSent && now.getTime() - lastSent < 45 * 60 * 1000) {
-        continue; // suppress duplicate within 45 minutes
-      }
-
-      // Insert notification (trigger will broadcast)
-      try {
-        await pool.query(
-          `INSERT INTO notifications (user_id, category, type, title, message, payload)
-           VALUES ($1, 'break', 'info', $2, $3, $4)`,
-          [
-            userId,
-            'Break available',
-            `${breakType} break window started`,
-            { break_type: breakType, action_url: '/status/breaks' }
-          ]
-        );
-
-        lastByType[breakType] = now.getTime();
-        lastBreakAvailabilityNotify.set(email, lastByType);
-      } catch (e) {
-        // ignore individual insert errors
-      }
-    }
-  } catch (e) {
-    // ignore errors
-  }
-}
 
 // Function to get user shift information from database
 async function getUserShiftInfo(userId) {
@@ -330,21 +368,26 @@ async function checkShiftReset(email, userId) {
       userInfo.lastShiftId = currentShiftId;
       
       // Get current date in Philippines timezone
-      const currentDate = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+      const currentDate = new Date().toISOString().split('T')[0]; // Use UTC date for consistency
       
-      // Reset today's row in DB (upsert to handle existing row)
-      await pool.query(
-        `INSERT INTO activity_data (user_id, is_currently_active, today_active_seconds, today_inactive_seconds, last_session_start, today_date, updated_at)
-         VALUES ($1, $4, 0, 0, $2, $3, NOW())
-         ON CONFLICT (user_id, today_date)
-         DO UPDATE SET
-           is_currently_active = EXCLUDED.is_currently_active,
-           today_active_seconds = 0,
-           today_inactive_seconds = 0,
-           last_session_start = EXCLUDED.last_session_start,
-           updated_at = NOW()`,
-        [userId, userInfo.sessionStart, currentDate, preserveActive]
-      );
+      try {
+        // Reset today's row in DB (upsert to handle existing row)
+        await pool.query(
+          `INSERT INTO activity_data (user_id, is_currently_active, today_active_seconds, today_inactive_seconds, last_session_start, today_date, updated_at)
+           VALUES ($1, $4, 0, 0, $2, $3, NOW())
+           ON CONFLICT (user_id, today_date)
+           DO UPDATE SET
+             is_currently_active = EXCLUDED.is_currently_active,
+             today_active_seconds = 0,
+             today_inactive_seconds = 0,
+             last_session_start = EXCLUDED.last_session_start,
+             updated_at = NOW()`,
+          [userId, userInfo.sessionStart, currentDate, preserveActive]
+        );
+      } catch (dbError) {
+        console.error(`Database error during shift reset for ${email}:`, dbError);
+        // Continue with in-memory reset even if DB fails
+      }
       
       // Notify all user connections about the reset
       const userSockets = userConnections.get(email);
@@ -380,40 +423,62 @@ async function checkShiftReset(email, userId) {
 
 // Function to get shift start time for a specific date
 function getShiftStartForDate(date, shiftInfo) {
-  const shiftDate = new Date(date);
-  const shiftStartTime = new Date(shiftInfo.startTime);
-  
-  // Set the date but keep the time from shift start
-  shiftDate.setHours(
-    shiftStartTime.getHours(),
-    shiftStartTime.getMinutes(),
-    0, 0
-  );
-
-  // For night shifts, if current time is before shift start time,
-  // the shift actually started the previous day
-  if (shiftInfo.isNightShift && date.getHours() < shiftStartTime.getHours()) {
-    shiftDate.setDate(shiftDate.getDate() - 1);
+  if (!date || !shiftInfo || !shiftInfo.startTime) {
+    console.error('Invalid parameters for getShiftStartForDate:', { date, shiftInfo });
+    // Return a safe fallback
+    const fallback = new Date();
+    fallback.setHours(0, 0, 0, 0);
+    return fallback;
   }
 
-  return shiftDate;
+  try {
+    const shiftDate = new Date(date);
+    const shiftStartTime = new Date(shiftInfo.startTime);
+    
+    // Set the date but keep the time from shift start
+    shiftDate.setHours(
+      shiftStartTime.getHours(),
+      shiftStartTime.getMinutes(),
+      0, 0
+    );
+
+    // For night shifts, if current time is before shift start time,
+    // the shift actually started the previous day
+    if (shiftInfo.isNightShift && date.getHours() < shiftStartTime.getHours()) {
+      shiftDate.setDate(shiftDate.getDate() - 1);
+    }
+
+    return shiftDate;
+  } catch (error) {
+    console.error('Error in getShiftStartForDate:', error);
+    // Return a safe fallback
+    const fallback = new Date();
+    fallback.setHours(0, 0, 0, 0);
+    return fallback;
+  }
 }
 
 // Function to get current shift ID
 function getCurrentShiftId(currentTime, shiftInfo) {
   if (!shiftInfo) {
-    // Fallback to date-based ID
-    return currentTime.toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+    // Fallback to date-based ID using UTC
+    return currentTime.toISOString().split('T')[0];
   }
 
-  const shiftStart = getShiftStartForDate(currentTime, shiftInfo);
-  
-  if (shiftInfo.isNightShift) {
-    // For night shifts, use the date when the shift started
-    return shiftStart.toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' }) + '-night';
-  } else {
-    // For day shifts, use the current date
-    return currentTime.toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' }) + '-day';
+  try {
+    const shiftStart = getShiftStartForDate(currentTime, shiftInfo);
+    
+    if (shiftInfo.isNightShift) {
+      // For night shifts, use the date when the shift started
+      return shiftStart.toISOString().split('T')[0] + '-night';
+    } else {
+      // For day shifts, use the current date
+      return currentTime.toISOString().split('T')[0] + '-day';
+    }
+  } catch (error) {
+    console.error('Error calculating current shift ID:', error);
+    // Fallback to date-based ID
+    return currentTime.toISOString().split('T')[0];
   }
 }
 
@@ -427,8 +492,14 @@ function getTimeUntilNextReset(currentTime, shiftInfo) {
     return tomorrow.getTime() - currentTime.getTime();
   }
 
-  const nextShiftStart = getNextShiftStart(currentTime, shiftInfo);
-  return nextShiftStart.getTime() - currentTime.getTime();
+  try {
+    const nextShiftStart = getNextShiftStart(currentTime, shiftInfo);
+    return nextShiftStart.getTime() - currentTime.getTime();
+  } catch (error) {
+    console.error('Error calculating time until next reset:', error);
+    // Fallback to 24 hours if calculation fails
+    return 24 * 60 * 60 * 1000;
+  }
 }
 
 // Function to format time until reset
@@ -450,6 +521,55 @@ function formatTimeUntilReset(milliseconds) {
 }
 
 io.on('connection', (socket) => {
+
+  // Helper: precreate next-day row if shift already ended (Manila)
+  async function precreateNextDayRowIfEnded(userId) {
+    try {
+      const res = await pool.query(
+        `SELECT ji.shift_time FROM job_info ji WHERE ji.agent_user_id = $1 LIMIT 1`,
+        [userId]
+      );
+      const shiftText = (res.rows[0]?.shift_time || '').toString();
+      const both = shiftText.match(/(\d{1,2}:\d{2}\s*(?:AM|PM))\s*-\s*(\d{1,2}:\d{2}\s*(?:AM|PM))/i);
+      if (!both) return; // no shift configured
+
+      const parseToMinutes = (token) => {
+        const [hhmm, ampm] = token.trim().toUpperCase().split(/\s+/);
+        const [hhStr, mmStr] = hhmm.split(':');
+        let hh = parseInt(hhStr, 10);
+        const mm = parseInt(mmStr, 10);
+        if (ampm === 'AM') { if (hh === 12) hh = 0; } else { if (hh !== 12) hh += 12; }
+        return (hh * 60) + mm;
+      };
+      const startMinutes = parseToMinutes(both[1]);
+      const endMinutes = parseToMinutes(both[2]);
+      const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+      const nowMinutes = nowPH.getHours() * 60 + nowPH.getMinutes();
+      const isDayShift = endMinutes > startMinutes;
+
+      // Determine if shift has ended relative to "today"
+      let ended = false;
+      if (isDayShift) {
+        ended = nowMinutes >= endMinutes;
+      } else {
+        // night shift, end in morning
+        ended = nowMinutes >= endMinutes && nowMinutes < startMinutes;
+      }
+      if (!ended) return;
+
+      // Compute next Manila date string YYYY-MM-DD
+      const next = new Date(nowPH); next.setDate(next.getDate() + 1);
+      const y = next.getFullYear(); const m = String(next.getMonth()+1).padStart(2,'0'); const d = String(next.getDate()).padStart(2,'0');
+      const nextDate = `${y}-${m}-${d}`;
+
+      await pool.query(
+        `INSERT INTO activity_data (user_id, is_currently_active, last_session_start, today_date, today_active_seconds, today_inactive_seconds, updated_at)
+         VALUES ($1, FALSE, NULL, $2, 0, 0, NOW())
+         ON CONFLICT (user_id, today_date) DO NOTHING`,
+        [userId, nextDate]
+      );
+    } catch (_) {}
+  }
 
   // Handle user authentication
   socket.on('authenticate', async (email) => {
@@ -499,7 +619,7 @@ io.on('connection', (socket) => {
           
           // Load activity data from database (shift-aware or daily)
           const currentTime = new Date();
-          const currentDate = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' }); // Get today's date in YYYY-MM-DD format for Philippines
+          const currentDate = new Date().toISOString().split('T')[0]; // Get today's date in YYYY-MM-DD format for Philippines
           
           // First check if there's any activity data for this user
           const activityResult = await pool.query(
@@ -627,7 +747,7 @@ io.on('connection', (socket) => {
             userShiftInfo.set(email, shiftInfo);
             
             const currentTime = new Date();
-            const currentDate = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+            const currentDate = new Date().toISOString().split('T')[0];
             
             // Get the most recent activity data for this user
             const activityResult = await pool.query(
@@ -794,14 +914,84 @@ io.on('connection', (socket) => {
       // Send initial meeting status
       socket.emit('meeting-status-update', { isInMeeting });
       
-      // Join task activity room for real-time updates
+      // Join task activity rooms for real-time updates (by email and by userId)
       socket.join(`task-activity-${email}`);
+      if (userInfo.userId) {
+        socket.join(`task-user-${userInfo.userId}`);
+      }
+
+      // Pre-create next-day activity row if needed (shift already ended)
+      try { await precreateNextDayRowIfEnded(userInfo.userId); } catch {}
+
+      // Hydrate timer from today's shift-anchored activity_data so it doesn't start at 0s
+      try {
+        // Read shift window
+        const shiftRes = await pool.query(
+          `SELECT ji.shift_time FROM job_info ji WHERE ji.agent_user_id = $1 LIMIT 1`,
+          [userInfo.userId]
+        );
+        const shiftText = (shiftRes.rows[0]?.shift_time || '').toString();
+        let shiftStartMinutes = null;
+        const startMatch = shiftText.match(/(\d{1,2}:\d{2}\s*(?:AM|PM))/i);
+        if (startMatch) {
+          const tok = startMatch[1].trim().toUpperCase();
+          const [hhmm, ampm] = tok.split(/\s+/);
+          const [hhStr, mmStr] = hhmm.split(':');
+          let hh = parseInt(hhStr, 10); const mm = parseInt(mmStr, 10);
+          if (ampm === 'AM') { if (hh === 12) hh = 0; } else { if (hh !== 12) hh += 12; }
+          shiftStartMinutes = (hh * 60) + mm;
+        }
+        const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+        const curMin = nowPH.getHours() * 60 + nowPH.getMinutes();
+        const manilaYMD = (d) => {
+          const y = d.getFullYear();
+          const m = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          return `${y}-${m}-${day}`;
+        };
+        let effective = new Date(nowPH);
+        if (shiftStartMinutes !== null && curMin < shiftStartMinutes) {
+          effective.setDate(effective.getDate() - 1);
+        }
+        const effectiveDateStr = manilaYMD(effective);
+
+        const adRes = await pool.query(
+          `SELECT is_currently_active, today_active_seconds, today_inactive_seconds, last_session_start
+           FROM activity_data
+           WHERE user_id = $1 AND today_date = $2
+           LIMIT 1`,
+          [userInfo.userId, effectiveDateStr]
+        );
+        if (adRes.rows && adRes.rows[0]) {
+          const row = adRes.rows[0];
+          userInfo.isActive = row.is_currently_active === true;
+          userInfo.activeSeconds = Number(row.today_active_seconds) || 0;
+          userInfo.inactiveSeconds = Number(row.today_inactive_seconds) || 0;
+          userInfo.sessionStart = row.last_session_start || userInfo.sessionStart;
+          // Emit initial hydration to client
+          const sockets = userConnections.get(email);
+          if (sockets) {
+            const payload = {
+              userId: userInfo.userId,
+              email,
+              isActive: userInfo.isActive,
+              activeSeconds: userInfo.activeSeconds,
+              inactiveSeconds: userInfo.inactiveSeconds,
+              sessionStart: userInfo.sessionStart,
+              effectiveDate: effectiveDateStr,
+              hydrated: true,
+            };
+            sockets.forEach(id => io.to(id).emit('timerUpdated', payload));
+          }
+        }
+      } catch (_) {}
 
       // Listen for Postgres NOTIFY on notifications channel per connection
       try {
         const client = await pool.connect();
-    await client.query('LISTEN notifications');
-    await client.query('LISTEN ticket_comments');
+        await client.query('LISTEN notifications');
+        await client.query('LISTEN ticket_comments');
+        
         const onNotify = async (msg) => {
           if (msg.channel === 'notifications') {
             try {
@@ -812,43 +1002,61 @@ io.on('connection', (socket) => {
                 socket.emit('db-notification', payload);
               }
             } catch (_) {}
-      } else if (msg.channel === 'ticket_comments') {
-        try {
-          const payload = JSON.parse(msg.payload);
-          // Enrich with author details (name/email) for accurate display on clients
-          let authorName = null;
-          let authorEmail = null;
-          if (payload && payload.user_id) {
+          } else if (msg.channel === 'ticket_comments') {
             try {
-              const result = await pool.query(
-                `SELECT u.email AS author_email,
-                        TRIM(CONCAT(COALESCE(pi.first_name, ''), ' ', COALESCE(pi.last_name, ''))) AS author_name
-                 FROM users u
-                 LEFT JOIN personal_info pi ON pi.user_id = u.id
-                 WHERE u.id = $1
-                 LIMIT 1`,
-                [payload.user_id]
-              );
-              if (result.rows && result.rows[0]) {
-                authorEmail = result.rows[0].author_email || null;
-                authorName = (result.rows[0].author_name || '').trim() || null;
+              const payload = JSON.parse(msg.payload);
+              // Enrich with author details (name/email) for accurate display on clients
+              let authorName = null;
+              let authorEmail = null;
+              if (payload && payload.user_id) {
+                try {
+                  const result = await pool.query(
+                    `SELECT u.email AS author_email,
+                            TRIM(CONCAT(COALESCE(pi.first_name, ''), ' ', COALESCE(pi.last_name, ''))) AS author_name
+                     FROM users u
+                     LEFT JOIN personal_info pi ON pi.user_id = u.id
+                     WHERE u.id = $1
+                     LIMIT 1`,
+                    [payload.user_id]
+                  );
+                  if (result.rows && result.rows[0]) {
+                    authorEmail = result.rows[0].author_email || null;
+                    authorName = (result.rows[0].author_name || '').trim() || null;
+                  }
+                } catch (_) {}
               }
+
+              const enriched = { ...payload, authorName, authorEmail };
+              // Forward to client; page can filter by ticket id
+              socket.emit('ticket-comment', enriched);
             } catch (_) {}
           }
-
-          const enriched = { ...payload, authorName, authorEmail };
-          // Forward to client; page can filter by ticket id
-          socket.emit('ticket-comment', enriched);
-        } catch (_) {}
-          }
         };
+        
         client.on('notification', onNotify);
+        
+        // Properly clean up the client when socket disconnects
         socket.on('disconnect', () => {
           try {
             client.removeListener('notification', onNotify);
             client.release();
-          } catch (_) {}
+            console.log(`🔌 Released database client for socket ${socket.id}`);
+          } catch (error) {
+            console.error(`❌ Error releasing database client for socket ${socket.id}:`, error.message);
+          }
         });
+        
+        // Also clean up on socket error
+        socket.on('error', () => {
+          try {
+            client.removeListener('notification', onNotify);
+            client.release();
+            console.log(`🔌 Released database client for socket ${socket.id} due to error`);
+          } catch (error) {
+            console.error(`❌ Error releasing database client for socket ${socket.id}:`, error.message);
+          }
+        });
+        
       } catch (err) {
         console.error('Failed to LISTEN notifications:', err.message);
       }
@@ -865,13 +1073,17 @@ io.on('connection', (socket) => {
   try {
     if (!global.__sa_task_activity_listener) {
       pool.connect().then((client) => {
-        client.on('notification', (msg) => {
+        console.log('🔌 Global task activity listener connected');
+        
+        const handleNotification = (msg) => {
           if (msg.channel === 'task_activity_events') {
             try {
               io.emit('task_activity_event', msg.payload);
             } catch (_) {}
           } else if (msg.channel === 'task_updates') {
             try {
+              // Since task groups are now global and users can see tasks they're assigned to,
+              // broadcast task updates to all users instead of scoping to task owner only
               io.emit('task_updated', msg.payload);
             } catch (_) {}
           } else if (
@@ -883,22 +1095,66 @@ io.on('connection', (socket) => {
             msg.channel === 'task_comments'
           ) {
             try {
+              // Since task_groups are now global (no user_id), broadcast to all users
+              if (msg.channel === 'task_groups') {
+                io.emit('task_groups', msg.payload);
+                return;
+              }
               io.emit(msg.channel, msg.payload);
             } catch (_) {}
           }
+        };
+        
+        client.on('notification', handleNotification);
+        
+        // Set up all the LISTEN commands
+        const listenChannels = [
+          'task_activity_events',
+          'task_updates', 
+          'task_relations',
+          'task_groups',
+          'task_custom_fields',
+          'task_attachments',
+          'task_assignees',
+          'task_comments'
+        ];
+        
+        // Listen to all channels
+        listenChannels.forEach(channel => {
+          client.query(`LISTEN ${channel}`).catch(err => {
+            console.error(`❌ Failed to LISTEN to ${channel}:`, err.message);
+          });
         });
-        client.query('LISTEN task_activity_events');
-        client.query('LISTEN task_updates');
-        client.query('LISTEN task_relations');
-        client.query('LISTEN task_groups');
-        client.query('LISTEN task_custom_fields');
-        client.query('LISTEN task_attachments');
-        client.query('LISTEN task_assignees');
-        client.query('LISTEN task_comments');
+        
         global.__sa_task_activity_listener = true;
-      }).catch(() => {});
+        
+        // Handle client errors and cleanup
+        client.on('error', (err) => {
+          console.error('❌ Global task activity listener error:', err.message);
+          // Try to reconnect after a delay
+          setTimeout(() => {
+            try {
+              client.release();
+              global.__sa_task_activity_listener = false;
+              console.log('🔄 Global task activity listener will reconnect on next request');
+            } catch (_) {}
+          }, 5000);
+        });
+        
+        // Handle client end
+        client.on('end', () => {
+          console.log('🔌 Global task activity listener disconnected');
+          global.__sa_task_activity_listener = false;
+        });
+        
+      }).catch((err) => {
+        console.error('❌ Failed to connect global task activity listener:', err.message);
+        global.__sa_task_activity_listener = false;
+      });
     }
-  } catch (_) {}
+  } catch (err) {
+    console.error('❌ Error setting up global task activity listener:', err.message);
+  }
 
   // Handle activity state changes
   socket.on('activityChange', async (isActive) => {
@@ -937,7 +1193,7 @@ io.on('connection', (socket) => {
       const userInfo = userDataEntry.userInfo;
       const userId = userInfo.userId;
       const shiftInfo = userShiftInfo.get(email) || null;
-      const currentDate = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+      const currentDate = new Date().toISOString().split('T')[0]; // Use UTC date for consistency
       const currentShiftId = shiftInfo ? getCurrentShiftId(new Date(), shiftInfo) : currentDate;
 
       // Debounce on server side too
@@ -1026,27 +1282,119 @@ io.on('connection', (socket) => {
           userId = userResult.rows[0].id;
         }
 
-        // Get current date in Philippines timezone
-        const currentDate = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+        // Compute today_date anchored to agent shift start in Philippines timezone
+        // 1) Get agent shift_time (e.g., "6:00 AM - 3:00 PM"), fallback to 06:00
+        let shiftStartMinutes = null; // no default; rely on configured shift_time
+        let hasShiftStart = false;
+        let shiftEndMinutes = null;
+        let hasShiftEnd = false;
+        try {
+          const shiftRes = await pool.query(
+            `SELECT ji.shift_time FROM job_info ji WHERE ji.agent_user_id = $1 LIMIT 1`,
+            [userId]
+          );
+          const shiftText = (shiftRes.rows[0]?.shift_time || '').toString();
+          // Extract start and end time tokens (e.g., "6:00 AM - 3:00 PM")
+          const both = shiftText.match(/(\d{1,2}:\d{2}\s*(?:AM|PM))\s*-\s*(\d{1,2}:\d{2}\s*(?:AM|PM))/i);
+          if (both) {
+            const start = both[1].trim().toUpperCase();
+            const end = both[2].trim().toUpperCase();
+            // Parse to 24h minutes
+            const parseToMinutes = (token) => {
+              const [hhmm, ampm] = token.split(/\s+/);
+              const [hhStr, mmStr] = hhmm.split(':');
+              let hh = parseInt(hhStr, 10);
+              const mm = parseInt(mmStr, 10);
+              if (ampm === 'AM') {
+                if (hh === 12) hh = 0;
+              } else if (ampm === 'PM') {
+                if (hh !== 12) hh += 12;
+              }
+              return (hh * 60) + mm;
+            };
+            shiftStartMinutes = parseToMinutes(start);
+            shiftEndMinutes = parseToMinutes(end);
+            hasShiftStart = true;
+            hasShiftEnd = true;
+          } else {
+            // Try only start time if pattern differs
+            const match = shiftText.match(/(\d{1,2}:\d{2}\s*(?:AM|PM))/i);
+            if (match && match[1]) {
+              const start = match[1].trim().toUpperCase();
+              const [hhmm, ampm] = start.split(/\s+/);
+              const [hhStr, mmStr] = hhmm.split(':');
+              let hh = parseInt(hhStr, 10);
+              const mm = parseInt(mmStr, 10);
+              if (ampm === 'AM') {
+                if (hh === 12) hh = 0;
+              } else if (ampm === 'PM') {
+                if (hh !== 12) hh += 12;
+              }
+              shiftStartMinutes = (hh * 60) + mm;
+              hasShiftStart = true;
+            }
+          }
+        } catch (_) {
+          // ignore; will fall back to Manila calendar date
+        }
+
+        // 2) Manila time now
+        const philippinesNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+        const currentHour = philippinesNow.getHours();
+        const currentMinute = philippinesNow.getMinutes();
+        const currentMinutesLocal = currentHour * 60 + currentMinute;
+
+        // Determine if we are within the agent's shift window
+        let withinShift = true; // default allow if no shift configured
+        if (hasShiftStart && hasShiftEnd && shiftStartMinutes !== null && shiftEndMinutes !== null) {
+          if (shiftEndMinutes > shiftStartMinutes) {
+            // Day shift window [start, end)
+            withinShift = currentMinutesLocal >= shiftStartMinutes && currentMinutesLocal < shiftEndMinutes;
+          } else {
+            // Night shift crossing midnight: within if after start OR before end
+            withinShift = (currentMinutesLocal >= shiftStartMinutes) || (currentMinutesLocal < shiftEndMinutes);
+          }
+        }
+
+        // 3) Effective date: if before shift start, use previous day; else today (Manila)
+        const manilaYMD = (d) => {
+          const y = d.getFullYear();
+          const m = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          return `${y}-${m}-${day}`;
+        };
+        const effective = new Date(philippinesNow);
+        if (hasShiftStart && shiftStartMinutes !== null) {
+          if (currentMinutesLocal < shiftStartMinutes) {
+            effective.setDate(effective.getDate() - 1);
+          }
+        } // else: no shift info parsed; keep Manila calendar date
+        const currentDate = manilaYMD(effective);
         
         // Update activity data in database with daily tracking (Philippines timezone)
         // Guard: do NOT update during the 2s immediately following a server-side reset broadcast
         if (userInfo.lastResetAt && (Date.now() - userInfo.lastResetAt) < 2000) {
           return; // avoid a race that could re-insert pre-reset counters
         }
-        // Ensure values only increase (monotonic) to prevent decreasing timer values
-        await pool.query(
-          `INSERT INTO activity_data (user_id, is_currently_active, today_active_seconds, today_inactive_seconds, last_session_start, today_date, updated_at) 
-           VALUES ($1, $2, $3, $4, $5, $6, NOW())
-           ON CONFLICT (user_id, today_date) 
-           DO UPDATE SET 
-             is_currently_active = $2,
-             today_active_seconds = GREATEST(activity_data.today_active_seconds, $3),
-             today_inactive_seconds = GREATEST(activity_data.today_inactive_seconds, $4),
-             last_session_start = COALESCE($5, activity_data.last_session_start),
-             updated_at = NOW()`,
-          [userId, userInfo.isActive, userInfo.activeSeconds, userInfo.inactiveSeconds, userInfo.sessionStart, currentDate]
-        );
+        if (withinShift) {
+          // Ensure values only increase (monotonic) to prevent decreasing timer values
+          await pool.query(
+            `INSERT INTO activity_data (user_id, is_currently_active, today_active_seconds, today_inactive_seconds, last_session_start, today_date, updated_at) 
+             VALUES ($1, $2, $3, $4, $5, $6, NOW())
+             ON CONFLICT (user_id, today_date) 
+             DO UPDATE SET 
+               is_currently_active = $2,
+               today_active_seconds = GREATEST(activity_data.today_active_seconds, $3),
+               today_inactive_seconds = GREATEST(activity_data.today_inactive_seconds, $4),
+               last_session_start = COALESCE($5, activity_data.last_session_start),
+               updated_at = NOW()`,
+            [userId, userInfo.isActive, userInfo.activeSeconds, userInfo.inactiveSeconds, userInfo.sessionStart, currentDate]
+          );
+        } else {
+          // Outside shift window: do not increment or create rows
+          // Optionally, we could still touch updated_at or emit a flag
+          // For now, we skip DB write to prevent early/late accumulation
+        }
         
         console.log(`💾 Updated timer for ${userData.email}: Active=${userInfo.activeSeconds}s, Inactive=${userInfo.inactiveSeconds}s`);
         
@@ -1160,21 +1508,52 @@ server.listen(PORT, () => {
 // Start real-time shift reset monitoring
 const shiftResetInterval = setInterval(async () => {
   try {
+    console.log(`🔄 Shift reset monitoring cycle - checking ${userData.size} users`);
+    
     // Check all connected users for shift resets
     for (const [email, userInfo] of userData.entries()) {
       if (userInfo.userId) {
-        await checkShiftReset(email, userInfo.userId);
-        // Also check break availability windows
-        const shiftInfo = userShiftInfo.get(email);
-        if (shiftInfo) {
-          await notifyBreakAvailabilityIfAny(email, userInfo.userId, shiftInfo);
+        try {
+          const resetResult = await checkShiftReset(email, userInfo.userId);
+          if (resetResult) {
+            console.log(`✅ Shift reset completed for ${email}`);
+          }
+          
+          // Also check break availability windows
+          const shiftInfo = userShiftInfo.get(email);
+          if (shiftInfo) {
+            // Check if we're within critical timing windows for more frequent checks
+            const currentTime = new Date();
+            const timeUntilReset = getTimeUntilNextReset(currentTime, shiftInfo);
+            
+            // Only do additional checks if we're within 5 minutes of reset
+            if (timeUntilReset <= 300000 && timeUntilReset > 0) {
+              // If within 30 seconds, log critical timing
+              if (timeUntilReset <= 30000) {
+                console.log(`⏰ Critical timing: ${email} reset in ${Math.floor(timeUntilReset/1000)}s`);
+              }
+              
+              // If within 10 seconds, log ultra-critical timing
+              if (timeUntilReset <= 10000) {
+                console.log(`🚨 Ultra-critical timing: ${email} reset in ${Math.floor(timeUntilReset/1000)}s`);
+              }
+              
+              // If within 5 seconds, log final countdown
+              if (timeUntilReset <= 5000) {
+                console.log(`💥 Final countdown: ${email} reset in ${Math.floor(timeUntilReset/1000)}s`);
+              }
+            }
+          }
+        } catch (userError) {
+          console.error(`❌ Error checking shift reset for ${email}:`, userError.message);
+          // Continue with other users instead of failing the entire cycle
         }
       }
     }
   } catch (error) {
-    console.error('Error in shift reset monitoring:', error);
+    console.error('❌ Error in shift reset monitoring:', error);
   }
-}, 60000); // Check every minute
+}, 15000); // Check every 15 seconds for better responsiveness
 
 // Cleanup interval on server shutdown
 process.on('SIGINT', () => {

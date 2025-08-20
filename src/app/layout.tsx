@@ -9,6 +9,8 @@ import ElectronLogoutHandler from "@/components/electron-logout-handler";
 import DatabaseInitializer from "@/components/database-initializer";
 import { GlobalTimerDisplay } from "@/components/global-timer-display";
 import { AuthMonitor } from "@/components/auth-monitor";
+import AuthNormalizer from "@/components/auth-normalizer";
+import { Toaster } from "sonner";
 
 
 const montserrat = Montserrat({
@@ -47,10 +49,13 @@ export default function RootLayout({
             <ActivityProvider>
               <MeetingProvider>
                 <TimerProvider>
+                  {/* Keep auth stores in sync as early as possible */}
+                  <AuthNormalizer />
                   <DatabaseInitializer />
                   <ElectronLogoutHandler />
                   {children}
                   <GlobalTimerDisplay />
+                  <Toaster position="top-right" richColors />
                 </TimerProvider>
               </MeetingProvider>
             </ActivityProvider>

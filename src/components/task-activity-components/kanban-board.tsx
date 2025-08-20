@@ -34,9 +34,12 @@ import { cn } from "@/lib/utils"
 import { TaskDetailDialog } from "./task-detail-dialog"
 import React, { useRef } from "react"
 import { motion, AnimatePresence, Reorder } from "framer-motion"
+import { toast } from "sonner"
 
 interface Task {
   id: string
+  creator_id?: number
+  is_owner?: boolean
   title: string
   description: string
   priority: "urgent" | "high" | "normal" | "low"
@@ -65,6 +68,9 @@ interface KanbanBoardProps {
   onTaskRename?: (taskId: string, newTitle: string) => void
   onColumnsReorder?: (columns: Column[]) => void
   isEditMode?: boolean
+  // Zoom percentage from parent (e.g., 100 = 1x, 150 = 1.5x)
+  zoom?: number
+  onTaskDelete?: (taskId: string) => void
 }
 
 const TaskCard = ({ 
@@ -87,6 +93,8 @@ const TaskCard = ({
   usersMap?: Record<number, { name?: string; email?: string }>;
 }) => {
   const [isDragging, setIsDragging] = useState(false)
+  const dragImageRef = useRef<HTMLElement | null>(null)
+  const cardRef = useRef<HTMLDivElement | null>(null)
   const [isRenaming, setIsRenaming] = useState(false)
   const [newTitle, setNewTitle] = useState(task.title)
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
@@ -104,11 +112,35 @@ const TaskCard = ({
       return
     }
     setIsDragging(true)
+    try {
+      // Create a custom drag image to avoid flicker/hidden animation when ancestors clip overflow or when zoomed
+      const cardEl = cardRef.current
+      if (e.dataTransfer && cardEl) {
+        const clone = cardEl.cloneNode(true) as HTMLElement
+        clone.style.position = 'absolute'
+        clone.style.top = '-10000px'
+        clone.style.left = '-10000px'
+        clone.style.pointerEvents = 'none'
+        clone.style.transform = 'scale(0.98)'
+        clone.style.boxShadow = '0 10px 20px rgba(0,0,0,0.2)'
+        clone.style.opacity = '0.9'
+        clone.style.width = `${cardEl.offsetWidth}px`
+        document.body.appendChild(clone)
+        dragImageRef.current = clone
+        e.dataTransfer.setDragImage(clone, Math.floor(clone.offsetWidth / 2), 16)
+      }
+    } catch {}
   }
 
   const handleDragEnd = () => {
     if (isEditMode) return
     setIsDragging(false)
+    try {
+      if (dragImageRef.current) {
+        dragImageRef.current.remove()
+        dragImageRef.current = null
+      }
+    } catch {}
   }
 
   const handleCardClick = (e: React.MouseEvent) => {
@@ -126,6 +158,17 @@ const TaskCard = ({
   const handleDelete = (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
+    
+    // Check if user has permission to delete this task
+    const isTaskOwner = task.is_owner === true
+    if (!isTaskOwner) {
+      toast.error("Cannot delete task", {
+        description: "Only the task creator can delete tasks. Contact the creator to request deletion.",
+        duration: 4000,
+      })
+      return
+    }
+    
     onDelete?.(task.id)
   }
 
@@ -133,6 +176,17 @@ const TaskCard = ({
     e.preventDefault()
     e.stopPropagation()
     setIsDropdownOpen(false) // Close the dropdown menu
+    
+    // Check if user has permission to rename this task
+    const isTaskOwner = task.is_owner === true
+    if (!isTaskOwner) {
+      toast.error("Cannot rename task", {
+        description: "Only the task creator can rename tasks. Contact the creator to request changes.",
+        duration: 4000,
+      })
+      return
+    }
+    
     setIsRenaming(true)
     setNewTitle(task.title) // Reset to current title
     // Use a longer timeout to ensure dropdown is fully closed
@@ -241,7 +295,14 @@ const TaskCard = ({
         }}
         style={{ pointerEvents: isEditMode ? 'none' : 'auto' }}
       >
-        <Card className="w-full shadow-none border border-border/50 overflow-hidden">
+        <Card ref={cardRef} className={cn(
+          "w-full shadow-none border overflow-hidden transition-transform",
+          isDragging && "scale-[1.02] ring-2 ring-primary shadow-lg",
+          (task as any).isOverdue ? "border-red-500 dark:border-red-600 border-2" : 
+          (task as any).dueSoon ? "border-red-300 dark:border-red-800" : 
+          (task as any).isDone ? "border-green-300 dark:border-green-800" : 
+          "border-border/50"
+        )}>
           {/* Cover Photo */}
             {task.attachments && (task.attachments as any).length > 0 && (
             <div className="relative w-full h-32 bg-muted">
@@ -288,7 +349,29 @@ const TaskCard = ({
                   onFocus={(e) => e.target.select()}
                 />
               ) : (
-                <h4 className="text-sm font-medium leading-none truncate">{task.title}</h4>
+                <div className="flex items-center gap-2 min-w-0">
+                  <h4 className="text-sm font-medium leading-none truncate">{task.title}</h4>
+                  {(task as any).isOverdue && (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-red-500 text-white dark:bg-red-600 dark:text-white">
+                      Overdue
+                    </span>
+                  )}
+                  {(task as any).dueSoon && !(task as any).isOverdue && (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-red-100 text-red-700 dark:bg-red-950/20 dark:text-red-400">
+                      Due soon
+                    </span>
+                  )}
+                  {(task as any).isDone && (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-100 text-green-700 dark:bg-green-950/20 dark:text-green-400">
+                      Complete
+                    </span>
+                  )}
+                  {task.is_owner === false && (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-purple-100 text-purple-700 dark:bg-purple-950/20 dark:text-purple-400">
+                      Assigned
+                    </span>
+                  )}
+                </div>
               )}
               <DropdownMenu open={isDropdownOpen} onOpenChange={setIsDropdownOpen}>
                 <DropdownMenuTrigger asChild onClick={handleDropdownClick}>
@@ -333,7 +416,7 @@ const TaskCard = ({
             </p>
             
             {/* Tags */}
-            {task.tags.length > 0 && (
+            {task.tags && task.tags.length > 0 && (
               <div className="flex flex-wrap gap-1 mb-3">
                 {task.tags.map(tag => (
                   <Badge key={tag} variant="secondary" className="text-xs">
@@ -375,7 +458,11 @@ const TaskCard = ({
                         <Calendar className="h-3 w-3 flex-shrink-0" />
                         <span className="truncate">Start: {startStr}</span>
                         <span className="opacity-60">•</span>
-                        <span className="truncate">Due: {dueStr}</span>
+                        <span className={cn("truncate", 
+                          (task as any).isOverdue && "text-red-500 dark:text-red-400 font-bold",
+                          (task as any).dueSoon && !(task as any).isOverdue && "text-red-600 dark:text-red-400 font-medium",
+                          (task as any).isDone && "text-green-600 dark:text-green-400 font-medium"
+                        )}>Due: {dueStr}</span>
                       </div>
                     )
                   })()}
@@ -672,7 +759,7 @@ const KanbanColumn = ({
   )
 }
 
-export function KanbanBoard({ tasks, columns, onTaskMove, onTaskCreate, onTaskUpdate, onTaskRename, onColumnsReorder, isEditMode = false }: KanbanBoardProps) {
+export function KanbanBoard({ tasks, columns, onTaskMove, onTaskCreate, onTaskUpdate, onTaskRename, onColumnsReorder, isEditMode = false, zoom = 100, onTaskDelete }: KanbanBoardProps) {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [localColumns, setLocalColumns] = useState(columns)
@@ -685,6 +772,12 @@ export function KanbanBoard({ tasks, columns, onTaskMove, onTaskCreate, onTaskUp
   // Column reordering state
   const [isColumnDragOver, setIsColumnDragOver] = useState(false)
   const [columnDropPosition, setColumnDropPosition] = useState<number | null>(null)
+
+  // Derived zoom scale and layout width multiplier
+  const zoomScale = Math.max(0.5, Math.min(2, zoom / 100))
+  // When zoomed in, don't force extra width; let content's max-content decide.
+  // When zoomed out, expand width so the scaled-down content still fills the container.
+  const zoomWrapperWidth = zoomScale > 1 ? 'max-content' : `${100 / zoomScale}%`
 
   // Filter out deleted tasks
   const activeTasks = tasks.filter(task => task.status !== "deleted")
@@ -721,9 +814,23 @@ export function KanbanBoard({ tasks, columns, onTaskMove, onTaskCreate, onTaskUp
     }
   }, [activeTasks, selectedTask])
 
+  // Helper to ensure unique columns by id while preserving order
+  const uniqueColumns = (cols: Column[]) => {
+    const seen = new Set<string>()
+    const result: Column[] = []
+    for (const c of cols) {
+      const key = String(c.id)
+      if (!seen.has(key)) {
+        seen.add(key)
+        result.push(c)
+      }
+    }
+    return result
+  }
+
   // Update localColumns when columns prop changes (e.g., when new groups are added)
   React.useEffect(() => {
-    setLocalColumns(columns)
+    setLocalColumns(uniqueColumns(columns))
   }, [columns])
 
   // Load minimal users map for initials on cards
@@ -782,6 +889,23 @@ export function KanbanBoard({ tasks, columns, onTaskMove, onTaskCreate, onTaskUp
     setIsDialogOpen(true)
   }
 
+  // Listen for custom event to open task from URL parameter
+  React.useEffect(() => {
+    const handleOpenTask = (event: CustomEvent) => {
+      const task = event.detail
+      if (task) {
+        console.log('Opening task from custom event:', task.title)
+        setSelectedTask(task)
+        setIsDialogOpen(true)
+      }
+    }
+
+    window.addEventListener('openTask', handleOpenTask as EventListener)
+    return () => {
+      window.removeEventListener('openTask', handleOpenTask as EventListener)
+    }
+  }, [])
+
   const handleCloseDialog = () => {
     setIsDialogOpen(false)
     setSelectedTask(null)
@@ -798,12 +922,14 @@ export function KanbanBoard({ tasks, columns, onTaskMove, onTaskCreate, onTaskUp
   }
 
   const handleTaskDelete = (taskId: string) => {
-    // Update the task in the parent component
-    onTaskUpdate(taskId, { status: "deleted" })
-    
-    // Update the selected task for the dialog
-    if (selectedTask && selectedTask.id === taskId) {
-      setSelectedTask({ ...selectedTask, status: "deleted" })
+    if (onTaskDelete) {
+      onTaskDelete(taskId)
+    } else {
+      // Soft-delete fallback
+      onTaskUpdate(taskId, { status: "deleted" })
+      if (selectedTask && selectedTask.id === taskId) {
+        setSelectedTask({ ...selectedTask, status: "deleted" })
+      }
     }
   }
 
@@ -862,12 +988,20 @@ export function KanbanBoard({ tasks, columns, onTaskMove, onTaskCreate, onTaskUp
       ref={scrollContainerRef}
       style={{ cursor: (isEditMode || isDialogOpen) ? 'default' : (isScrolling ? 'grabbing' : 'grab') }}
     >
+      <div
+        className="origin-top-left"
+        style={{
+          transform: `scale(${zoomScale})`,
+          width: zoomWrapperWidth,
+        }}
+      >
       <Reorder.Group 
         axis="x" 
         values={localColumns} 
         onReorder={(newColumns) => {
-          setLocalColumns(newColumns)
-          onColumnsReorder?.(newColumns)
+          const uniq = uniqueColumns(newColumns)
+          setLocalColumns(uniq)
+          onColumnsReorder?.(uniq)
         }}
         className={`flex gap-4 h-full min-w-max ${isEditMode ? 'overflow-visible cursor-grab active:cursor-grabbing' : 'overflow-hidden'}`}
         style={{ 
@@ -900,8 +1034,8 @@ export function KanbanBoard({ tasks, columns, onTaskMove, onTaskCreate, onTaskUp
         }}
       >
         <AnimatePresence mode="popLayout">
-          {localColumns.map((column, index) => (
-            <div key={column.id} className="relative">
+          {uniqueColumns(localColumns).map((column, index) => (
+            <div key={`col-${column.id}`} className="relative">
               {/* Column drop indicator */}
               {isEditMode && isColumnDragOver && columnDropPosition === index && (
                 <motion.div
@@ -977,6 +1111,7 @@ export function KanbanBoard({ tasks, columns, onTaskMove, onTaskCreate, onTaskUp
           )}
         </AnimatePresence>
       </Reorder.Group>
+      </div>
       
       <TaskDetailDialog
         task={selectedTask}
@@ -996,3 +1131,5 @@ export function KanbanBoard({ tasks, columns, onTaskMove, onTaskCreate, onTaskUp
     </div>
   )
 } 
+
+

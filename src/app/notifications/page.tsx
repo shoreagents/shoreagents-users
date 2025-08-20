@@ -1,11 +1,14 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { CheckCircle, AlertCircle, Info, Clock, Trash2, Bell, CheckSquare, FileText } from "lucide-react"
+import { CheckCircle, AlertCircle, Info, Clock, Trash2, Bell, CheckSquare, FileText, Filter, X, Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
+import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { AppSidebar } from "@/components/app-sidebar"
 import { AppHeader } from "@/components/app-header"
 import { NotificationsSkeleton } from "@/components/skeleton-loaders"
@@ -55,6 +58,13 @@ export default function NotificationsPage() {
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1)
   const notificationsPerPage = 10
+
+  // Filter state
+  const [searchQuery, setSearchQuery] = useState("")
+  const [filterCategory, setFilterCategory] = useState<string>("all")
+  const [filterType, setFilterType] = useState<string>("all")
+  const [filterStatus, setFilterStatus] = useState<string>("all")
+  const [showFilters, setShowFilters] = useState(false)
 
   // Load notifications (hydrate from DB once, then keep in-memory updates)
   useEffect(() => {
@@ -202,11 +212,64 @@ export default function NotificationsPage() {
     } catch {}
   }
 
-  // Pagination logic
-  const totalPages = Math.ceil(notifications.length / notificationsPerPage)
+  // Filter logic
+  const filteredNotifications = notifications.filter(notification => {
+    // Search filter
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase()
+      const matchesSearch = 
+        notification.title.toLowerCase().includes(query) ||
+        notification.message.toLowerCase().includes(query)
+      if (!matchesSearch) return false
+    }
+
+    // Category filter
+    if (filterCategory !== "all" && notification.category !== filterCategory) {
+      return false
+    }
+
+    // Type filter
+    if (filterType !== "all" && notification.type !== filterType) {
+      return false
+    }
+
+    // Status filter
+    if (filterStatus === "unread" && notification.read) {
+      return false
+    }
+    if (filterStatus === "read" && !notification.read) {
+      return false
+    }
+
+    return true
+  })
+
+  // Pagination logic (applied to filtered results)
+  const totalPages = Math.ceil(filteredNotifications.length / notificationsPerPage)
   const startIndex = (currentPage - 1) * notificationsPerPage
   const endIndex = startIndex + notificationsPerPage
-  const currentNotifications = notifications.slice(startIndex, endIndex)
+  const currentNotifications = filteredNotifications.slice(startIndex, endIndex)
+
+  // Get unique categories and types for filter options
+  const availableCategories = [...new Set(notifications.map(n => n.category).filter(Boolean))]
+  const availableTypes = [...new Set(notifications.map(n => n.type).filter(Boolean))]
+
+  // Active filter count
+  const activeFilterCount = [
+    searchQuery,
+    filterCategory !== "all" ? filterCategory : null,
+    filterType !== "all" ? filterType : null,
+    filterStatus !== "all" ? filterStatus : null
+  ].filter(Boolean).length
+
+  // Clear all filters
+  const clearAllFilters = () => {
+    setSearchQuery("")
+    setFilterCategory("all")
+    setFilterType("all")
+    setFilterStatus("all")
+    setCurrentPage(1)
+  }
 
   // Reset to first page when notifications change
   useEffect(() => {
@@ -237,6 +300,11 @@ export default function NotificationsPage() {
               <h1 className="text-3xl font-bold">Notifications</h1>
               <p className="text-muted-foreground mt-1">
                 Stay updated with your latest activities and system updates
+                {filteredNotifications.length !== notifications.length && (
+                  <span className="ml-2 text-sm">
+                    • Showing {filteredNotifications.length} of {notifications.length}
+                  </span>
+                )}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -261,6 +329,200 @@ export default function NotificationsPage() {
                 Clear all
               </Button>
             </div>
+          </div>
+
+          {/* Search and Filter Bar */}
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1 max-w-sm">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+                <Input
+                  placeholder="Search notifications..."
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value)
+                    setCurrentPage(1)
+                  }}
+                  className="pl-10"
+                />
+                {searchQuery && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-1 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
+                    onClick={() => {
+                      setSearchQuery("")
+                      setCurrentPage(1)
+                    }}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                )}
+              </div>
+              
+              <Popover open={showFilters} onOpenChange={setShowFilters}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-10">
+                    <Filter className="h-4 w-4 mr-2" />
+                    Filters
+                    {activeFilterCount > 0 && (
+                      <Badge variant="secondary" className="ml-2 h-5 min-w-5 text-xs">
+                        {activeFilterCount}
+                      </Badge>
+                    )}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-80" align="end">
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-medium">Filter Notifications</h4>
+                      {activeFilterCount > 0 && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={clearAllFilters}
+                          className="h-8 text-xs"
+                        >
+                          Clear all
+                        </Button>
+                      )}
+                    </div>
+                    
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-sm font-medium mb-1 block">Status</label>
+                        <Select value={filterStatus} onValueChange={(value) => {
+                          setFilterStatus(value)
+                          setCurrentPage(1)
+                        }}>
+                          <SelectTrigger className="h-8">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All notifications</SelectItem>
+                            <SelectItem value="unread">Unread only</SelectItem>
+                            <SelectItem value="read">Read only</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div>
+                        <label className="text-sm font-medium mb-1 block">Category</label>
+                        <Select value={filterCategory} onValueChange={(value) => {
+                          setFilterCategory(value)
+                          setCurrentPage(1)
+                        }}>
+                          <SelectTrigger className="h-8">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All categories</SelectItem>
+                            {availableCategories.map(category => (
+                              <SelectItem key={category} value={category}>
+                                <div className="flex items-center gap-2">
+                                  {category === 'break' && <Clock className="h-3 w-3" />}
+                                  {category === 'task' && <CheckSquare className="h-3 w-3" />}
+                                  {category === 'ticket' && <FileText className="h-3 w-3" />}
+                                  <span className="capitalize">{category}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div>
+                        <label className="text-sm font-medium mb-1 block">Type</label>
+                        <Select value={filterType} onValueChange={(value) => {
+                          setFilterType(value)
+                          setCurrentPage(1)
+                        }}>
+                          <SelectTrigger className="h-8">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All types</SelectItem>
+                            {availableTypes.map(type => (
+                              <SelectItem key={type} value={type}>
+                                <div className="flex items-center gap-2">
+                                  {type === 'success' && <CheckCircle className="h-3 w-3 text-green-600" />}
+                                  {type === 'warning' && <AlertCircle className="h-3 w-3 text-yellow-600" />}
+                                  {type === 'info' && <Info className="h-3 w-3 text-blue-600" />}
+                                  <span className="capitalize">{type}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            {/* Active Filters Display */}
+            {activeFilterCount > 0 && (
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm text-muted-foreground">Active filters:</span>
+                {searchQuery && (
+                  <Badge variant="secondary" className="gap-1">
+                    Search: "{searchQuery}"
+                    <X 
+                      className="h-3 w-3 cursor-pointer" 
+                      onClick={() => {
+                        setSearchQuery("")
+                        setCurrentPage(1)
+                      }}
+                    />
+                  </Badge>
+                )}
+                {filterStatus !== "all" && (
+                  <Badge variant="secondary" className="gap-1">
+                    Status: {filterStatus}
+                    <X 
+                      className="h-3 w-3 cursor-pointer" 
+                      onClick={() => {
+                        setFilterStatus("all")
+                        setCurrentPage(1)
+                      }}
+                    />
+                  </Badge>
+                )}
+                {filterCategory !== "all" && (
+                  <Badge variant="secondary" className="gap-1">
+                    Category: {filterCategory}
+                    <X 
+                      className="h-3 w-3 cursor-pointer" 
+                      onClick={() => {
+                        setFilterCategory("all")
+                        setCurrentPage(1)
+                      }}
+                    />
+                  </Badge>
+                )}
+                {filterType !== "all" && (
+                  <Badge variant="secondary" className="gap-1">
+                    Type: {filterType}
+                    <X 
+                      className="h-3 w-3 cursor-pointer" 
+                      onClick={() => {
+                        setFilterType("all")
+                        setCurrentPage(1)
+                      }}
+                    />
+                  </Badge>
+                )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={clearAllFilters}
+                  className="h-6 text-xs"
+                >
+                  Clear all
+                </Button>
+              </div>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -322,6 +584,14 @@ export default function NotificationsPage() {
                           })
                         }
                       } catch {}
+                    }
+                    
+                    // Dispatch notification-clicked event for task notifications
+                    if (notification.category === 'task') {
+                      const notificationClickEvent = new CustomEvent('notification-clicked', { 
+                        detail: notification 
+                      })
+                      window.dispatchEvent(notificationClickEvent)
                     }
                     
                     // Navigate if actionUrl is provided
@@ -483,10 +753,11 @@ export default function NotificationsPage() {
             </div>
           )}
 
-          {notifications.length > 0 && (
+          {filteredNotifications.length > 0 && (
             <div className="mt-6 text-center">
               <p className="text-sm text-muted-foreground">
-                Showing {startIndex + 1}-{Math.min(endIndex, notifications.length)} of {notifications.length} notification{notifications.length !== 1 ? 's' : ''}
+                Showing {startIndex + 1}-{Math.min(endIndex, filteredNotifications.length)} of {filteredNotifications.length} notification{filteredNotifications.length !== 1 ? 's' : ''}
+                {filteredNotifications.length !== notifications.length && ` (filtered from ${notifications.length} total)`}
                 {unreadCount > 0 && ` • ${unreadCount} unread`}
               </p>
             </div>

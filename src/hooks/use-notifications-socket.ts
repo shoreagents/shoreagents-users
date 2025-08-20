@@ -40,11 +40,19 @@ export function useNotificationsSocket(email: string | null) {
           return `/forms/${payload.ticket_id || ''}`
         }
         if (n.category === 'break') return '/status/breaks'
+        if (n.category === 'task') {
+          // For task notifications, include the task_id if available
+          if (payload.task_id) {
+            return `/productivity/task-activity?taskId=${payload.task_id}`
+          }
+          return '/productivity/task-activity'
+        }
         return undefined
       })()
       const icon = (() => {
         if (n.category === 'ticket') return 'FileText' as const
         if (n.category === 'break') return 'Clock' as const
+        if (n.category === 'task') return 'CheckSquare' as const
         return 'Bell' as const
       })()
       const mapped = {
