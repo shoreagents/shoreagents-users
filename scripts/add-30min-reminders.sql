@@ -89,13 +89,9 @@ BEGIN
 		RETURN FALSE; -- window ended
 	END IF;
 
-	-- Only start reminders 30 minutes after window opens
-	IF minutes_since_start < 30 THEN
-		RETURN FALSE;
-	END IF;
-
-	-- Fire every 30 minutes within tolerance
-	IF (minutes_since_start % 30) BETWEEN 0 AND reminder_window_tolerance THEN
+	-- Start reminders immediately when window opens (every 30 minutes)
+	-- First reminder at 30 minutes after start, then every 30 minutes
+	IF minutes_since_start >= 30 AND (minutes_since_start % 30) BETWEEN 0 AND reminder_window_tolerance THEN
 		RETURN TRUE;
 	END IF;
 
@@ -148,27 +144,27 @@ BEGIN
 		END IF;
 
 		-- Available now (exact start)
-		IF EXISTS (SELECT 1 WHERE is_break_available_now(agent_record.user_id, 'Morning', check_time)) THEN
+		IF is_break_available_now(agent_record.user_id, 'Morning', check_time) THEN
 			PERFORM create_break_reminder_notification(agent_record.user_id, 'break_available', 'Morning');
 			notifications_sent := notifications_sent + 1;
 		END IF;
-		IF EXISTS (SELECT 1 WHERE is_break_available_now(agent_record.user_id, 'Lunch', check_time)) THEN
+		IF is_break_available_now(agent_record.user_id, 'Lunch', check_time) THEN
 			PERFORM create_break_reminder_notification(agent_record.user_id, 'break_available', 'Lunch');
 			notifications_sent := notifications_sent + 1;
 		END IF;
-		IF EXISTS (SELECT 1 WHERE is_break_available_now(agent_record.user_id, 'Afternoon', check_time)) THEN
+		IF is_break_available_now(agent_record.user_id, 'Afternoon', check_time) THEN
 			PERFORM create_break_reminder_notification(agent_record.user_id, 'break_available', 'Afternoon');
 			notifications_sent := notifications_sent + 1;
 		END IF;
-		IF EXISTS (SELECT 1 WHERE is_break_available_now(agent_record.user_id, 'NightFirst', check_time)) THEN
+		IF is_break_available_now(agent_record.user_id, 'NightFirst', check_time) THEN
 			PERFORM create_break_reminder_notification(agent_record.user_id, 'break_available', 'NightFirst');
 			notifications_sent := notifications_sent + 1;
 		END IF;
-		IF EXISTS (SELECT 1 WHERE is_break_available_now(agent_record.user_id, 'NightMeal', check_time)) THEN
+		IF is_break_available_now(agent_record.user_id, 'NightMeal', check_time) THEN
 			PERFORM create_break_reminder_notification(agent_record.user_id, 'break_available', 'NightMeal');
 			notifications_sent := notifications_sent + 1;
 		END IF;
-		IF EXISTS (SELECT 1 WHERE is_break_available_now(agent_record.user_id, 'NightSecond', check_time)) THEN
+		IF is_break_available_now(agent_record.user_id, 'NightSecond', check_time) THEN
 			PERFORM create_break_reminder_notification(agent_record.user_id, 'break_available', 'NightSecond');
 			notifications_sent := notifications_sent + 1;
 		END IF;

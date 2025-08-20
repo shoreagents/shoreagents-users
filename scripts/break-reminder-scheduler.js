@@ -10,7 +10,7 @@ class BreakReminderScheduler {
   constructor() {
     this.isRunning = false;
     this.intervalId = null;
-    this.checkInterval = 2 * 60 * 1000; // Check every 2 minutes
+    this.checkInterval = 60 * 1000; // Check every 60 seconds (1 minute)
   }
 
   async checkBreakReminders() {
@@ -36,6 +36,17 @@ class BreakReminderScheduler {
       } else {
         console.log(`✅ [${new Date().toLocaleTimeString()}] No break reminders needed (${duration}ms)`);
       }
+
+      // After reminders, pre-create next-day activity rows where shifts have ended
+      try {
+        const precreate = await pool.query('SELECT precreate_next_day_activity_rows() AS created');
+        const created = precreate.rows[0]?.created || 0;
+        if (created > 0) {
+          console.log(`🗓️  [${new Date().toLocaleTimeString()}] Pre-created ${created} next-day activity rows`);
+        }
+      } catch (e) {
+        console.log(`⚠️  [${new Date().toLocaleTimeString()}] Precreate failed: ${e.message}`);
+      }
       
     } catch (error) {
       console.error(`❌ [${new Date().toLocaleTimeString()}] Break reminder check failed:`, error.message);
@@ -50,19 +61,24 @@ class BreakReminderScheduler {
       return;
     }
 
-    console.log(`🚀 Starting break reminder scheduler (checking every ${this.checkInterval / 1000} seconds)`);
+    console.log(`🚀 Starting break reminder scheduler (checking every ${this.checkInterval / 1000} seconds, aligned to top of minute)`);
     console.log('📋 Reminder types:');
     console.log('   • "Break available soon" - 15 minutes before break starts');
     console.log('   • "Break ending soon" - 5 minutes before break ends');
     console.log('   • Dynamic timing based on agent shift times from job_info table');
     
-    // Run initial check
+    // Run an immediate check (safe due to DB duplicate-prevention)
     this.checkBreakReminders();
-    
-    // Set up recurring checks
-    this.intervalId = setInterval(() => {
+
+    // Align to top of minute, then run every minute
+    const now = Date.now();
+    const delayToTopOfMinute = this.checkInterval - (now % this.checkInterval);
+    setTimeout(() => {
       this.checkBreakReminders();
-    }, this.checkInterval);
+      this.intervalId = setInterval(() => {
+        this.checkBreakReminders();
+      }, this.checkInterval);
+    }, delayToTopOfMinute);
   }
 
   stop() {

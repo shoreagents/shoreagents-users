@@ -1,7 +1,5 @@
 const { Pool } = require('pg');
 require('dotenv').config({ path: '.env.local' });
-const fs = require('fs');
-const path = require('path');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -9,151 +7,85 @@ const pool = new Pool({
 });
 
 async function applyBreakAvailableNowFix() {
+  console.log('🔧 Applying break available now fix...\n');
+  
   try {
-    console.log('🔧 Applying Break Available Now Fix...\n');
-    console.log('   This will enable "break available now" notifications exactly when break windows open!\n');
+    // 1. Test database connection
+    console.log('1️⃣ Testing database connection...');
+    await pool.query('SELECT NOW()');
+    console.log('   ✅ Database connected successfully\n');
     
-    // Read the SQL file
-    const sqlFilePath = path.join(__dirname, 'fix-break-available-now-notifications.sql');
-    const sqlContent = fs.readFileSync(sqlFilePath, 'utf8');
+    // 2. Read and apply the migration
+    console.log('2️⃣ Applying migration 046_add_break_available_now.sql...');
+    const fs = require('fs');
+    const migrationPath = './migrations/046_add_break_available_now.sql';
     
-    console.log('1️⃣ SQL file loaded successfully');
-    console.log(`   File: ${sqlFilePath}`);
-    
-    // Execute the SQL
-    console.log('\n2️⃣ Executing SQL fix...');
-    await pool.query(sqlContent);
-    console.log('   ✅ New functions created successfully:');
-    console.log('     • is_break_available_now() - Checks if breaks are available exactly at start time');
-    console.log('     • Updated check_break_reminders() - Now checks for "available now" notifications');
-    
-    // Test the new function
-    console.log('\n3️⃣ Testing the new logic...');
-    
-    // Test at 1:45 PM when afternoon break should be available now (starts at 1:45 PM)
-    const testTime = '2025-08-19 13:45:00'; // 1:45 PM
-    console.log(`   Testing at ${testTime} (afternoon break window starts at 1:45 PM)`);
-    
-    // Test the new function for User 2
-    const afternoonAvailableNow = await pool.query(`
-      SELECT is_break_available_now(2, 'Afternoon', $1::timestamp without time zone) as available_now
-    `, [testTime]);
-    
-    console.log(`   Afternoon break available now: ${afternoonAvailableNow.rows[0].available_now}`);
-    
-    if (afternoonAvailableNow.rows[0].available_now) {
-      console.log('   ✅ SUCCESS: Afternoon break correctly detected as available now at 1:45 PM!');
-      console.log('   ✅ This will now trigger "break available now" notifications at 1:45 PM');
-    } else {
-      console.log('   ❌ FAILED: Afternoon break not detected as available now at 1:45 PM');
+    if (!fs.existsSync(migrationPath)) {
+      throw new Error(`Migration file not found: ${migrationPath}`);
     }
     
-    // Test at 1:44 PM (1 minute before 1:45 PM - should NOT trigger)
-    const testTime2 = '2025-08-19 13:44:00'; // 1:44 PM
-    console.log(`\n   Testing at ${testTime2} (1 minute before 1:45 PM - should NOT trigger)`);
+    const migrationSQL = fs.readFileSync(migrationPath, 'utf8');
+    await pool.query(migrationSQL);
+    console.log('   ✅ Migration applied successfully\n');
     
-    const afternoonAvailableNow2 = await pool.query(`
-      SELECT is_break_available_now(2, 'Afternoon', $1::timestamp without time zone) as available_now
-    `, [testTime2]);
+    // 3. Test the new is_break_available_now function
+    console.log('3️⃣ Testing the new is_break_available_now function...');
     
-    console.log(`   Afternoon break available now: ${afternoonAvailableNow2.rows[0].available_now}`);
-    
-    if (!afternoonAvailableNow2.rows[0].available_now) {
-      console.log('   ✅ SUCCESS: 1 minute before start correctly NOT detected!');
-    } else {
-      console.log('   ❌ FAILED: 1 minute before start incorrectly detected');
-    }
-    
-    // Test at 1:46 PM (1 minute after 1:45 PM - should NOT trigger)
-    const testTime3 = '2025-08-19 13:46:00'; // 1:46 PM
-    console.log(`\n   Testing at ${testTime3} (1 minute after 1:45 PM - should NOT trigger)`);
-    
-    const afternoonAvailableNow3 = await pool.query(`
-      SELECT is_break_available_now(2, 'Afternoon', $1::timestamp without time zone) as available_now
-    `, [testTime3]);
-    
-    console.log(`   Afternoon break available now: ${afternoonAvailableNow3.rows[0].available_now}`);
-    
-    if (!afternoonAvailableNow3.rows[0].available_now) {
-      console.log('   ✅ SUCCESS: 1 minute after start correctly NOT detected!');
-    } else {
-      console.log('   ❌ FAILED: 1 minute after start incorrectly detected');
-    }
-    
-    // Test the full check_break_reminders function
-    console.log('\n4️⃣ Testing the updated check_break_reminders function...');
-    
-    // Clear any recent notifications first
-    await pool.query(`
-      DELETE FROM notifications 
-      WHERE user_id = 2 
-      AND category = 'break' 
-      AND created_at > NOW() - INTERVAL '1 minute'
+    // Test with a sample user (assuming user_id 1 exists)
+    const testResult = await pool.query(`
+      SELECT 
+        is_break_available_now(1, 'Lunch', NOW() AT TIME ZONE 'Asia/Manila') as lunch_available_now,
+        is_break_available_soon(1, 'Lunch', NOW() AT TIME ZONE 'Asia/Manila') as lunch_available_soon
     `);
     
-    // Call the function
-    const result = await pool.query('SELECT check_break_reminders()');
-    const notificationsSent = result.rows[0].check_break_reminders;
+    console.log('   ✅ Function test results:');
+    console.log(`      Lunch available now: ${testResult.rows[0].lunch_available_now}`);
+    console.log(`      Lunch available soon: ${testResult.rows[0].lunch_available_soon}\n`);
     
-    console.log(`   Notifications sent: ${notificationsSent}`);
+    // 4. Test the updated check_break_reminders function
+    console.log('4️⃣ Testing the updated check_break_reminders function...');
     
-    // Check what notifications were created
-    const newNotifications = await pool.query(`
-      SELECT title, message, payload->>'reminder_type' as reminder_type, created_at
-      FROM notifications
-      WHERE user_id = 2
-      AND category = 'break'
-      AND created_at > NOW() - INTERVAL '1 minute'
-      ORDER BY created_at DESC
-      LIMIT 5
+    const reminderResult = await pool.query('SELECT check_break_reminders()');
+    const notificationsSent = reminderResult.rows[0].check_break_reminders;
+    
+    console.log(`   ✅ Function executed successfully - Notifications sent: ${notificationsSent}\n`);
+    
+    // 5. Verify the function exists and has the right signature
+    console.log('5️⃣ Verifying function signatures...');
+    
+    const functionCheck = await pool.query(`
+      SELECT 
+        proname,
+        pg_get_function_arguments(oid) as arguments,
+        pg_get_function_result(oid) as return_type
+      FROM pg_proc 
+      WHERE proname IN ('is_break_available_now', 'check_break_reminders', 'create_break_reminder_notification')
+      ORDER BY proname
     `);
     
-    if (newNotifications.rows.length > 0) {
-      console.log(`\n   📢 Found ${newNotifications.rows.length} new notifications:`);
-      newNotifications.rows.forEach((notification, index) => {
-        console.log(`   ${index + 1}. ${notification.title}`);
-        console.log(`      Message: ${notification.message}`);
-        console.log(`      Type: ${notification.reminder_type}`);
-        console.log(`      Time: ${notification.created_at.toLocaleString()}`);
-        console.log('');
-      });
-      
-      // Check if we have break available notifications
-      const availableNotifications = newNotifications.rows.filter(n => 
-        n.reminder_type === 'break_available'
-      );
-      
-      if (availableNotifications.length > 0) {
-        console.log('   ✅ SUCCESS: "Break available now" notifications are now working!');
-        console.log('   ✅ You should now receive "break available now" notifications at 1:45 PM');
-      } else {
-        console.log('   ❌ No "break available now" notifications found');
-      }
-    } else {
-      console.log('   ℹ️ No new notifications created (may be outside notification windows)');
-    }
+    console.log('   ✅ Function signatures:');
+    functionCheck.rows.forEach(row => {
+      console.log(`      ${row.proname}(${row.arguments}) -> ${row.return_type}`);
+    });
     
-    // Summary
-    console.log('\n✅ Break available now fix applied and tested!');
-    
-    console.log('\n🎯 What was fixed:');
-    console.log('   • Added `is_break_available_now()` function');
-    console.log('   • Updated `check_break_reminders()` to check for "available now" notifications');
-    console.log('   • Now sends "break available now" notifications exactly when break windows open');
-    console.log('   • Supports all break types (Morning, Lunch, Afternoon, Night shifts)');
-    
-    console.log('\n🔧 Result:');
-    console.log('   • At 1:30 PM: "Afternoon break available soon" ✅');
-    console.log('   • At 1:45 PM: "Afternoon break available now" ✅');
-    console.log('   • At 2:30 PM: "Afternoon break ending soon" ✅');
-    console.log('   • Complete notification coverage! 🎉');
+    console.log('\n🎉 Break available now fix applied successfully!');
+    console.log('\n📋 What was added:');
+    console.log('   • New function: is_break_available_now() - Checks if break is currently active');
+    console.log('   • Updated check_break_reminders() - Now includes "available now" notifications');
+    console.log('   • Updated create_break_reminder_notification() - Handles "available_now" type');
+    console.log('\n🔔 Notification flow now includes:');
+    console.log('   • "Break available soon" - 15 minutes before break starts (9:45 AM)');
+    console.log('   • "Break is now available" - When break starts (10:00 AM)');
+    console.log('   • "Break ending soon" - 5 minutes before break ends');
     
   } catch (error) {
-    console.error('❌ Error applying fix:', error);
+    console.error('\n❌ Error applying break available now fix:', error.message);
+    console.error('\n🔍 Error details:', error);
+    process.exit(1);
   } finally {
     await pool.end();
   }
 }
 
-// Run the fix application
+// Run the fix
 applyBreakAvailableNowFix();

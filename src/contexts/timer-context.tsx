@@ -351,18 +351,77 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         return // Don't increment counters when in a meeting
       }
       
-      // Use timerData.isActive if available, otherwise use lastActivityState
-      const isActive = timerData ? timerData.isActive : lastActivityState
+      // IMPROVED ACTIVITY STATE DETERMINATION
+      // Priority order: server state > local state > fallback
+      let isActive = false
       
+      if (timerData && timerData.isActive !== undefined) {
+        // Use server state as primary source of truth
+        isActive = timerData.isActive
+      } else if (lastActivityState !== null) {
+        // Fall back to local state if server state unavailable
+        isActive = lastActivityState
+      } else {
+        // Default fallback: assume active if we can't determine
+        // This prevents false inactive counting
+        isActive = true
+        console.log('⚠️ Activity state unclear, defaulting to active to prevent false inactive counting')
+      }
+      
+      // ADDITIONAL SAFETY CHECKS
+      // If we have recent activity data from server, trust it more than local state
+      if (timerData && timerData.activeSeconds !== undefined && timerData.inactiveSeconds !== undefined) {
+        // Server has recent data - use server's activity state
+        isActive = timerData.isActive
+      }
+      
+      // Log activity state changes for debugging
+      if (isActive !== lastActivityState) {
+        console.log(`🔄 Activity state changed: ${lastActivityState} → ${isActive} (Server: ${timerData?.isActive}, Local: ${lastActivityState})`)
+      }
+      
+      // Update counters based on determined activity state
       if (isActive) {
         setLiveActiveSeconds(prev => prev + 1)
       } else {
-        setLiveInactiveSeconds(prev => prev + 1)
+        // Only count inactive time if we're confident the user is actually inactive
+        // Add additional validation to prevent false inactive counting
+        const shouldCountInactive = validateInactiveState(timerData, lastActivityState)
+        
+        if (shouldCountInactive) {
+          setLiveInactiveSeconds(prev => prev + 1)
+        } else {
+          // If we can't validate inactive state, default to active to prevent false counting
+          console.log('⚠️ Inactive state validation failed, defaulting to active counting')
+          setLiveActiveSeconds(prev => prev + 1)
+        }
       }
     }, 1000)
 
     return () => clearInterval(interval)
   }, [timerData?.isActive, lastActivityState, isAuthenticated, hasLoggedIn, isBreakActive, breakStatus?.is_paused, isInMeeting, shiftInfo, userProfile])
+
+  // Helper function to validate if we should actually count inactive time
+  const validateInactiveState = useCallback((timerData: any, lastActivityState: boolean | null): boolean => {
+    // If server explicitly says inactive, trust it
+    if (timerData && timerData.isActive === false) {
+      return true
+    }
+    
+    // If local state says inactive but we have recent server data that says active
+    if (lastActivityState === false && timerData && timerData.isActive === true) {
+      console.log('🔄 Local inactive state overridden by server active state')
+      return false
+    }
+    
+    // If we have no clear indication, be conservative and don't count inactive
+    if (lastActivityState === null && !timerData) {
+      return false
+    }
+    
+    // Only count inactive if we have a clear, consistent inactive state
+    return lastActivityState === false
+  }, [])
 
   // Real-time countdown timer for shift reset
   useEffect(() => {
