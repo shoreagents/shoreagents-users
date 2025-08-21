@@ -97,6 +97,25 @@ export function normalizeAuthOnEntry() {
  * Clear all authentication data and redirect to login
  */
 export function forceLogout() {
+  // Emit logout event to socket server before clearing auth data
+  try {
+    // Get socket instance from global scope or emit event
+    if (typeof window !== 'undefined') {
+      // Try to emit logout event to socket if available
+      const event = new CustomEvent('user-logout', { 
+        detail: { 
+          timestamp: new Date().toISOString(),
+          reason: 'manual_logout'
+        } 
+      });
+      window.dispatchEvent(event);
+      
+      console.log('🚪 Logout event dispatched - socket server will mark user as offline');
+    }
+  } catch (error) {
+    console.log('Socket logout event failed (socket may not be connected):', error);
+  }
+  
   // Clear localStorage
   localStorage.removeItem('shoreagents-auth')
   localStorage.removeItem('sb-sanljwkkoawwdpaxrper-auth-token')

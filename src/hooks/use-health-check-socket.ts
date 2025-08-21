@@ -34,10 +34,14 @@ export interface HealthCheckRecord {
   follow_up_notes?: string
   created_at: string
   updated_at: string
-  user_name?: string
   user_email?: string
-  nurse_name?: string
+  user_first_name?: string
+  user_middle_name?: string
+  user_last_name?: string
   nurse_email?: string
+  nurse_first_name?: string
+  nurse_middle_name?: string
+  nurse_last_name?: string
 }
 
 export interface HealthCheckNotification {
@@ -61,9 +65,11 @@ export interface NurseAvailability {
   is_available: boolean
   break_start?: string
   break_end?: string
-  nurse_name?: string
   nurse_email?: string
   nurse_role?: string
+  nurse_first_name?: string
+  nurse_middle_name?: string
+  nurse_last_name?: string
 }
 
 export function useHealthCheckSocket(email: string | null) {

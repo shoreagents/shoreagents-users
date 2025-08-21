@@ -258,7 +258,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
   // Update live counters when timer data changes
   useEffect(() => {
     if (timerData && !isInitialized) {
-      // Initialize with server data only
+      // Initialize with server data (now includes proper database hydration)
       setLiveActiveSeconds(timerData.activeSeconds || 0)
       setLiveInactiveSeconds(timerData.inactiveSeconds || 0)
       setLastActivityState(timerData.isActive)
@@ -272,10 +272,25 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       }
       
       setIsInitialized(true)
-      console.log('Timer initialized with server data:', timerData)
+      console.log('🔄 Timer initialized with hydrated server data:', timerData)
     } else if (timerData && isInitialized) {
-      // After initialization, only update activity state, not the counters
-      // This prevents flashing as the local counter continues running
+      // After initialization, accept counter updates from server if they're significantly higher
+      // This allows for database hydration updates and server corrections
+      const serverActive = timerData.activeSeconds || 0
+      const serverInactive = timerData.inactiveSeconds || 0
+      
+      // Update counters if server values are significantly higher (database sync)
+      if (serverActive > liveActiveSeconds && (serverActive - liveActiveSeconds) > 5) {
+        console.log(`🔄 Updating active seconds from server: ${liveActiveSeconds} → ${serverActive}`)
+        setLiveActiveSeconds(serverActive)
+      }
+      
+      if (serverInactive > liveInactiveSeconds && (serverInactive - liveInactiveSeconds) > 5) {
+        console.log(`🔄 Updating inactive seconds from server: ${liveInactiveSeconds} → ${serverInactive}`)
+        setLiveInactiveSeconds(serverInactive)
+      }
+      
+      // Always update activity state
       setLastActivityState(timerData.isActive)
       
       // Update shift information if it changes
@@ -285,7 +300,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         setFormattedTimeUntilReset(timerData.shiftInfo.formattedTimeUntilReset || '')
       }
     }
-  }, [timerData, isInitialized])
+  }, [timerData, isInitialized, liveActiveSeconds, liveInactiveSeconds])
 
   // Force initialization after a timeout if timer data doesn't arrive
   useEffect(() => {
@@ -320,8 +335,18 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         } else if (userProfile?.shift_time) {
           const parsed = parseShiftTime(userProfile.shift_time, nowPH)
           if (parsed?.startTime && parsed?.endTime) {
-            shiftStartDate = parsed.startTime
-            shiftEndDate = parsed.endTime
+            if (parsed.isNightShift && nowPH < parsed.startTime) {
+              // Anchor night shift to previous day when before today's start
+              const adjustedStart = new Date(parsed.startTime)
+              adjustedStart.setDate(adjustedStart.getDate() - 1)
+              const adjustedEnd = new Date(parsed.endTime)
+              adjustedEnd.setDate(adjustedEnd.getDate() - 1)
+              shiftStartDate = adjustedStart
+              shiftEndDate = adjustedEnd
+            } else {
+              shiftStartDate = parsed.startTime
+              shiftEndDate = parsed.endTime
+            }
           }
         }
         
@@ -510,8 +535,18 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         } else if (userProfile?.shift_time) {
           const parsed = parseShiftTime(userProfile.shift_time, nowPH)
           if (parsed?.startTime && parsed?.endTime) {
-            shiftStartDate = parsed.startTime
-            shiftEndDate = parsed.endTime
+            if (parsed.isNightShift && nowPH < parsed.startTime) {
+              // Anchor night shift to previous day when before today's start
+              const adjustedStart = new Date(parsed.startTime)
+              adjustedStart.setDate(adjustedStart.getDate() - 1)
+              const adjustedEnd = new Date(parsed.endTime)
+              adjustedEnd.setDate(adjustedEnd.getDate() - 1)
+              shiftStartDate = adjustedStart
+              shiftEndDate = adjustedEnd
+            } else {
+              shiftStartDate = parsed.startTime
+              shiftEndDate = parsed.endTime
+            }
           }
         }
         

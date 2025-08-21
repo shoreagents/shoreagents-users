@@ -5,6 +5,7 @@ import { ActivityProvider } from "@/contexts/activity-context";
 import { BreakProvider } from "@/contexts/break-context";
 import { TimerProvider } from "@/contexts/timer-context";
 import { MeetingProvider } from "@/contexts/meeting-context";
+import { OnlineStatusProvider } from "@/contexts/online-status-context";
 import ElectronLogoutHandler from "@/components/electron-logout-handler";
 import DatabaseInitializer from "@/components/database-initializer";
 import { GlobalTimerDisplay } from "@/components/global-timer-display";
@@ -49,13 +50,15 @@ export default function RootLayout({
             <ActivityProvider>
               <MeetingProvider>
                 <TimerProvider>
-                  {/* Keep auth stores in sync as early as possible */}
-                  <AuthNormalizer />
-                  <DatabaseInitializer />
-                  <ElectronLogoutHandler />
-                  {children}
-                  <GlobalTimerDisplay />
-                  <Toaster position="top-right" richColors />
+                  <OnlineStatusProvider>
+                    {/* Keep auth stores in sync as early as possible */}
+                    <AuthNormalizer />
+                    <DatabaseInitializer />
+                    <ElectronLogoutHandler />
+                    {children}
+                    <GlobalTimerDisplay />
+                    <Toaster position="top-right" richColors />
+                  </OnlineStatusProvider>
                 </TimerProvider>
               </MeetingProvider>
             </ActivityProvider>

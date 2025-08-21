@@ -54,6 +54,8 @@ export default function NotificationsPage() {
   const [unreadCount, setUnreadCount] = useState(0)
   const [highlightedNotificationId, setHighlightedNotificationId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  // Trigger periodic re-render so formatTimeAgo updates (e.g., "Just now" -> "1 minute ago")
+  const [nowTick, setNowTick] = useState<number>(() => Date.now())
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1)
@@ -87,7 +89,7 @@ export default function NotificationsPage() {
               type: n.type,
               title: n.title,
               message: n.message,
-              time: new Date(n.created_at).getTime(),
+              time: (require('@/lib/notification-service') as any).parseDbTimestampToMs(n.created_at, n.category),
               read: !!n.is_read,
               icon,
               actionUrl,
@@ -99,7 +101,7 @@ export default function NotificationsPage() {
           })
           saveNotifications(mapped)
           setNotifications(mapped)
-          setUnreadCount(mapped.filter((n: any) => !n.read).length)
+          // Don't call setUnreadCount here - let the component handle it naturally
         }
       } catch {}
     }
@@ -107,7 +109,7 @@ export default function NotificationsPage() {
     const loadFromMemory = () => {
       const realNotifications = getNotifications()
       setNotifications(realNotifications)
-      setUnreadCount(getUnreadCount())
+      // Don't call setUnreadCount here - let the component handle it naturally
     }
 
     // Try DB hydrate first, then ensure memory state shown
@@ -148,12 +150,25 @@ export default function NotificationsPage() {
     }
   }, [])
 
+  // Refresh the "time ago" labels every 30 seconds and when tab regains focus
+  useEffect(() => {
+    const interval = setInterval(() => setNowTick(Date.now()), 30000)
+    const onVisibility = () => setNowTick(Date.now())
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('focus', onVisibility)
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('focus', onVisibility)
+    }
+  }, [])
+
   const handleDeleteNotification = async (id: string) => {
     // Update in-memory first
     deleteNotification(id)
     const realNotifications = getNotifications()
     setNotifications(realNotifications)
-    setUnreadCount(getUnreadCount())
+    // Don't call setUnreadCount here - let the component handle it naturally
     // Persist delete to DB if possible
     try {
       const auth = JSON.parse(localStorage.getItem('shoreagents-auth') || '{}')
@@ -175,7 +190,7 @@ export default function NotificationsPage() {
     markAllNotificationsAsRead()
     const real = getNotifications()
     setNotifications(real)
-    setUnreadCount(0)
+    // Don't call setUnreadCount here - let the component handle it naturally
     // Persist to DB
     try {
       const user = getCurrentUser()
@@ -630,7 +645,7 @@ export default function NotificationsPage() {
                                 {notification.message}
                               </p>
                               <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                                <span>{formatTimeAgo(notification.time)}</span>
+                                <span key={nowTick}>{formatTimeAgo(notification.time)}</span>
                                 <span>•</span>
                                 <span className="capitalize">{notification.type}</span>
                               </div>

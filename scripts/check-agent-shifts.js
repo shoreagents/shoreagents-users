@@ -7,65 +7,117 @@ const pool = new Pool({
 });
 
 async function checkAgentShifts() {
+  console.log('🔍 Checking Agent Shift Configuration\n');
+  
   try {
-    console.log('🔍 Checking Agent Shift Times:\n');
-    
-    const result = await pool.query(`
+    // Check shift configuration for agents
+    const shiftResult = await pool.query(`
       SELECT 
-        u.id, 
-        u.email, 
-        ji.shift_time 
-      FROM users u 
-      JOIN job_info ji ON (ji.agent_user_id = u.id OR ji.internal_user_id = u.id) 
-      WHERE u.user_type = 'Agent' 
+        u.id,
+        u.email,
+        ji.shift_time,
+        ji.shift_period
+      FROM users u
+      LEFT JOIN job_info ji ON ji.agent_user_id = u.id
+      WHERE u.user_type = 'Agent' AND u.id IN (2, 4)
       ORDER BY u.id
     `);
     
-    result.rows.forEach(row => {
-      console.log(`Agent ${row.id} (${row.email}): ${row.shift_time}`);
-    });
-    
-    console.log('\n📋 Current calculate_break_windows logic should handle:');
-    console.log('   • 6:00 AM - 3:00 PM shift');
-    console.log('   • 7:00 AM - 4:00 PM shift');
-    console.log('   • Any other shift times dynamically');
-    
-    console.log('\n🧪 Testing break windows for different shifts:');
-    
-    // Test for each agent
-    for (const agent of result.rows) {
-      console.log(`\n👤 ${agent.email} (${agent.shift_time}):`);
-      
-      const breakWindowsResult = await pool.query(`
-        SELECT * FROM calculate_break_windows($1) ORDER BY start_time
-      `, [agent.id]);
-      
-      breakWindowsResult.rows.forEach(window => {
-        const startTime = window.start_time;
-        const endTime = window.end_time;
+    console.log('📋 Agent Shift Configuration:');
+    if (shiftResult.rows.length > 0) {
+      shiftResult.rows.forEach(row => {
+        console.log(`   • User ${row.id} (${row.email}):`);
+        console.log(`     - Shift Time: ${row.shift_time || 'Not configured'}`);
+        console.log(`     - Shift Period: ${row.shift_period || 'Not specified'}`);
         
-        // Convert to 12-hour format for display
-        const startHour = parseInt(startTime.split(':')[0]);
-        const endHour = parseInt(endTime.split(':')[0]);
-        
-        let startAmPm = startHour >= 12 ? 'PM' : 'AM';
-        let endAmPm = endHour >= 12 ? 'PM' : 'AM';
-        
-        let displayStartHour = startHour > 12 ? startHour - 12 : (startHour === 0 ? 12 : startHour);
-        let displayEndHour = endHour > 12 ? endHour - 12 : (endHour === 0 ? 12 : endHour);
-        
-        console.log(`   ${window.break_type}: ${displayStartHour}:${startTime.split(':')[1]} ${startAmPm} - ${displayEndHour}:${endTime.split(':')[1]} ${endAmPm}`);
+        if (row.shift_time) {
+          // Parse the shift time to understand the structure
+          const shiftMatch = row.shift_time.match(/(\d{1,2}:\d{2}\s*(?:AM|PM))\s*-\s*(\d{1,2}:\d{2}\s*(?:AM|PM))/i);
+          if (shiftMatch) {
+            const startTime = shiftMatch[1].trim();
+            const endTime = shiftMatch[2].trim();
+            console.log(`     - Start: ${startTime}`);
+            console.log(`     - End: ${endTime}`);
+            
+            // Determine if it's a night shift (crosses midnight)
+            const startHour = parseInt(startTime.split(':')[0]);
+            const endHour = parseInt(endTime.split(':')[0]);
+            const startAMPM = startTime.includes('PM') ? 'PM' : 'AM';
+            const endAMPM = endTime.includes('PM') ? 'PM' : 'AM';
+            
+            let isNightShift = false;
+            if (startAMPM === 'PM' && endAMPM === 'AM') {
+              isNightShift = true;
+            } else if (startAMPM === 'PM' && endAMPM === 'PM' && startHour > endHour) {
+              isNightShift = true;
+            } else if (startAMPM === 'AM' && endAMPM === 'AM' && startHour > endHour) {
+              isNightShift = true;
+            }
+            
+            console.log(`     - Type: ${isNightShift ? 'Night Shift (crosses midnight)' : 'Day Shift'}`);
+          }
+        }
+        console.log('');
       });
+    } else {
+      console.log('   ❌ No agents found');
     }
     
-    console.log('\n📝 Notes:');
-    console.log('   • Break windows should be calculated based on shift start/end times');
-    console.log('   • Morning break: typically 2-3 hours after shift starts');
-    console.log('   • Lunch break: typically mid-shift with longer window');
-    console.log('   • Afternoon break: typically 1-2 hours before shift ends');
+    // Check if there are other shift-related tables
+    console.log('🔍 Checking for other shift-related data...');
+    
+    try {
+      const agentsResult = await pool.query(`
+        SELECT 
+          user_id,
+          shift_time,
+          shift_period
+        FROM agents
+        WHERE user_id IN (2, 4)
+        ORDER BY user_id
+      `);
+      
+      if (agentsResult.rows.length > 0) {
+        console.log('   📋 Agents table data:');
+        agentsResult.rows.forEach(row => {
+          console.log(`     • User ${row.user_id}: ${row.shift_time || 'No shift'} (${row.shift_period || 'No period'})`);
+        });
+      } else {
+        console.log('   • No data in agents table for these users');
+      }
+    } catch (error) {
+      console.log(`   • Agents table query failed: ${error.message}`);
+    }
+    
+    // Check current time and what would be appropriate
+    console.log('\n🕐 Current Time Analysis:');
+    const timeResult = await pool.query(`
+      SELECT 
+        NOW() AT TIME ZONE 'Asia/Manila' as manila_now,
+        EXTRACT(HOUR FROM NOW() AT TIME ZONE 'Asia/Manila') as manila_hour,
+        EXTRACT(MINUTE FROM NOW() AT TIME ZONE 'Asia/Manila') as manila_minute
+    `);
+    
+    const currentTime = timeResult.rows[0];
+    console.log(`   • Current Manila time: ${currentTime.manila_now}`);
+    console.log(`   • Current hour: ${currentTime.manila_hour}:${currentTime.manila_minute}`);
+    
+    // Determine what shift this would be for
+    const currentHour = currentTime.manila_hour;
+    if (currentHour >= 6 && currentHour < 18) {
+      console.log('   • Current time suggests: Day shift hours (6 AM - 6 PM)');
+    } else {
+      console.log('   • Current time suggests: Night shift hours (6 PM - 6 AM)');
+    }
+    
+    console.log('\n💡 Recommendation:');
+    console.log('   • The system should use ACTUAL shift times from job_info table');
+    console.log('   • Not hardcoded 6 AM - 6 PM logic');
+    console.log('   • Support shifts like "10:00 PM - 7:00 AM" for night agents');
+    console.log('   • Support shifts like "6:00 AM - 3:00 PM" for day agents');
     
   } catch (error) {
-    console.error('❌ Error:', error.message);
+    console.error('❌ Error checking agent shifts:', error.message);
   } finally {
     await pool.end();
   }
