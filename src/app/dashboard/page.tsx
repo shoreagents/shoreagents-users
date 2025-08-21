@@ -5,6 +5,7 @@ import { AppSidebar } from "@/components/app-sidebar"
 import { AppHeader } from "@/components/app-header"
 import { DashboardSkeleton } from "@/components/skeleton-loaders"
 import { ShiftResetTimer } from "@/components/shift-reset-timer"
+import { useActivityTracker } from "@/hooks/use-activity-tracker"
 import {
   SidebarInset,
   SidebarProvider,
@@ -53,6 +54,9 @@ export default function DashboardPage() {
   const [allTickets, setAllTickets] = useState<Ticket[]>([])
   const [breaks, setBreaks] = useState<BreakSession[]>([])
   const [meetings, setMeetings] = useState<MeetingItem[]>([])
+  
+  // Track user activity to prevent away status
+  useActivityTracker()
 
   useEffect(() => {
     const loadDashboard = async () => {

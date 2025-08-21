@@ -60,7 +60,7 @@ export function useNotificationsSocket(email: string | null) {
         type: n.type,
         title: n.title,
         message: n.message,
-        time: new Date(n.created_at).getTime(),
+        time: (require('@/lib/notification-service') as any).parseDbTimestampToMs(n.created_at, n.category),
         read: false,
         icon,
         actionUrl,

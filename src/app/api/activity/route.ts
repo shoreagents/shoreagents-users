@@ -53,6 +53,59 @@ async function getUserShiftStartTime(pool: Pool, actualUserId: number): Promise<
   return '06:00';
 }
 
+// NEW: Use the database function to get the correct activity date for any shift
+async function getActivityDateForShift(pool: Pool, actualUserId: number): Promise<string> {
+  try {
+    const result = await pool.query(
+      'SELECT get_activity_date_for_shift_simple($1) as activity_date',
+      [actualUserId]
+    );
+    if (result.rows.length > 0) {
+      return result.rows[0].activity_date;
+    }
+  } catch (error) {
+    console.error('Error getting activity date for shift:', error);
+  }
+  
+  // Fallback to old logic if function fails
+  const shiftStart = await getUserShiftStartTime(pool, actualUserId);
+  const now = new Date();
+  const philippinesTime = new Date(now.toLocaleString("en-US", {timeZone: "Asia/Manila"}));
+  const currentTime = philippinesTime.toTimeString().slice(0, 5); // HH:MM format
+  
+  // Parse shift start time
+  const [shiftHour, shiftMinute] = shiftStart.split(':').map(Number);
+  const shiftStartMinutes = shiftHour * 60 + shiftMinute;
+  const [currentHour, currentMinute] = currentTime.split(':').map(Number);
+  const currentMinutes = currentHour * 60 + currentMinute;
+  
+  // Calculate effective date: if we're before shift start, use previous day
+  let effectiveDate = philippinesTime;
+  if (currentMinutes < shiftStartMinutes) {
+    effectiveDate.setDate(effectiveDate.getDate() - 1);
+  }
+  
+  return effectiveDate.toISOString().split('T')[0]; // YYYY-MM-DD
+}
+
+// NEW: Use the database function to check if we should reset activity
+async function shouldResetActivity(pool: Pool, actualUserId: number): Promise<boolean> {
+  try {
+    const result = await pool.query(
+      'SELECT should_reset_activity_simple($1) as should_reset',
+      [actualUserId]
+    );
+    if (result.rows.length > 0) {
+      return result.rows[0].should_reset;
+    }
+  } catch (error) {
+    console.error('Error checking if should reset activity:', error);
+  }
+  
+  // Fallback to old logic if function fails
+  return true;
+}
+
 // Check if we're starting a new shift period (not just a new day)
 async function isNewShiftPeriod(pool: Pool, actualUserId: number, effectiveDateStr: string): Promise<boolean> {
   try {
@@ -120,33 +173,15 @@ export async function GET(request: NextRequest) {
       return handleRealtimeRequest(request, email, userId);
     }
     
-    // Regular GET request - use user-specific shift start time from job_info when available
+    // Regular GET request - use new night shift logic
     const pool = getPool();
     const actualUserId = await resolveUserId(pool, userId, email);
     if (!actualUserId) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
-    const shiftStart = await getUserShiftStartTime(pool, actualUserId);
 
-    // Calculate the effective date based on shift start time and current time
-    const now = new Date();
-    const philippinesTime = new Date(now.toLocaleString("en-US", {timeZone: "Asia/Manila"}));
-    const currentTime = philippinesTime.toTimeString().slice(0, 5); // HH:MM format
-    
-    // Parse shift start time
-    const [shiftHour, shiftMinute] = shiftStart.split(':').map(Number);
-    const shiftStartMinutes = shiftHour * 60 + shiftMinute;
-    const [currentHour, currentMinute] = currentTime.split(':').map(Number);
-    const currentMinutes = currentHour * 60 + currentMinute;
-    
-    // Calculate effective date anchored to shift start
-    let effectiveDate = philippinesTime;
-    if (currentMinutes < shiftStartMinutes) {
-      effectiveDate.setDate(effectiveDate.getDate() - 1);
-    }
-
-    const effectiveDateStr = effectiveDate.toISOString().split('T')[0]; // YYYY-MM-DD
-    const manilaTodayStr = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' })).toISOString().split('T')[0];
+    // NEW: Use the database function to get the correct activity date
+    const effectiveDateStr = await getActivityDateForShift(pool, actualUserId);
 
     const query = `
       SELECT ad.*, u.email
@@ -154,16 +189,8 @@ export async function GET(request: NextRequest) {
       JOIN users u ON ad.user_id = u.id
       WHERE ad.user_id = $1 AND ad.today_date = $2`;
 
-    // Primary fetch: shift-anchored effective date
+    // Fetch using the correct activity date
     let result = await pool.query(query, [actualUserId, effectiveDateStr]);
-
-    // Enhancement: Before shift start, if a pre-created row for "today" exists, prefer it
-    if (result.rows.length === 0 && currentMinutes < shiftStartMinutes) {
-      const todayResult = await pool.query(query, [actualUserId, manilaTodayStr]);
-      if (todayResult.rows.length > 0) {
-        return NextResponse.json(todayResult.rows[0]);
-      }
-    }
 
     if (result.rows.length === 0) {
       return NextResponse.json({ error: 'Activity data not found' }, { status: 404 });
@@ -272,31 +299,11 @@ export async function POST(request: NextRequest) {
       actualUserId = userResult.rows[0].id;
     }
     
-    // Get user-specific shift start time
-    const shiftStart = await getUserShiftStartTime(pool, Number(actualUserId));
+      // NEW: Use the database function to get the correct activity date
+    const effectiveDateStr = await getActivityDateForShift(pool, Number(actualUserId));
     
-    // Calculate the effective date based on shift start time and current time
-    // This ensures each shift gets its own row and preserves historical data
-    const now = new Date();
-    const philippinesTime = new Date(now.toLocaleString("en-US", {timeZone: "Asia/Manila"}));
-    const currentTime = philippinesTime.toTimeString().slice(0, 5); // HH:MM format
-    
-    // Parse shift start time
-    const [shiftHour, shiftMinute] = shiftStart.split(':').map(Number);
-    const shiftStartMinutes = shiftHour * 60 + shiftMinute;
-    const [currentHour, currentMinute] = currentTime.split(':').map(Number);
-    const currentMinutes = currentHour * 60 + currentMinute;
-    
-    // Calculate effective date: if we're before shift start, use previous day
-    let effectiveDate = philippinesTime;
-    if (currentMinutes < shiftStartMinutes) {
-      effectiveDate.setDate(effectiveDate.getDate() - 1);
-    }
-    
-    const effectiveDateStr = effectiveDate.toISOString().split('T')[0]; // YYYY-MM-DD
-    
-    // Check if we're starting a new shift period
-    const isNewShift = await isNewShiftPeriod(pool, actualUserId, effectiveDateStr);
+    // NEW: Use the database function to check if we should reset activity
+    const shouldReset = await shouldResetActivity(pool, Number(actualUserId));
     
     // Check if we already have a row for this effective date
     const existingResult = await pool.query(
@@ -305,7 +312,7 @@ export async function POST(request: NextRequest) {
       [actualUserId, effectiveDateStr]
     );
     
-    if (existingResult.rows.length > 0 && !isNewShift) {
+    if (existingResult.rows.length > 0 && !shouldReset) {
       const existing = existingResult.rows[0];
       
       // Only update if state is changing
@@ -360,7 +367,7 @@ export async function POST(request: NextRequest) {
         
         return NextResponse.json(updateResult.rows[0]);
       }
-    } else if (existingResult.rows.length > 0 && isNewShift) {
+    } else if (existingResult.rows.length > 0 && shouldReset) {
       // We have an existing row but this is a new shift period
       // Create a new row with 0 values for the new shift
       const now = new Date();
@@ -422,37 +429,18 @@ export async function PUT(request: NextRequest) {
     
     console.log('Actual user ID:', actualUserId);
     
-    // Get current activity data for current shift-anchored day
-    const shiftStart = await getUserShiftStartTime(pool, Number(actualUserId));
+    // NEW: Use the database function to get the correct activity date
+    const effectiveDateStr = await getActivityDateForShift(pool, Number(actualUserId));
     
-    // Calculate the effective date based on shift start time and current time
-    const now = new Date();
-    const philippinesTime = new Date(now.toLocaleString("en-US", {timeZone: "Asia/Manila"}));
-    const currentTime = philippinesTime.toTimeString().slice(0, 5); // HH:MM format
-    
-    // Parse shift start time
-    const [shiftHour, shiftMinute] = shiftStart.split(':').map(Number);
-    const shiftStartMinutes = shiftHour * 60 + shiftMinute;
-    const [currentHour, currentMinute] = currentTime.split(':').map(Number);
-    const currentMinutes = currentHour * 60 + currentMinute;
-    
-    // Calculate effective date: if we're before shift start, use previous day
-    let effectiveDate = philippinesTime;
-    if (currentMinutes < shiftStartMinutes) {
-      effectiveDate.setDate(effectiveDate.getDate() - 1);
-    }
-    
-    const effectiveDateStr = effectiveDate.toISOString().split('T')[0]; // YYYY-MM-DD
-    
-    // Check if we're starting a new shift period
-    const isNewShift = await isNewShiftPeriod(pool, actualUserId, effectiveDateStr);
+    // NEW: Use the database function to check if we should reset activity
+    const shouldReset = await shouldResetActivity(pool, Number(actualUserId));
     
     const existingResult = await pool.query(
       `SELECT * FROM activity_data WHERE user_id = $1 AND today_date = $2`, 
       [actualUserId, effectiveDateStr]
     );
     
-    if (existingResult.rows.length > 0 && !isNewShift) {
+    if (existingResult.rows.length > 0 && !shouldReset) {
       const existing = existingResult.rows[0];
       
       // If frontend values are provided, use them directly
@@ -526,7 +514,7 @@ export async function PUT(request: NextRequest) {
         );
         return NextResponse.json(updateResult.rows[0]);
       }
-    } else if (existingResult.rows.length > 0 && isNewShift) {
+    } else if (existingResult.rows.length > 0 && shouldReset) {
       // We have an existing row but this is a new shift period
       // Create a new row with 0 values for the new shift
       const insertResult = await pool.query(

@@ -118,6 +118,27 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
         setCurrentMonthScore(data.currentMonthScore);
         setAverageScore(data.averageProductivityScore);
         setLastUpdate(new Date().toLocaleTimeString());
+        
+        // Emit productivity update to socket server for real-time leaderboard updates
+        if (data.currentMonthScore) {
+          try {
+            const event = new CustomEvent('productivity-update', {
+              detail: {
+                email: currentUser.email,
+                userId: currentUser.id,
+                productivityScore: data.currentMonthScore.productivity_score,
+                totalActiveTime: data.currentMonthScore.total_active_seconds || 0,
+                totalInactiveTime: data.currentMonthScore.total_inactive_seconds || 0,
+                timestamp: new Date().toISOString()
+              }
+            });
+            window.dispatchEvent(event);
+            
+            console.log('📊 Productivity update event dispatched for leaderboard sync');
+          } catch (error) {
+            console.log('Socket productivity update failed:', error);
+          }
+        }
       } else {
         console.error('❌ API ERROR:', response.status, response.statusText);
       }

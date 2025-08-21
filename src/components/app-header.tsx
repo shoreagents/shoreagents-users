@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { usePathname } from "next/navigation"
 import { HeaderUser } from "@/components/header-user"
 import {
@@ -64,6 +64,8 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
   const [notifications, setNotifications] = useState<any[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [loadingBell, setLoadingBell] = useState(true)
+  // Trigger periodic re-render so formatTimeAgo updates (e.g., "Just now" -> "1 minute ago")
+  const [nowTick, setNowTick] = useState<number>(() => Date.now())
 
   // Start socket listener for DB notifications. The hook reacts to email changes.
   useNotificationsSocket(user?.email || null)
@@ -87,15 +89,28 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
         // Update the local state immediately
         const updatedNotifications = getNotifications()
         setNotifications(updatedNotifications)
-        setUnreadCount(getUnreadCount())
+        // Don't call setUnreadCount here - let useMemo handle it
       })
       
       // Listen for general notification updates
       window.electronAPI.receive('notifications-updated', () => {
         const updatedNotifications = getNotifications()
         setNotifications(updatedNotifications)
-        setUnreadCount(getUnreadCount())
+        // Don't call setUnreadCount here - let useMemo handle it
       })
+    }
+  }, [])
+
+  // Refresh the "time ago" labels every 30 seconds and when tab regains focus
+  useEffect(() => {
+    const interval = setInterval(() => setNowTick(Date.now()), 30000)
+    const onVisibility = () => setNowTick(Date.now())
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('focus', onVisibility)
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('focus', onVisibility)
     }
   }, [])
 
@@ -120,7 +135,7 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
               type: n.type,
               title: n.title,
               message: n.message,
-              time: new Date(n.created_at).getTime(),
+              time: (require('@/lib/notification-service') as any).parseDbTimestampToMs(n.created_at, n.category),
               read: !!n.is_read,
               icon,
               actionUrl,
@@ -137,7 +152,7 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
           const unread = mapped.filter((n: any) => !n.read)
           const read = mapped.filter((n: any) => n.read)
           setNotifications([...unread, ...read].slice(0, 8))
-          setUnreadCount(unread.length)
+          // Don't set unread count here - let useMemo handle it
         }
       } catch {}
       finally { setLoadingBell(false) }
@@ -159,11 +174,11 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
         ...readNotifications
       ].slice(0, 8)
       
-      const newUnreadCount = getUnreadCount();
+      // Only update notifications, let the useMemo handle unread count
       setNotifications(recentNotifications);
-      setUnreadCount(newUnreadCount);
       
-      // Update system tray badge
+      // Update system tray badge with current unread count
+      const newUnreadCount = unreadNotifications.length;
       if (window.electronAPI?.send) {
         window.electronAPI.send('notification-count-changed', { count: newUnreadCount });
       }
@@ -393,15 +408,22 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
   }
 
   // Update notification count and badge - SIMPLIFIED
+  // Use useMemo to calculate unread count instead of useEffect to prevent infinite loops
+  const currentUnreadCount = useMemo(() => {
+    return getUnreadCount()
+  }, [notifications])
+
+  // Update unread count when it changes
   useEffect(() => {
-    const unreadCount = getUnreadCount()
-    setUnreadCount(unreadCount)
-    
-    // Update system tray badge if available
-    if (window.electronAPI?.send) {
-      window.electronAPI.send('notification-count-changed', { count: unreadCount });
+    if (currentUnreadCount !== unreadCount) {
+      setUnreadCount(currentUnreadCount)
+      
+      // Update system tray badge if available
+      if (window.electronAPI?.send) {
+        window.electronAPI.send('notification-count-changed', { count: currentUnreadCount });
+      }
     }
-  }, [notifications]) // Only depend on notifications, not re-run constantly
+  }, [currentUnreadCount, unreadCount])
 
   return (
     <header className="sticky top-0 z-50 flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12 bg-background/95 backdrop-blur-sm supports-[backdrop-filter]:bg-background/80 border-b border-border/40 shadow-sm">
@@ -491,7 +513,7 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
                         markAllNotificationsAsRead()
                         const updated = getNotifications()
                         setNotifications(updated)
-                        setUnreadCount(0)
+                        // Don't call setUnreadCount here - let useMemo handle it
                         // Persist to DB
                         try {
                           const currentUser = getCurrentUser()
@@ -579,7 +601,7 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
                               ].slice(0, 8)
                               
                               setNotifications(recentNotifications)
-                              setUnreadCount(getUnreadCount())
+                              // Don't call setUnreadCount here - let useMemo handle it
                               
                               // Dispatch notification-clicked event for task notifications
                               if (notification.category === 'task') {
@@ -616,7 +638,7 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
                                       {notification.message}
                                     </p>
                                     <div className="flex items-center gap-2 mt-2">
-                                      <span className="text-xs text-muted-foreground">
+                                      <span key={nowTick} className="text-xs text-muted-foreground">
                                         {formatTimeAgo(notification.time)}
                                       </span>
                                       {!notification.read && (

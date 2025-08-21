@@ -17,6 +17,31 @@ export interface Notification {
 
 // In-memory store for current session notifications
 let inMemoryNotifications: Notification[] = []
+// Parse DB timestamp and correct for break notification timezone bug only
+export function parseDbTimestampToMs(createdAt: any, notificationType?: string): number {
+  try {
+    if (createdAt == null) return Date.now()
+    if (typeof createdAt === 'number') return createdAt
+    if (createdAt instanceof Date) return createdAt.getTime()
+    
+    const raw = String(createdAt).trim()
+    let parsedMs = new Date(raw).getTime()
+    
+    if (isNaN(parsedMs)) return Date.now()
+    
+    // HOTFIX: Only break notifications have timestamps 8 hours in the future
+    // Task/ticket notifications have correct timestamps already
+    if (notificationType === 'break') {
+      // Subtract 8 hours (28800000 ms) to correct break notifications to proper Manila morning times
+      parsedMs = parsedMs - (8 * 60 * 60 * 1000)
+    }
+    
+    return parsedMs
+  } catch {
+    return Date.now()
+  }
+}
+
 
 // LocalStorage key removed; notifications are not persisted in browser storage
 
@@ -293,18 +318,34 @@ export function getUnreadCount(): number {
 
 // Format time ago
 export function formatTimeAgo(timestamp: number): string {
+  // Compute relative to actual current time (UTC-based epoch)
   const now = Date.now()
-  const diff = now - timestamp
+  const diffMs = now - timestamp
   
-  const minutes = Math.floor(diff / 60000)
-  const hours = Math.floor(diff / 3600000)
-  const days = Math.floor(diff / 86400000)
+  const minuteMs = 60 * 1000
+  const hourMs = 60 * minuteMs
+  const dayMs = 24 * hourMs
+  const weekMs = 7 * dayMs
+  const yearMs = 365 * dayMs
+
+  // Future
+  if (diffMs < 0) {
+    const future = Math.abs(diffMs)
+    if (future < minuteMs) return 'in 1m'
+    if (future < hourMs) return `in ${Math.floor(future / minuteMs)}m`
+    if (future < dayMs) return `in ${Math.floor(future / hourMs)}h`
+    if (future < weekMs) return `in ${Math.floor(future / dayMs)}d`
+    if (future < yearMs) return `in ${Math.floor(future / weekMs)}w`
+    return `in ${Math.floor(future / yearMs)}y`
+  }
   
-  if (minutes < 1) return 'Just now'
-  if (minutes < 60) return `${minutes} minute${minutes > 1 ? 's' : ''} ago`
-  if (hours < 24) return `${hours} hour${hours > 1 ? 's' : ''} ago`
-  if (days < 7) return `${days} day${days > 1 ? 's' : ''} ago`
-  return new Date(timestamp).toLocaleDateString()
+  // Past
+  if (diffMs < 60000) return 'Just now'  // Less than 1 minute
+  if (diffMs < hourMs) return `${Math.floor(diffMs / minuteMs)}m ago`
+  if (diffMs < dayMs) return `${Math.floor(diffMs / hourMs)}h ago`
+  if (diffMs < weekMs) return `${Math.floor(diffMs / dayMs)}d ago`
+  if (diffMs < yearMs) return `${Math.floor(diffMs / weekMs)}w ago`
+  return `${Math.floor(diffMs / yearMs)}y ago`
 }
 
 // Check for new tasks and generate notifications

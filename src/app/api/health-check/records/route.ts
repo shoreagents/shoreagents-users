@@ -36,10 +36,18 @@ export async function GET(request: NextRequest) {
       const result = await pool.query(
         `SELECT hcr.*, 
                u.email as user_email,
-               n.email as nurse_email
+               n.email as nurse_email,
+               upi.first_name as user_first_name,
+               upi.middle_name as user_middle_name,
+               upi.last_name as user_last_name,
+               npi.first_name as nurse_first_name,
+               npi.middle_name as nurse_middle_name,
+               npi.last_name as nurse_last_name
         FROM health_check_records hcr
         LEFT JOIN users u ON hcr.user_id = u.id
         LEFT JOIN users n ON hcr.nurse_id = n.id
+        LEFT JOIN personal_info upi ON hcr.user_id = upi.user_id
+        LEFT JOIN personal_info npi ON hcr.nurse_id = npi.user_id
         WHERE hcr.user_id = $1
         ORDER BY hcr.visit_date DESC, hcr.visit_time DESC
         LIMIT $2 OFFSET $3`,

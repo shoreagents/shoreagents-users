@@ -65,6 +65,10 @@ const userData = new Map(); // Store user activity data in memory
 const userMeetingStatus = new Map(); // Store user meeting status in memory
 const userShiftInfo = new Map(); // Store user shift information for shift-based resets
 
+// Track user connections and online status
+const userConnections = new Map() // email -> Set of socket IDs
+const userOnlineStatus = new Map() // email -> { status: 'online'|'offline'|'away', lastActivity: Date }
+
 // Initialize with test data
 userData.set('bob@example.com', {
   userId: 1,
@@ -75,8 +79,6 @@ userData.set('bob@example.com', {
 });
 
 // Keep track of active connections per user
-const userConnections = new Map(); // email -> Set of socket IDs
-// Track last break-availability notifications to avoid spamming
 // REMOVED: No longer needed since database functions handle all notifications
 
 // Shift utility functions (Node.js compatible version)
@@ -876,14 +878,78 @@ io.on('connection', (socket) => {
       }
       userConnections.get(email).add(socket.id);
       
-      // User connected;
+      // Check if user was previously online/away and restore their status
+      const existingStatus = userOnlineStatus.get(email);
+      if (existingStatus && (existingStatus.status === 'online' || existingStatus.status === 'away')) {
+        // User is reconnecting - restore their previous status
+        console.log(`🔄 User ${email} reconnecting - restoring ${existingStatus.status} status`);
+        
+        // Update last activity but keep their status
+        existingStatus.lastActivity = new Date();
+        
+        // Broadcast their current status to all users
+        io.emit('user-online-status', { 
+          email, 
+          status: existingStatus.status 
+        });
+      } else {
+        // Check if user has an active session in localStorage (already logged in)
+        // For existing authenticated users, mark them as online immediately
+        userOnlineStatus.set(email, { 
+          status: 'online', 
+          lastActivity: new Date() 
+        });
+        
+        console.log(`🔄 User ${email} connected with existing session - marked as online`);
+        
+        // Broadcast online status immediately for existing authenticated users
+        io.emit('user-online-status', { 
+          email, 
+          status: 'online' 
+        });
+      }
+      
+      // Additional check: If user has valid session data, ensure they're marked as online
+      try {
+        // Check if user has recent activity data (indicating they're actively working)
+        const activityCheck = await pool.query(
+          `SELECT is_currently_active, today_active_seconds, today_inactive_seconds 
+           FROM activity_data 
+           WHERE user_id = $1 AND today_date = CURRENT_DATE
+           LIMIT 1`,
+          [userInfo.userId]
+        );
+        
+        if (activityCheck.rows.length > 0) {
+          const activityData = activityCheck.rows[0];
+          if (activityData.is_currently_active || activityData.today_active_seconds > 0) {
+            // User has active session - ensure they're marked as online
+            if (userOnlineStatus.get(email)?.status !== 'online') {
+              userOnlineStatus.set(email, { 
+                status: 'online', 
+                lastActivity: new Date() 
+              });
+              
+              console.log(`🔄 User ${email} has active session - ensuring online status`);
+              
+              // Broadcast online status
+              io.emit('user-online-status', { 
+                email, 
+                status: 'online' 
+              });
+            }
+          }
+        }
+      } catch (error) {
+        console.log(`Session check failed for ${email}:`, error.message);
+      }
       
       // Get initial meeting status
       const isInMeeting = await getUserMeetingStatus(userInfo.userId);
       userMeetingStatus.set(email, isInMeeting);
       
-      // Send initial data immediately
-      const timerData = {
+      // IMPORTANT: Don't send initial data immediately - wait for database hydration
+      let initialTimerData = {
         isActive: userInfo.isActive,
         activeSeconds: userInfo.activeSeconds,
         inactiveSeconds: userInfo.inactiveSeconds,
@@ -897,7 +963,7 @@ io.on('connection', (socket) => {
         const timeUntilReset = getTimeUntilNextReset(currentTime, shiftInfo);
         const formattedTimeUntilReset = formatTimeUntilReset(timeUntilReset);
         
-        timerData.shiftInfo = {
+        initialTimerData.shiftInfo = {
           period: shiftInfo.period,
           schedule: shiftInfo.schedule,
           time: shiftInfo.time,
@@ -908,8 +974,6 @@ io.on('connection', (socket) => {
         
         console.log(`⏰ Shift reset info for ${email}: ${formattedTimeUntilReset} until next reset`);
       }
-      
-      socket.emit('authenticated', timerData);
       
       // Send initial meeting status
       socket.emit('meeting-status-update', { isInMeeting });
@@ -962,29 +1026,70 @@ io.on('connection', (socket) => {
            LIMIT 1`,
           [userInfo.userId, effectiveDateStr]
         );
+        
+        let hydratedData = null;
+        
         if (adRes.rows && adRes.rows[0]) {
           const row = adRes.rows[0];
-          userInfo.isActive = row.is_currently_active === true;
-          userInfo.activeSeconds = Number(row.today_active_seconds) || 0;
-          userInfo.inactiveSeconds = Number(row.today_inactive_seconds) || 0;
-          userInfo.sessionStart = row.last_session_start || userInfo.sessionStart;
-          // Emit initial hydration to client
-          const sockets = userConnections.get(email);
-          if (sockets) {
-            const payload = {
-              userId: userInfo.userId,
-              email,
-              isActive: userInfo.isActive,
-              activeSeconds: userInfo.activeSeconds,
-              inactiveSeconds: userInfo.inactiveSeconds,
-              sessionStart: userInfo.sessionStart,
-              effectiveDate: effectiveDateStr,
-              hydrated: true,
-            };
-            sockets.forEach(id => io.to(id).emit('timerUpdated', payload));
+          hydratedData = {
+            isActive: row.is_currently_active === true,
+            activeSeconds: Number(row.today_active_seconds) || 0,
+            inactiveSeconds: Number(row.today_inactive_seconds) || 0,
+            sessionStart: row.last_session_start
+          };
+          
+          // If the calculated date has zero data, try to find the most recent non-zero data
+          if (hydratedData.activeSeconds === 0 && hydratedData.inactiveSeconds === 0) {
+            console.log(`⚠️  Calculated date ${effectiveDateStr} has zero data for ${email}, looking for recent non-zero data...`);
+            
+            const fallbackRes = await pool.query(
+              `SELECT is_currently_active, today_active_seconds, today_inactive_seconds, last_session_start, 
+                      TO_CHAR(today_date, 'YYYY-MM-DD') as formatted_date
+               FROM activity_data
+               WHERE user_id = $1 
+               AND (today_active_seconds > 0 OR today_inactive_seconds > 0)
+               ORDER BY today_date DESC, updated_at DESC
+               LIMIT 1`,
+              [userInfo.userId]
+            );
+            
+            if (fallbackRes.rows && fallbackRes.rows[0]) {
+              const fallbackRow = fallbackRes.rows[0];
+              hydratedData = {
+                isActive: fallbackRow.is_currently_active === true,
+                activeSeconds: Number(fallbackRow.today_active_seconds) || 0,
+                inactiveSeconds: Number(fallbackRow.today_inactive_seconds) || 0,
+                sessionStart: fallbackRow.last_session_start
+              };
+              console.log(`🔄 Found fallback data from ${fallbackRow.formatted_date}: ${hydratedData.activeSeconds}s active, ${hydratedData.inactiveSeconds}s inactive`);
+            }
           }
         }
-      } catch (_) {}
+        
+        if (hydratedData) {
+          userInfo.isActive = hydratedData.isActive;
+          userInfo.activeSeconds = hydratedData.activeSeconds;
+          userInfo.inactiveSeconds = hydratedData.inactiveSeconds;
+          userInfo.sessionStart = hydratedData.sessionStart || userInfo.sessionStart;
+          
+          // Update initial timer data with hydrated values
+          initialTimerData.isActive = userInfo.isActive;
+          initialTimerData.activeSeconds = userInfo.activeSeconds;
+          initialTimerData.inactiveSeconds = userInfo.inactiveSeconds;
+          initialTimerData.sessionStart = userInfo.sessionStart;
+          
+          console.log(`🔄 Hydrated timer data for ${email}: ${userInfo.activeSeconds}s active, ${userInfo.inactiveSeconds}s inactive`);
+        }
+        
+        // NOW send the authenticated event with proper hydrated data
+        socket.emit('authenticated', initialTimerData);
+        
+        // Also send a timer update to ensure client has latest data
+        socket.emit('timerUpdated', initialTimerData);
+      } catch (_) {
+        // Even if hydration fails, send authenticated event
+        socket.emit('authenticated', initialTimerData);
+      }
 
       // Listen for Postgres NOTIFY on notifications channel per connection
       try {
@@ -1061,8 +1166,7 @@ io.on('connection', (socket) => {
         console.error('Failed to LISTEN notifications:', err.message);
       }
 
-      // Also send a timer update to ensure client has latest data
-      socket.emit('timerUpdated', timerData);
+      // Timer data is now sent via the authenticated event with proper hydration
     } catch (error) {
       console.error('Authentication error:', error);
       socket.emit('error', { message: 'Authentication failed: ' + error.message });
@@ -1282,94 +1386,117 @@ io.on('connection', (socket) => {
           userId = userResult.rows[0].id;
         }
 
-        // Compute today_date anchored to agent shift start in Philippines timezone
-        // 1) Get agent shift_time (e.g., "6:00 AM - 3:00 PM"), fallback to 06:00
-        let shiftStartMinutes = null; // no default; rely on configured shift_time
-        let hasShiftStart = false;
-        let shiftEndMinutes = null;
-        let hasShiftEnd = false;
+        // Use database function for consistent date calculation with API
+        let currentDate;
+        let withinShift = true;
+        
         try {
-          const shiftRes = await pool.query(
-            `SELECT ji.shift_time FROM job_info ji WHERE ji.agent_user_id = $1 LIMIT 1`,
+          // Get activity date using the same function as the API
+          const dateResult = await pool.query(
+            'SELECT TO_CHAR(get_activity_date_for_shift_simple($1), \'YYYY-MM-DD\') as activity_date',
             [userId]
           );
-          const shiftText = (shiftRes.rows[0]?.shift_time || '').toString();
-          // Extract start and end time tokens (e.g., "6:00 AM - 3:00 PM")
-          const both = shiftText.match(/(\d{1,2}:\d{2}\s*(?:AM|PM))\s*-\s*(\d{1,2}:\d{2}\s*(?:AM|PM))/i);
-          if (both) {
-            const start = both[1].trim().toUpperCase();
-            const end = both[2].trim().toUpperCase();
-            // Parse to 24h minutes
-            const parseToMinutes = (token) => {
-              const [hhmm, ampm] = token.split(/\s+/);
-              const [hhStr, mmStr] = hhmm.split(':');
-              let hh = parseInt(hhStr, 10);
-              const mm = parseInt(mmStr, 10);
-              if (ampm === 'AM') {
-                if (hh === 12) hh = 0;
-              } else if (ampm === 'PM') {
-                if (hh !== 12) hh += 12;
-              }
-              return (hh * 60) + mm;
-            };
-            shiftStartMinutes = parseToMinutes(start);
-            shiftEndMinutes = parseToMinutes(end);
-            hasShiftStart = true;
-            hasShiftEnd = true;
+          
+          if (dateResult.rows.length > 0) {
+            currentDate = dateResult.rows[0].activity_date;
           } else {
-            // Try only start time if pattern differs
-            const match = shiftText.match(/(\d{1,2}:\d{2}\s*(?:AM|PM))/i);
-            if (match && match[1]) {
-              const start = match[1].trim().toUpperCase();
-              const [hhmm, ampm] = start.split(/\s+/);
-              const [hhStr, mmStr] = hhmm.split(':');
-              let hh = parseInt(hhStr, 10);
-              const mm = parseInt(mmStr, 10);
-              if (ampm === 'AM') {
-                if (hh === 12) hh = 0;
-              } else if (ampm === 'PM') {
-                if (hh !== 12) hh += 12;
+            throw new Error('No date result from function');
+          }
+          
+          // Determine withinShift using parsed shift window (more reliable for night shifts)
+          try {
+            const shiftRes = await pool.query(
+              `SELECT ji.shift_time FROM job_info ji WHERE ji.agent_user_id = $1 LIMIT 1`,
+              [userId]
+            );
+            const shiftText = (shiftRes.rows[0]?.shift_time || '').toString();
+            const both = shiftText.match(/(\d{1,2}:\d{2}\s*(?:AM|PM))\s*-\s*(\d{1,2}:\d{2}\s*(?:AM|PM))/i);
+            if (both) {
+              const parseToMinutes = (token) => {
+                const [hhmm, ampm] = token.split(/\s+/);
+                const [hhStr, mmStr] = hhmm.split(':');
+                let hh = parseInt(hhStr, 10);
+                const mm = parseInt(mmStr, 10);
+                if (ampm === 'AM') { if (hh === 12) hh = 0; } else if (ampm === 'PM') { if (hh !== 12) hh += 12; }
+                return (hh * 60) + mm;
+              };
+              const startMinutes = parseToMinutes(both[1].trim().toUpperCase());
+              const endMinutes = parseToMinutes(both[2].trim().toUpperCase());
+              const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+              const curMinutes = nowPH.getHours() * 60 + nowPH.getMinutes();
+              if (endMinutes > startMinutes) {
+                withinShift = curMinutes >= startMinutes && curMinutes < endMinutes; // day shift
+              } else {
+                withinShift = (curMinutes >= startMinutes) || (curMinutes < endMinutes); // night shift crossing midnight
               }
-              shiftStartMinutes = (hh * 60) + mm;
+            } else {
+              withinShift = true; // default allow if shift text not parsable
+            }
+          } catch (_) {
+            withinShift = true; // be permissive on errors so counting still saves
+          }
+          
+        } catch (dbError) {
+          console.error('Database function failed, falling back to manual calculation:', dbError.message);
+          
+          // Fallback to original logic if database functions fail
+          let shiftStartMinutes = null;
+          let hasShiftStart = false;
+          let shiftEndMinutes = null;
+          let hasShiftEnd = false;
+          
+          try {
+            const shiftRes = await pool.query(
+              `SELECT ji.shift_time FROM job_info ji WHERE ji.agent_user_id = $1 LIMIT 1`,
+              [userId]
+            );
+            const shiftText = (shiftRes.rows[0]?.shift_time || '').toString();
+            const both = shiftText.match(/(\d{1,2}:\d{2}\s*(?:AM|PM))\s*-\s*(\d{1,2}:\d{2}\s*(?:AM|PM))/i);
+            
+            if (both) {
+              const start = both[1].trim().toUpperCase();
+              const end = both[2].trim().toUpperCase();
+              const parseToMinutes = (token) => {
+                const [hhmm, ampm] = token.split(/\s+/);
+                const [hhStr, mmStr] = hhmm.split(':');
+                let hh = parseInt(hhStr, 10);
+                const mm = parseInt(mmStr, 10);
+                if (ampm === 'AM') { if (hh === 12) hh = 0; } 
+                else if (ampm === 'PM') { if (hh !== 12) hh += 12; }
+                return (hh * 60) + mm;
+              };
+              shiftStartMinutes = parseToMinutes(start);
+              shiftEndMinutes = parseToMinutes(end);
               hasShiftStart = true;
+              hasShiftEnd = true;
+            }
+          } catch (_) {}
+
+          const philippinesNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+          const currentMinutesLocal = philippinesNow.getHours() * 60 + philippinesNow.getMinutes();
+
+          if (hasShiftStart && hasShiftEnd && shiftStartMinutes !== null && shiftEndMinutes !== null) {
+            if (shiftEndMinutes > shiftStartMinutes) {
+              withinShift = currentMinutesLocal >= shiftStartMinutes && currentMinutesLocal < shiftEndMinutes;
+            } else {
+              withinShift = (currentMinutesLocal >= shiftStartMinutes) || (currentMinutesLocal < shiftEndMinutes);
             }
           }
-        } catch (_) {
-          // ignore; will fall back to Manila calendar date
-        }
 
-        // 2) Manila time now
-        const philippinesNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
-        const currentHour = philippinesNow.getHours();
-        const currentMinute = philippinesNow.getMinutes();
-        const currentMinutesLocal = currentHour * 60 + currentMinute;
-
-        // Determine if we are within the agent's shift window
-        let withinShift = true; // default allow if no shift configured
-        if (hasShiftStart && hasShiftEnd && shiftStartMinutes !== null && shiftEndMinutes !== null) {
-          if (shiftEndMinutes > shiftStartMinutes) {
-            // Day shift window [start, end)
-            withinShift = currentMinutesLocal >= shiftStartMinutes && currentMinutesLocal < shiftEndMinutes;
-          } else {
-            // Night shift crossing midnight: within if after start OR before end
-            withinShift = (currentMinutesLocal >= shiftStartMinutes) || (currentMinutesLocal < shiftEndMinutes);
+          const manilaYMD = (d) => {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${day}`;
+          };
+          const effective = new Date(philippinesNow);
+          if (hasShiftStart && shiftStartMinutes !== null) {
+            if (currentMinutesLocal < shiftStartMinutes) {
+              effective.setDate(effective.getDate() - 1);
+            }
           }
+          currentDate = manilaYMD(effective);
         }
-
-        // 3) Effective date: if before shift start, use previous day; else today (Manila)
-        const manilaYMD = (d) => {
-          const y = d.getFullYear();
-          const m = String(d.getMonth() + 1).padStart(2, '0');
-          const day = String(d.getDate()).padStart(2, '0');
-          return `${y}-${m}-${day}`;
-        };
-        const effective = new Date(philippinesNow);
-        if (hasShiftStart && shiftStartMinutes !== null) {
-          if (currentMinutesLocal < shiftStartMinutes) {
-            effective.setDate(effective.getDate() - 1);
-          }
-        } // else: no shift info parsed; keep Manila calendar date
-        const currentDate = manilaYMD(effective);
         
         // Update activity data in database with daily tracking (Philippines timezone)
         // Guard: do NOT update during the 2s immediately following a server-side reset broadcast
@@ -1448,15 +1575,12 @@ io.on('connection', (socket) => {
         userConnections.get(email).delete(socket.id);
         console.log(`User ${email} disconnected. Remaining connections: ${userConnections.get(email).size}`);
         
-        // If no more connections for this user, keep data for 60 seconds
+        // If no more connections for this user, keep their status but mark as inactive
         if (userConnections.get(email).size === 0) {
-          console.log(`No more connections for ${email}, keeping data for 60 seconds`);
-          setTimeout(() => {
-            if (userConnections.has(email) && userConnections.get(email).size === 0) {
-              console.log(`Removing user data for ${email} after 60 seconds`);
-              userConnections.delete(email);
-            }
-          }, 60000); // Keep for 60 seconds
+          console.log(`No more connections for ${email}, but keeping status (user may reconnect)`);
+          
+          // Don't mark as offline - just remove connection tracking
+          // User status remains until they actually logout
         }
       }
       
@@ -1468,6 +1592,239 @@ io.on('connection', (socket) => {
   // Handle reconnection
   socket.on('reconnect', () => {
     console.log(`User reconnected: ${socket.id}`);
+  });
+
+  // Handle online status requests
+  socket.on('request-online-status', () => {
+    const userData = connectedUsers.get(socket.id);
+    if (userData) {
+      const email = userData.email;
+      
+      // Send current user's status
+      const currentStatus = userOnlineStatus.get(email) || { status: 'offline', lastActivity: new Date() };
+      socket.emit('user-online-status', { email, status: currentStatus.status });
+      
+      // Send all users' online status
+      const allUsersStatus = Array.from(userOnlineStatus.entries()).map(([userEmail, status]) => ({
+        email: userEmail,
+        status: status.status
+      }));
+      
+      socket.emit('online-status-update', { users: allUsersStatus });
+      
+      console.log(`📡 Sent online status update to ${email}:`, {
+        currentUser: currentStatus.status,
+        totalUsers: allUsersStatus.length,
+        onlineUsers: allUsersStatus.filter(u => u.status === 'online').length,
+        awayUsers: allUsersStatus.filter(u => u.status === 'away').length,
+        offlineUsers: allUsersStatus.filter(u => u.status === 'offline').length
+      });
+    }
+  });
+
+  // Handle user activity (to prevent away status)
+  socket.on('user-activity', () => {
+    const userData = connectedUsers.get(socket.id);
+    if (userData) {
+      const email = userData.email;
+      
+      // Update last activity time
+      const currentStatus = userOnlineStatus.get(email);
+      if (currentStatus) {
+        if (currentStatus.status === 'away') {
+          // User came back from away status
+          userOnlineStatus.set(email, { 
+            status: 'online', 
+            lastActivity: new Date() 
+          });
+          
+          console.log(`🟢 User ${email} came back online from away status`);
+          
+          // Broadcast back online status
+          io.emit('user-back-online', { email });
+        } else {
+          // Update last activity for online users
+          currentStatus.lastActivity = new Date();
+        }
+      } else {
+        // Create new status if none exists
+        userOnlineStatus.set(email, { 
+          status: 'online', 
+          lastActivity: new Date() 
+        });
+      }
+    }
+  });
+
+  // Handle productivity score updates
+  socket.on('productivity-update', async (data) => {
+    const userData = connectedUsers.get(socket.id);
+    if (userData) {
+      const email = userData.email;
+      
+      console.log(`📊 Productivity update for ${email}: ${data.productivityScore} points`);
+      
+      // Broadcast productivity update to all connected users for real-time leaderboard updates
+      io.emit('productivity-update', {
+        email,
+        userId: userData.userId,
+        productivityScore: data.productivityScore,
+        totalActiveTime: data.totalActiveTime,
+        totalInactiveTime: data.totalInactiveTime,
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  // Handle session status check
+  socket.on('check-session-status', async (data) => {
+    const userData = connectedUsers.get(socket.id);
+    if (userData) {
+      const email = userData.email;
+      
+      console.log(`🔍 Checking session status for ${email}`);
+      
+      try {
+        // Check if user has recent activity data
+        const activityCheck = await pool.query(
+          `SELECT is_currently_active, today_active_seconds, today_inactive_seconds 
+           FROM activity_data 
+           WHERE user_id = $1 AND today_date = CURRENT_DATE
+           LIMIT 1`,
+          [userData.userId]
+        );
+        
+        if (activityCheck.rows.length > 0) {
+          const activityData = activityCheck.rows[0];
+          if (activityData.is_currently_active || activityData.today_active_seconds > 0) {
+            // User has active session - mark as online
+            userOnlineStatus.set(email, { 
+              status: 'online', 
+              lastActivity: new Date() 
+            });
+            
+            console.log(`✅ User ${email} session validated - marked as online`);
+            
+            // Broadcast online status
+            io.emit('user-online-status', { 
+              email, 
+              status: 'online' 
+            });
+          } else {
+            // User has no recent activity - mark as away
+            userOnlineStatus.set(email, { 
+              status: 'away', 
+              lastActivity: new Date() 
+            });
+            
+            console.log(`🟡 User ${email} session validated - marked as away`);
+            
+            // Broadcast away status
+            io.emit('user-online-status', { 
+              email, 
+              status: 'away' 
+            });
+          }
+        } else {
+          // No activity data - mark as online (new user)
+          userOnlineStatus.set(email, { 
+            status: 'online', 
+            lastActivity: new Date() 
+          });
+          
+          console.log(`✅ User ${email} new session - marked as online`);
+          
+          // Broadcast online status
+          io.emit('user-online-status', { 
+            email, 
+            status: 'online' 
+          });
+        }
+      } catch (error) {
+        console.log(`Session status check failed for ${email}:`, error.message);
+        
+        // Fallback: mark as online
+        userOnlineStatus.set(email, { 
+          status: 'online', 
+          lastActivity: new Date() 
+        });
+        
+        io.emit('user-online-status', { 
+          email, 
+          status: 'online' 
+        });
+      }
+    }
+  });
+
+  // Handle user logout
+  socket.on('logout', () => {
+    const userData = connectedUsers.get(socket.id);
+    if (userData) {
+      const email = userData.email;
+      
+      console.log(`🚪 User ${email} logging out - marking as offline`);
+      
+      // Mark user as offline immediately (ONLY on actual logout)
+      userOnlineStatus.set(email, { 
+        status: 'offline', 
+        lastActivity: new Date() 
+      });
+      
+      // Broadcast offline status to all connected users
+      io.emit('user-online-status', { 
+        email, 
+        status: 'offline' 
+      });
+      
+      // Remove from user connections tracking
+      if (userConnections.has(email)) {
+        userConnections.get(email).delete(socket.id);
+        
+        // If no more connections for this user, clean up
+        if (userConnections.get(email).size === 0) {
+          console.log(`No more connections for ${email}, cleaning up user data after logout`);
+          
+          // Remove user data after 30 seconds (faster cleanup for logout)
+          setTimeout(() => {
+            if (userConnections.has(email) && userConnections.get(email).size === 0) {
+              console.log(`Removing user data for ${email} after logout`);
+              userConnections.delete(email);
+              userOnlineStatus.delete(email);
+            }
+          }, 30000); // Keep for 30 seconds instead of 60
+        }
+      }
+      
+      // Remove from connected users
+      connectedUsers.delete(socket.id);
+      
+      console.log(`✅ User ${email} successfully logged out and marked as offline`);
+    }
+  });
+
+  // Handle user login
+  socket.on('login', (data) => {
+    const userData = connectedUsers.get(socket.id);
+    if (userData) {
+      const email = userData.email;
+      
+      console.log(`🚪 User ${email} logging in - marking as online`);
+      
+      // Mark user as online
+      userOnlineStatus.set(email, { 
+        status: 'online', 
+        lastActivity: new Date() 
+      });
+      
+      // Broadcast online status to all connected users
+      io.emit('user-online-status', { 
+        email, 
+        status: 'online' 
+      });
+      
+      console.log(`🟢 User ${email} is now online after login`);
+    }
   });
 
   // Task Activity Events
@@ -1555,15 +1912,58 @@ const shiftResetInterval = setInterval(async () => {
   }
 }, 15000); // Check every 15 seconds for better responsiveness
 
+// Start real-time away status monitoring
+const awayStatusInterval = setInterval(() => {
+  try {
+    const now = new Date();
+    const tenMinutes = 10 * 60 * 1000; // 10 minutes in milliseconds (increased from 5)
+    
+    let awayCount = 0;
+    let onlineCount = 0;
+    
+    // Check all online users for away status
+    for (const [email, status] of userOnlineStatus.entries()) {
+      if (status.status === 'online') {
+        onlineCount++;
+        const timeSinceLastActivity = now.getTime() - status.lastActivity.getTime();
+        
+        if (timeSinceLastActivity > tenMinutes) {
+          // Mark user as away
+          status.status = 'away';
+          status.lastActivity = now;
+          awayCount++;
+          
+          console.log(`🟡 User ${email} marked as away (inactive for ${Math.floor(timeSinceLastActivity / 60000)} minutes)`);
+          
+          // Broadcast away status to all connected users
+          io.emit('user-away', { email });
+        }
+      } else if (status.status === 'away') {
+        awayCount++;
+      }
+    }
+    
+    // Log status summary every 5 minutes
+    if (Date.now() % 300000 < 1000) { // Every 5 minutes
+      console.log(`📊 Online Status Summary: ${onlineCount} online, ${awayCount} away, ${userOnlineStatus.size - onlineCount - awayCount} offline`);
+    }
+    
+  } catch (error) {
+    console.error('❌ Error in away status monitoring:', error);
+  }
+}, 60000); // Check every 60 seconds (increased from 30 seconds)
+
 // Cleanup interval on server shutdown
 process.on('SIGINT', () => {
-  console.log('Shutting down shift reset monitoring...');
+  console.log('Shutting down monitoring intervals...');
   clearInterval(shiftResetInterval);
+  clearInterval(awayStatusInterval);
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
-  console.log('Shutting down shift reset monitoring...');
+  console.log('Shutting down monitoring intervals...');
   clearInterval(shiftResetInterval);
+  clearInterval(awayStatusInterval);
   process.exit(0);
 }); 

@@ -73,6 +73,22 @@ export function LoginForm({
       localStorage.setItem('shoreagents-auth', JSON.stringify(authData))
       setUserLoggedIn()
 
+      // Emit login event to socket server
+      try {
+        const event = new CustomEvent('user-login', { 
+          detail: { 
+            user: authData.user,
+            timestamp: new Date().toISOString(),
+            reason: 'manual_login'
+          } 
+        });
+        window.dispatchEvent(event);
+        
+        console.log('🚪 Login event dispatched - socket server will mark user as online');
+      } catch (error) {
+        console.log('Socket login event failed (socket may not be connected):', error);
+      }
+
       await new Promise(r => setTimeout(r, 120))
       window.location.href = '/dashboard'
       return

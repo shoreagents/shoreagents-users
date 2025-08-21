@@ -77,14 +77,21 @@ export default function HealthPage() {
   useEffect(() => {
     if (currentUser?.id) {
       fetchRecords(currentUser.id, 10, 0)
-      fetchAvailability(1) // Fetch Nurse Ron's availability (user_id 1)
+      fetchAvailability(1) // Fetch nurse_id 1 availability
     }
   }, [currentUser?.id, fetchRecords, fetchAvailability])
 
   // Check nurse status
-  const nurseStatus = isNurseOnDuty(1) // Nurse Ron (user_id 1)
+  const nurseStatus = isNurseOnDuty(1) // nurse_id 1
   const nurseOnDuty = nurseStatus && typeof nurseStatus === 'object' ? nurseStatus.onDuty : false
   const nurseOnBreak = nurseStatus && typeof nurseStatus === 'object' ? nurseStatus.onBreak : false
+
+  // Get current nurse availability
+  const currentNurseAvailability = availability.find(avail => avail.nurse_id === 1)
+  const currentDayOfWeek = new Date().getDay()
+  const todayAvailability = availability.find(avail => 
+    avail.nurse_id === 1 && avail.day_of_week === currentDayOfWeek
+  )
 
   const handleRequestHealthCheck = async () => {
     if (!currentUser?.id || !complaint.trim()) return
@@ -156,11 +163,19 @@ export default function HealthPage() {
           <div className="flex items-center gap-2">
             <Avatar className="h-8 w-8">
               <AvatarFallback className="bg-blue-500 text-white text-sm font-medium">
-                {record.nurse_name ? record.nurse_name.split(' ').map(n => n[0]).join('') : 'RN'}
+                {record.nurse_first_name && record.nurse_last_name ? 
+                  `${record.nurse_first_name[0]}${record.nurse_last_name[0]}` : 
+                  record.nurse_first_name?.[0] || 'N'
+                }
               </AvatarFallback>
             </Avatar>
             <div className="text-right">
-              <p className="text-sm font-medium">{record.nurse_name || 'Nurse Ron'}</p>
+              <p className="text-sm font-medium">
+                {record.nurse_first_name && record.nurse_last_name ? 
+                  `${record.nurse_first_name} ${record.nurse_last_name}` : 
+                  record.nurse_first_name || 'Nurse'
+                }
+              </p>
               <p className="text-xs text-muted-foreground">Attending Nurse</p>
             </div>
           </div>
@@ -397,17 +412,19 @@ export default function HealthPage() {
           )}
 
           <div className="grid gap-6 md:grid-cols-2">
-            {/* Nurse Ron Status Card */}
+            {/* Nurse Status Card */}
             <Card>
               <CardHeader>
                 <div className="flex items-center gap-4">
                   <Avatar className="h-16 w-16">
                     <AvatarFallback className="bg-blue-500 text-white text-lg font-semibold">
-                      RN
+                      {todayAvailability?.nurse_first_name?.[0]?.toUpperCase() || 'N'}
                     </AvatarFallback>
                   </Avatar>
                   <div>
-                    <CardTitle className="text-xl">Nurse Ron</CardTitle>
+                    <CardTitle className="text-xl">
+                      {todayAvailability ? `${todayAvailability.nurse_first_name || 'Nurse'} ${todayAvailability.nurse_last_name || ''}` : 'Nurse'}
+                    </CardTitle>
                     <CardDescription>Medical Officer on Duty</CardDescription>
                   </div>
                 </div>
@@ -443,7 +460,7 @@ export default function HealthPage() {
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-muted-foreground">Shift:</span>
                     <span className="text-sm font-medium">
-                      6:00 AM - 3:00 PM
+                      {todayAvailability ? `${formatTime(todayAvailability.shift_start)} - ${formatTime(todayAvailability.shift_end)}` : 'Not Available'}
                     </span>
                   </div>
 
@@ -463,12 +480,15 @@ export default function HealthPage() {
                   </div>
                 </div>
 
-                <div className="pt-2">
-                  <div className="text-xs text-muted-foreground space-y-1">
-                    <p>• Morning Break: 10:00 AM - 10:15 AM</p>
-                    <p>• Lunch Break: 12:00 PM - 1:00 PM</p>
+                {todayAvailability?.break_start && todayAvailability?.break_end && (
+                  <div className="pt-2">
+                    <div className="text-xs text-muted-foreground space-y-1">
+                      {todayAvailability.break_start && todayAvailability.break_end && (
+                        <p>• Break: {formatTime(todayAvailability.break_start)} - {formatTime(todayAvailability.break_end)}</p>
+                      )}
+                    </div>
                   </div>
-                </div>
+                )}
               </CardContent>
             </Card>
 
@@ -496,7 +516,9 @@ export default function HealthPage() {
                           </div>
                           <div className="flex items-center gap-2">
                             <Clock className="h-3 w-3" />
-                            <span>Available: 6:00 AM - 3:00 PM</span>
+                            <span>
+                              Available: {todayAvailability ? `${formatTime(todayAvailability.shift_start)} - ${formatTime(todayAvailability.shift_end)}` : 'Not Available'}
+                            </span>
                           </div>
                         </div>
                       </div>
