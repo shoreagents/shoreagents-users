@@ -257,6 +257,12 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
 
   // Update live counters when timer data changes
   useEffect(() => {
+    // Validate that timer data is for the current user
+    if (timerData && timerData.email && currentUser?.email && timerData.email !== currentUser.email) {
+      console.warn(`⚠️ Timer data received for wrong user: expected ${currentUser.email}, got ${timerData.email}`)
+      return
+    }
+    
     if (timerData && !isInitialized) {
       // Initialize with server data (now includes proper database hydration)
       setLiveActiveSeconds(timerData.activeSeconds || 0)

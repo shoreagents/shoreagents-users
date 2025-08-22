@@ -49,24 +49,13 @@ export function useSocket() {
     newSocket.on('authenticated', () => {
       console.log('Socket authenticated for activity tracking')
       
-      // After authentication, check if user should be marked as online
-      try {
-        const authData = localStorage.getItem("shoreagents-auth")
-        if (authData) {
-          const auth = JSON.parse(authData)
-          if (auth.isAuthenticated && auth.user?.email) {
-            console.log('🔍 Socket authenticated - checking user session status')
-            
-            // Emit a session check to the server
-            newSocket.emit('check-session-status', { 
-              email: auth.user.email,
-              userId: auth.user.id
-            })
-          }
-        }
-      } catch (error) {
-        console.log('Session status check failed:', error)
-      }
+      // Dispatch connection event for UI updates
+      const event = new CustomEvent('socket-connected', { 
+        detail: { 
+          timestamp: new Date().toISOString() 
+        } 
+      });
+      window.dispatchEvent(event);
     })
 
     setSocket(newSocket)
@@ -78,26 +67,19 @@ export function useSocket() {
         // Emit logout event to socket server
         newSocket.emit('logout')
         
-        // Wait a bit for the event to be processed, then disconnect
+        // Wait for server to process logout before disconnecting
         setTimeout(() => {
-          newSocket.disconnect()
-        }, 100)
+          if (newSocket && newSocket.connected) {
+            console.log('🔌 Disconnecting socket after logout processing')
+            newSocket.disconnect()
+          }
+        }, 300) // Wait 300ms for server to process logout
+      } else {
+        console.log('⚠️ Socket not connected during logout - cannot send logout event')
       }
     }
 
-    // Listen for login events to mark user as online
-    const handleLogin = (event: Event) => {
-      console.log('🚪 Login detected - marking user as online')
-      if (newSocket && newSocket.connected) {
-        const customEvent = event as CustomEvent
-        // Emit login event to socket server
-        newSocket.emit('login', { 
-          user: customEvent.detail.user,
-          timestamp: customEvent.detail.timestamp,
-          reason: customEvent.detail.reason
-        })
-      }
-    }
+
 
     // Listen for productivity updates to sync with socket server
     const handleProductivityUpdate = (event: Event) => {
@@ -119,8 +101,37 @@ export function useSocket() {
     // Listen for logout events
     window.addEventListener('user-logout', handleLogout)
     
+    // Listen for login events to mark user as online
+    const handleLogin = (event: Event) => {
+      console.log('🚪 Login detected - marking user as online')
+      if (newSocket && newSocket.connected) {
+        const customEvent = event as CustomEvent
+        const email = customEvent.detail.email || customEvent.detail.user?.email
+        if (email) {
+          // Emit login event to socket server
+          newSocket.emit('user-login', email)
+        }
+      }
+    }
+
+    // Listen for custom logout events to emit socket logout
+    const handleCustomLogout = (event: Event) => {
+      console.log('🚪 Custom logout detected - notifying socket server')
+      if (newSocket && newSocket.connected) {
+        const customEvent = event as CustomEvent
+        const email = customEvent.detail.email
+        if (email) {
+          // Emit logout event to socket server
+          newSocket.emit('user-logout', email)
+        }
+      }
+    }
+    
     // Listen for login events
     window.addEventListener('user-login', handleLogin)
+    
+    // Listen for custom logout events
+    window.addEventListener('user-logout', handleCustomLogout)
     
     // Listen for productivity updates
     window.addEventListener('productivity-update', handleProductivityUpdate)
@@ -129,6 +140,7 @@ export function useSocket() {
     return () => {
       window.removeEventListener('user-logout', handleLogout)
       window.removeEventListener('user-login', handleLogin)
+      window.removeEventListener('user-logout', handleCustomLogout)
       window.removeEventListener('productivity-update', handleProductivityUpdate)
       newSocket.disconnect()
     }
