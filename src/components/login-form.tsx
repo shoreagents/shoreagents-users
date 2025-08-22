@@ -84,7 +84,17 @@ export function LoginForm({
         });
         window.dispatchEvent(event);
         
-        console.log('🚪 Login event dispatched - socket server will mark user as online');
+        // Also dispatch login event for user status tracking
+        const loginEvent = new CustomEvent('user-login', { 
+          detail: { 
+            email: email,
+            timestamp: new Date().toISOString(),
+            reason: 'manual_login'
+          } 
+        });
+        window.dispatchEvent(loginEvent);
+        
+        console.log('🚪 Login event dispatched to socket server');
       } catch (error) {
         console.log('Socket login event failed (socket may not be connected):', error);
       }

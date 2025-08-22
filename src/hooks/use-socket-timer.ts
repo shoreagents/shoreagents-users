@@ -6,6 +6,8 @@ interface TimerData {
   activeSeconds: number
   inactiveSeconds: number
   sessionStart: string | null
+  email?: string
+  userId?: number
   shiftInfo?: {
     period: string
     schedule: string
@@ -151,6 +153,13 @@ export const useSocketTimer = (email: string | null): UseSocketTimerReturn => {
       // Handle authentication response
       socket.on('authenticated', (data: TimerData) => {
         if (!isActive.current) return
+        
+        // Validate that authentication data is for the current user
+        if (data && data.email && email && data.email !== email) {
+          console.warn(`⚠️ Authentication data received for wrong user: expected ${email}, got ${data.email}`)
+          return
+        }
+        
         console.log('Socket.IO authenticated for user:', email, 'Data:', data)
         setTimerData(data)
         setIsAuthenticated(true)
@@ -160,12 +169,25 @@ export const useSocketTimer = (email: string | null): UseSocketTimerReturn => {
       // Handle activity updates from server
       socket.on('activityUpdated', (data: TimerData) => {
         if (!isActive.current) return
+        
+        // Validate that activity data is for the current user
+        if (data && data.email && email && data.email !== email) {
+          console.warn(`⚠️ Activity data received for wrong user: expected ${email}, got ${data.email}`)
+          return
+        }
+        
         setTimerData(data)
       })
 
       // Handle timer updates from server
       socket.on('timerUpdated', (data: TimerData) => {
         if (!isActive.current) return
+        
+        // Validate that timer data is for the current user
+        if (data && data.email && email && data.email !== email) {
+          console.warn(`⚠️ Timer data received for wrong user: expected ${email}, got ${data.email}`)
+          return
+        }
         
         // IMPROVED ACTIVITY STATE SYNCHRONIZATION
         // Only update if we have new, valid data
@@ -193,6 +215,13 @@ export const useSocketTimer = (email: string | null): UseSocketTimerReturn => {
       // Handle shift reset events from server
       socket.on('shiftReset', (data: TimerData & { resetReason?: string, shiftId?: string }) => {
         if (!isActive.current) return
+        
+        // Validate that shift reset data is for the current user
+        if (data && data.email && email && data.email !== email) {
+          console.warn(`⚠️ Shift reset data received for wrong user: expected ${email}, got ${data.email}`)
+          return
+        }
+        
         console.log('🔄 Shift reset received from server:', data)
         setTimerData(data)
         // Record server reset to avoid client forcing a duplicate reset for the same shift
@@ -327,6 +356,9 @@ export const useSocketTimer = (email: string | null): UseSocketTimerReturn => {
       }
     }
   }, [isAuthenticated, timerData])
+
+  // REMOVED: Fallback timer sync that was bypassing authentication
+  // This was causing timer updates to be sent before authentication completed
 
   return {
     timerData,

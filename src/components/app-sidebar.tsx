@@ -241,6 +241,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             title: "Change Password",
             url: "/settings/password",
           },
+          {
+            title: "Connected Users",
+            url: "/settings/connected-users",
+          },
         ],
       },
 
@@ -292,3 +296,5 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     </Sidebar>
   )
 }
+
+

@@ -7,15 +7,17 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { getAllUsersLeaderboard, getCurrentUserRank, type LeaderboardEntry } from "@/lib/leaderboard-utils"
-import { useOnlineStatus } from "@/contexts/online-status-context"
-import { LeaderboardStatusIndicator } from "@/components/online-status-indicator"
+import { useSocket } from "@/hooks/use-socket"
 
 export function Leaderboard() {
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([])
   const [currentUserRank, setCurrentUserRank] = useState<number>(0)
   const [loading, setLoading] = useState(true)
   const [currentMonth, setCurrentMonth] = useState<string>("")
-  const { getUserStatus } = useOnlineStatus()
+
+  const { socket, isConnected } = useSocket()
+
+
 
   // Function to truncate name with ellipsis
   const truncateName = useCallback((name: string, maxLength: number = 12) => {
@@ -46,6 +48,8 @@ export function Leaderboard() {
       const now = new Date()
       const currentMonthYear = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
       setCurrentMonth(currentMonthYear)
+      
+      console.log('📊 Leaderboard: Loaded data for', data.length, 'users')
     } catch (error) {
       console.error('Error loading leaderboard:', error)
     } finally {
@@ -157,17 +161,9 @@ export function Leaderboard() {
         <TooltipProvider>
         <div className="space-y-2">
           {leaderboard.map((entry, index) => {
-            // Get real-time online status for this user
-            const onlineStatus = getUserStatus(entry.userId)
-            
             return (
               <div key={entry.userId} className="flex items-center gap-2 w-full">
                 <div className="flex items-center gap-1 flex-shrink-0 w-6">
-                  {/* Real-time online status indicator */}
-                  <LeaderboardStatusIndicator 
-                    status={onlineStatus} 
-                    isInBreak={entry.isInBreak} 
-                  />
                   
                   {/* Rank indicators */}
                   {entry.rank === 1 && <Crown className="h-3 w-3 text-yellow-500" />}
@@ -192,9 +188,7 @@ export function Leaderboard() {
                     <TooltipContent side="top" className="max-w-[200px]">
                       <p className="text-xs">{entry.name}</p>
                       <p className="text-xs text-muted-foreground">
-                        Status: {onlineStatus === 'online' ? '🟢 Online' : 
-                                onlineStatus === 'connecting' ? '🔵 Connecting...' :
-                                onlineStatus === 'away' ? '🟡 Away' : '⚫ Offline'}
+                        Email: {entry.userId}
                       </p>
                     </TooltipContent>
                   </Tooltip>

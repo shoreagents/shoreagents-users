@@ -99,22 +99,45 @@ export function normalizeAuthOnEntry() {
 export function forceLogout() {
   // Emit logout event to socket server before clearing auth data
   try {
-    // Get socket instance from global scope or emit event
     if (typeof window !== 'undefined') {
-      // Try to emit logout event to socket if available
-      const event = new CustomEvent('user-logout', { 
-        detail: { 
-          timestamp: new Date().toISOString(),
-          reason: 'manual_logout'
-        } 
-      });
-      window.dispatchEvent(event);
+      // Get current user email for socket event
+      const currentUser = getCurrentUser();
+      const email = currentUser?.email;
       
-      console.log('🚪 Logout event dispatched - socket server will mark user as offline');
+      if (email) {
+        // Dispatch logout event for socket server
+        const event = new CustomEvent('user-logout', { 
+          detail: { 
+            email,
+            timestamp: new Date().toISOString(),
+            reason: 'manual_logout'
+          } 
+        });
+        window.dispatchEvent(event);
+        
+        console.log('🚪 Logout event dispatched - socket server will mark user as offline');
+        
+        // Wait a bit for the socket event to be processed before redirecting
+        setTimeout(() => {
+          performLogoutCleanup();
+        }, 500); // Wait 500ms for socket to process logout
+        
+        return; // Exit early, cleanup will happen in timeout
+      }
     }
   } catch (error) {
-    console.log('Socket logout event failed (socket may not be connected):', error);
+    console.error('Error during logout:', error);
   }
+  
+  // Fallback: perform immediate cleanup if no socket handling
+  performLogoutCleanup();
+}
+
+/**
+ * Perform the actual logout cleanup and redirect
+ */
+function performLogoutCleanup() {
+  console.log('🧹 Performing logout cleanup...');
   
   // Clear localStorage
   localStorage.removeItem('shoreagents-auth')
@@ -126,6 +149,8 @@ export function forceLogout() {
   
   // Clear sessionStorage
   sessionStorage.clear()
+  
+  console.log('✅ Logout cleanup completed, redirecting to login...');
   
   // Redirect to login
   window.location.href = '/login'
