@@ -97,7 +97,6 @@ export function MeetingProvider({ children }: MeetingProviderProps) {
         }
         
         setLastUpdated(new Date())
-        console.log('✅ Meeting data fetched successfully')
       } else {
         console.error('Failed to fetch meeting data')
       }

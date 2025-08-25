@@ -3,13 +3,13 @@
 import { useState, useEffect, useCallback } from 'react'
 import { getCurrentUser } from '@/lib/ticket-utils'
 import { useTimer } from '@/contexts/timer-context'
-import { useMeetingStatus } from '@/hooks/use-meeting-status'
+import { useMeetingStatusContext } from '@/hooks/use-meeting-status-context'
 
 export function useActivityStatus() {
   const [isActive, setIsActive] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const { isInitialized, isBreakActive, timerData, lastActivityState, breakStatus } = useTimer()
-  const { isInMeeting } = useMeetingStatus()
+  const { isInMeeting } = useMeetingStatusContext()
 
   const checkActivityStatus = useCallback(() => {
     try {
@@ -38,18 +38,13 @@ export function useActivityStatus() {
           // Server has explicit state - trust it as primary source
           isActive = serverActivityState
           
-          // Log when server state differs from local state
-          if (localActivityState !== null && localActivityState !== serverActivityState) {
-            console.log(`🔄 Server activity state (${serverActivityState}) differs from local state (${localActivityState}) - using server state`)
-          }
+          // Server state differs from local state - using server state
         } else if (localActivityState !== null) {
           // Fall back to local state if server state unavailable
           isActive = localActivityState
-          console.log(`⚠️ Using local activity state (${localActivityState}) - server state unavailable`)
         } else {
           // No state available - default to active to prevent false inactive
           isActive = true
-          console.log(`⚠️ No activity state available - defaulting to active to prevent false inactive`)
         }
         
         // Apply break and meeting logic
@@ -71,7 +66,6 @@ export function useActivityStatus() {
           // Additional validation for inactive state
           const inactiveValidation = validateInactiveState(serverActivityState, localActivityState, isOnBreak, isInMeeting)
           if (!inactiveValidation) {
-            console.log('⚠️ Inactive state validation failed, defaulting to active')
             isActive = true
           }
         }

@@ -31,10 +31,10 @@ export function parseDbTimestampToMs(createdAt: any, notificationType?: string):
     
     // HOTFIX: Only break notifications have timestamps 8 hours in the future
     // Task/ticket notifications have correct timestamps already
-    if (notificationType === 'break') {
-      // Subtract 8 hours (28800000 ms) to correct break notifications to proper Manila morning times
-      parsedMs = parsedMs - (8 * 60 * 60 * 1000)
-    }
+    // if (notificationType === 'break') {
+    //   // Subtract 8 hours (28800000 ms) to correct break notifications to proper Manila morning times
+    //   parsedMs = parsedMs - (8 * 60 * 60 * 1000)
+    // }
     
     return parsedMs
   } catch {
@@ -92,7 +92,8 @@ function migrateNotificationTimes(notifications: Notification[]): Notification[]
 
 // Get notifications for current user
 export function getNotifications(): Notification[] {
-  return migrateNotificationTimes(inMemoryNotifications)
+  const migrated = migrateNotificationTimes(inMemoryNotifications)
+  return migrated
 }
 
 // Save notifications for current user
@@ -159,11 +160,9 @@ export function addSmartNotification(notification: Omit<Notification, 'id' | 'ti
   }
   
   saveNotifications(notifications)
-  console.log('Notifications saved. Total count:', notifications.length);
 
   // Show system-wide notification if Electron is available
   if (typeof window !== 'undefined' && window.electronAPI?.systemNotifications) {
-    console.log('Showing Electron system notification');
     try {
       const systemNotificationId = `system_${newNotification.id}`;
 
@@ -175,24 +174,19 @@ export function addSmartNotification(notification: Omit<Notification, 'id' | 'ti
       })
 
       // Trigger notification update event to refresh UI
-      console.log('Dispatching notifications-updated event');
       window.dispatchEvent(new CustomEvent('notifications-updated'))
 
       // Also trigger notification count change for system tray
       if (window.electronAPI?.send) {
         const newUnreadCount = notifications.filter(n => !n.read).length;
-        console.log('Sending notification count to system tray:', newUnreadCount);
         window.electronAPI.send('notification-count-changed', { count: newUnreadCount });
       }
     } catch (error) {
-      console.log('System notification not available:', error)
 
       // Fallback: Just trigger the UI update without system notification
-      console.log('Fallback: Dispatching notifications-updated event');
       window.dispatchEvent(new CustomEvent('notifications-updated'))
     }
   } else {
-    console.log('Electron not available, triggering fallback notification update');
     // Fallback for web browser: Just trigger the UI update
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('notifications-updated'))
@@ -281,6 +275,64 @@ export function markAllNotificationsAsRead(): void {
   }
 }
 
+// NEW: Sync in-memory store with database state
+export async function syncNotificationsWithDatabase(email: string): Promise<void> {
+  try {
+    
+    const res = await fetch(`/api/notifications?email=${encodeURIComponent(email)}&limit=100`, { 
+      credentials: 'include' 
+    })
+    
+    if (!res.ok) {
+      return
+    }
+    
+    const data = await res.json()
+    if (data?.success && Array.isArray(data.notifications)) {
+      const mapped: Notification[] = data.notifications.map((n: any) => {
+        const payload = n.payload || {}
+        const actionUrl = payload.action_url
+          || (n.category === 'ticket' && (payload.ticket_id || payload.ticket_row_id) ? `/forms/${payload.ticket_id || ''}` : undefined)
+          || (n.category === 'break' ? '/status/breaks' : undefined)
+        const icon = n.category === 'ticket' ? 'FileText' : n.category === 'break' ? 'Clock' : 'Bell'
+        return {
+          id: `db_${n.id}`,
+          type: n.type,
+          title: n.title,
+          message: n.message,
+          time: parseDbTimestampToMs(n.created_at, n.category),
+          read: !!n.is_read,
+          icon,
+          actionUrl,
+          actionData: payload,
+          category: n.category,
+          priority: 'medium' as const,
+          eventType: 'system' as const,
+        }
+      })
+      
+      
+      // Update in-memory store with database state
+      saveNotifications(mapped)
+      
+      // Trigger update event
+      if (typeof window !== 'undefined') {
+        const unreadCount = mapped.filter(n => !n.read).length
+        window.dispatchEvent(new CustomEvent('notifications-updated', {
+          detail: { unreadCount }
+        }))
+        
+        // Update system tray badge
+        if (window.electronAPI?.send) {
+          window.electronAPI.send('notification-count-changed', { count: unreadCount });
+        }
+      }
+    }
+  } catch (error) {
+    console.error('❌ Error syncing notifications with database:', error)
+  }
+}
+
 // Delete notification
 export function deleteNotification(id: string): void {
   const updated = getNotifications().filter(n => n.id !== id)
@@ -313,7 +365,9 @@ export function removeDuplicateNotifications(): void {
 
 // Get unread count
 export function getUnreadCount(): number {
-  return getNotifications().filter(n => !n.read).length
+  const notifications = getNotifications()
+  const unreadCount = notifications.filter(n => !n.read).length
+  return unreadCount
 }
 
 // Format time ago

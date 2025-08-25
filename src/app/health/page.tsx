@@ -29,7 +29,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { useHealthCheckSocket, HealthCheckRecord } from "@/hooks/use-health-check-socket"
+import { useHealthCheckSocketContext, HealthCheckRecord } from "@/hooks/use-health-check-socket-context"
 import { getCurrentUser } from "@/lib/ticket-utils"
 
 export default function HealthPage() {
@@ -71,7 +71,7 @@ export default function HealthPage() {
     fetchAvailability,
     createRequest,
     isNurseOnDuty
-  } = useHealthCheckSocket(currentUser?.email || null)
+  } = useHealthCheckSocketContext(currentUser?.email || null)
 
   // Fetch data on mount
   useEffect(() => {

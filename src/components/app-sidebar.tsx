@@ -242,7 +242,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             url: "/settings/password",
           },
           {
-            title: "Connected Users",
+            title: "Team Management",
             url: "/settings/connected-users",
           },
         ],
