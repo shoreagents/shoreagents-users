@@ -38,6 +38,183 @@ const breakReminderScheduler = new BreakReminderScheduler();
 console.log('🔔 Initializing break reminder scheduler...');
 breakReminderScheduler.start();
 
+// Initialize global notification listener
+let globalNotificationClient = null;
+let globalNotificationRetryInterval = null;
+
+async function initializeGlobalNotificationListener() {
+  try {
+    if (globalNotificationClient) {
+      globalNotificationClient.release();
+    }
+    
+    globalNotificationClient = await pool.connect();
+    await globalNotificationClient.query('LISTEN notifications');
+    await globalNotificationClient.query('LISTEN ticket_comments');
+    await globalNotificationClient.query('LISTEN weekly_activity_change');
+    await globalNotificationClient.query('LISTEN monthly_activity_change');
+    
+    console.log('📡 Global notification listener initialized');
+    
+    globalNotificationClient.on('notification', async (msg) => {
+      try {
+        // Only log raw notifications for debugging specific channels if needed
+        if (msg.channel !== 'weekly_activity_change' && msg.channel !== 'monthly_activity_change') {
+          console.log(`🔔 Raw notification received on channel '${msg.channel}' with payload:`, msg.payload);
+        }
+        if (msg.channel === 'notifications') {
+          const payload = JSON.parse(msg.payload);
+          console.log(`📡 Global notification received for user ${payload.user_id}:`, payload.title);
+          
+          // Find all sockets for this user and emit to all of them
+          if (payload.user_id) {
+            console.log(`🔍 Looking for user ${payload.user_id} in ${connectedUsers.size} connected users`);
+            console.log(`🔍 Connected users:`, Array.from(connectedUsers.entries()).map(([id, data]) => `${id}: ${data.email} (userId: ${data.userId})`));
+            
+            // Find the user's email by looking through all connected users
+            let targetEmail = null;
+            for (const [socketId, userData] of connectedUsers.entries()) {
+              if (userData.userId === payload.user_id) {
+                targetEmail = userData.email;
+                break;
+              }
+            }
+            
+            if (targetEmail) {
+              const userSockets = userConnections.get(targetEmail);
+              if (userSockets && userSockets.size > 0) {
+                console.log(`📤 Broadcasting notification to ${userSockets.size} connections for user ${payload.user_id} (${targetEmail})`);
+                userSockets.forEach(socketId => {
+                  io.to(socketId).emit('db-notification', payload);
+                });
+              } else {
+                console.log(`⚠️ No active connections found for user ${payload.user_id} (${targetEmail})`);
+              }
+            } else {
+              console.log(`⚠️ User ${payload.user_id} not found in connected users`);
+            }
+          }
+        } else if (msg.channel === 'ticket_comments') {
+          const payload = JSON.parse(msg.payload);
+          console.log(`📡 Global ticket comment notification received for user ${payload.user_id}`);
+          
+          // Find all sockets for this user and emit to all of them
+          if (payload.user_id) {
+            let targetEmail = null;
+            for (const [socketId, userData] of connectedUsers.entries()) {
+              if (userData.userId === payload.user_id) {
+                targetEmail = userData.email;
+                break;
+              }
+            }
+            
+            if (targetEmail) {
+              const userSockets = userConnections.get(targetEmail);
+              if (userSockets && userSockets.size > 0) {
+                userSockets.forEach(socketId => {
+                  io.to(socketId).emit('ticket-comment', payload);
+                });
+              }
+            }
+          }
+        } else if (msg.channel === 'weekly_activity_change') {
+          const payload = JSON.parse(msg.payload);
+          
+          // Find all sockets for this user and emit to all of them
+          if (payload.user_id) {
+            let targetEmail = null;
+            for (const [socketId, userData] of connectedUsers.entries()) {
+              if (userData.userId === payload.user_id) {
+                targetEmail = userData.email;
+                break;
+              }
+            }
+            
+            if (targetEmail) {
+              const userSockets = userConnections.get(targetEmail);
+              if (userSockets && userSockets.size > 0) {
+                userSockets.forEach(socketId => {
+                  io.to(socketId).emit('weekly-activity-update', payload);
+                });
+              }
+            }
+          }
+        } else if (msg.channel === 'monthly_activity_change') {
+          const payload = JSON.parse(msg.payload);
+          
+          // Find all sockets for this user and emit to all of them
+          if (payload.user_id) {
+            let targetEmail = null;
+            for (const [socketId, userData] of connectedUsers.entries()) {
+              if (userData.userId === payload.user_id) {
+                targetEmail = userData.email;
+                break;
+              }
+            }
+            
+            if (targetEmail) {
+              const userSockets = userConnections.get(targetEmail);
+              if (userSockets && userSockets.size > 0) {
+                userSockets.forEach(socketId => {
+                  io.to(socketId).emit('monthly-activity-update', payload);
+                });
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error handling global notification:', error.message);
+      }
+    });
+    
+    globalNotificationClient.on('error', (error) => {
+      console.error('❌ Global notification client error:', error.message);
+      scheduleGlobalNotificationRetry();
+    });
+    
+    globalNotificationClient.on('end', () => {
+      console.log('🔌 Global notification client disconnected');
+      scheduleGlobalNotificationRetry();
+    });
+    
+    // Clear any existing retry interval
+    if (globalNotificationRetryInterval) {
+      clearInterval(globalNotificationRetryInterval);
+      globalNotificationRetryInterval = null;
+    }
+    
+  } catch (error) {
+    console.error('❌ Failed to initialize global notification listener:', error.message);
+    scheduleGlobalNotificationRetry();
+  }
+}
+
+function scheduleGlobalNotificationRetry() {
+  if (globalNotificationRetryInterval) {
+    clearInterval(globalNotificationRetryInterval);
+  }
+  
+  console.log('🔄 Scheduling global notification listener retry in 5 seconds...');
+  globalNotificationRetryInterval = setInterval(() => {
+    console.log('🔄 Retrying global notification listener...');
+    initializeGlobalNotificationListener();
+  }, 5000);
+}
+
+// Start global notification listener
+initializeGlobalNotificationListener();
+
+// Monitor global notification listener health
+setInterval(() => {
+  if (globalNotificationClient && globalNotificationClient.connection) {
+    const status = globalNotificationClient.connection.stream.readyState;
+    if (status === 'closed' || status === 'closing') {
+      console.log('⚠️ Global notification client connection is closed, reconnecting...');
+      initializeGlobalNotificationListener();
+    }
+  }
+}, 30000); // Check every 30 seconds
+
 // Monitor database connection pool
 setInterval(() => {
   if (pool) {
@@ -555,10 +732,12 @@ async function checkShiftReset(email, userId) {
     
     if (!userInfo) return false;
     
-    const lastActivityTime = new Date(userInfo.sessionStart);
+    // FIXED: Use lastShiftBoundaryTime instead of sessionStart for shift reset logic
+    // This ensures we track when the user last crossed a shift boundary, not when they were last active
+    const lastShiftBoundaryTime = userInfo.lastShiftBoundaryTime ? new Date(userInfo.lastShiftBoundaryTime) : new Date(userInfo.sessionStart);
     
     // Check if we should reset based on shift schedule
-    const shouldReset = shouldResetForShift(lastActivityTime, currentTime, shiftInfo);
+    const shouldReset = shouldResetForShift(lastShiftBoundaryTime, currentTime, shiftInfo);
     
     if (shouldReset) {
       // Debounce: avoid duplicate resets within 2 minutes
@@ -582,6 +761,8 @@ async function checkShiftReset(email, userId) {
       userInfo.inactiveSeconds = 0;
       userInfo.isActive = preserveActive;
       userInfo.sessionStart = new Date().toISOString();
+      // FIXED: Update lastShiftBoundaryTime to current time when reset occurs
+      userInfo.lastShiftBoundaryTime = currentTime.toISOString();
       userInfo.lastResetAt = Date.now();
       userInfo.lastShiftId = currentShiftId;
       
@@ -843,9 +1024,10 @@ io.on('connection', (socket) => {
             // Add this socket to connectedUsers map
             connectedUsers.set(socket.id, { userId: userInfo.userId, email: emailString, userInfo });
             console.log(`🔐 AUTHENTICATION COMPLETED (waited): Socket ${socket.id} now associated with user ${emailString}`);
-            console.log(`🔍 DEBUG (waited): User ${emailString} has userId: ${userInfo.userId}, activeSeconds: ${userInfo.activeSeconds}, inactiveSeconds: ${userInfo.inactiveSeconds}`);
+            // User data retrieved after waiting
             
             const initialTimerData = {
+              userId: userInfo.userId, // Include userId in authenticated response
               isActive: userInfo.isActive,
               activeSeconds: userInfo.activeSeconds,
               inactiveSeconds: userInfo.inactiveSeconds,
@@ -890,13 +1072,14 @@ io.on('connection', (socket) => {
           activeSeconds: 0,
           inactiveSeconds: 0,
           sessionStart: new Date().toISOString(),
+          lastShiftBoundaryTime: new Date().toISOString(), // FIXED: Track when user last crossed shift boundary
           lastResetAt: null,
           lastShiftId: null,
           lastDbUpdate: 0, // Initialize database update throttling
           lastSocketEmit: 0, // Initialize socket emission throttling
           lastActivityEmit: 0 // Initialize activity emission throttling
         };
-        console.log(`🔍 DEBUG: Created new userInfo object for ${emailString}:`, JSON.stringify(userInfo));
+        // New userInfo object created
         
         // Try to load existing data from database
         console.log(`🔍 Checking database for user: ${emailString}`);
@@ -913,7 +1096,7 @@ io.on('connection', (socket) => {
           
           // Set the user ID to the database ID
           userInfo.userId = userId;
-          console.log(`🔍 DEBUG: Set userId for ${emailString}: ${userId}`);
+          // User ID set from database
           
           // Get user shift information for shift-based resets
           console.log(`🕐 Getting shift info for user ID: ${userId}`);
@@ -971,6 +1154,15 @@ io.on('connection', (socket) => {
               userInfo.inactiveSeconds = dbData.today_inactive_seconds || 0;
               userInfo.isActive = dbData.is_currently_active || false;
               userInfo.sessionStart = dbData.last_session_start || new Date().toISOString();
+              // FIXED: Initialize lastShiftBoundaryTime for existing users loaded from database
+              if (!userInfo.lastShiftBoundaryTime) {
+                userInfo.lastShiftBoundaryTime = userInfo.sessionStart;
+              }
+              
+              // Ensure lastDbUpdate field exists for throttling
+              if (typeof userInfo.lastDbUpdate === 'undefined') {
+                userInfo.lastDbUpdate = 0;
+              }
               // Record current shift id to prevent accidental resets later
               if (shiftInfo) {
                 userInfo.lastShiftId = getCurrentShiftId(currentTime, shiftInfo);
@@ -992,6 +1184,9 @@ io.on('connection', (socket) => {
               userInfo.inactiveSeconds = 0;
               userInfo.isActive = preserveActive;
               userInfo.sessionStart = new Date().toISOString();
+              // FIXED: Update lastShiftBoundaryTime when new shift period is detected
+              userInfo.lastShiftBoundaryTime = currentTime.toISOString();
+              userInfo.lastShiftId = getCurrentShiftId(currentTime, shiftInfo);
               userInfo.lastResetAt = Date.now();
               userInfo.lastDbUpdate = 0; // Initialize for throttling
               userInfo.lastSocketEmit = 0; // Initialize for throttling
@@ -1033,6 +1228,8 @@ io.on('connection', (socket) => {
               userInfo.inactiveSeconds = 0;
               userInfo.isActive = false;
               userInfo.sessionStart = new Date().toISOString();
+              // FIXED: Update lastShiftBoundaryTime when fresh start reset occurs
+              userInfo.lastShiftBoundaryTime = currentTime.toISOString();
               userInfo.lastResetAt = Date.now();
               userInfo.lastDbUpdate = 0; // Initialize for throttling
               userInfo.lastSocketEmit = 0; // Initialize for throttling
@@ -1044,6 +1241,8 @@ io.on('connection', (socket) => {
               userInfo.inactiveSeconds = 0;
               userInfo.isActive = false;
               userInfo.sessionStart = new Date().toISOString();
+              // FIXED: Update lastShiftBoundaryTime for normal fresh start
+              userInfo.lastShiftBoundaryTime = currentTime.toISOString();
               userInfo.lastResetAt = Date.now();
               userInfo.lastDbUpdate = 0; // Initialize for throttling
               userInfo.lastSocketEmit = 0; // Initialize for throttling
@@ -1132,11 +1331,24 @@ io.on('connection', (socket) => {
                   userInfo.inactiveSeconds = dbData.today_inactive_seconds || 0;
                   userInfo.isActive = dbData.is_currently_active || false;
                   userInfo.sessionStart = dbData.last_session_start || userInfo.sessionStart;
+                  // FIXED: Initialize lastShiftBoundaryTime for existing users loaded from database
+                  if (!userInfo.lastShiftBoundaryTime) {
+                    userInfo.lastShiftBoundaryTime = userInfo.sessionStart;
+                  }
                   
                   // Ensure lastDbUpdate field exists for throttling
                   if (typeof userInfo.lastDbUpdate === 'undefined') {
                     userInfo.lastDbUpdate = 0;
                   }
+                  // Record current shift id to prevent accidental resets later
+                  if (shiftInfo) {
+                    userInfo.lastShiftId = getCurrentShiftId(currentTime, shiftInfo);
+                  }
+                  
+                  // Initialize throttling fields
+                  userInfo.lastDbUpdate = 0;
+                  userInfo.lastSocketEmit = 0;
+                  userInfo.lastActivityEmit = 0;
                 }
               } else {
               // New shift period - reset for new shift
@@ -1150,51 +1362,28 @@ io.on('connection', (socket) => {
               userInfo.inactiveSeconds = 0;
               userInfo.isActive = preserveActive;
               userInfo.sessionStart = new Date().toISOString();
+              // FIXED: Update lastShiftBoundaryTime when new shift period is detected
+              userInfo.lastShiftBoundaryTime = currentTime.toISOString();
               userInfo.lastShiftId = getCurrentShiftId(currentTime, shiftInfo);
               userInfo.lastResetAt = Date.now();
               userInfo.lastDbUpdate = 0; // Initialize for throttling
               userInfo.lastSocketEmit = 0; // Initialize for throttling
               userInfo.lastActivityEmit = 0; // Initialize for throttling
                 
-                // Create new activity_data record for current shift/day
-                // For new shift periods, we want to create a new row, not update existing
-                try {
-                  await pool.query(
-                    `INSERT INTO activity_data (user_id, is_currently_active, today_active_seconds, today_inactive_seconds, last_session_start, today_date, updated_at)
-                     VALUES ($1, false, 0, 0, $2, $3, NOW())`,
-                    [userId, userInfo.sessionStart, currentDate]
-                  );
-                } catch (insertError) {
-                  // If insert fails due to conflict, it means a row already exists for this date
-                  // This can happen if the user reconnects quickly after a shift reset
-                  if (insertError.code === '23505') { // Unique constraint violation
-                    console.log(`📊 Activity record already exists for ${emailString} on ${currentDate} - updating instead`);
-                    await pool.query(
-                      `UPDATE activity_data 
-                       SET is_currently_active = false, 
-                           today_active_seconds = 0, 
-                           today_inactive_seconds = 0, 
-                           last_session_start = $1, 
-                           updated_at = NOW()
-                       WHERE user_id = $2 AND today_date = $3`,
-                      [userInfo.sessionStart, userId, currentDate]
-                    );
-                  } else {
-                    throw insertError; // Re-throw other errors
-                  }
-                }
-                console.log(`📊 Created new activity record during refresh for ${email} on ${currentDate}`);
-              }
-              
-              // Ensure throttling fields exist
-              if (typeof userInfo.lastDbUpdate === 'undefined') {
-                userInfo.lastDbUpdate = 0;
-              }
-              if (typeof userInfo.lastSocketEmit === 'undefined') {
-                userInfo.lastSocketEmit = 0;
-              }
-              if (typeof userInfo.lastActivityEmit === 'undefined') {
-                userInfo.lastActivityEmit = 0;
+                // Reset today's row (upsert) for current shift/day
+                await pool.query(
+                  `INSERT INTO activity_data (user_id, is_currently_active, today_active_seconds, today_inactive_seconds, last_session_start, today_date, updated_at)
+                   VALUES ($1, $4, 0, 0, $2, $3, NOW())
+                   ON CONFLICT (user_id, today_date)
+                   DO UPDATE SET
+                     is_currently_active = EXCLUDED.is_currently_active,
+                     today_active_seconds = 0,
+                     today_inactive_seconds = 0,
+                     last_session_start = EXCLUDED.last_session_start,
+                     updated_at = NOW()`,
+                  [userId, userInfo.sessionStart, currentDate, preserveActive]
+                );
+                console.log(`📊 Created new activity record for ${email} on ${currentDate}`);
               }
             } else {
               // No activity data exists, create fresh record
@@ -1227,15 +1416,17 @@ io.on('connection', (socket) => {
               
               if (shouldResetForRefresh) {
                 // Reset timers for user refreshing after shift start
-                            userInfo.activeSeconds = 0;
-              userInfo.inactiveSeconds = 0;
-              userInfo.isActive = false;
-              userInfo.sessionStart = new Date().toISOString();
-              userInfo.lastResetAt = Date.now();
-              userInfo.lastDbUpdate = 0; // Initialize for throttling
-              userInfo.lastSocketEmit = 0; // Initialize for throttling
-              userInfo.lastActivityEmit = 0; // Initialize for throttling
-              console.log(`⏰ Refresh with reset for ${emailString} - ${refreshResetReason}`);
+                userInfo.activeSeconds = 0;
+                userInfo.inactiveSeconds = 0;
+                userInfo.isActive = false;
+                userInfo.sessionStart = new Date().toISOString();
+                // FIXED: Update lastShiftBoundaryTime when refresh reset occurs
+                userInfo.lastShiftBoundaryTime = currentTime.toISOString();
+                userInfo.lastResetAt = Date.now();
+                userInfo.lastDbUpdate = 0; // Initialize for throttling
+                userInfo.lastSocketEmit = 0; // Initialize for throttling
+                userInfo.lastActivityEmit = 0; // Initialize for throttling
+                console.log(`⏰ Refresh with reset for ${emailString} - ${refreshResetReason}`);
               } else {
                 // Normal fresh start
                 const preserveActive = !!userInfo.isActive;
@@ -1243,6 +1434,8 @@ io.on('connection', (socket) => {
                 userInfo.inactiveSeconds = 0;
                 userInfo.isActive = preserveActive;
                 userInfo.sessionStart = new Date().toISOString();
+                // FIXED: Update lastShiftBoundaryTime for normal refresh
+                userInfo.lastShiftBoundaryTime = currentTime.toISOString();
                 userInfo.lastDbUpdate = 0; // Initialize for throttling
                 userInfo.lastSocketEmit = 0; // Initialize for throttling
                 userInfo.lastActivityEmit = 0; // Initialize for throttling
@@ -1296,7 +1489,7 @@ io.on('connection', (socket) => {
         connectedUsers.set(socket.id, { userId: userInfo.userId, email: emailString, userInfo });
         console.log(`🔐 AUTHENTICATION COMPLETED: Socket ${socket.id} now associated with user ${emailString}`);
         console.log(`📊 Connected users map now contains:`, Array.from(connectedUsers.entries()).map(([id, data]) => `${id} -> ${data.email}`));
-        console.log(`🔍 DEBUG: User ${emailString} has userId: ${userInfo.userId}, activeSeconds: ${userInfo.activeSeconds}, inactiveSeconds: ${userInfo.inactiveSeconds}`);
+        // User authentication completed with data
         
         // Clean up any temporary user data that might exist
         for (const [socketId, userData] of connectedUsers.entries()) {
@@ -1375,6 +1568,8 @@ io.on('connection', (socket) => {
           period: shiftInfo.period,
           schedule: shiftInfo.schedule,
           time: shiftInfo.time,
+            startTime: shiftInfo.startTime?.toISOString(),
+            endTime: shiftInfo.endTime?.toISOString(),
           timeUntilReset: timeUntilReset,
           formattedTimeUntilReset: formattedTimeUntilReset,
           nextResetTime: new Date(currentTime.getTime() + timeUntilReset).toISOString()
@@ -1504,6 +1699,8 @@ io.on('connection', (socket) => {
         // NOW send the authenticated event with proper hydrated data
         // Create clean data object to avoid circular references
         const cleanTimerData = {
+          email: emailString, // Include email for frontend user matching
+          userId: userInfo.userId, // Include userId in authenticated response
           isActive: initialTimerData.isActive,
           activeSeconds: initialTimerData.activeSeconds,
           inactiveSeconds: initialTimerData.inactiveSeconds,
@@ -1512,6 +1709,8 @@ io.on('connection', (socket) => {
             period: initialTimerData.shiftInfo.period,
             schedule: initialTimerData.shiftInfo.schedule,
             time: initialTimerData.shiftInfo.time,
+            startTime: initialTimerData.shiftInfo.startTime,
+            endTime: initialTimerData.shiftInfo.endTime,
             timeUntilReset: initialTimerData.shiftInfo.timeUntilReset,
             formattedTimeUntilReset: initialTimerData.shiftInfo.formattedTimeUntilReset,
             nextResetTime: initialTimerData.shiftInfo.nextResetTime
@@ -1553,6 +1752,8 @@ io.on('connection', (socket) => {
         console.log(`⚠️ Authentication hydration failed for ${emailString}:`, error.message);
         try {
           socket.emit('authenticated', {
+            email: emailString, // Include email for frontend user matching
+            userId: userInfo.userId, // Include userId in authenticated response
             isActive: false,
             activeSeconds: 0,
             inactiveSeconds: 0,
@@ -1577,86 +1778,12 @@ io.on('connection', (socket) => {
         // REMOVED: Online status broadcast
       }
 
-      // Listen for Postgres NOTIFY on notifications channel per connection
-      try {
-        const client = await pool.connect();
-        await client.query('LISTEN notifications');
-        await client.query('LISTEN ticket_comments');
-        
-        const onNotify = async (msg) => {
-          if (msg.channel === 'notifications') {
-            try {
-              const payload = JSON.parse(msg.payload);
-              console.log(`📡 Database notification received for user ${payload.user_id}:`, payload.title);
-              
-              // Find all sockets for this user and emit to all of them
-              if (payload.user_id) {
-                // Find the user's email by looking through all connected users
-                let targetEmail = null;
-                for (const [socketId, userData] of connectedUsers.entries()) {
-                  if (userData.userId === payload.user_id) {
-                    targetEmail = userData.email;
-                    break;
-                  }
-                }
-                
-                if (targetEmail) {
-                  const userSockets = userConnections.get(targetEmail);
-                  if (userSockets && userSockets.size > 0) {
-                    console.log(`📤 Broadcasting notification to ${userSockets.size} connections for user ${payload.user_id} (${targetEmail})`);
-                    userSockets.forEach(socketId => {
-                      io.to(socketId).emit('db-notification', payload);
-                    });
-                  } else {
-                    console.log(`⚠️ No active connections found for user ${payload.user_id} (${targetEmail})`);
-                  }
-                } else {
-                  console.log(`⚠️ User ${payload.user_id} not found in connected users`);
-                }
-              }
-            } catch (error) {
-              console.error('❌ Error handling notification:', error.message);
-            }
-          } else if (msg.channel === 'ticket_comments') {
-            try {
-              const payload = JSON.parse(msg.payload);
-              // Enrich with author details (name/email) for accurate display on clients
-              let authorName = null;
-              let authorEmail = null;
-              if (payload && payload.user_id) {
-                try {
-                  const result = await pool.query(
-                    `SELECT u.email AS author_email,
-                            TRIM(CONCAT(COALESCE(pi.first_name, ''), ' ', COALESCE(pi.last_name, ''))) AS author_name
-                     FROM users u
-                     LEFT JOIN personal_info pi ON pi.user_id = u.id
-                     WHERE u.id = $1
-                     LIMIT 1`,
-                    [payload.user_id]
-                  );
-                  if (result.rows && result.rows[0]) {
-                    authorEmail = result.rows[0].author_email || null;
-                    authorName = (result.rows[0].author_name || '').trim() || null;
-                  }
-                } catch (_) {}
-              }
-
-              const enriched = { ...payload, authorName, authorEmail };
-              // Forward to client; page can filter by ticket id
-              socket.emit('ticket-comment', enriched);
-            } catch (_) {}
-          }
-        };
-        
-        client.on('notification', onNotify);
-        
-                 // Properly clean up the client when socket disconnects
+      // Notifications are now handled by the global notification listener
+      // No need for individual socket notification listeners
+      
+      // Clean up user connection tracking on disconnect
          socket.on('disconnect', () => {
            try {
-             client.removeListener('notification', onNotify);
-             client.release();
-             console.log(`🔌 Released database client for socket ${socket.id}`);
-             
              // Clean up user connection tracking
              const userData = connectedUsers.get(socket.id);
              if (userData) {
@@ -1677,17 +1804,13 @@ io.on('connection', (socket) => {
                console.log(`🔌 Socket ${socket.id} disconnected for ${email}`);
              }
            } catch (error) {
-             console.error(`❌ Error releasing database client for socket ${socket.id}:`, error.message);
+          console.error(`❌ Error cleaning up socket ${socket.id}:`, error.message);
            }
          });
         
                  // Also clean up on socket error
          socket.on('error', () => {
            try {
-             client.removeListener('notification', onNotify);
-             client.release();
-             console.log(`🔌 Released database client for socket ${socket.id} due to error`);
-             
              // Clean up user connection tracking
              const userData = connectedUsers.get(socket.id);
              if (userData) {
@@ -1705,16 +1828,12 @@ io.on('connection', (socket) => {
                  }
                }
                connectedUsers.delete(socket.id);
-               console.log(`🔌 Socket ${socket.id} disconnected for ${email}`);
+            console.log(`🔌 Socket ${socket.id} disconnected for ${email} due to error`);
              }
            } catch (error) {
-             console.error(`❌ Error releasing database client for socket ${socket.id}:`, error.message);
+          console.error(`❌ Error cleaning up socket ${socket.id}:`, error.message);
            }
          });
-        
-      } catch (err) {
-        console.error('Failed to LISTEN notifications:', err.message);
-      }
 
       // Timer data is now sent via the authenticated event with proper hydration
     } catch (error) {
@@ -1786,6 +1905,17 @@ io.on('connection', (socket) => {
               // broadcast task updates to all users instead of scoping to task owner only
               io.emit('task_updated', msg.payload);
             } catch (_) {}
+          } else if (msg.channel === 'productivity_score_updated') {
+            try {
+              // Handle productivity score updates from database triggers
+              const updateData = JSON.parse(msg.payload);
+              console.log(`📊 Productivity score update notification received for user ${updateData.user_id}: ${updateData.old_score} -> ${updateData.new_score}`);
+              
+              // Emit real-time update to all connected clients
+              emitProductivityScoreUpdate(updateData.user_id, updateData.month_year);
+            } catch (error) {
+              console.error('❌ Error handling productivity score update notification:', error);
+            }
           } else if (
             msg.channel === 'task_relations' ||
             msg.channel === 'task_groups' ||
@@ -1816,7 +1946,8 @@ io.on('connection', (socket) => {
           'task_custom_fields',
           'task_attachments',
           'task_assignees',
-          'task_comments'
+          'task_comments',
+          'productivity_score_updated'
         ];
         
         // Listen to all channels
@@ -1855,6 +1986,172 @@ io.on('connection', (socket) => {
   } catch (err) {
     console.error('❌ Error setting up global task activity listener:', err.message);
   }
+
+  // Function to emit productivity score updates to connected users
+  async function emitProductivityScoreUpdate(userId, monthYear) {
+    try {
+      // Get the updated productivity score
+      const scoreResult = await pool.query(`
+        SELECT 
+          ps.user_id,
+          ps.productivity_score,
+          ps.total_active_seconds,
+          ps.total_inactive_seconds,
+          ps.updated_at,
+          u.email
+        FROM productivity_scores ps
+        JOIN users u ON ps.user_id = u.id
+        WHERE ps.user_id = $1 AND ps.month_year = $2
+        LIMIT 1
+      `, [userId, monthYear]);
+      
+      if (scoreResult.rows.length > 0) {
+        const score = scoreResult.rows[0];
+        const email = score.email;
+        
+        console.log(`📊 Emitting productivity score update for ${email}: ${score.productivity_score} points`);
+        
+        // Emit to all connected users for real-time updates
+        io.emit('productivityScoreUpdated', {
+          email,
+          userId: score.user_id,
+          productivityScore: score.productivity_score,
+          totalActiveTime: score.total_active_seconds,
+          totalInactiveTime: score.total_inactive_seconds,
+          timestamp: score.updated_at
+        });
+        
+        console.log(`✅ Productivity score update emitted for ${email}`);
+      }
+    } catch (error) {
+      console.error('❌ Error emitting productivity score update:', error);
+    }
+  }
+
+  // Make the function globally available for database triggers to call
+  global.emitProductivityScoreUpdate = emitProductivityScoreUpdate;
+
+  // Team Chat Real-time Messaging
+  socket.on('join-chat', async (data) => {
+    try {
+      const { userId, conversationId } = data;
+      const userData = connectedUsers.get(socket.id);
+      
+      if (!userData || userData.userId !== userId) {
+        socket.emit('chat-error', { message: 'Unauthorized' });
+        return;
+      }
+      
+      // Join the conversation room
+      socket.join(`conversation_${conversationId}`);
+      console.log(`👤 User ${userId} joined conversation ${conversationId}`);
+      
+      // Emit typing indicator to other participants
+      socket.to(`conversation_${conversationId}`).emit('user-joined-chat', {
+        userId,
+        conversationId,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error('Error joining chat:', error);
+      socket.emit('chat-error', { message: 'Failed to join chat' });
+    }
+  });
+
+  socket.on('leave-chat', async (data) => {
+    try {
+      const { userId, conversationId } = data;
+      socket.leave(`conversation_${conversationId}`);
+      console.log(`👤 User ${userId} left conversation ${conversationId}`);
+      
+      // Emit to other participants
+      socket.to(`conversation_${conversationId}`).emit('user-left-chat', {
+        userId,
+        conversationId,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error('Error leaving chat:', error);
+    }
+  });
+
+  socket.on('send-chat-message', async (data) => {
+    try {
+      const { userId, conversationId, messageContent, messageType = 'text' } = data;
+      const userData = connectedUsers.get(socket.id);
+      
+      if (!userData || userData.userId !== userId) {
+        socket.emit('chat-error', { message: 'Unauthorized' });
+        return;
+      }
+      
+      // Store message in database (this will be handled by the API)
+      // For now, just broadcast the message
+      const messageData = {
+        id: Date.now().toString(), // Temporary ID
+        conversationId,
+        senderId: userId,
+        senderName: userData.fullName || userData.email,
+        content: messageContent,
+        messageType,
+        timestamp: new Date().toISOString(),
+        isTemporary: true
+      };
+      
+      // Broadcast to conversation participants
+      io.to(`conversation_${conversationId}`).emit('new-chat-message', messageData);
+      
+      // Emit delivery confirmation to sender
+      socket.emit('message-delivered', {
+        messageId: messageData.id,
+        conversationId,
+        timestamp: new Date().toISOString()
+      });
+      
+      console.log(`💬 Chat message sent in conversation ${conversationId} by user ${userId}`);
+    } catch (error) {
+      console.error('Error sending chat message:', error);
+      socket.emit('chat-error', { message: 'Failed to send message' });
+    }
+  });
+
+  socket.on('typing-indicator', (data) => {
+    try {
+      const { userId, conversationId, isTyping } = data;
+      const userData = connectedUsers.get(socket.id);
+      
+      if (!userData || userData.userId !== userId) return;
+      
+      // Broadcast typing indicator to other participants
+      socket.to(`conversation_${conversationId}`).emit('user-typing', {
+        userId,
+        conversationId,
+        isTyping,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error('Error handling typing indicator:', error);
+    }
+  });
+
+  socket.on('mark-message-read', async (data) => {
+    try {
+      const { userId, conversationId, messageIds } = data;
+      const userData = connectedUsers.get(socket.id);
+      
+      if (!userData || userData.userId !== userId) return;
+      
+      // Emit read receipt to other participants
+      socket.to(`conversation_${conversationId}`).emit('messages-read', {
+        userId,
+        conversationId,
+        messageIds,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error('Error marking messages as read:', error);
+    }
+  });
 
   // Handle activity state changes
   socket.on('activityChange', async (isActive) => {
@@ -1934,6 +2231,8 @@ io.on('connection', (socket) => {
       userInfo.inactiveSeconds = 0;
       userInfo.isActive = preserveActive;
       userInfo.sessionStart = new Date().toISOString();
+      // FIXED: Update lastShiftBoundaryTime when force reset occurs
+      userInfo.lastShiftBoundaryTime = new Date().toISOString();
       userInfo.lastResetAt = Date.now();
       userInfo.lastShiftId = currentShiftId;
 
@@ -1966,8 +2265,8 @@ io.on('connection', (socket) => {
       const sockets = userConnections.get(email);
       if (sockets) {
         const resetData = {
-          userId,
-          email,
+          userId: userInfo.userId,
+          email: email,
           isActive: preserveActive,
           activeSeconds: userInfo.activeSeconds,
           inactiveSeconds: userInfo.inactiveSeconds,
@@ -2057,6 +2356,7 @@ io.on('connection', (socket) => {
               [userId]
             );
             const shiftText = (shiftRes.rows[0]?.shift_time || '').toString();
+            console.log(`🔍 Shift window check for ${userData.email}: shift_time="${shiftText}"`);
             const both = shiftText.match(/(\d{1,2}:\d{2}\s*(?:AM|PM))\s*-\s*(\d{1,2}:\d{2}\s*(?:AM|PM))/i);
             if (both) {
               const parseToMinutes = (token) => {
@@ -2076,11 +2376,14 @@ io.on('connection', (socket) => {
               } else {
                 withinShift = (curMinutes >= startMinutes) || (curMinutes < endMinutes); // night shift crossing midnight
               }
+              console.log(`🔍 Shift window calculation: start=${startMinutes}min, end=${endMinutes}min, current=${curMinutes}min, withinShift=${withinShift}`);
             } else {
               withinShift = true; // default allow if shift text not parsable
+              console.log(`🔍 Shift window: using default withinShift=true (shift text not parsable)`);
             }
           } catch (_) {
             withinShift = true; // be permissive on errors so counting still saves
+            console.log(`🔍 Shift window: using default withinShift=true (error in calculation)`);
           }
           
         } catch (dbError) {
@@ -2151,10 +2454,10 @@ io.on('connection', (socket) => {
           return; // avoid a race that could re-insert pre-reset counters
         }
         
-        // Throttle database updates: only update every 5-6 seconds to reduce load
+        // Throttle database updates: only update every 2-3 seconds to reduce load
         const lastDbUpdate = userInfo.lastDbUpdate || 0;
         const timeSinceLastUpdate = Date.now() - lastDbUpdate;
-        const shouldUpdateDb = timeSinceLastUpdate >= 5000; // 5 seconds
+        const shouldUpdateDb = timeSinceLastUpdate >= 2000; // 2 seconds instead of 5
         
         if (withinShift && shouldUpdateDb) {
           console.log(`💾 Updating database for ${userData.email} - within shift window (date: ${currentDate})`);
@@ -2274,6 +2577,48 @@ io.on('connection', (socket) => {
         totalInactiveTime: data.totalInactiveTime,
         timestamp: new Date().toISOString()
       });
+    }
+  });
+
+  // Handle requests for productivity data
+  socket.on('requestProductivityData', async (data) => {
+    try {
+      const { email, userId } = data;
+      console.log(`📊 Productivity data requested for ${email} (ID: ${userId})`);
+      
+      // Get current productivity score from database
+      const currentScore = await pool.query(`
+        SELECT 
+          ps.productivity_score,
+          ps.total_active_seconds,
+          ps.total_inactive_seconds,
+          ps.updated_at
+        FROM productivity_scores ps
+        WHERE ps.user_id = $1 
+        AND ps.month_year = to_char(NOW() AT TIME ZONE 'Asia/Manila', 'YYYY-MM')
+        LIMIT 1
+      `, [userId]);
+      
+      if (currentScore.rows.length > 0) {
+        const score = currentScore.rows[0];
+        
+        // Emit current productivity data to the requesting user
+        socket.emit('productivityScoreUpdated', {
+          email,
+          userId,
+          productivityScore: score.productivity_score,
+          totalActiveTime: score.total_active_seconds,
+          totalInactiveTime: score.total_inactive_seconds,
+          timestamp: score.updated_at
+        });
+        
+        console.log(`✅ Productivity data sent to ${email}: ${score.productivity_score} points`);
+      } else {
+        console.log(`⚠️  No productivity score found for ${email} (ID: ${userId})`);
+      }
+    } catch (error) {
+      console.error('❌ Error fetching productivity data:', error);
+      socket.emit('error', { message: 'Failed to fetch productivity data' });
     }
   });
 
@@ -2451,6 +2796,12 @@ async function resetInMemoryDataAfterShiftEnd(email, userId) {
         userInfo.inactiveSeconds = 0;
         userInfo.isActive = false;
         userInfo.sessionStart = new Date().toISOString();
+        // FIXED: Update lastShiftBoundaryTime when shift ends to prevent premature resets
+        userInfo.lastShiftBoundaryTime = currentTime.toISOString();
+        
+        // DON'T update the database when shift ends - preserve the completed day's data
+        // Only reset in-memory data for the new session
+        console.log(`💾 Preserving completed day's data for ${email} - shift ended, data saved`);
         
         // Notify frontend about the reset
         const userSockets = userConnections.get(email);
@@ -2489,6 +2840,12 @@ async function resetInMemoryDataAfterShiftEnd(email, userId) {
         userInfo.inactiveSeconds = 0;
         userInfo.isActive = false;
         userInfo.sessionStart = new Date().toISOString();
+        // FIXED: Update lastShiftBoundaryTime when shift ends to prevent premature resets
+        userInfo.lastShiftBoundaryTime = currentTime.toISOString();
+        
+        // DON'T update the database when shift ends - preserve the completed day's data
+        // Only reset in-memory data for the new session
+        console.log(`💾 Preserving completed day's data for ${email} - shift ended, data saved`);
         
         // Notify frontend about the reset
         const userSockets = userConnections.get(email);
@@ -2614,15 +2971,130 @@ const connectedUsersRefreshInterval = setInterval(async () => {
   } catch (error) {
     console.error('❌ Error in periodic connected users refresh:', error);
   }
-}, 120000); // Refresh every 2 minutes to reduce log spam
+}, 60000); // Check every 60 seconds
 
-
+// NEW: Start periodic database sync to ensure timer data is saved regularly
+const periodicDatabaseSyncInterval = setInterval(async () => {
+  try {
+    console.log(`💾 Periodic database sync - checking ${userData.size} users`);
+    
+    // Sync all connected users' timer data to database
+    for (const [email, userDataEntry] of userData.entries()) {
+      if (userDataEntry.userId && userDataEntry.userInfo) {
+        try {
+          const userInfo = userDataEntry.userInfo;
+          
+          // Skip if no timer data to sync
+          if (userInfo.activeSeconds === 0 && userInfo.inactiveSeconds === 0) {
+            continue;
+          }
+          
+          // Get or create user in database
+          let userId = userInfo.userId;
+          
+          // Use database function for consistent date calculation with API
+          let currentDate;
+          let withinShift = true;
+          
+          try {
+            // Get activity date using the same function as the API
+            const dateResult = await pool.query(
+              'SELECT TO_CHAR(get_activity_date_for_shift_simple($1), \'YYYY-MM-DD\') as activity_date',
+              [userId]
+            );
+            
+            if (dateResult.rows.length > 0) {
+              currentDate = dateResult.rows[0].activity_date;
+            } else {
+              throw new Error('No date result from function');
+            }
+            
+            // Determine withinShift using parsed shift window
+            try {
+              const shiftRes = await pool.query(
+                `SELECT ji.shift_time FROM job_info ji WHERE ji.agent_user_id = $1 LIMIT 1`,
+                [userId]
+              );
+              const shiftText = (shiftRes.rows[0]?.shift_time || '').toString();
+              const both = shiftText.match(/(\d{1,2}:\d{2}\s*(?:AM|PM))\s*-\s*(\d{1,2}:\d{2}\s*(?:AM|PM))/i);
+              if (both) {
+                const parseToMinutes = (token) => {
+                  const [hhmm, ampm] = token.split(/\s+/);
+                  const [hhStr, mmStr] = hhmm.split(':');
+                  let hh = parseInt(hhStr, 10);
+                  const mm = parseInt(mmStr, 10);
+                  if (ampm === 'AM') { if (hh === 12) hh = 0; } else if (ampm === 'PM') { if (hh !== 12) hh += 12; }
+                  return (hh * 60) + mm;
+                };
+                const startMinutes = parseToMinutes(both[1].trim().toUpperCase());
+                const endMinutes = parseToMinutes(both[2].trim().toUpperCase());
+                const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+                const curMinutes = nowPH.getHours() * 60 + nowPH.getMinutes();
+                if (endMinutes > startMinutes) {
+                  withinShift = curMinutes >= startMinutes && curMinutes < endMinutes; // day shift
+                } else {
+                  withinShift = (curMinutes >= startMinutes) || (curMinutes < endMinutes); // night shift crossing midnight
+                }
+              } else {
+                withinShift = true; // default allow if shift text not parsable
+              }
+            } catch (_) {
+              withinShift = true; // be permissive on errors so counting still saves
+            }
+            
+          } catch (dbError) {
+            console.error(`Database function failed for ${email}, falling back to manual calculation:`, dbError.message);
+            
+            // Fallback to manual calculation
+            const philippinesNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+            const manilaYMD = (d) => {
+              const y = d.getFullYear();
+              const m = String(d.getMonth() + 1).padStart(2, '0');
+              const day = String(d.getDate()).padStart(2, '0');
+              return `${y}-${m}-${day}`;
+            };
+            currentDate = manilaYMD(philippinesNow);
+          }
+          
+          // Update activity data in database
+          if (withinShift) {
+            console.log(`💾 Periodic sync: Updating database for ${email} (date: ${currentDate}) - Active: ${userInfo.activeSeconds}s, Inactive: ${userInfo.inactiveSeconds}s`);
+            
+            await pool.query(
+              `INSERT INTO activity_data (user_id, is_currently_active, today_active_seconds, today_inactive_seconds, last_session_start, today_date, updated_at) 
+               VALUES ($1, $2, $3, $4, $5, $6, NOW())
+               ON CONFLICT (user_id, today_date) 
+               DO UPDATE SET 
+                 is_currently_active = $2,
+                 today_active_seconds = GREATEST(activity_data.today_active_seconds, $3),
+                 today_inactive_seconds = GREATEST(activity_data.today_inactive_seconds, $4),
+                 last_session_start = COALESCE($5, activity_data.last_session_start),
+                 updated_at = NOW()`,
+              [userId, userInfo.isActive, userInfo.activeSeconds, userInfo.inactiveSeconds, userInfo.sessionStart, currentDate]
+            );
+            
+            console.log(`✅ Periodic sync completed for ${email}`);
+          } else {
+            console.log(`⏸️ Periodic sync: Skipping ${email} - outside shift window (date: ${currentDate})`);
+          }
+          
+        } catch (userError) {
+          console.error(`❌ Error in periodic sync for ${email}:`, userError.message);
+          // Continue with other users instead of failing the entire cycle
+        }
+      }
+    }
+  } catch (error) {
+    console.error('❌ Error in periodic database sync:', error);
+  }
+}, 15000); // Sync every 15 seconds to ensure data is saved regularly
 
 // Cleanup interval on server shutdown
 process.on('SIGINT', () => {
   console.log('Shutting down monitoring intervals...');
   clearInterval(shiftResetInterval);
   clearInterval(connectedUsersRefreshInterval);
+  clearInterval(periodicDatabaseSyncInterval);
   process.exit(0);
 });
 
@@ -2630,5 +3102,6 @@ process.on('SIGTERM', () => {
   console.log('Shutting down monitoring intervals...');
   clearInterval(shiftResetInterval);
   clearInterval(connectedUsersRefreshInterval);
+  clearInterval(periodicDatabaseSyncInterval);
   process.exit(0);
-}); 
+});

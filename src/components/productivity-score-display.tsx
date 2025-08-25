@@ -9,6 +9,7 @@ import { TrendingUp, Info, Target, BarChart3, RefreshCw } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useTimer } from '@/contexts/timer-context';
 import { useMeeting } from '@/contexts/meeting-context';
+import { useSocket } from '@/contexts/socket-context';
 
 interface ProductivityScore {
   month_year: string;
@@ -27,7 +28,6 @@ interface ProductivityScoreDisplayProps {
 }
 
 export default function ProductivityScoreDisplay({ currentUser }: ProductivityScoreDisplayProps) {
-  // Component updated to remove console logs - v2.0
   const [productivityScores, setProductivityScores] = useState<ProductivityScore[]>([]);
   const [currentMonthScore, setCurrentMonthScore] = useState<any>(null);
   const [averageScore, setAverageScore] = useState<number | string>(0);
@@ -38,6 +38,9 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
   // Get break and meeting status to pause auto-refresh
   const { isBreakActive } = useTimer();
   const { isInMeeting } = useMeeting();
+  
+  // Get socket connection for real-time updates
+  const { socket, isConnected } = useSocket();
 
   const formatScore = (score: number | string): string => {
     const numericScore = typeof score === 'string' ? parseFloat(score) : score;
@@ -69,6 +72,7 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
 
   const getScoreColor = (score: number | string): string => {
     const numericScore = typeof score === 'string' ? parseFloat(score) : score;
+    if (isNaN(numericScore)) return '0.0 pts';
     if (numericScore >= 8) return 'text-green-600';
     if (numericScore >= 6) return 'text-blue-600';
     if (numericScore >= 4) return 'text-yellow-600';
@@ -133,8 +137,6 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
               }
             });
             window.dispatchEvent(event);
-            
-            console.log('📊 Productivity update event dispatched for leaderboard sync');
           } catch (error) {
             console.log('Socket productivity update failed:', error);
           }
@@ -149,20 +151,79 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
     }
   };
 
+  // Manual refresh function
+  const handleManualRefresh = () => {
+    fetchAllProductivityData();
+  };
 
+  // Set up real-time productivity score updates via WebSocket
+  useEffect(() => {
+    if (!socket || !isConnected || !currentUser?.email) return;
 
+    // Listen for productivity score updates from the server
+    const handleProductivityUpdate = (data: any) => {
+      console.log('🔄 Real-time productivity update received:', data);
+      
+      // Check if this update is for the current user
+      if (data.userId === currentUser.id || data.email === currentUser.email) {
+        console.log('✅ Updating productivity display with real-time data');
+        
+        // Update the current month score with new data
+        if (data.productivityScore !== undefined) {
+          setCurrentMonthScore((prev: any) => ({
+            ...prev,
+            productivity_score: data.productivityScore,
+            total_active_seconds: data.totalActiveTime || prev?.total_active_seconds,
+            total_inactive_seconds: data.totalInactiveTime || prev?.total_inactive_seconds,
+            active_hours: (data.totalActiveTime || 0) / 3600,
+            inactive_hours: (data.totalInactiveTime || 0) / 3600,
+            total_hours: ((data.totalActiveTime || 0) + (data.totalInactiveTime || 0)) / 3600
+          }));
+          
+          // Update the last update timestamp
+          setLastUpdate(new Date().toLocaleTimeString());
+          
+          console.log('✅ Frontend productivity display updated in real-time');
+        }
+      }
+    };
+
+    // Listen for general productivity updates
+    socket.on('productivityScoreUpdated', handleProductivityUpdate);
+    
+    // Also listen for the custom event we dispatch
+    const handleCustomProductivityUpdate = (event: CustomEvent) => {
+      handleProductivityUpdate(event.detail);
+    };
+    
+    window.addEventListener('productivity-update', handleCustomProductivityUpdate as EventListener);
+
+    // Request initial productivity data from server
+    socket.emit('requestProductivityData', { 
+      email: currentUser.email,
+      userId: currentUser.id 
+    });
+
+    return () => {
+      socket.off('productivityScoreUpdated', handleProductivityUpdate);
+      window.removeEventListener('productivity-update', handleCustomProductivityUpdate as EventListener);
+    };
+  }, [socket, isConnected, currentUser?.email, currentUser?.id]);
+
+  // Initial data fetch
   useEffect(() => {
     if (currentUser?.email) {
-      // Single request to get all productivity data
+      // Initial fetch of productivity data
       fetchAllProductivityData();
       
-      // Auto-refresh every 15 seconds - but only when agent is active (not on break or in meeting)
+      // Set up periodic refresh every 2 minutes as a fallback
+      // This ensures data stays fresh even if WebSocket updates fail
       const interval = setInterval(() => {
-        // Only fetch data if agent is not on break and not in a meeting
         if (!isBreakActive && !isInMeeting) {
+          console.log('🔄 Periodic productivity data refresh (fallback)');
           fetchAllProductivityData();
         }
-      }, 15000);
+      }, 120000); // 2 minutes
       
       return () => clearInterval(interval);
     }
@@ -196,14 +257,11 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
                 </TooltipContent>
               </Tooltip>
             </div>
-            <div className="flex items-center gap-1 text-xs text-muted-foreground">
-              <div className={`w-2 h-2 rounded-full ${(isBreakActive || isInMeeting) ? 'bg-yellow-500' : 'bg-green-500 animate-pulse'}`}></div>
-              <span>
-                {(isBreakActive || isInMeeting) ? 'Auto-refresh paused' : 'Auto-refresh'}
-                {isBreakActive && ' (Break)'}
-                {isInMeeting && ' (Meeting)'}
-              </span>
-              {lastUpdate && <span>• Last: {lastUpdate}</span>}
+            <div className="flex items-center gap-3">
+              {/* Real-time status indicator - only dot */}
+              <div className="flex items-center gap-1 text-xs">
+                <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
+              </div>
             </div>
           </div>
         </CardHeader>

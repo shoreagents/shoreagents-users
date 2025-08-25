@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { getAllUsersLeaderboard, getCurrentUserRank, type LeaderboardEntry } from "@/lib/leaderboard-utils"
-import { useSocket } from "@/hooks/use-socket"
+import { useSocket } from "@/contexts/socket-context"
 
 export function Leaderboard() {
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([])
@@ -49,7 +49,7 @@ export function Leaderboard() {
       const currentMonthYear = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
       setCurrentMonth(currentMonthYear)
       
-      console.log('📊 Leaderboard: Loaded data for', data.length, 'users')
+      // Leaderboard data loaded
     } catch (error) {
       console.error('Error loading leaderboard:', error)
     } finally {
@@ -61,7 +61,7 @@ export function Leaderboard() {
   const handleProductivityUpdate = useCallback((event: CustomEvent) => {
     const { email, userId, productivityScore, totalActiveTime, totalInactiveTime } = event.detail;
     
-    console.log(`📊 Real-time productivity update: ${email} - ${productivityScore} points`);
+    // Real-time productivity update received
     
     // Update leaderboard with new productivity data
     setLeaderboard(prev => {

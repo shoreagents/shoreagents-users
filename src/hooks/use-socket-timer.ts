@@ -223,7 +223,11 @@ export const useSocketTimer = (email: string | null): UseSocketTimerReturn => {
         }
         
         console.log('🔄 Shift reset received from server:', data)
+        console.log('🔄 Previous timer data was:', timerData)
+        
+        // Force update timer data immediately
         setTimerData(data)
+        
         // Record server reset to avoid client forcing a duplicate reset for the same shift
         if (data && (data as any).shiftId) {
           lastServerShiftIdRef.current = (data as any).shiftId as string
@@ -231,9 +235,13 @@ export const useSocketTimer = (email: string | null): UseSocketTimerReturn => {
         lastServerResetAtRef.current = Date.now()
         
         // Emit a custom event to notify other components about the shift reset
+        const eventData = { ...data, resetReason: data.resetReason || 'shift_change' }
+        console.log('🔄 Dispatching shiftReset event with data:', eventData)
         window.dispatchEvent(new CustomEvent('shiftReset', { 
-          detail: { ...data, resetReason: data.resetReason || 'shift_change' }
+          detail: eventData
         }))
+        
+        console.log('🔄 Shift reset event dispatched successfully')
       })
 
       // When client-side countdown detects 0s, ask server to force a reset write

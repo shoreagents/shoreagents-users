@@ -23,7 +23,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { fetchTaskActivityData, createTask, createGroup, moveTask, reorderGroups, updateTask, deleteTask as deleteTaskApi, TaskGroup, Task } from "@/lib/task-activity-utils"
-import { useTaskActivitySocket } from "@/hooks/use-task-activity-socket"
+import { useTaskActivitySocketContext } from "@/hooks/use-task-activity-socket-context"
 
 // Utility function to generate unique IDs
 const generateUniqueId = (prefix: string = 'temp') => {
@@ -71,7 +71,7 @@ export default function TaskActivityPage() {
   const [socketInstance, setSocketInstance] = useState<any>(null)
   
   // Socket.IO for real-time updates
-  const { socket, isConnected, emitTaskMoved, emitTaskCreated, emitGroupCreated, emitGroupsReordered } = useTaskActivitySocket(userEmail)
+  const { isConnected, startTaskActivity, pauseTaskActivity, resumeTaskActivity, completeTaskActivity, emitTaskMoved, emitTaskCreated, emitGroupCreated, emitGroupsReordered } = useTaskActivitySocketContext(userEmail)
 
   // Get user email on component mount
   useEffect(() => {
@@ -312,7 +312,7 @@ export default function TaskActivityPage() {
 
   // Socket.IO event listeners for real-time updates
   useEffect(() => {
-    const s = socket || socketInstance
+    const s = socketInstance
     if (!s) return
     const parse = (payload: any) => {
       try { return typeof payload === 'string' ? JSON.parse(payload) : payload } catch { return null }
@@ -633,7 +633,7 @@ export default function TaskActivityPage() {
       s.off('task_relations')
       s.off('task_groups')
     }
-  }, [socket, socketInstance])
+  }, [])
 
   const loadTaskData = async () => {
     try {
@@ -728,7 +728,7 @@ export default function TaskActivityPage() {
       
       // Emit Socket.IO event for real-time updates with the updated task data
       console.log('Emitting taskMoved event:', { taskId, newGroupId, movedTaskResult })
-      emitTaskMoved(taskId, newGroupId, movedTaskResult)
+      emitTaskMoved(parseInt(taskId), parseInt(newGroupId), movedTaskResult)
       
       // Debug: Log the move operation
       console.log(`Task ${taskId} moved to group ${newGroupId} at position ${targetPosition || 'end'}`)
@@ -791,7 +791,7 @@ export default function TaskActivityPage() {
       })
       
       // Emit Socket.IO event for real-time updates
-      emitTaskCreated(groupId, createdTask)
+      emitTaskCreated(parseInt(groupId), createdTask)
     } catch (error) {
       console.error('Error creating task:', error)
       // Revert optimistic update on error

@@ -35,14 +35,12 @@ export async function POST(request: NextRequest) {
 
     switch (action) {
       case 'get_all':
-        // Single request to get all monthly data, perform aggregation and cleanup
+        // Single request to get all monthly data - aggregation now happens automatically via triggers!
         const allMonthStart = await getMonthStartDate(pool);
         const allMonthEnd = await getMonthEndDate(pool);
         
-        // 1. Aggregate current month's daily data into monthly summary
-        await pool.query('SELECT aggregate_monthly_activity()');
-        
-        // 2. Cleanup old daily records after monthly aggregation
+        // 1. Data is already aggregated automatically via database triggers
+        // 2. Cleanup old daily records (this still needs to happen periodically)
         const allCleanupResult = await pool.query(
           'SELECT cleanup_old_daily_activity_monthly($1) as deleted_count',
           [monthsToKeep]

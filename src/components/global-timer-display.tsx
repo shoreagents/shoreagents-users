@@ -87,8 +87,10 @@ export function GlobalTimerDisplay() {
       
       // Check if we have shift info from timer context
       if (shiftInfo?.endTime) {
+        // Convert shift end time to Philippines timezone for accurate comparison
         const shiftEndDate = new Date(shiftInfo.endTime)
-        return nowPH > shiftEndDate
+        const shiftEndDatePH = new Date(shiftEndDate.toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
+        return nowPH > shiftEndDatePH
       }
 
       // Fallback: try to parse from shift time string if available
@@ -99,6 +101,23 @@ export function GlobalTimerDisplay() {
         }
       }
 
+      // Additional check: if timer shows 0s and we're past typical shift end time, consider shift ended
+      if (liveActiveSeconds === 0 && liveInactiveSeconds === 0) {
+        const currentHour = nowPH.getHours()
+        
+        // For night shift users (10 PM - 7 AM), shift ends at 7 AM, not 4 PM
+        // Check if we're past 7 AM (hour 7) and timers are 0
+        if (currentHour >= 7) {
+          return true
+        }
+        
+        // For day shift users (6 AM - 7 PM), shift ends at 7 PM (hour 19), not 4 PM
+        // Check if we're past 7 PM and timers are 0
+        if (currentHour >= 19) {
+          return true
+        }
+      }
+
       return false
     } catch (error) {
       return false
@@ -106,6 +125,11 @@ export function GlobalTimerDisplay() {
   }
 
   const shiftEnded = isShiftEnded()
+  
+  // Debug logging for shift end state
+  useEffect(() => {
+    // Shift end check - no logging needed
+  }, [shiftEnded, shiftInfo, liveActiveSeconds, liveInactiveSeconds])
 
   const getConnectionStatusText = () => {
     switch (connectionStatus) {
@@ -124,8 +148,12 @@ export function GlobalTimerDisplay() {
   const currentUser = getCurrentUser()
   const isEmergencyPaused = !!(isBreakActive && breakStatus?.is_paused)
   
+  // Debug logging for authentication check
+  // Removed console logs
+  
   // Don't show timer on login page or if not authenticated
   if (pathname === '/login' || pathname === '/' || !isAuthenticated || !currentUser) {
+    // Removed console logs
     return null
   }
 
@@ -153,18 +181,18 @@ export function GlobalTimerDisplay() {
           {isVisible ? (
             <ChevronDown className="w-4 h-4" />
           ) : (
-                         <div className="relative">
-               <ChevronUp className="w-4 h-4" />
-               <div className={`absolute -top-1 -right-1 w-2 h-2 rounded-full ${
-                 isEmergencyPaused
-                   ? 'bg-green-500'
-                   : isBreakActive 
-                     ? 'bg-yellow-500' 
-                     : timerData?.isActive 
-                       ? 'bg-green-500' 
-                       : 'bg-red-500'
-               } animate-pulse`}></div>
-             </div>
+            <div className="relative">
+              <ChevronUp className="w-4 h-4" />
+              <div className={`absolute -top-1 -right-1 w-2 h-2 rounded-full ${
+                isEmergencyPaused
+                  ? 'bg-green-500'
+                  : isBreakActive 
+                    ? 'bg-yellow-500' 
+                    : timerData?.isActive 
+                      ? 'bg-green-500' 
+                      : 'bg-red-500'
+              } animate-pulse`}></div>
+            </div>
           )}
         </Button>
       </div>
@@ -190,6 +218,15 @@ export function GlobalTimerDisplay() {
 
           {timerData ? (
             <div className="space-y-2">
+              {/* Shift End Banner */}
+              {shiftEnded && (
+                <div className="bg-gray-100 dark:bg-gray-900/20 border border-gray-300 dark:border-gray-700 rounded p-2 text-center">
+                  <div className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                    ⏰ Shift Has Ended - Timer Reset to 0s
+                  </div>
+                </div>
+              )}
+              
               <div className="flex items-center justify-between">
                  <span className="text-xs text-muted-foreground">Status:</span>
                                    <span className={`px-2 py-1 rounded text-xs font-medium ${
@@ -219,19 +256,19 @@ export function GlobalTimerDisplay() {
                </div>
               
               <div className="grid grid-cols-2 gap-3">
-                 <div className={`p-2 rounded ${isBreakActive || isInMeeting ? 'bg-muted' : 'bg-green-50 dark:bg-green-950/20'}`}>
-                   <div className={`text-xs font-medium ${isBreakActive || isInMeeting ? 'text-muted-foreground' : 'text-green-700 dark:text-green-400'}`}>
+                 <div className={`p-2 rounded ${shiftEnded ? 'bg-gray-100 dark:bg-gray-900/20' : isBreakActive || isInMeeting ? 'bg-muted' : 'bg-green-50 dark:bg-green-950/20'}`}>
+                   <div className={`text-xs font-medium ${shiftEnded ? 'text-gray-600 dark:text-gray-400' : isBreakActive || isInMeeting ? 'text-muted-foreground' : 'text-green-700 dark:text-green-400'}`}>
                      Active
                    </div>
-                   <div className={`text-lg font-bold ${isBreakActive || isInMeeting ? 'text-muted-foreground' : 'text-green-600 dark:text-green-400'}`}>
-                     {formatTime(liveActiveSeconds)}
+                   <div className={`text-lg font-bold ${shiftEnded ? 'text-gray-500 dark:text-gray-400' : isBreakActive || isInMeeting ? 'text-muted-foreground' : 'text-green-600 dark:text-green-400'}`}>
+                     {shiftEnded ? '0s' : formatTime(liveActiveSeconds)}
                    </div>
                                        {shiftEnded ? (
                       <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
                         <span className="w-1 h-1 bg-gray-400 rounded-full"></span>
                         Shift Ended
                       </div>
-                    ) : timerData.isActive && !isBreakActive && !isInMeeting && (
+                    ) : timerData.isActive && !isBreakActive && !isInMeeting && !shiftEnded && (
                       <div className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
                         <span className="w-1 h-1 bg-green-500 rounded-full animate-pulse"></span>
                         Counting...
@@ -257,19 +294,19 @@ export function GlobalTimerDisplay() {
                     )}
                  </div>
                  
-                 <div className={`p-2 rounded ${isBreakActive || isInMeeting ? 'bg-muted' : 'bg-red-50 dark:bg-red-950/20'}`}>
-                   <div className={`text-xs font-medium ${isBreakActive || isInMeeting ? 'text-muted-foreground' : 'text-red-700 dark:text-red-400'}`}>
+                 <div className={`p-2 rounded ${shiftEnded ? 'bg-gray-100 dark:bg-gray-900/20' : isBreakActive || isInMeeting ? 'bg-muted' : 'bg-red-50 dark:bg-red-950/20'}`}>
+                   <div className={`text-xs font-medium ${shiftEnded ? 'text-gray-600 dark:text-gray-400' : isBreakActive || isInMeeting ? 'text-muted-foreground' : 'text-red-700 dark:text-red-400'}`}>
                      Inactive
                    </div>
-                   <div className={`text-lg font-bold ${isBreakActive || isInMeeting ? 'text-muted-foreground' : 'text-red-600 dark:text-red-400'}`}>
-                     {formatTime(liveInactiveSeconds)}
+                   <div className={`text-lg font-bold ${shiftEnded ? 'text-gray-500 dark:text-gray-400' : isBreakActive || isInMeeting ? 'text-muted-foreground' : 'text-red-600 dark:text-red-400'}`}>
+                     {shiftEnded ? '0s' : formatTime(liveInactiveSeconds)}
                    </div>
                                        {shiftEnded ? (
                       <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
                         <span className="w-1 h-1 bg-gray-400 rounded-full"></span>
                         Shift Ended
                       </div>
-                    ) : !timerData.isActive && !isBreakActive && !isInMeeting && (
+                    ) : !timerData.isActive && !isBreakActive && !isInMeeting && !shiftEnded && (
                       <div className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
                         <span className="w-1 h-1 bg-red-500 rounded-full animate-pulse"></span>
                         Counting...

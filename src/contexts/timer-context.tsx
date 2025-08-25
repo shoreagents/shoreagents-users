@@ -1,7 +1,7 @@
 "use client"
 
 import React, { createContext, useContext, useEffect, useCallback, useState, useRef } from 'react'
-import { useSocketTimer } from '@/hooks/use-socket-timer'
+import { useSocketTimerContext } from '@/hooks/use-socket-timer-context'
 import { getCurrentUser } from '@/lib/ticket-utils'
 import { useActivity } from './activity-context'
 import { useMeeting } from '@/contexts/meeting-context'
@@ -243,8 +243,6 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     // The timer will continue running and only pause/resume based on current state
   }, [currentUser?.id])
 
-
-
   // Use the Socket.IO timer hook
   const { 
     timerData, 
@@ -253,7 +251,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     setActivityState, 
     isAuthenticated,
     updateTimerData
-  } = useSocketTimer(currentUser?.email || null)
+  } = useSocketTimerContext(currentUser?.email || null)
 
   // Update live counters when timer data changes
   useEffect(() => {
@@ -274,11 +272,9 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         setShiftInfo(timerData.shiftInfo)
         setTimeUntilReset(timerData.shiftInfo.timeUntilReset || 0)
         setFormattedTimeUntilReset(timerData.shiftInfo.formattedTimeUntilReset || '')
-        console.log('⏰ Shift info loaded:', timerData.shiftInfo)
       }
       
       setIsInitialized(true)
-      console.log('🔄 Timer initialized with hydrated server data:', timerData)
     } else if (timerData && isInitialized) {
       // After initialization, accept counter updates from server if they're significantly higher
       // This allows for database hydration updates and server corrections
@@ -287,17 +283,17 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       
       // Update counters if server values are significantly higher (database sync)
       if (serverActive > liveActiveSeconds && (serverActive - liveActiveSeconds) > 5) {
-        console.log(`🔄 Updating active seconds from server: ${liveActiveSeconds} → ${serverActive}`)
         setLiveActiveSeconds(serverActive)
       }
       
       if (serverInactive > liveInactiveSeconds && (serverInactive - liveInactiveSeconds) > 5) {
-        console.log(`🔄 Updating inactive seconds from server: ${liveInactiveSeconds} → ${serverInactive}`)
         setLiveInactiveSeconds(serverInactive)
       }
       
       // Always update activity state
       setLastActivityState(timerData.isActive)
+      
+      // Activity state changed
       
       // Update shift information if it changes
       if (timerData.shiftInfo) {
@@ -313,7 +309,6 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     if (currentUser?.email && !isInitialized && isAuthenticated) {
       const timeout = setTimeout(() => {
         if (!isInitialized) {
-          console.log('Force initializing timer after timeout')
           setIsInitialized(true)
           setLastActivityState(false) // Default to inactive
         }
@@ -336,20 +331,63 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         let shiftEndDate: Date | null = null
         
         if (shiftInfo?.startTime && shiftInfo?.endTime) {
+          // Use shift info from server if available
           shiftStartDate = new Date(shiftInfo.startTime)
           shiftEndDate = new Date(shiftInfo.endTime)
         } else if (userProfile?.shift_time) {
+          // Parse shift time and convert to Philippines timezone
           const parsed = parseShiftTime(userProfile.shift_time, nowPH)
           if (parsed?.startTime && parsed?.endTime) {
-            if (parsed.isNightShift && nowPH < parsed.startTime) {
-              // Anchor night shift to previous day when before today's start
-              const adjustedStart = new Date(parsed.startTime)
-              adjustedStart.setDate(adjustedStart.getDate() - 1)
-              const adjustedEnd = new Date(parsed.endTime)
-              adjustedEnd.setDate(adjustedEnd.getDate() - 1)
-              shiftStartDate = adjustedStart
-              shiftEndDate = adjustedEnd
+            if (parsed.isNightShift) {
+              // For night shifts, we need to handle the date rollover properly
+              // Create dates in Philippines timezone
+              const todayPH = new Date(nowPH)
+              todayPH.setHours(0, 0, 0, 0)
+              
+              // Parse start time (e.g., 10:00 PM)
+              const startTimeStr = userProfile.shift_time.split(' - ')[0].trim()
+              const startMatch = startTimeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i)
+              if (startMatch) {
+                let startHour = parseInt(startMatch[1])
+                const startMinute = parseInt(startMatch[2])
+                const startPeriod = startMatch[3].toUpperCase()
+                
+                // Convert to 24-hour format
+                if (startPeriod === 'PM' && startHour !== 12) {
+                  startHour += 12
+                } else if (startPeriod === 'AM' && startHour === 12) {
+                  startHour = 0
+                }
+                
+                shiftStartDate = new Date(todayPH)
+                shiftStartDate.setHours(startHour, startMinute, 0, 0)
+                
+                // Parse end time (e.g., 7:00 AM)
+                const endTimeStr = userProfile.shift_time.split(' - ')[1].trim()
+                const endMatch = endTimeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i)
+                if (endMatch) {
+                  let endHour = parseInt(endMatch[1])
+                  const endMinute = parseInt(endMatch[2])
+                  const endPeriod = endMatch[3].toUpperCase()
+                  
+                  // Convert to 24-hour format
+                  if (endPeriod === 'PM' && endHour !== 12) {
+                    endHour += 12
+                  } else if (endPeriod === 'AM' && endHour === 12) {
+                    endHour = 0
+                  }
+                  
+                  shiftEndDate = new Date(todayPH)
+                  shiftEndDate.setHours(endHour, endMinute, 0, 0)
+                  
+                  // For night shifts, if end time is before start time, add 24 hours to end time
+                  if (endHour < startHour) {
+                    shiftEndDate.setDate(shiftEndDate.getDate() + 1)
+                  }
+                }
+              }
             } else {
+              // Day shift - use parsed times directly
               shiftStartDate = parsed.startTime
               shiftEndDate = parsed.endTime
             }
@@ -365,7 +403,10 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         if (shiftEndDate && nowPH > shiftEndDate) {
           return // Skip counting after shift end
         }
-      } catch (_) {
+        
+        // Within shift hours - no logging needed
+      } catch (error) {
+        console.error('Error in shift time validation:', error)
         // ignore guard errors; fallback to counting rules below
       }
 
@@ -383,20 +424,22 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       }
       
       // IMPROVED ACTIVITY STATE DETERMINATION
-      // Priority order: server state > local state > fallback
+      // Priority order: local activity state > server state > fallback
       let isActive = false
       
-      if (timerData && timerData.isActive !== undefined) {
-        // Use server state as primary source of truth
+      // PRIORITY 1: If we have recent local activity, trust it over server state
+      if (lastActivityState === true) {
+        isActive = true
+      } else if (timerData && timerData.isActive !== undefined) {
+        // PRIORITY 2: Use server state if no recent local activity
         isActive = timerData.isActive
-      } else if (lastActivityState !== null) {
-        // Fall back to local state if server state unavailable
-        isActive = lastActivityState
+      } else if (lastActivityState === false) {
+        // PRIORITY 3: Use local inactive state if no server data
+        isActive = false
       } else {
-        // Default fallback: assume active if we can't determine
+        // PRIORITY 4: Default fallback: assume active if we can't determine
         // This prevents false inactive counting
         isActive = true
-        console.log('⚠️ Activity state unclear, defaulting to active to prevent false inactive counting')
       }
       
       // ADDITIONAL SAFETY CHECKS
@@ -406,24 +449,28 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         isActive = timerData.isActive
       }
       
-      // Log activity state changes for debugging
-      if (isActive !== lastActivityState) {
-        console.log(`🔄 Activity state changed: ${lastActivityState} → ${isActive} (Server: ${timerData?.isActive}, Local: ${lastActivityState})`)
-      }
+      // Activity state determined - no logging needed
       
       // Update counters based on determined activity state
       if (isActive) {
-        setLiveActiveSeconds(prev => prev + 1)
+        setLiveActiveSeconds(prev => {
+          const newValue = prev + 1
+          // Log active counting every 60 seconds to avoid spam
+          return newValue
+        })
       } else {
         // Only count inactive time if we're confident the user is actually inactive
         // Add additional validation to prevent false inactive counting
         const shouldCountInactive = validateInactiveState(timerData, lastActivityState)
         
         if (shouldCountInactive) {
-          setLiveInactiveSeconds(prev => prev + 1)
+          setLiveInactiveSeconds(prev => {
+            const newValue = prev + 1
+            // Log inactive counting every 60 seconds to avoid spam
+            return newValue
+          })
         } else {
           // If we can't validate inactive state, default to active to prevent false counting
-          console.log('⚠️ Inactive state validation failed, defaulting to active counting')
           setLiveActiveSeconds(prev => prev + 1)
         }
       }
@@ -441,7 +488,6 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     
     // If local state says inactive but we have recent server data that says active
     if (lastActivityState === false && timerData && timerData.isActive === true) {
-      console.log('🔄 Local inactive state overridden by server active state')
       return false
     }
     
@@ -467,7 +513,6 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         // Reset time has passed, clear the countdown
         setTimeUntilReset(0)
         setFormattedTimeUntilReset('0s')
-        console.log('⏰ Shift reset time has passed')
         // Notify other layers to force a reset sync
         window.dispatchEvent(new CustomEvent('shiftResetCountdownZero'))
       } else {
@@ -504,18 +549,17 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
 
     const handleShiftReset = (event: CustomEvent) => {
       const resetData = event.detail
-      console.log('🔄 Shift reset event received in timer context:', resetData)
       
       // Reset local timers to match server data
       setLiveActiveSeconds(resetData.activeSeconds || 0)
       setLiveInactiveSeconds(resetData.inactiveSeconds || 0)
       setLastActivityState(resetData.isActive)
       
-      // Show notification to user about the reset
-      if (resetData.resetReason === 'shift_change') {
-        // You can add a toast notification here if you have a notification system
-        console.log('⏰ Timer reset due to shift change')
-      }
+      console.log('🔄 Live timer values after reset:', { 
+        activeSeconds: resetData.activeSeconds || 0, 
+        inactiveSeconds: resetData.inactiveSeconds || 0 
+      })
+      
     }
 
     // Listen for shift reset events
@@ -572,13 +616,26 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       const serverActive = timerData.activeSeconds || 0
       const serverInactive = timerData.inactiveSeconds || 0
       
-      // Only sync if there's a significant difference (more than 5 seconds)
-      // This prevents constant syncing that causes flashing
-      if (Math.abs(liveActiveSeconds - serverActive) > 5 || Math.abs(liveInactiveSeconds - serverInactive) > 5) {
+      // Sync if there's a difference (reduced from 5 seconds to 1 second for more frequent updates)
+      // This ensures the database gets updated regularly
+      if (Math.abs(liveActiveSeconds - serverActive) > 1 || Math.abs(liveInactiveSeconds - serverInactive) > 1) {
         updateTimerData(liveActiveSeconds, liveInactiveSeconds);
       }
     }
   }, [liveActiveSeconds, liveInactiveSeconds, timerData, updateTimerData, isAuthenticated, hasLoggedIn, shiftInfo, userProfile]);
+
+  // Force periodic sync to database every 10 seconds to ensure data is saved
+  useEffect(() => {
+    if (!isAuthenticated || !hasLoggedIn || !timerData) return
+
+    const periodicSync = setInterval(() => {
+      // Force sync current timer values to database
+      updateTimerData(liveActiveSeconds, liveInactiveSeconds);
+      console.log(`🔄 Periodic timer sync: Active ${liveActiveSeconds}s, Inactive ${liveInactiveSeconds}s`);
+    }, 10000); // Every 10 seconds
+
+    return () => clearInterval(periodicSync);
+  }, [isAuthenticated, hasLoggedIn, timerData, liveActiveSeconds, liveInactiveSeconds, updateTimerData]);
 
   // Activity detection - use Electron activity tracking if available
   useEffect(() => {

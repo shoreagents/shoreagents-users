@@ -16,9 +16,6 @@ export async function GET(request: NextRequest) {
     const limit = Math.min(Math.max(parseInt(limitParam || '50', 10) || 50, 1), 200)
     
     // Log the full request details for debugging
-    console.log(`🌐 Request URL: ${request.url}`)
-    console.log(`🔍 Search params:`, Object.fromEntries(searchParams.entries()))
-    console.log(`📝 Raw task_id from params: "${taskId}" (type: ${typeof taskId})`)
     
     if (!taskId) {
       return NextResponse.json({ error: 'task_id is required' }, { status: 400 })
@@ -34,14 +31,12 @@ export async function GET(request: NextRequest) {
       }, { status: 400 })
     }
     
-    console.log(`🔍 Fetching events for task_id: ${parsedTaskId} (original: ${taskId})`)
     
     const pool = getPool()
     
     try {
       // Verify database connection
       const connectionTest = await pool.query('SELECT 1 as test')
-      console.log(`✅ Database connection test: ${connectionTest.rows[0].test}`)
       
       // First, verify the task exists
       const taskCheck = await pool.query(
@@ -50,20 +45,17 @@ export async function GET(request: NextRequest) {
       )
       
       if (taskCheck.rows.length === 0) {
-        console.log(`⚠️ Task ${parsedTaskId} not found in database`)
         return NextResponse.json({ 
           error: 'Task not found',
           task_id: parsedTaskId
         }, { status: 404 })
       }
       
-      console.log(`✅ Task ${parsedTaskId} found: "${taskCheck.rows[0].title}"`)
       
       // Check total events in the database for debugging
       const totalEventsCheck = await pool.query(
         'SELECT COUNT(*) as total_events FROM task_activity_events'
       )
-      console.log(`📊 Total events in database: ${totalEventsCheck.rows[0].total_events}`)
       
       // Check for events with NULL task_id (data integrity issue)
       const nullTaskIdCheck = await pool.query(
@@ -78,11 +70,9 @@ export async function GET(request: NextRequest) {
         'SELECT COUNT(*) as task_events FROM task_activity_events WHERE task_id = $1',
         [parsedTaskId]
       )
-      console.log(`📊 Events for task ${parsedTaskId}: ${taskEventsCheck.rows[0].task_events}`)
       
       // If no events for this task, return empty array immediately
       if (taskEventsCheck.rows[0].task_events === '0') {
-        console.log(`ℹ️ No events found for task ${parsedTaskId}, returning empty array`)
         return NextResponse.json({ 
           success: true, 
           events: [],
@@ -103,7 +93,6 @@ export async function GET(request: NextRequest) {
         [parsedTaskId, limit]
       )
       
-      console.log(`📊 Query returned ${rows.rows.length} events for task ${parsedTaskId}`)
       
       // Test the query with a raw string to see if there's a parameter binding issue
       const rawQueryTest = await pool.query(
@@ -113,7 +102,6 @@ export async function GET(request: NextRequest) {
          ORDER BY created_at DESC
          LIMIT 5`
       )
-      console.log(`🔍 Raw query test for task ${parsedTaskId}:`, rawQueryTest.rows)
       
       // Double-check the query results - ensure ALL events belong to the requested task
       const invalidEvents = rows.rows.filter((event: any) => {
@@ -136,7 +124,7 @@ export async function GET(request: NextRequest) {
            LIMIT 5`,
           [parsedTaskId]
         )
-        console.log(`🔍 Debug query for task ${parsedTaskId}:`, debugQuery.rows)
+        // Debug query results
         
         return NextResponse.json({ 
           error: 'Data integrity issue detected',

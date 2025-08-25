@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -8,6 +8,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Calendar, Clock, TrendingUp, Info, RefreshCw } from 'lucide-react';
 import { useTimer } from '@/contexts/timer-context';
 import { useMeeting } from '@/contexts/meeting-context';
+import { useSocket } from '@/contexts/socket-context';
 
 interface WeeklyActivityData {
   week_start_date: string;
@@ -34,6 +35,7 @@ export default function WeeklyActivityDisplay({ currentUser }: WeeklyActivityDis
   // Get break and meeting status to pause auto-refresh
   const { isBreakActive } = useTimer();
   const { isInMeeting } = useMeeting();
+  const { socket, isConnected } = useSocket();
 
   const formatTime = (seconds: number): string => {
     const hours = Math.floor(seconds / 3600);
@@ -96,24 +98,118 @@ export default function WeeklyActivityDisplay({ currentUser }: WeeklyActivityDis
     }
   };
 
+  // Silent fetch for real-time updates (no loading state)
+  const fetchAllWeeklyDataSilently = async () => {
+    if (!currentUser?.email) return;
+    
+    try {
+      const response = await fetch('/api/activity/weekly', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'get_all',
+          email: currentUser.email,
+          weeksToKeep: 1
+        })
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setWeeklyData(data.weeklySummaries || []);
+        setCurrentWeek({
+          currentWeek: data.currentWeek,
+          weekStart: data.weekStart,
+          weekEnd: data.weekEnd
+        });
+        
+        // Show cleanup status if records were deleted
+        if (data.deletedRecords > 0) {
+          setCleanupStatus(`Auto-cleanup: Deleted ${data.deletedRecords} old records`);
+          setTimeout(() => setCleanupStatus(''), 3000);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching weekly data silently:', error);
+    }
+  };
+
 
 
   useEffect(() => {
     if (currentUser?.email) {
-      // Single request to get all weekly data
+      // Initial data fetch - no more 15-second polling needed!
+      // Data now updates automatically via database triggers
       fetchAllWeeklyData();
-      
-      // Auto-refresh every 15 seconds - but only when agent is active (not on break or in meeting)
-      const interval = setInterval(() => {
-        // Only fetch data if agent is not on break and not in a meeting
-        if (!isBreakActive && !isInMeeting) {
-          fetchAllWeeklyData();
-        }
-      }, 15000);
-      
-      return () => clearInterval(interval);
     }
-  }, [currentUser?.email, isBreakActive, isInMeeting]);
+  }, [currentUser?.email]);
+
+  // Debounced real-time updates to prevent excessive API calls
+  const [pendingUpdate, setPendingUpdate] = useState(false);
+  const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Listen for real-time weekly activity updates
+  useEffect(() => {
+    if (!socket || !isConnected) return;
+
+    const handleWeeklyActivityUpdate = (data: any) => {
+      // Check if this update is for the current user
+      if (data.user_id === currentUser?.id) {
+        setLastUpdate(new Date().toLocaleTimeString());
+        
+        // Debounce updates to prevent excessive API calls
+        if (updateTimeoutRef.current) {
+          clearTimeout(updateTimeoutRef.current);
+        }
+        
+        updateTimeoutRef.current = setTimeout(() => {
+          fetchAllWeeklyDataSilently();
+          setPendingUpdate(false);
+        }, 500); // Wait 500ms before updating
+        
+        setPendingUpdate(true);
+        
+        // Show a brief notification
+        setCleanupStatus('Real-time update queued...');
+        setTimeout(() => setCleanupStatus(''), 2000);
+      }
+    };
+
+    const handleMonthlyActivityUpdate = (data: any) => {
+      // Check if this update is for the current user
+      if (data.user_id === currentUser?.id) {
+        setLastUpdate(new Date().toLocaleTimeString());
+        
+        // Debounce updates to prevent excessive API calls
+        if (updateTimeoutRef.current) {
+          clearTimeout(updateTimeoutRef.current);
+        }
+        
+        updateTimeoutRef.current = setTimeout(() => {
+          fetchAllWeeklyDataSilently();
+          setPendingUpdate(false);
+        }, 500); // Wait 500ms before updating
+        
+        setPendingUpdate(true);
+        
+        // Show a brief notification
+        setCleanupStatus('Real-time update queued...');
+        setTimeout(() => setCleanupStatus(''), 2000);
+      }
+    };
+
+    // Listen for real-time updates
+    socket.on('weekly-activity-update', handleWeeklyActivityUpdate);
+    socket.on('monthly-activity-update', handleMonthlyActivityUpdate);
+
+    // Cleanup listeners and timeout
+    return () => {
+      socket.off('weekly-activity-update', handleWeeklyActivityUpdate);
+      socket.off('monthly-activity-update', handleMonthlyActivityUpdate);
+      if (updateTimeoutRef.current) {
+        clearTimeout(updateTimeoutRef.current);
+      }
+    };
+  }, [socket, isConnected, currentUser?.id]);
 
   // Calculate current week totals
   const currentWeekTotals = currentWeek?.currentWeek?.reduce((acc: any, day: any) => {
@@ -150,14 +246,8 @@ export default function WeeklyActivityDisplay({ currentUser }: WeeklyActivityDis
                 </TooltipContent>
               </Tooltip>
             </div>
-            <div className="flex items-center gap-1 text-xs text-muted-foreground">
-              <div className={`w-2 h-2 rounded-full ${(isBreakActive || isInMeeting) ? 'bg-yellow-500' : 'bg-green-500 animate-pulse'}`}></div>
-              <span>
-                {(isBreakActive || isInMeeting) ? 'Auto-refresh paused' : 'Auto-refresh'}
-                {isBreakActive && ' (Break)'}
-                {isInMeeting && ' (Meeting)'}
-              </span>
-              {lastUpdate && <span>• Last: {lastUpdate}</span>}
+            <div className="flex items-center gap-1 text-xs">
+              <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
             </div>
           </div>
         </CardHeader>

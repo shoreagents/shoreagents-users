@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useCallback } from 'react'
-import { useSocket } from '@/hooks/use-socket'
+import { useSocket } from '@/contexts/socket-context'
 
 export function useActivityTracker() {
   const { socket, isConnected } = useSocket()

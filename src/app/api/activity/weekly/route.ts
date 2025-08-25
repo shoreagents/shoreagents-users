@@ -35,14 +35,12 @@ export async function POST(request: NextRequest) {
 
     switch (action) {
       case 'get_all':
-        // Single request to get all weekly data, perform aggregation and cleanup
+        // Single request to get all weekly data - aggregation now happens automatically via triggers!
         const allWeekStart = await getWeekStartDate(pool);
         const allWeekEnd = await getWeekEndDate(pool);
         
-        // 1. Aggregate current week's daily data into weekly summary
-        await pool.query('SELECT aggregate_weekly_activity()');
-        
-        // 2. Cleanup old daily records after weekly aggregation
+        // 1. Data is already aggregated automatically via database triggers
+        // 2. Cleanup old daily records (this still needs to happen periodically)
         const allCleanupResult = await pool.query(
           'SELECT cleanup_old_daily_activity($1) as deleted_count',
           [weeksToKeep]

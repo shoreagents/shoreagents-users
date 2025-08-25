@@ -54,10 +54,8 @@ export function useShiftResetTimer(): ShiftResetData {
         if (profile.shift_time) {
           const parsedShiftInfo = parseShiftTime(profile.shift_time)
           setShiftInfo(parsedShiftInfo)
-          console.log(`🕐 Loaded shift info: ${profile.shift_period} (${profile.shift_time})`)
         } else {
           setShiftInfo(null)
-          console.log('⏰ No shift info found, using daily reset at midnight')
         }
       } catch (err) {
         console.error('Error fetching shift info:', err)

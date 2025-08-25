@@ -1,11 +1,15 @@
 "use client"
 
-import { useEffect, useState } from 'react'
+// This hook is now deprecated - use the SocketContext instead
+// Import from the context: import { useSocket } from '@/contexts/socket-context'
+
+import { useEffect, useState, useRef } from 'react'
 import { io, Socket } from 'socket.io-client'
 
 export function useSocket() {
   const [socket, setSocket] = useState<Socket | null>(null)
   const [isConnected, setIsConnected] = useState(false)
+  const isConnectingRef = useRef(false)
 
   useEffect(() => {
     // Get user email from auth
@@ -22,6 +26,21 @@ export function useSocket() {
     const email = authToken?.user?.email
     if (!email) return
 
+    // Prevent multiple socket connections for the same user
+    if (socket && socket.connected) {
+      console.log('🔌 Socket already connected, skipping new connection')
+      return
+    }
+
+    // Prevent race conditions during connection
+    if (isConnectingRef.current) {
+      console.log('🔄 Connection already in progress, skipping')
+      return
+    }
+
+    isConnectingRef.current = true
+    console.log('🚀 Starting new socket connection for:', email)
+
     // Connect to Socket.IO server
     const socketServerUrl = (process.env.NEXT_PUBLIC_SOCKET_URL || process.env.SOCKET_SERVER_URL || 'http://localhost:3001') as string
     const newSocket = io(socketServerUrl, {
@@ -36,6 +55,7 @@ export function useSocket() {
     newSocket.on('connect', () => {
       console.log('Socket connected for activity tracking')
       setIsConnected(true)
+      isConnectingRef.current = false
       
       // Authenticate with the server
       newSocket.emit('authenticate', { email })
@@ -44,6 +64,13 @@ export function useSocket() {
     newSocket.on('disconnect', () => {
       console.log('Socket disconnected')
       setIsConnected(false)
+      isConnectingRef.current = false
+    })
+
+    newSocket.on('connect_error', (error) => {
+      console.log('Socket connection error:', error)
+      setIsConnected(false)
+      isConnectingRef.current = false
     })
 
     newSocket.on('authenticated', () => {
@@ -75,11 +102,9 @@ export function useSocket() {
           }
         }, 300) // Wait 300ms for server to process logout
       } else {
-        console.log('⚠️ Socket not connected during logout - cannot send logout event')
+        console.log('⚠️ Socket not connected - cannot send logout event')
       }
     }
-
-
 
     // Listen for productivity updates to sync with socket server
     const handleProductivityUpdate = (event: Event) => {
@@ -142,7 +167,19 @@ export function useSocket() {
       window.removeEventListener('user-login', handleLogin)
       window.removeEventListener('user-logout', handleCustomLogout)
       window.removeEventListener('productivity-update', handleProductivityUpdate)
-      newSocket.disconnect()
+      
+      // Only disconnect if this is a real unmount, not just a re-render
+      if (newSocket && newSocket.connected) {
+        console.log('🔌 Component unmounting, disconnecting socket')
+        try {
+          newSocket.disconnect()
+        } catch (error) {
+          console.log('🔌 Socket already disconnected during cleanup')
+        }
+      }
+      
+      // Reset connection state
+      isConnectingRef.current = false
     }
   }, [])
 

@@ -55,13 +55,8 @@ export async function POST(request: NextRequest) {
         );
         const allAverageScore = allAvgResult.rows[0].average_score;
         
-        // 3. Get current month's productivity score (ALWAYS recalculate for real-time sync)
-        // Auto-recalculation logging removed
-        const recalcResult = await pool.query(
-          'SELECT calculate_monthly_productivity_score($1) as productivity_score',
-          [actualUserId]
-        );
-        // Recalculation result logging removed
+        // 3. Get current month's productivity score (no need to recalculate - triggers handle this automatically)
+        // Productivity scores are now updated automatically via database triggers when activity_data changes
         
         // Now get the updated productivity score
         const allCurrentScoreResult = await pool.query(
@@ -82,14 +77,46 @@ export async function POST(request: NextRequest) {
           
           // Hours conversion logging removed
         } else {
-          // Fallback if still no record (shouldn't happen after recalculation)
-          allCurrentMonthScore = {
-            month_year: currentMonthYear,
-            productivity_score: recalcResult.rows[0].productivity_score,
-            active_hours: 0,
-            inactive_hours: 0,
-            total_hours: 0
-          };
+          // Fallback if no record exists (triggers should create one automatically)
+          // Try to trigger manual calculation as a safety net
+          try {
+            await pool.query('SELECT calculate_monthly_productivity_score($1)', [actualUserId]);
+            
+            // Get the newly created record
+            const fallbackResult = await pool.query(
+              'SELECT * FROM productivity_scores WHERE user_id = $1 AND month_year = $2',
+              [actualUserId, currentMonthYear]
+            );
+            
+            if (fallbackResult.rows.length > 0) {
+              allCurrentMonthScore = {
+                month_year: currentMonthYear,
+                productivity_score: fallbackResult.rows[0].productivity_score,
+                active_hours: (fallbackResult.rows[0].total_active_seconds || 0) / 3600,
+                inactive_hours: (fallbackResult.rows[0].total_inactive_seconds || 0) / 3600,
+                total_hours: (fallbackResult.rows[0].total_seconds || 0) / 3600
+              };
+            } else {
+              // Return default values if all else fails
+              allCurrentMonthScore = {
+                month_year: currentMonthYear,
+                productivity_score: 0,
+                active_hours: 0,
+                inactive_hours: 0,
+                total_hours: 0
+              };
+            }
+          } catch (error) {
+            console.log('Fallback productivity calculation failed:', error instanceof Error ? error.message : String(error));
+            // Return default values if calculation fails
+            allCurrentMonthScore = {
+              month_year: currentMonthYear,
+              productivity_score: 0,
+              active_hours: 0,
+              inactive_hours: 0,
+              total_hours: 0
+            };
+          }
         }
         
         return NextResponse.json({
@@ -139,15 +166,10 @@ export async function POST(request: NextRequest) {
         });
 
       case 'get_current_month_score':
-        // Get current month's productivity score (always recalculate for real-time sync)
+        // Get current month's productivity score (no need to recalculate - triggers handle this automatically)
         const scoreCurrentMonthYear = await getCurrentMonthYear(pool);
         
-        // Auto-recalculation logging removed
-        const currentRecalcResult = await pool.query(
-          'SELECT calculate_monthly_productivity_score($1) as productivity_score',
-          [actualUserId]
-        );
-        // Recalculation result logging removed
+        // Productivity scores are now updated automatically via database triggers when activity_data changes
         
         const currentScoreResult = await pool.query(
           'SELECT * FROM productivity_scores WHERE user_id = $1 AND month_year = $2',
@@ -168,11 +190,39 @@ export async function POST(request: NextRequest) {
             currentMonthScore: formattedScore
           });
         } else {
-          // Fallback if still no record (shouldn't happen after recalculation)
+          // Fallback if no record exists (triggers should create one automatically)
+          // Try to trigger manual calculation as a safety net
+          try {
+            await pool.query('SELECT calculate_monthly_productivity_score($1)', [actualUserId]);
+            
+            // Get the newly created record
+            const fallbackResult = await pool.query(
+              'SELECT * FROM productivity_scores WHERE user_id = $1 AND month_year = $2',
+              [actualUserId, scoreCurrentMonthYear]
+            );
+            
+            if (fallbackResult.rows.length > 0) {
+              const rawScore = fallbackResult.rows[0];
+              const formattedScore = {
+                ...rawScore,
+                active_hours: (rawScore.total_active_seconds || 0) / 3600,
+                inactive_hours: (rawScore.total_inactive_seconds || 0) / 3600,
+                total_hours: (rawScore.total_seconds || 0) / 3600
+              };
+              
+              return NextResponse.json({
+                currentMonthScore: formattedScore
+              });
+            }
+          } catch (error) {
+            console.log('Fallback productivity calculation failed:', error instanceof Error ? error.message : String(error));
+          }
+          
+          // Return default values if all else fails
           return NextResponse.json({
             currentMonthScore: {
               month_year: scoreCurrentMonthYear,
-              productivity_score: currentRecalcResult.rows[0].productivity_score,
+              productivity_score: 0,
               active_hours: 0,
               inactive_hours: 0,
               total_hours: 0
