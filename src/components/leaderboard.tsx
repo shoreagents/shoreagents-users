@@ -187,9 +187,6 @@ export function Leaderboard() {
                     </TooltipTrigger>
                     <TooltipContent side="top" className="max-w-[200px]">
                       <p className="text-xs">{entry.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        Email: {entry.userId}
-                      </p>
                     </TooltipContent>
                   </Tooltip>
                 </div>

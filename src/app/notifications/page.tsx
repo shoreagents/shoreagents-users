@@ -186,24 +186,23 @@ export default function NotificationsPage() {
 
   const handleMarkAllRead = async () => {
     if (notifications.length === 0) return
-    // Update in-memory
-    markAllNotificationsAsRead()
-    const real = getNotifications()
-    setNotifications(real)
-    // Don't call setUnreadCount here - let the component handle it naturally
-    // Persist to DB
+    
     try {
+      // Update in-memory and persist to DB using the updated service function
+      await markAllNotificationsAsRead()
+      
+      // Update local state
+      const real = getNotifications()
+      setNotifications(real)
+      
+      // Sync with database to ensure consistency
       const user = getCurrentUser()
       if (user?.email) {
-        const ids = real.map((n: any) => n.id)
-        await fetch('/api/notifications/mark-read', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ ids, email: user.email })
-        })
+        await syncNotificationsWithDatabase(user.email)
       }
-    } catch {}
+    } catch (error) {
+      console.warn('Error marking all notifications as read:', error)
+    }
   }
 
   const handleClearAll = async () => {

@@ -14,7 +14,7 @@ import {
 import { Separator } from "@/components/ui/separator"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { getCurrentUser } from "@/lib/ticket-utils"
-import { Bell, CheckCircle, AlertCircle, Info, Clock, ArrowRight, CheckSquare, FileText, Sun, Moon } from "lucide-react"
+import { Bell, CheckCircle, AlertCircle, Info, Clock, ArrowRight, CheckSquare, FileText, Sun, Moon, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -65,6 +65,7 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
   const [notifications, setNotifications] = useState<any[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [loadingBell, setLoadingBell] = useState(true)
+  const [markingAllAsRead, setMarkingAllAsRead] = useState(false)
   // Trigger periodic re-render so formatTimeAgo updates (e.g., "Just now" -> "1 minute ago")
   const [nowTick, setNowTick] = useState<number>(() => Date.now())
 
@@ -145,6 +146,62 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
       console.error('Error refreshing unread count from database:', error)
     }
   }, [unreadCount])
+
+  // Force refresh notifications and count from database
+  const forceRefreshNotifications = useCallback(async () => {
+    try {
+      const user = getCurrentUser()
+      if (!user?.email) return
+      
+      const res = await fetch(`/api/notifications?email=${encodeURIComponent(user.email)}&limit=50`, { credentials: 'include' })
+      if (!res.ok) return
+      
+      const data = await res.json()
+      if (data?.success && Array.isArray(data.notifications)) {
+        const mapped = data.notifications.map((n: any) => {
+          const payload = n.payload || {}
+          const actionUrl = payload.action_url
+            || (n.category === 'ticket' && (payload.ticket_id || payload.ticket_row_id) ? `/forms/${payload.ticket_id || ''}` : undefined)
+            || (n.category === 'break' ? '/status/breaks' : undefined)
+          const icon = n.category === 'ticket' ? 'FileText' : n.category === 'break' ? 'Clock' : 'Bell'
+          return {
+            id: `db_${n.id}`,
+            type: n.type,
+            title: n.title,
+            message: n.message,
+            time: (require('@/lib/notification-service') as any).parseDbTimestampToMs(n.created_at, n.category),
+            read: !!n.is_read,
+            icon,
+            actionUrl,
+            actionData: payload,
+            category: n.category,
+            priority: 'medium' as const,
+            eventType: 'system' as const,
+          }
+        })
+        
+        // Save to in-memory store
+        const { saveNotifications } = await import('@/lib/notification-service')
+        saveNotifications(mapped)
+        
+        // Update state with refreshed notifications
+        const unread = mapped.filter((n: any) => !n.read)
+        const read = mapped.filter((n: any) => n.read)
+        setNotifications([...unread, ...read].slice(0, 8))
+        
+        // Update unread count
+        const actualUnreadCount = unread.length
+        setUnreadCount(actualUnreadCount)
+        
+        // Update system tray badge
+        if (window.electronAPI?.send) {
+          window.electronAPI.send('notification-count-changed', { count: actualUnreadCount });
+        }
+      }
+    } catch (error) {
+      console.error('Error force refreshing notifications:', error)
+    }
+  }, [])
 
   // Load notifications from DB on mount if available, and use socket notifications when available
   useEffect(() => {
@@ -307,13 +364,15 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
       checkAllNotifications()
       // Also refresh unread count from database to ensure accuracy
       refreshUnreadCountFromDatabase()
+      // Force refresh notifications to ensure badge count is accurate
+      forceRefreshNotifications()
     }
 
     // Check every 15 minutes instead of 5 minutes to reduce API load
     const interval = setInterval(checkNotifications, 15 * 60 * 1000)
     
     return () => clearInterval(interval)
-  }, [refreshUnreadCountFromDatabase])
+  }, [refreshUnreadCountFromDatabase, forceRefreshNotifications])
 
   useEffect(() => {
     const loadUserData = async () => {
@@ -519,29 +578,26 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
     router.push('/notifications')
   }
 
-  // Update notification count and badge - FIXED to include database notifications
+  // Update notification count and badge - FIXED to properly sync with database
   // Use useMemo to calculate unread count instead of useEffect to prevent infinite loops
-  // Prioritize actual database unread count, then socket updates for real-time changes
   const currentUnreadCount = useMemo(() => {
-    // First, try to get the actual unread count from the notification service (includes all DB notifications)
-    const serviceUnreadCount = getUnreadCount()
-    
-    // Calculate from current notifications state
+    // Calculate from current notifications state (this is the source of truth)
     const unreadCountFromState = notifications.filter(n => !n.read).length
     
-    // If we have a valid service count, use it as the base
-    if (serviceUnreadCount > 0) {
-      return serviceUnreadCount
+    // If we have notifications in state, use that count
+    if (notifications.length > 0) {
+      return unreadCountFromState
     }
     
-    // Fallback: Calculate from current notifications state
+    // Fallback: If no notifications in state, check the service
+    const serviceUnreadCount = getUnreadCount()
     
     // If socket has a higher count, use it (for real-time updates)
-    if (socketConnected && socketUnreadCount !== undefined && socketUnreadCount > unreadCountFromState) {
+    if (socketConnected && socketUnreadCount !== undefined && socketUnreadCount > serviceUnreadCount) {
       return socketUnreadCount
     }
     
-    return unreadCountFromState
+    return serviceUnreadCount
   }, [notifications, socketConnected, socketUnreadCount])
 
   // Update unread count when it changes
@@ -635,45 +691,79 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
                       {unreadCount > 9 ? '9+' : unreadCount} new
                     </Badge>
                   )}
-                  {notifications.length > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={forceRefreshNotifications}
+                    title="Refresh notifications"
+                  >
+                    <RefreshCw className="h-3 w-3" />
+                  </Button>
+                  {notifications.length > 0 && notifications.some(n => !n.read) && (
                     <Button
                       variant="ghost"
                       size="sm"
                       className="h-7 px-2 text-xs"
-                      onClick={async () => {
-                        // Mark all as read in the notification service
-                        markAllNotificationsAsRead()
-                        
-                        // Update the notifications state to reflect read status
-                        setNotifications(prevNotifications => 
-                          prevNotifications.map(n => ({ ...n, read: true }))
-                        )
-                        
-                        // Get updated notifications for DB persistence
-                        const updated = getNotifications()
-                        
-                        // Don't call setUnreadCount here - let useMemo handle it
-                        // Persist to DB
-                        try {
-                          const currentUser = getCurrentUser()
-                          if (currentUser?.email) {
-                            const ids = updated.map(n => n.id) // after markAll, ids still needed for persistence
-                            await fetch('/api/notifications/mark-read', {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              credentials: 'include',
-                              body: JSON.stringify({ ids, email: currentUser.email })
-                            })
+                      disabled={markingAllAsRead}
+                                                                      onClick={async () => {
+                          try {
+                            setMarkingAllAsRead(true)
                             
-                            // NEW: Sync in-memory store with database after marking all as read
-                            await syncNotificationsWithDatabase(currentUser.email)
+                            // Store current notifications to prevent "No notifications" flash
+                            const currentNotifications = [...notifications]
+                            
+                            // Mark all as read using the updated service function
+                            await markAllNotificationsAsRead()
+                            
+                            // Immediately update UI to show all notifications as read (but keep them visible)
+                            setNotifications(currentNotifications.map(n => ({ ...n, read: true })))
+                            
+                            // Force a refresh of notifications to ensure UI is in sync
+                            const currentUser = getCurrentUser()
+                            if (currentUser?.email) {
+                              // Fetch fresh notifications from database
+                              const res = await fetch(`/api/notifications?email=${encodeURIComponent(currentUser.email)}&limit=50`, { 
+                                credentials: 'include' 
+                              })
+                              if (res.ok) {
+                                const data = await res.json()
+                                if (data?.success && Array.isArray(data.notifications)) {
+                                  const mapped = data.notifications.map((n: any) => {
+                                    const payload = n.payload || {}
+                                    const actionUrl = payload.action_url
+                                      || (n.category === 'ticket' && (payload.ticket_id || payload.ticket_row_id) ? `/forms/${payload.ticket_id || ''}` : undefined)
+                                      || (n.category === 'break' ? '/status/breaks' : undefined)
+                                    const icon = n.category === 'ticket' ? 'FileText' : n.category === 'break' ? 'Clock' : 'Bell'
+                                    return {
+                                      id: `db_${n.id}`,
+                                      type: n.type,
+                                      title: n.title,
+                                      message: n.message,
+                                      time: (require('@/lib/notification-service') as any).parseDbTimestampToMs(n.created_at, n.category),
+                                      read: !!n.is_read,
+                                      icon,
+                                      actionUrl,
+                                      actionData: payload,
+                                      category: n.category,
+                                      priority: 'medium' as const,
+                                      eventType: 'system' as const,
+                                    }
+                                  })
+                                  
+                                  // Update state with fresh data from database
+                                  const unread = mapped.filter((n: any) => !n.read)
+                                  const read = mapped.filter((n: any) => n.read)
+                                  setNotifications([...unread, ...read].slice(0, 8))
+                                }
+                              }
+                            }
+                          } catch (error) {
+                            console.warn('Error marking all notifications as read:', error)
+                          } finally {
+                            setMarkingAllAsRead(false)
                           }
-                        } catch {}
-                        // Update system tray badge
-                        if (window.electronAPI?.send) {
-                          window.electronAPI.send('notification-count-changed', { count: 0 })
-                        }
-                      }}
+                        }}
                     >
                       Mark all read
                     </Button>
@@ -685,7 +775,7 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
                 <div className="p-2">
                   {loadingBell ? (
                     <BellNotificationsSkeleton rows={6} />
-                  ) : notifications.length === 0 ? (
+                  ) : notifications.length === 0 && !markingAllAsRead ? (
                     <div className="p-4 text-center text-sm text-muted-foreground">
                       No notifications
                     </div>
@@ -739,6 +829,44 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
                                   
                                   // NEW: Sync in-memory store with database after marking as read
                                   await syncNotificationsWithDatabase(currentUser.email)
+                                  
+                                  // Force refresh notifications from database to ensure state is in sync
+                                  const res = await fetch(`/api/notifications?email=${encodeURIComponent(currentUser.email)}&limit=50`, { credentials: 'include' })
+                                  if (res.ok) {
+                                    const data = await res.json()
+                                    if (data?.success && Array.isArray(data.notifications)) {
+                                      const mapped = data.notifications.map((n: any) => {
+                                        const payload = n.payload || {}
+                                        const actionUrl = payload.action_url
+                                          || (n.category === 'ticket' && (payload.ticket_id || payload.ticket_row_id) ? `/forms/${payload.ticket_id || ''}` : undefined)
+                                          || (n.category === 'break' ? '/status/breaks' : undefined)
+                                        const icon = n.category === 'ticket' ? 'FileText' : n.category === 'break' ? 'Clock' : 'Bell'
+                                        return {
+                                          id: `db_${n.id}`,
+                                          type: n.type,
+                                          title: n.title,
+                                          message: n.message,
+                                          time: (require('@/lib/notification-service') as any).parseDbTimestampToMs(n.created_at, n.category),
+                                          read: !!n.is_read,
+                                          icon,
+                                          actionUrl,
+                                          actionData: payload,
+                                          category: n.category,
+                                          priority: 'medium' as const,
+                                          eventType: 'system' as const,
+                                        }
+                                      })
+                                      
+                                      // Save to in-memory store
+                                      const { saveNotifications } = await import('@/lib/notification-service')
+                                      saveNotifications(mapped)
+                                      
+                                      // Update state with refreshed notifications
+                                      const unread = mapped.filter((n: any) => !n.read)
+                                      const read = mapped.filter((n: any) => n.read)
+                                      setNotifications([...unread, ...read].slice(0, 8))
+                                    }
+                                  }
                                 }
                               } catch {}
                               

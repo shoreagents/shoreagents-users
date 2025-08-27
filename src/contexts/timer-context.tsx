@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useCallback, useState, useRef } from 'react'
 import { useSocketTimerContext } from '@/hooks/use-socket-timer-context'
+import { useSocket } from '@/contexts/socket-context'
 import { getCurrentUser } from '@/lib/ticket-utils'
 import { useActivity } from './activity-context'
 import { useMeeting } from '@/contexts/meeting-context'
@@ -25,6 +26,12 @@ interface TimerContextType {
   shiftInfo: any
   timeUntilReset: number
   formattedTimeUntilReset: string
+  
+  // Real-time activity data
+  realtimeActivityData: any
+  lastRealtimeUpdate: Date | null
+  isRealtimeConnected: boolean
+  refreshRealtimeData: () => void
 }
 
 const TimerContext = createContext<TimerContextType | undefined>(undefined)
@@ -42,6 +49,16 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
   const [formattedTimeUntilReset, setFormattedTimeUntilReset] = useState('')
   const [userProfile, setUserProfile] = useState<any>(null)
   const [availableBreaks, setAvailableBreaks] = useState<any[]>([])
+  
+  // CRITICAL: Prevent timer value conflicts during resets
+  const [isResetting, setIsResetting] = useState(false)
+  const resetTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  
+  // Real-time activity data state
+  const [realtimeActivityData, setRealtimeActivityData] = useState<any>(null)
+  const [lastRealtimeUpdate, setLastRealtimeUpdate] = useState<Date | null>(null)
+  const [isRealtimeConnected, setIsRealtimeConnected] = useState(false)
+  
   const { hasLoggedIn } = useActivity()
   const { isInMeeting } = useMeeting()
 
@@ -252,6 +269,78 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     isAuthenticated,
     updateTimerData
   } = useSocketTimerContext(currentUser?.email || null)
+  
+  const { socket } = useSocket()
+
+  // Real-time activity data listener
+  useEffect(() => {
+    if (!currentUser?.id || !isAuthenticated) return
+
+    console.log('🔌 Setting up real-time activity data listener for user:', currentUser.id)
+    
+    // Note: Initial data will be fetched when the component mounts
+    
+    // Listen for real-time activity data updates from the socket
+    const handleActivityDataUpdate = (update: any) => {
+      console.log('📡 Real-time activity data update received:', update)
+      
+      if (update.user_id === currentUser.id) {
+        setRealtimeActivityData(update.data)
+        setLastRealtimeUpdate(new Date())
+        setIsRealtimeConnected(true)
+        
+        // Handle different types of updates
+        if (update.action === 'INSERT') {
+          // New row created (e.g., new day, new shift) - fetch fresh data
+          console.log('🆕 New activity row created, fetching fresh data...')
+          refreshRealtimeData()
+        } else if (update.action === 'UPDATE') {
+          // Existing row updated - update live counters with real-time data
+          if (update.data.today_active_seconds !== undefined) {
+            setLiveActiveSeconds(update.data.today_active_seconds)
+          }
+          if (update.data.today_inactive_seconds !== undefined) {
+            setLiveInactiveSeconds(update.data.today_inactive_seconds)
+          }
+          
+          console.log('✅ Activity data updated in real-time:', {
+            active: update.data.today_active_seconds,
+            inactive: update.data.today_inactive_seconds,
+            isActive: update.data.is_currently_active
+          })
+        }
+      }
+    }
+
+    // Set up socket listener if available
+    if (typeof window !== 'undefined' && (window as any).socket) {
+      const socket = (window as any).socket
+      
+      socket.on('activity-data-updated', handleActivityDataUpdate)
+      socket.on('connect', () => {
+        console.log('🔌 Socket connected, listening for activity data updates')
+        setIsRealtimeConnected(true)
+      })
+      socket.on('disconnect', () => {
+        console.log('🔌 Socket disconnected, stopping activity data updates')
+        setIsRealtimeConnected(false)
+      })
+
+      return () => {
+        console.log('🔌 Cleaning up activity data real-time listener')
+        socket.off('activity-data-updated', handleActivityDataUpdate)
+        socket.off('connect')
+        socket.off('disconnect')
+      }
+    }
+  }, [currentUser?.id, isAuthenticated])
+
+  // Fetch initial activity data when component mounts
+  useEffect(() => {
+    if (currentUser?.id && isAuthenticated) {
+      refreshRealtimeData()
+    }
+  }, [currentUser?.id, isAuthenticated])
 
   // Update live counters when timer data changes
   useEffect(() => {
@@ -504,6 +593,8 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!shiftInfo || !isAuthenticated || !hasLoggedIn) return
 
+    let hasDispatchedReset = false // Track if we've already dispatched the reset event
+
     const countdownInterval = setInterval(() => {
       const currentTime = new Date()
       const nextResetTime = new Date(shiftInfo.nextResetTime)
@@ -513,9 +604,17 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         // Reset time has passed, clear the countdown
         setTimeUntilReset(0)
         setFormattedTimeUntilReset('0s')
-        // Notify other layers to force a reset sync
-        window.dispatchEvent(new CustomEvent('shiftResetCountdownZero'))
+        
+        // Only dispatch the reset event ONCE when we first reach zero
+        if (!hasDispatchedReset) {
+          hasDispatchedReset = true
+          console.log('🔄 Countdown reached zero - dispatching reset event')
+          window.dispatchEvent(new CustomEvent('shiftResetCountdownZero'))
+        }
       } else {
+        // Reset the flag when we're no longer at zero
+        hasDispatchedReset = false
+        
         // Update countdown
         setTimeUntilReset(timeRemaining)
         
@@ -543,30 +642,145 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(countdownInterval)
   }, [shiftInfo, isAuthenticated, hasLoggedIn])
 
-  // Listen for shift reset events from server
+  // Cleanup reset timeout on unmount
   useEffect(() => {
-    if (!isAuthenticated || !hasLoggedIn) return
+    return () => {
+      if (resetTimeoutRef.current) {
+        clearTimeout(resetTimeoutRef.current)
+      }
+    }
+  }, [])
 
-    const handleShiftReset = (event: CustomEvent) => {
-      const resetData = event.detail
+  // Handle shift reset events from Socket.IO
+  useEffect(() => {
+    if (!isAuthenticated || !hasLoggedIn || !socket) {
+      console.log('🔌 Socket event handler setup skipped:', { 
+        isAuthenticated, 
+        hasLoggedIn, 
+        hasSocket: !!socket 
+      })
+      return
+    }
+
+    console.log('🔌 Setting up socket event handlers for shift reset and timer updates')
+
+    const handleShiftReset = (resetData: any) => {
+      console.log('🔄 SHIFT RESET EVENT RECEIVED:', resetData)
+      
+      // Prevent multiple reset sources from fighting over timer values
+      if (isResetting) {
+        console.log('🔄 Shift reset already in progress, skipping duplicate reset')
+        return
+      }
+      
+      setIsResetting(true)
+      
+      // Clear any existing reset timeout
+      if (resetTimeoutRef.current) {
+        clearTimeout(resetTimeoutRef.current)
+      }
       
       // Reset local timers to match server data
       setLiveActiveSeconds(resetData.activeSeconds || 0)
       setLiveInactiveSeconds(resetData.inactiveSeconds || 0)
       setLastActivityState(resetData.isActive)
       
-      console.log('🔄 Live timer values after reset:', { 
+      // CRITICAL: Reset activity state to ensure tracking resumes
+      if (resetData.isActive !== undefined) {
+        setActivityState(resetData.isActive)
+      }
+      
+      console.log('🔄 Live timer values after shift reset:', { 
         activeSeconds: resetData.activeSeconds || 0, 
-        inactiveSeconds: resetData.inactiveSeconds || 0 
+        inactiveSeconds: resetData.inactiveSeconds || 0,
+        isActive: resetData.isActive
       })
       
+      // Force activity tracking to resume if user should be active
+      if (resetData.isActive) {
+        console.log('🔄 Shift reset: Resuming activity tracking for active user')
+        // Trigger a small activity to wake up the tracking
+        setTimeout(() => {
+          setActivityState(true)
+        }, 100)
+      }
+      
+      // Allow timer updates again after a short delay
+      resetTimeoutRef.current = setTimeout(() => {
+        setIsResetting(false)
+        console.log('🔄 Reset lock released, timer updates allowed again')
+      }, 2000) // 2 second lock to prevent conflicts
     }
 
-    // Listen for shift reset events
-    window.addEventListener('shiftReset', handleShiftReset as EventListener)
+    const handleTimerUpdated = (timerData: any) => {
+      // CRITICAL: Always allow server reset events (when both values are 0)
+      const isServerReset = timerData.activeSeconds === 0 && timerData.inactiveSeconds === 0
+      
+      // Only block non-reset updates during reset to prevent conflicts
+      if (isResetting && !isServerReset) {
+        return
+      }
+      
+      // Update local timers to match server data
+      setLiveActiveSeconds(timerData.activeSeconds || 0)
+      setLiveInactiveSeconds(timerData.inactiveSeconds || 0)
+      setLastActivityState(timerData.isActive)
+      
+      // CRITICAL: Update activity state to ensure tracking continues
+      if (timerData.isActive !== undefined) {
+        setActivityState(timerData.isActive)
+      }
+    }
+
+    // Listen for Socket.IO events
+    socket.on('shiftReset', handleShiftReset)
+    socket.on('timerUpdated', handleTimerUpdated)
+    
+    return () => {
+      socket.off('shiftReset', handleShiftReset)
+      socket.off('timerUpdated', handleTimerUpdated)
+      socket.offAny()
+    }
+  }, [isAuthenticated, hasLoggedIn, socket, isResetting])
+
+  // Handle shift reset countdown reaching zero (fallback for manual reset)
+  useEffect(() => {
+    if (!isAuthenticated || !hasLoggedIn) return
+
+    const handleShiftResetCountdownZero = () => {
+      // Prevent multiple reset sources from fighting over timer values
+      if (isResetting) {
+        return
+      }
+      
+      // Check if we already have recent server data (server might have already reset)
+      if (timerData && timerData.activeSeconds === 0 && timerData.inactiveSeconds === 0) {
+        return
+      }
+      
+      setIsResetting(true)
+      
+      // Clear any existing reset timeout
+      if (resetTimeoutRef.current) {
+        clearTimeout(resetTimeoutRef.current)
+      }
+      
+      // Reset local timers to 0 when countdown reaches zero
+      setLiveActiveSeconds(0)
+      setLiveInactiveSeconds(0)
+      
+      
+      // Allow timer updates again after a short delay
+      resetTimeoutRef.current = setTimeout(() => {
+        setIsResetting(false)
+      }, 2000) // 2 second lock to prevent conflicts
+    }
+
+    // Listen for custom DOM event (fallback)
+    window.addEventListener('shiftResetCountdownZero', handleShiftResetCountdownZero)
 
     return () => {
-      window.removeEventListener('shiftReset', handleShiftReset as EventListener)
+      window.removeEventListener('shiftResetCountdownZero', handleShiftResetCountdownZero)
     }
   }, [isAuthenticated, hasLoggedIn])
 
@@ -629,13 +843,52 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     if (!isAuthenticated || !hasLoggedIn || !timerData) return
 
     const periodicSync = setInterval(() => {
+      // Guard: do not sync timer data before shift start or after shift end (Philippines time)
+      try {
+        const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
+        let shiftStartDate: Date | null = null
+        let shiftEndDate: Date | null = null
+        
+        if (shiftInfo?.startTime && shiftInfo?.endTime) {
+          shiftStartDate = new Date(shiftInfo.startTime)
+          shiftEndDate = new Date(shiftInfo.endTime)
+        } else if (userProfile?.shift_time) {
+          const parsed = parseShiftTime(userProfile.shift_time, nowPH)
+          if (parsed?.startTime && parsed?.endTime) {
+            if (parsed.isNightShift && nowPH < parsed.startTime) {
+              // Anchor night shift to previous day when before today's start
+              const adjustedStart = new Date(parsed.startTime)
+              adjustedStart.setDate(adjustedStart.getDate() - 1)
+              const adjustedEnd = new Date(parsed.endTime)
+              adjustedEnd.setDate(adjustedEnd.getDate() - 1)
+              shiftStartDate = adjustedStart
+              shiftEndDate = adjustedEnd
+            } else {
+              shiftStartDate = parsed.startTime
+              shiftEndDate = parsed.endTime
+            }
+          }
+        }
+        
+        // Stop syncing before shift start
+        if (shiftStartDate && nowPH < shiftStartDate) {
+          return // Skip syncing until shift start
+        }
+        
+        // Stop syncing after shift end
+        if (shiftEndDate && nowPH > shiftEndDate) {
+          return // Skip syncing after shift end
+        }
+      } catch (_) {
+        // ignore guard errors; fallback to sync logic below
+      }
+
       // Force sync current timer values to database
       updateTimerData(liveActiveSeconds, liveInactiveSeconds);
-      console.log(`🔄 Periodic timer sync: Active ${liveActiveSeconds}s, Inactive ${liveInactiveSeconds}s`);
     }, 10000); // Every 10 seconds
 
     return () => clearInterval(periodicSync);
-  }, [isAuthenticated, hasLoggedIn, timerData, liveActiveSeconds, liveInactiveSeconds, updateTimerData]);
+  }, [isAuthenticated, hasLoggedIn, timerData, liveActiveSeconds, liveInactiveSeconds, updateTimerData, shiftInfo, userProfile]);
 
   // Activity detection - use Electron activity tracking if available
   useEffect(() => {
@@ -730,6 +983,61 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  // Refresh real-time activity data
+  const refreshRealtimeData = useCallback(async () => {
+    if (!currentUser?.id) return
+
+    try {
+      const response = await fetch(`/api/activity?userId=${currentUser.id}`)
+      if (response.ok) {
+        const data = await response.json()
+        setRealtimeActivityData(data)
+        setLastRealtimeUpdate(new Date())
+        setIsRealtimeConnected(true)
+        
+        // Update live counters
+        setLiveActiveSeconds(data.today_active_seconds || 0)
+        setLiveInactiveSeconds(data.today_inactive_seconds || 0)
+      }
+    } catch (error) {
+      console.error('❌ Error refreshing real-time activity data:', error)
+      setIsRealtimeConnected(false)
+    }
+  }, [currentUser?.id])
+
+  // Manual test function to check socket events
+  const testSocketEvents = useCallback(() => {
+    if (!socket) {
+      return
+    }
+    // Test emitting a test event
+    socket.emit('test-event', { message: 'Testing socket connection' })
+    
+    // Check socket connection status
+    console.log('🔌 Socket status:', {
+      connected: socket.connected,
+      id: socket.id
+    })
+  }, [socket])
+
+  // Expose test function for debugging
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      (window as any).testSocketEvents = testSocketEvents;
+      (window as any).checkSocketStatus = () => {
+        if (!socket) {
+          return false
+        }
+        console.log('🔌 Socket status:', {
+          connected: socket.connected,
+          id: socket.id,
+          hasSocket: !!socket
+        })
+        return socket.connected
+      }
+    }
+  }, [testSocketEvents, socket])
+
   const value = {
     timerData,
     connectionStatus,
@@ -746,7 +1054,13 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     refreshBreakStatus,
     shiftInfo,
     timeUntilReset,
-    formattedTimeUntilReset
+    formattedTimeUntilReset,
+    
+    // Real-time activity data
+    realtimeActivityData,
+    lastRealtimeUpdate,
+    isRealtimeConnected,
+    refreshRealtimeData
   }
 
   return (

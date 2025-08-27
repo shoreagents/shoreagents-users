@@ -2109,18 +2109,14 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                             }}
                           >
                             <div className="space-y-2 pr-4">
-                              {(task.relationships || []).map((relationship, index) => {
-                                // Skip invalid relationships
-                                if (!relationship || typeof relationship !== 'object') {
-                                  console.warn('Invalid relationship object:', relationship)
-                                  return null
-                                }
-                                
-                                // Skip relationships with invalid taskId
-                                if (!relationship?.taskId) {
-                                  console.warn('Relationship missing taskId:', relationship)
-                                  return null
-                                }
+                              {(task.relationships || [])
+                                .filter(relationship => 
+                                  relationship && 
+                                  typeof relationship === 'object' && 
+                                  relationship.taskId && 
+                                  relationship.type
+                                )
+                                .map((relationship, index) => {
                                 
                                 const relatedTask = tasks?.find(t => t.id === relationship.taskId)
                                 

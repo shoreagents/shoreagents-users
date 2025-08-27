@@ -124,10 +124,22 @@ export function useNotificationsSocketContext(email: string | null) {
   // Mark all notifications as read
   const markAllAsRead = useCallback(async (userId: number) => {
     try {
-      const response = await fetch(`/api/notifications/mark-all-read`, {
+      // Get all notification IDs from current notifications
+      const notificationIds = notifications.map(n => n.id)
+      
+      if (notificationIds.length === 0) {
+        console.log('No notifications to mark as read')
+        return
+      }
+      
+      // Use the existing mark-read API to mark all notifications as read
+      const response = await fetch('/api/notifications/mark-read', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userId })
+        body: JSON.stringify({ 
+          ids: notificationIds, 
+          email 
+        })
       })
       
       const data = await response.json()
@@ -143,11 +155,13 @@ export function useNotificationsSocketContext(email: string | null) {
             user_id: userId
           })
         }
+      } else {
+        console.error('Failed to mark all notifications as read:', data.error)
       }
     } catch (error) {
       console.error('Error marking all notifications as read:', error)
     }
-  }, [socket, isConnected, email])
+  }, [socket, isConnected, email, notifications])
 
   // Delete notification
   const deleteNotification = useCallback(async (notificationId: number) => {

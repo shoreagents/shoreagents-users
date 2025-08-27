@@ -6,9 +6,23 @@ const { Server } = require('socket.io');
 const { Pool } = require('pg');
 const cors = require('cors');
 const BreakReminderScheduler = require('./scripts/break-reminder-scheduler');
+const TaskNotificationScheduler = require('./scripts/task-notification-scheduler');
 
 const app = express();
 app.use(cors());
+
+// Status endpoint to monitor schedulers
+app.get('/status', (req, res) => {
+  res.json({
+    status: 'running',
+    timestamp: new Date().toISOString(),
+    schedulers: {
+      breakReminder: breakReminderScheduler.getStatus(),
+      taskNotification: taskNotificationScheduler.getStatus()
+    },
+    uptime: process.uptime()
+  });
+});
 
 const server = createServer(app);
 const io = new Server(server, {
@@ -33,10 +47,15 @@ pool.query('SELECT NOW()', (err, result) => {
   }
 });
 
-// Initialize break reminder scheduler
+// Initialize schedulers
 const breakReminderScheduler = new BreakReminderScheduler();
+const taskNotificationScheduler = new TaskNotificationScheduler();
+
 console.log('🔔 Initializing break reminder scheduler...');
 breakReminderScheduler.start();
+
+console.log('📋 Initializing task notification scheduler...');
+taskNotificationScheduler.start();
 
 // Initialize global notification listener
 let globalNotificationClient = null;
@@ -53,18 +72,14 @@ async function initializeGlobalNotificationListener() {
     await globalNotificationClient.query('LISTEN ticket_comments');
     await globalNotificationClient.query('LISTEN weekly_activity_change');
     await globalNotificationClient.query('LISTEN monthly_activity_change');
+    await globalNotificationClient.query('LISTEN activity_data_change');
     
     console.log('📡 Global notification listener initialized');
     
     globalNotificationClient.on('notification', async (msg) => {
       try {
-        // Only log raw notifications for debugging specific channels if needed
-        if (msg.channel !== 'weekly_activity_change' && msg.channel !== 'monthly_activity_change') {
-          console.log(`🔔 Raw notification received on channel '${msg.channel}' with payload:`, msg.payload);
-        }
         if (msg.channel === 'notifications') {
           const payload = JSON.parse(msg.payload);
-          console.log(`📡 Global notification received for user ${payload.user_id}:`, payload.title);
           
           // Find all sockets for this user and emit to all of them
           if (payload.user_id) {
@@ -137,6 +152,34 @@ async function initializeGlobalNotificationListener() {
                   io.to(socketId).emit('weekly-activity-update', payload);
                 });
               }
+            }
+          }
+        } else if (msg.channel === 'activity_data_change') {
+          const payload = JSON.parse(msg.payload);
+          console.log(`📡 Activity data change notification received for user ${payload.user_id}:`, payload.action);
+          
+          // Find all sockets for this user and emit to all of them
+          if (payload.user_id) {
+            let targetEmail = null;
+            for (const [socketId, userData] of connectedUsers.entries()) {
+              if (userData.userId === payload.user_id) {
+                targetEmail = userData.email;
+                break;
+              }
+            }
+            
+            if (targetEmail) {
+              const userSockets = userConnections.get(targetEmail);
+              if (userSockets && userSockets.size > 0) {
+                console.log(`📤 Broadcasting activity data update to ${userSockets.size} connections for user ${payload.user_id} (${targetEmail})`);
+                userSockets.forEach(socketId => {
+                  io.to(socketId).emit('activity-data-updated', payload);
+                });
+              } else {
+                console.log(`⚠️ No active connections found for user ${payload.user_id} (${targetEmail})`);
+              }
+            } else {
+              console.log(`⚠️ User ${payload.user_id} not found in connected users`);
             }
           }
         } else if (msg.channel === 'monthly_activity_change') {
@@ -245,15 +288,6 @@ const userShiftInfo = new Map(); // Store user shift information for shift-based
 // Track user connections and online status
 // REMOVED: Online status tracking functionality
 
-// Initialize with test data
-userData.set('bob@example.com', {
-  userId: 1,
-  isActive: false,
-  activeSeconds: 0,
-  inactiveSeconds: 0,
-  sessionStart: new Date().toISOString()
-});
-
 // Keep track of active connections per user
 const userConnections = new Map(); // Map<email, Set<socketId>>
 
@@ -324,9 +358,9 @@ function parseTimeString(timeStr, baseDate) {
 function shouldResetForShift(lastActivityTime, currentTime, shiftInfo) {
   if (!shiftInfo) {
     // Fallback to daily reset if no shift info
-    // Use UTC-based date comparison to avoid timezone issues
-    const lastDate = lastActivityTime.toISOString().split('T')[0];
-    const currentDate = currentTime.toISOString().split('T')[0];
+    // Use Manila time-based date comparison to avoid timezone issues
+    const lastDate = new Date(lastActivityTime.getTime() + (8 * 60 * 60 * 1000)).toISOString().split('T')[0];
+    const currentDate = new Date(currentTime.getTime() + (8 * 60 * 60 * 1000)).toISOString().split('T')[0];
     return lastDate !== currentDate;
   }
 
@@ -374,14 +408,12 @@ function shouldResetForShift(lastActivityTime, currentTime, shiftInfo) {
       const isAtOrPastShiftStart = currentTime >= currentShiftStart;
       const wasBeforeShiftStart = lastActivityTime < currentShiftStart;
       
-      // Also check if we're within 10 seconds of the shift start time (for edge cases)
-      const timeDiff = Math.abs(currentTime.getTime() - currentShiftStart.getTime());
-      const isNearShiftStart = timeDiff <= 10000; // 10 seconds
-      
-      // More aggressive reset detection: reset if we're very close to shift start time
-      const shouldReset = (wasBeforeShiftStart && isAtOrPastShiftStart) || isNearShiftStart;
+      // CRITICAL: Only reset when we actually CROSS the shift start boundary
+      // Don't reset if we're already within the shift period
+      const shouldReset = wasBeforeShiftStart && isAtOrPastShiftStart;
       
       // Special case: if we're exactly at or just passed the shift start time, always reset
+      const timeDiff = Math.abs(currentTime.getTime() - currentShiftStart.getTime());
       const isExactlyAtShiftStart = timeDiff <= 1000; // Within 1 second
       const isJustPassedShiftStart = currentTime.getTime() >= currentShiftStart.getTime() && timeDiff <= 5000; // Within 5 seconds after
       
@@ -391,7 +423,7 @@ function shouldResetForShift(lastActivityTime, currentTime, shiftInfo) {
       }
       
       if (shouldReset) {
-        console.log(`🔄 Shift reset condition met: wasBefore=${wasBeforeShiftStart}, isAtOrPast=${isAtOrPastShiftStart}, isNear=${isNearShiftStart}, timeDiff=${timeDiff}ms`);
+        console.log(`🔄 Shift reset condition met: wasBefore=${wasBeforeShiftStart}, isAtOrPast=${isAtOrPastShiftStart}, timeDiff=${timeDiff}ms`);
       }
       
       return shouldReset;
@@ -399,8 +431,8 @@ function shouldResetForShift(lastActivityTime, currentTime, shiftInfo) {
   } catch (error) {
     console.error('Error in shouldResetForShift:', error);
     // Fallback to daily reset on error
-    const lastDate = lastActivityTime.toISOString().split('T')[0];
-    const currentDate = currentTime.toISOString().split('T')[0];
+    const lastDate = new Date(lastActivityTime.getTime() + (8 * 60 * 60 * 1000)).toISOString().split('T')[0];
+    const currentDate = new Date(currentTime.getTime() + (8 * 60 * 60 * 1000)).toISOString().split('T')[0];
     return lastDate !== currentDate;
   }
 }
@@ -724,37 +756,68 @@ function broadcastMeetingStatus(email, isInMeeting) {
 // Function to check if shift reset is needed for a user
 async function checkShiftReset(email, userId) {
   try {
-    const shiftInfo = userShiftInfo.get(email);
-    if (!shiftInfo) return false;
-    
-    const currentTime = new Date();
     const userInfo = userData.get(email);
+    if (!userInfo) {
+      console.log(`⚠️ No user data found for ${email} during shift reset check`);
+      return false;
+    }
+
+    // CRITICAL: Prevent multiple resets during the same shift period
+    if (userInfo.lastResetAt) {
+      const timeSinceLastReset = Date.now() - userInfo.lastResetAt;
+      const shiftDuration = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+      
+      // Only reset if it's been more than a full shift duration since last reset
+      if (timeSinceLastReset < shiftDuration) {
+        console.log(`🔄 Shift reset skipped for ${email} - already reset ${Math.floor(timeSinceLastReset / 1000)}s ago`);
+        return false;
+      }
+    }
+
+    const shiftInfo = userShiftInfo.get(email);
+    if (!shiftInfo) {
+      console.log(`⚠️ No shift info found for ${email} during shift reset check`);
+      return false;
+    }
+
+    const currentTime = new Date();
+    const currentShiftId = getCurrentShiftId(currentTime, shiftInfo);
     
-    if (!userInfo) return false;
+    // Check if we need to reset for a new shift period
+    if (userInfo.lastShiftId && userInfo.lastShiftId === currentShiftId) {
+      return false;
+    }
     
-    // FIXED: Use lastShiftBoundaryTime instead of sessionStart for shift reset logic
-    // This ensures we track when the user last crossed a shift boundary, not when they were last active
-    const lastShiftBoundaryTime = userInfo.lastShiftBoundaryTime ? new Date(userInfo.lastShiftBoundaryTime) : new Date(userInfo.sessionStart);
+    // ADDITIONAL: If we have recent activity data (within last hour), don't reset
+    // This prevents resetting when users reconnect shortly after shift start
+    if (userInfo.sessionStart) {
+      const timeSinceSessionStart = Date.now() - new Date(userInfo.sessionStart).getTime();
+      const oneHour = 60 * 60 * 1000; // 1 hour in milliseconds
+      
+      if (timeSinceSessionStart < oneHour) {
+        console.log(`🔄 Shift reset skipped for ${email} - session started ${Math.floor(timeSinceSessionStart / 1000)}s ago (too recent)`);
+        return false;
+      }
+    }
+    
+    // ADDITIONAL: If we have accumulated time, don't reset unless it's a genuine shift boundary
+    // This prevents resetting when users reconnect with existing timer data
+    if (userInfo.activeSeconds > 0 || userInfo.inactiveSeconds > 0) {
+      console.log(`🔄 Shift reset skipped for ${email} - user has accumulated time (${userInfo.activeSeconds}s active, ${userInfo.inactiveSeconds}s inactive)`);
+      return false;
+    }
     
     // Check if we should reset based on shift schedule
-    const shouldReset = shouldResetForShift(lastShiftBoundaryTime, currentTime, shiftInfo);
+    const shouldReset = shouldResetForShift(userInfo.sessionStart, currentTime, shiftInfo);
     
     if (shouldReset) {
-      // Debounce: avoid duplicate resets within 2 minutes
-      // Replace time-based debounce with shiftId-based guard only
-      if (userInfo.lastShiftId && userInfo.lastShiftId === getCurrentShiftId(currentTime, shiftInfo)) {
-        return false;
-      }
-
-      // Extra guard: only reset if shift identifier changed
-      const currentShiftId = getCurrentShiftId(currentTime, shiftInfo);
-      if (userInfo.lastShiftId && userInfo.lastShiftId === currentShiftId) {
-        return false;
-      }
       console.log(`🔄 Shift reset detected for ${email} (${shiftInfo.period}: ${shiftInfo.time})`);
       
-      // Preserve current activity state after reset
-      const preserveActive = !!userInfo.isActive;
+      // For a new shift, user should start as active (unless they were explicitly inactive)
+      // Only preserve inactive state if user was explicitly set to inactive
+      const preserveActive = userInfo.isActive === false ? false : true;
+      
+      console.log(`🔄 Shift reset: Activity state change for ${email}: ${userInfo.isActive} → ${preserveActive}`);
       
       // Reset user data
       userInfo.activeSeconds = 0;
@@ -775,8 +838,11 @@ async function checkShiftReset(email, userId) {
         currentDate = shiftStartDate.toISOString().split('T')[0];
         console.log(`🌙 Night shift detected for ${email} - using shift start date: ${currentDate} (not current calendar date)`);
       } else {
-        // For day shifts, use current calendar date
-        currentDate = new Date().toISOString().split('T')[0];
+        // For day shifts, use current Manila time (not UTC)
+        // Convert UTC to Manila time by adding 8 hours (UTC+8)
+        const manilaTime = new Date(currentTime.getTime() + (8 * 60 * 60 * 1000));
+        currentDate = manilaTime.toISOString().split('T')[0];
+        console.log(`☀️ Day shift detected for ${email} - using Manila date: ${currentDate} (current Manila time: ${manilaTime.toLocaleString()})`);
       }
       
       try {
@@ -824,12 +890,17 @@ async function checkShiftReset(email, userId) {
           shiftId: currentShiftId
         };
         
+        console.log(`📡 Sending shift reset notification to ${userSockets.size} connections for ${email}:`, resetData);
+        
         userSockets.forEach(socketId => {
           io.to(socketId).emit('shiftReset', resetData);
           io.to(socketId).emit('timerUpdated', resetData);
+          console.log(`📤 Sent shiftReset and timerUpdated events to socket ${socketId}`);
         });
         
         console.log(`📡 Notified ${userSockets.size} connections about shift reset for ${email}`);
+      } else {
+        console.log(`⚠️ No active connections found for ${email} during shift reset`);
       }
       
       return true;
@@ -1021,8 +1092,19 @@ io.on('connection', (socket) => {
           // After waiting, get the user data and send response
           const userInfo = userData.get(emailString);
           if (userInfo) {
-            // Add this socket to connectedUsers map
-            connectedUsers.set(socket.id, { userId: userInfo.userId, email: emailString, userInfo });
+            // Add this socket to connectedUsers map with user name
+            const userResult = await pool.query(
+              'SELECT u.id, COALESCE(pi.first_name || \' \' || pi.last_name, u.email) as full_name FROM users u LEFT JOIN personal_info pi ON u.id = pi.user_id WHERE u.email = $1',
+              [emailString]
+            );
+            const fullName = userResult.rows[0]?.full_name || emailString;
+            
+            connectedUsers.set(socket.id, { 
+              userId: userInfo.userId, 
+              email: emailString, 
+              userInfo,
+              fullName 
+            });
             console.log(`🔐 AUTHENTICATION COMPLETED (waited): Socket ${socket.id} now associated with user ${emailString}`);
             // User data retrieved after waiting
             
@@ -1117,20 +1199,39 @@ io.on('connection', (socket) => {
              currentDate = shiftStartDate.toISOString().split('T')[0];
              console.log(`🌙 Night shift detected for ${emailString} - using shift start date: ${currentDate} (not current calendar date)`);
            } else {
-             // For day shifts, use current calendar date
-             currentDate = new Date().toISOString().split('T')[0];
+             // For day shifts, use current Manila time (not UTC)
+             // Convert UTC to Manila time by adding 8 hours (UTC+8)
+             currentDate = new Date(currentTime.getTime() + (8 * 60 * 60 * 1000)).toISOString().split('T')[0];
            }
           
           // First check if there's any activity data for this user
           console.log(`🔍 Loading activity data for user ${emailString} (ID: ${userId})`);
-          const activityResult = await pool.query(
+          
+          // PRIORITY: First try to get current day's data, then fall back to most recent
+          // Extract date parts and compare since dates are stored as JavaScript Date objects
+          let activityResult = await pool.query(
             `SELECT today_active_seconds, today_inactive_seconds, last_session_start, is_currently_active, today_date
              FROM activity_data 
-             WHERE user_id = $1 
-             ORDER BY today_date DESC 
-             LIMIT 1`,
-            [userId]
+             WHERE user_id = $1 AND EXTRACT(YEAR FROM today_date) = EXTRACT(YEAR FROM $2::date) 
+             AND EXTRACT(MONTH FROM today_date) = EXTRACT(MONTH FROM $2::date)
+             AND EXTRACT(DAY FROM today_date) = EXTRACT(DAY FROM $2::date)`,
+            [userId, currentDate]
           );
+          
+          // If no current day data, get the most recent data as fallback
+          if (activityResult.rows.length === 0) {
+            console.log(`📅 No current day (${currentDate}) data found for ${emailString}, checking for most recent data...`);
+            activityResult = await pool.query(
+              `SELECT today_active_seconds, today_inactive_seconds, last_session_start, is_currently_active, today_date
+               FROM activity_data 
+               WHERE user_id = $1 
+               ORDER BY today_date DESC 
+               LIMIT 1`,
+              [userId]
+            );
+          } else {
+            console.log(`✅ Found current day (${currentDate}) data for ${emailString}`);
+          }
           console.log(`📊 Activity query for user ${emailString} (ID: ${userId}) returned ${activityResult.rows.length} rows`);
           
           if (activityResult.rows.length > 0) {
@@ -1159,13 +1260,24 @@ io.on('connection', (socket) => {
                 userInfo.lastShiftBoundaryTime = userInfo.sessionStart;
               }
               
+              // CRITICAL: Preserve reset tracking to prevent multiple resets
+              if (shiftInfo) {
+                const currentShiftId = getCurrentShiftId(currentTime, shiftInfo);
+                // If we don't have reset tracking, initialize it based on current state
+                if (!userInfo.lastShiftId) {
+                  userInfo.lastShiftId = currentShiftId;
+                  console.log(`🔄 Initializing reset tracking for ${emailString} with shift ID: ${currentShiftId}`);
+                }
+                // If we don't have reset timestamp, set it to prevent immediate reset
+                if (!userInfo.lastResetAt) {
+                  userInfo.lastResetAt = Date.now();
+                  console.log(`🔄 Initializing reset timestamp for ${emailString} to prevent immediate reset`);
+                }
+              }
+              
               // Ensure lastDbUpdate field exists for throttling
               if (typeof userInfo.lastDbUpdate === 'undefined') {
                 userInfo.lastDbUpdate = 0;
-              }
-              // Record current shift id to prevent accidental resets later
-              if (shiftInfo) {
-                userInfo.lastShiftId = getCurrentShiftId(currentTime, shiftInfo);
               }
               
               // Initialize throttling fields
@@ -1179,7 +1291,13 @@ io.on('connection', (socket) => {
               } else {
                 console.log(`🔄 New day detected for ${emailString} (${dbDate} -> ${currentDate}) - resetting timers`);
               }
-              const preserveActive = !!userInfo.isActive;
+              // For a new shift, user should start as active (unless they were explicitly inactive)
+              // Only preserve inactive state if user was explicitly set to inactive
+              const preserveActive = userInfo.isActive === false ? false : true;
+              
+              console.log(`🔄 Shift reset: Activity state change for ${email}: ${userInfo.isActive} → ${preserveActive}`);
+              
+              // Reset user data
               userInfo.activeSeconds = 0;
               userInfo.inactiveSeconds = 0;
               userInfo.isActive = preserveActive;
@@ -1195,7 +1313,7 @@ io.on('connection', (socket) => {
               // Reset today's row (upsert) for current shift/day
               await pool.query(
                 `INSERT INTO activity_data (user_id, is_currently_active, today_active_seconds, today_inactive_seconds, last_session_start, today_date, updated_at)
-                 VALUES ($1, $4, 0, 0, $2, $3, NOW())
+                 VALUES ($1, $4, 0, 0, $2, $3::date, NOW())
                  ON CONFLICT (user_id, today_date)
                  DO UPDATE SET
                    is_currently_active = EXCLUDED.is_currently_active,
@@ -1253,7 +1371,7 @@ io.on('connection', (socket) => {
             // Create initial activity_data record
             await pool.query(
               `INSERT INTO activity_data (user_id, is_currently_active, today_active_seconds, today_inactive_seconds, last_session_start, today_date, updated_at) 
-               VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+               VALUES ($1, $2, $3, $4, $5, $6::date, NOW())`,
               [userId, false, 0, 0, userInfo.sessionStart, currentDate]
             );
           }
@@ -1293,20 +1411,37 @@ io.on('connection', (socket) => {
                currentDate = shiftStartDate.toISOString().split('T')[0];
                console.log(`🌙 Night shift refresh detected for ${emailString} - using shift start date: ${currentDate} (not current calendar date)`);
              } else {
-               // For day shifts, use current calendar date
-               currentDate = new Date().toISOString().split('T')[0];
+               // For day shifts, use current Manila time (not UTC)
+               // Convert UTC to Manila time by adding 8 hours (UTC+8)
+               currentDate = new Date(currentTime.getTime() + (8 * 60 * 60 * 1000)).toISOString().split('T')[0];
              }
             
                         // Get the most recent activity data for this user
             console.log(`📊 Loading most recent activity data for user ${emailString} (ID: ${userId})`);
-            const activityResult = await pool.query(
+            
+            // PRIORITY: First try to get current day's data, then fall back to most recent
+            // Use simple date comparison since dates are already stored in Manila time
+            let activityResult = await pool.query(
               `SELECT today_active_seconds, today_inactive_seconds, last_session_start, is_currently_active, today_date
                FROM activity_data 
-               WHERE user_id = $1 
-               ORDER BY today_date DESC
-               LIMIT 1`,
-              [userId]
+               WHERE user_id = $1 AND DATE(today_date) = $2::date`,
+              [userId, currentDate]
             );
+            
+            // If no current day data, get the most recent data as fallback
+            if (activityResult.rows.length === 0) {
+              console.log(`📅 No current day (${currentDate}) data found during refresh for ${emailString}, checking for most recent data...`);
+              activityResult = await pool.query(
+                `SELECT today_active_seconds, today_inactive_seconds, last_session_start, is_currently_active, today_date
+                 FROM activity_data 
+                 WHERE user_id = $1 
+                 ORDER BY today_date DESC
+                 LIMIT 1`,
+                [userId]
+              );
+            } else {
+              console.log(`✅ Found current day (${currentDate}) data during refresh for ${emailString}`);
+            }
             console.log(`📊 Activity query for user ${emailString} (ID: ${userId}) returned ${activityResult.rows.length} rows`);
             
             if (activityResult.rows.length > 0) {
@@ -1336,13 +1471,24 @@ io.on('connection', (socket) => {
                     userInfo.lastShiftBoundaryTime = userInfo.sessionStart;
                   }
                   
+                  // CRITICAL: Preserve reset tracking to prevent multiple resets
+                  if (shiftInfo) {
+                    const currentShiftId = getCurrentShiftId(currentTime, shiftInfo);
+                    // If we don't have reset tracking, initialize it based on current state
+                    if (!userInfo.lastShiftId) {
+                      userInfo.lastShiftId = currentShiftId;
+                      console.log(`🔄 Initializing reset tracking for ${emailString} with shift ID: ${currentShiftId}`);
+                    }
+                    // If we don't have reset timestamp, set it to prevent immediate reset
+                    if (!userInfo.lastResetAt) {
+                      userInfo.lastResetAt = Date.now();
+                      console.log(`🔄 Initializing reset timestamp for ${emailString} to prevent immediate reset`);
+                    }
+                  }
+                  
                   // Ensure lastDbUpdate field exists for throttling
                   if (typeof userInfo.lastDbUpdate === 'undefined') {
                     userInfo.lastDbUpdate = 0;
-                  }
-                  // Record current shift id to prevent accidental resets later
-                  if (shiftInfo) {
-                    userInfo.lastShiftId = getCurrentShiftId(currentTime, shiftInfo);
                   }
                   
                   // Initialize throttling fields
@@ -1357,7 +1503,13 @@ io.on('connection', (socket) => {
                 } else {
                   console.log(`🔄 New day detected during refresh for ${emailString} (${dbDate} -> ${currentDate}) - resetting timers`);
                 }
-              const preserveActive = !!userInfo.isActive;
+              // For a new shift, user should start as active (unless they were explicitly inactive)
+              // Only preserve inactive state if user was explicitly set to inactive
+              const preserveActive = userInfo.isActive === false ? false : true;
+              
+              console.log(`🔄 Shift reset: Activity state change for ${email}: ${userInfo.isActive} → ${preserveActive}`);
+              
+              // Reset user data
               userInfo.activeSeconds = 0;
               userInfo.inactiveSeconds = 0;
               userInfo.isActive = preserveActive;
@@ -1373,7 +1525,7 @@ io.on('connection', (socket) => {
                 // Reset today's row (upsert) for current shift/day
                 await pool.query(
                   `INSERT INTO activity_data (user_id, is_currently_active, today_active_seconds, today_inactive_seconds, last_session_start, today_date, updated_at)
-                   VALUES ($1, $4, 0, 0, $2, $3, NOW())
+                   VALUES ($1, $4, 0, 0, $2, $3::date, NOW())
                    ON CONFLICT (user_id, today_date)
                    DO UPDATE SET
                      is_currently_active = EXCLUDED.is_currently_active,
@@ -1456,7 +1608,7 @@ io.on('connection', (socket) => {
                  try {
                    await pool.query(
                     `INSERT INTO activity_data (user_id, is_currently_active, today_active_seconds, today_inactive_seconds, last_session_start, today_date, updated_at) 
-                       VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+                       VALUES ($1, $2, $3, $4, $5, $6::date, NOW())`,
                        [userId, preserveActive, 0, 0, userInfo.sessionStart, currentDate]
                   );
                  } catch (insertError) {
@@ -1486,7 +1638,19 @@ io.on('connection', (socket) => {
       }
 
                      // Store user info - ensure email is stored as string
-        connectedUsers.set(socket.id, { userId: userInfo.userId, email: emailString, userInfo });
+        // Get user's full name for chat functionality
+        const userResult = await pool.query(
+          'SELECT u.id, COALESCE(pi.first_name || \' \' || pi.last_name, u.email) as full_name FROM users u LEFT JOIN personal_info pi ON u.id = pi.user_id WHERE u.email = $1',
+          [emailString]
+        );
+        const fullName = userResult.rows[0]?.full_name || emailString;
+        
+        connectedUsers.set(socket.id, { 
+          userId: userInfo.userId, 
+          email: emailString, 
+          userInfo,
+          fullName 
+        });
         console.log(`🔐 AUTHENTICATION COMPLETED: Socket ${socket.id} now associated with user ${emailString}`);
         console.log(`📊 Connected users map now contains:`, Array.from(connectedUsers.entries()).map(([id, data]) => `${id} -> ${data.email}`));
         // User authentication completed with data
@@ -1637,7 +1801,7 @@ io.on('connection', (socket) => {
         const adRes = await pool.query(
           `SELECT is_currently_active, today_active_seconds, today_inactive_seconds, last_session_start
            FROM activity_data
-           WHERE user_id = $1 AND today_date = $2
+           WHERE user_id = $1 AND DATE(today_date) = $2::date
            LIMIT 1`,
           [userInfo.userId, effectiveDateStr]
         );
@@ -1653,31 +1817,18 @@ io.on('connection', (socket) => {
             sessionStart: row.last_session_start
           };
           
-          // If the calculated date has zero data, try to find the most recent non-zero data
+          // If the calculated date has zero data, check if this is a fresh shift start
+          // Don't fall back to old accumulated data - respect the fresh start
           if (hydratedData.activeSeconds === 0 && hydratedData.inactiveSeconds === 0) {
-            console.log(`⚠️  Calculated date ${effectiveDateStr} has zero data for ${emailString}, looking for recent non-zero data...`);
+            console.log(`✅ Fresh shift start detected for ${emailString} on ${effectiveDateStr} - keeping zero values (no fallback to old data)`);
             
-            const fallbackRes = await pool.query(
-              `SELECT is_currently_active, today_active_seconds, today_inactive_seconds, last_session_start, 
-                      TO_CHAR(today_date, 'YYYY-MM-DD') as formatted_date
-               FROM activity_data
-               WHERE user_id = $1 
-               AND (today_active_seconds > 0 OR today_inactive_seconds > 0)
-               ORDER BY today_date DESC, updated_at DESC
-               LIMIT 1`,
-              [userInfo.userId]
-            );
-            
-            if (fallbackRes.rows && fallbackRes.rows[0]) {
-              const fallbackRow = fallbackRes.rows[0];
-              hydratedData = {
-                isActive: fallbackRow.is_currently_active === true,
-                activeSeconds: Number(fallbackRow.today_active_seconds) || 0,
-                inactiveSeconds: Number(fallbackRow.today_inactive_seconds) || 0,
-                sessionStart: fallbackRow.last_session_start
-              };
-              console.log(`🔄 Found fallback data from ${fallbackRow.formatted_date}: ${hydratedData.activeSeconds}s active, ${hydratedData.inactiveSeconds}s inactive`);
-            }
+            // Ensure we're using the fresh start data
+            hydratedData = {
+              isActive: false, // Start inactive
+              activeSeconds: 0,
+              inactiveSeconds: 0,
+              sessionStart: new Date().toISOString()
+            };
           }
         }
         
@@ -2044,7 +2195,11 @@ io.on('connection', (socket) => {
       
       // Join the conversation room
       socket.join(`conversation_${conversationId}`);
-      console.log(`👤 User ${userId} joined conversation ${conversationId}`);
+      
+      // Debug: Check room size after joining
+      const room = io.sockets.adapter.rooms.get(`conversation_${conversationId}`);
+      const roomSize = room ? room.size : 0;
+      console.log(`👤 User ${userId} joined conversation ${conversationId} (room now has ${roomSize} participants)`);
       
       // Emit typing indicator to other participants
       socket.to(`conversation_${conversationId}`).emit('user-joined-chat', {
@@ -2098,6 +2253,11 @@ io.on('connection', (socket) => {
         isTemporary: true
       };
       
+      // Debug: Check who's in the conversation room
+      const room = io.sockets.adapter.rooms.get(`conversation_${conversationId}`);
+      const roomSize = room ? room.size : 0;
+      console.log(`🔍 Room conversation_${conversationId} has ${roomSize} participants`);
+      
       // Broadcast to conversation participants
       io.to(`conversation_${conversationId}`).emit('new-chat-message', messageData);
       
@@ -2108,7 +2268,7 @@ io.on('connection', (socket) => {
         timestamp: new Date().toISOString()
       });
       
-      console.log(`💬 Chat message sent in conversation ${conversationId} by user ${userId}`);
+      console.log(`💬 Chat message sent in conversation ${conversationId} by user ${userId} to ${roomSize} participants`);
     } catch (error) {
       console.error('Error sending chat message:', error);
       socket.emit('chat-error', { message: 'Failed to send message' });
@@ -2217,7 +2377,7 @@ io.on('connection', (socket) => {
       const userInfo = userDataEntry.userInfo;
       const userId = userInfo.userId;
       const shiftInfo = userShiftInfo.get(email) || null;
-      const currentDate = new Date().toISOString().split('T')[0]; // Use UTC date for consistency
+            const currentDate = new Date(currentTime.getTime() + (8 * 60 * 60 * 1000)).toISOString().split('T')[0]; // Use Manila date for consistency
       const currentShiftId = shiftInfo ? getCurrentShiftId(new Date(), shiftInfo) : currentDate;
 
       // Debounce on server side too
@@ -2369,8 +2529,10 @@ io.on('connection', (socket) => {
               };
               const startMinutes = parseToMinutes(both[1].trim().toUpperCase());
               const endMinutes = parseToMinutes(both[2].trim().toUpperCase());
-              const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
-              const curMinutes = nowPH.getHours() * 60 + nowPH.getMinutes();
+              // Get current Manila time correctly
+              const now = new Date();
+              const manilaTime = new Date(now.getTime() + (8 * 60 * 60 * 1000));
+              const curMinutes = manilaTime.getUTCHours() * 60 + manilaTime.getUTCMinutes();
               if (endMinutes > startMinutes) {
                 withinShift = curMinutes >= startMinutes && curMinutes < endMinutes; // day shift
               } else {
@@ -2422,8 +2584,10 @@ io.on('connection', (socket) => {
             }
           } catch (_) {}
 
-          const philippinesNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
-          const currentMinutesLocal = philippinesNow.getHours() * 60 + philippinesNow.getMinutes();
+          // Get current Manila time correctly
+          const now = new Date();
+          const philippinesNow = new Date(now.getTime() + (8 * 60 * 60 * 1000));
+          const currentMinutesLocal = philippinesNow.getUTCHours() * 60 + philippinesNow.getUTCMinutes();
 
           if (hasShiftStart && hasShiftEnd && shiftStartMinutes !== null && shiftEndMinutes !== null) {
             if (shiftEndMinutes > shiftStartMinutes) {
@@ -2765,7 +2929,10 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.SOCKET_PORT || 3001;
 server.listen(PORT, () => {
-  console.log(`Socket.IO server running on port ${PORT}`);
+  console.log(`🚀 Socket.IO server running on port ${PORT}`);
+  console.log(`⏰ Break reminder scheduler: ${breakReminderScheduler.getStatus().isRunning ? '✅ Running' : '❌ Stopped'} (${breakReminderScheduler.getStatus().interval}s interval)`);
+  console.log(`📋 Task notification scheduler: ${taskNotificationScheduler.getStatus().isRunning ? '✅ Running' : '❌ Stopped'} (${taskNotificationScheduler.getStatus().interval}s interval)`);
+  console.log(`📡 Both schedulers are now active and monitoring for notifications`);
 }); 
 
 // Add this function to reset in-memory data when shift ends
@@ -2867,6 +3034,22 @@ async function resetInMemoryDataAfterShiftEnd(email, userId) {
           });
           
           console.log(`📡 Notified frontend about shift end reset for ${email}`);
+        }
+        
+        // NEW: Immediately create next-day activity row when shift ends
+        try {
+          console.log(`🗓️ Shift ended for ${email} - creating next-day activity row...`);
+          const precreateResult = await globalNotificationClient.query(`
+            SELECT precreate_next_day_activity_rows() AS created
+          `);
+          const created = precreateResult.rows[0]?.created || 0;
+          if (created > 0) {
+            console.log(`✅ Created ${created} next-day activity rows for ${email}`);
+          } else {
+            console.log(`ℹ️ No new rows created for ${email} (may already exist)`);
+          }
+        } catch (precreateError) {
+          console.error(`❌ Error creating next-day row for ${email}:`, precreateError.message);
         }
       }
     }
@@ -3028,7 +3211,7 @@ const periodicDatabaseSyncInterval = setInterval(async () => {
                 };
                 const startMinutes = parseToMinutes(both[1].trim().toUpperCase());
                 const endMinutes = parseToMinutes(both[2].trim().toUpperCase());
-                const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+                const nowPH = new Date(new Date().getTime() + (8 * 60 * 60 * 1000));
                 const curMinutes = nowPH.getHours() * 60 + nowPH.getMinutes();
                 if (endMinutes > startMinutes) {
                   withinShift = curMinutes >= startMinutes && curMinutes < endMinutes; // day shift
@@ -3046,7 +3229,7 @@ const periodicDatabaseSyncInterval = setInterval(async () => {
             console.error(`Database function failed for ${email}, falling back to manual calculation:`, dbError.message);
             
             // Fallback to manual calculation
-            const philippinesNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+            const philippinesNow = new Date(new Date().getTime() + (8 * 60 * 60 * 1000));
             const manilaYMD = (d) => {
               const y = d.getFullYear();
               const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -3060,20 +3243,43 @@ const periodicDatabaseSyncInterval = setInterval(async () => {
           if (withinShift) {
             console.log(`💾 Periodic sync: Updating database for ${email} (date: ${currentDate}) - Active: ${userInfo.activeSeconds}s, Inactive: ${userInfo.inactiveSeconds}s`);
             
-            await pool.query(
-              `INSERT INTO activity_data (user_id, is_currently_active, today_active_seconds, today_inactive_seconds, last_session_start, today_date, updated_at) 
-               VALUES ($1, $2, $3, $4, $5, $6, NOW())
-               ON CONFLICT (user_id, today_date) 
-               DO UPDATE SET 
-                 is_currently_active = $2,
-                 today_active_seconds = GREATEST(activity_data.today_active_seconds, $3),
-                 today_inactive_seconds = GREATEST(activity_data.today_inactive_seconds, $4),
-                 last_session_start = COALESCE($5, activity_data.last_session_start),
-                 updated_at = NOW()`,
-              [userId, userInfo.isActive, userInfo.activeSeconds, userInfo.inactiveSeconds, userInfo.sessionStart, currentDate]
-            );
+            // Check if a shift reset just occurred (activeSeconds is 0 and we're at shift start time)
+            const isShiftReset = userInfo.activeSeconds === 0 && userInfo.inactiveSeconds === 0 && userInfo.lastResetAt;
+            const timeSinceReset = isShiftReset ? Date.now() - userInfo.lastResetAt : 0;
+            const isRecentReset = timeSinceReset < 60000; // Within 1 minute of reset
             
-            console.log(`✅ Periodic sync completed for ${email}`);
+            if (isRecentReset) {
+              // Use reset values directly (don't use GREATEST)
+              console.log(`🔄 Shift reset detected in periodic sync for ${email}, using reset values: Active=0, Inactive=0`);
+              await pool.query(
+                `INSERT INTO activity_data (user_id, is_currently_active, today_active_seconds, today_inactive_seconds, last_session_start, today_date, updated_at) 
+                 VALUES ($1, $2, $3, $4, $5, $6, NOW())
+                 ON CONFLICT (user_id, today_date) 
+                 DO UPDATE SET 
+                   is_currently_active = $2,
+                   today_active_seconds = $3,
+                   today_inactive_seconds = $4,
+                   last_session_start = COALESCE($5, activity_data.last_session_start),
+                   updated_at = NOW()`,
+                [userId, userInfo.isActive, userInfo.activeSeconds, userInfo.inactiveSeconds, userInfo.sessionStart, currentDate]
+              );
+              console.log(`✅ Shift reset sync completed for ${email}`);
+            } else {
+              // Normal sync - use GREATEST to preserve higher values
+              await pool.query(
+                `INSERT INTO activity_data (user_id, is_currently_active, today_active_seconds, today_inactive_seconds, last_session_start, today_date, updated_at) 
+                 VALUES ($1, $2, $3, $4, $5, $6, NOW())
+                 ON CONFLICT (user_id, today_date) 
+                 DO UPDATE SET 
+                   is_currently_active = $2,
+                   today_active_seconds = GREATEST(activity_data.today_active_seconds, $3),
+                   today_inactive_seconds = GREATEST(activity_data.today_inactive_seconds, $4),
+                   last_session_start = COALESCE($5, activity_data.last_session_start),
+                   updated_at = NOW()`,
+                [userId, userInfo.isActive, userInfo.activeSeconds, userInfo.inactiveSeconds, userInfo.sessionStart, currentDate]
+              );
+              console.log(`✅ Periodic sync completed for ${email}`);
+            }
           } else {
             console.log(`⏸️ Periodic sync: Skipping ${email} - outside shift window (date: ${currentDate})`);
           }
@@ -3091,17 +3297,47 @@ const periodicDatabaseSyncInterval = setInterval(async () => {
 
 // Cleanup interval on server shutdown
 process.on('SIGINT', () => {
-  console.log('Shutting down monitoring intervals...');
+  console.log('🛑 Shutting down socket server...');
+  
+  // Stop schedulers gracefully
+  if (breakReminderScheduler) {
+    console.log('⏰ Stopping break reminder scheduler...');
+    breakReminderScheduler.stop();
+  }
+  
+  if (taskNotificationScheduler) {
+    console.log('📋 Stopping task notification scheduler...');
+    taskNotificationScheduler.stop();
+  }
+  
+  // Clear monitoring intervals
   clearInterval(shiftResetInterval);
   clearInterval(connectedUsersRefreshInterval);
   clearInterval(periodicDatabaseSyncInterval);
+  
+  console.log('✅ Graceful shutdown completed');
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
-  console.log('Shutting down monitoring intervals...');
+  console.log('🛑 Shutting down socket server...');
+  
+  // Stop schedulers gracefully
+  if (breakReminderScheduler) {
+    console.log('⏰ Stopping break reminder scheduler...');
+    breakReminderScheduler.stop();
+  }
+  
+  if (taskNotificationScheduler) {
+    console.log('📋 Stopping task notification scheduler...');
+    taskNotificationScheduler.stop();
+  }
+  
+  // Clear monitoring intervals
   clearInterval(shiftResetInterval);
   clearInterval(connectedUsersRefreshInterval);
   clearInterval(periodicDatabaseSyncInterval);
+  
+  console.log('✅ Graceful shutdown completed');
   process.exit(0);
 });

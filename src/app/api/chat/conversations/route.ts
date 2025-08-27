@@ -24,6 +24,9 @@ export async function POST(request: NextRequest) {
       case 'get_conversations':
         return await getUserConversations(userId);
       
+      case 'get_all_conversations':
+        return await getAllUserConversations(userId);
+      
       case 'get_messages':
         return await getConversationMessages(userId, conversationId);
       
@@ -75,15 +78,26 @@ async function createConversation(userId: number, otherUserId: number) {
  */
 async function findConversation(userId: number, otherUserId: number) {
   try {
+    // Find conversations where both users participated
+    // The current user must be active, but the other user can be inactive (soft-deleted)
+    // This allows users to see conversations even if the other person deleted them
     const result = await pool.query(
-      `SELECT tc.id, tc.conversation_type, tc.metadata
+      `SELECT tc.id, tc.conversation_type, tc.metadata,
+              cp1.is_active as current_user_active,
+              cp1.left_at as current_user_left_at,
+              cp2.is_active as other_user_active,
+              cp2.left_at as other_user_left_at
        FROM team_conversations tc
        JOIN conversation_participants cp1 ON tc.id = cp1.conversation_id
        JOIN conversation_participants cp2 ON tc.id = cp2.conversation_id
        WHERE tc.conversation_type = 'direct'
          AND cp1.user_id = $1
          AND cp2.user_id = $2
-         AND cp1.user_id != cp2.user_id`,
+         AND cp1.user_id != cp2.user_id
+         AND cp1.is_active = TRUE -- Current user must still be active
+         AND cp1.left_at IS NULL -- Current user hasn't left
+       ORDER BY tc.created_at DESC -- Get the most recent conversation
+       LIMIT 1`,
       [userId, otherUserId]
     );
     
@@ -94,10 +108,15 @@ async function findConversation(userId: number, otherUserId: number) {
       });
     }
     
+    const conversation = result.rows[0];
+    
     return NextResponse.json({
       success: true,
-      conversationId: result.rows[0].id,
-      conversation: result.rows[0]
+      conversationId: conversation.id,
+      conversation: {
+        ...conversation,
+        otherUserDeleted: !conversation.other_user_active || conversation.other_user_left_at !== null
+      }
     });
   } catch (error) {
     console.error('Error finding conversation:', error);
@@ -120,13 +139,15 @@ async function sendMessage(userId: number, conversationId: number, content: stri
        JOIN conversation_participants cp ON tc.id = cp.conversation_id
        WHERE tc.id = $1 
          AND tc.conversation_type = 'direct'
-         AND cp.user_id = $2`,
+         AND cp.user_id = $2
+         AND cp.is_active = TRUE -- Only allow messages if user is still active
+         AND cp.left_at IS NULL -- Don't allow messages if user has left`,
       [conversationId, userId]
     );
     
     if (conversationCheck.rows.length === 0) {
       return NextResponse.json(
-        { error: 'Conversation not found or user not authorized' },
+        { error: 'Conversation not found, user not authorized, or conversation deleted' },
         { status: 404 }
       );
     }
@@ -135,13 +156,13 @@ async function sendMessage(userId: number, conversationId: number, content: stri
     
     // Verify user is participant in conversation
     const participantCheck = await pool.query(
-      'SELECT 1 FROM conversation_participants WHERE conversation_id = $1 AND user_id = $2',
+      'SELECT 1 FROM conversation_participants WHERE conversation_id = $1 AND user_id = $2 AND is_active = TRUE AND left_at IS NULL',
       [conversationId, userId]
     );
     
     if (participantCheck.rows.length === 0) {
       return NextResponse.json(
-        { error: 'User not authorized for this conversation' },
+        { error: 'User not authorized for this conversation or conversation deleted' },
         { status: 403 }
       );
     }
@@ -235,17 +256,18 @@ async function deleteConversation(userId: number, conversationId: number) {
       [conversationId, userId]
     );
 
-    // Also mark all messages as deleted for this user
+    // Mark ALL messages as deleted for this user (both sent and received)
     await pool.query(
       `INSERT INTO message_delivery_status (message_id, user_id, deleted_at)
        SELECT tm.id, $1, NOW()
        FROM team_messages tm
        WHERE tm.conversation_id = $2
-         AND tm.sender_id != $1
          AND NOT EXISTS (
            SELECT 1 FROM message_delivery_status mds 
            WHERE mds.message_id = tm.id AND mds.user_id = $1
-         )`,
+         )
+       ON CONFLICT (message_id, user_id) 
+       DO UPDATE SET deleted_at = NOW()`,
       [userId, conversationId]
     );
 
@@ -263,7 +285,7 @@ async function deleteConversation(userId: number, conversationId: number) {
 }
 
 /**
- * Get user's conversations list
+ * Get user's active conversations list (excludes soft-deleted conversations)
  */
 async function getUserConversations(userId: number) {
   try {
@@ -286,10 +308,94 @@ async function getUserConversations(userId: number) {
 }
 
 /**
+ * Get ALL user's conversations including soft-deleted ones
+ * This shows the full conversation history even if other users deleted conversations
+ */
+async function getAllUserConversations(userId: number) {
+  try {
+    const result = await pool.query(
+      `SELECT 
+         tc.id,
+         tc.conversation_type,
+         tc.created_at,
+         tc.updated_at,
+         tc.last_message_at,
+         tc.metadata,
+         -- Get the other participant's info
+         other_user.id as other_user_id,
+         other_user.email as other_user_email,
+         COALESCE(other_pi.first_name || ' ' || other_pi.last_name, other_user.email) as other_user_name,
+         -- Check if current user deleted this conversation
+         cp.is_active as current_user_active,
+         cp.left_at as current_user_left_at,
+         -- Check if other user deleted this conversation
+         other_cp.is_active as other_user_active,
+         other_cp.left_at as other_user_left_at
+       FROM team_conversations tc
+       JOIN conversation_participants cp ON tc.id = cp.conversation_id
+       JOIN conversation_participants other_cp ON tc.id = other_cp.conversation_id
+       JOIN users other_user ON other_cp.user_id = other_user.id
+       LEFT JOIN personal_info other_pi ON other_user.id = other_pi.user_id
+       WHERE tc.conversation_type = 'direct'
+         AND cp.user_id = $1
+         AND other_cp.user_id != $1
+         AND cp.is_active = TRUE -- Current user must still be active
+         AND cp.left_at IS NULL -- Current user hasn't left
+       ORDER BY tc.last_message_at DESC NULLS LAST, tc.created_at DESC`,
+      [userId]
+    );
+    
+    // Add metadata about conversation status
+    const conversations = result.rows.map(conv => ({
+      ...conv,
+      isDeletedByCurrentUser: false, // Current user is always active in this query
+      isDeletedByOtherUser: !conv.other_user_active || conv.other_user_left_at !== null,
+      status: !conv.other_user_active || conv.other_user_left_at !== null ? 'deleted_by_other' : 'active'
+    }));
+    
+    return NextResponse.json({
+      success: true,
+      conversations: conversations
+    });
+  } catch (error) {
+    console.error('Error getting all conversations:', error);
+    return NextResponse.json(
+      { error: 'Failed to get conversations' },
+      { status: 500 }
+    );
+  }
+}
+
+/**
  * Get messages for a specific conversation
  */
 async function getConversationMessages(userId: number, conversationId: number) {
   try {
+    // First verify user is still active in this conversation
+    const participantCheck = await pool.query(
+      'SELECT 1 FROM conversation_participants WHERE conversation_id = $1 AND user_id = $2 AND is_active = TRUE AND left_at IS NULL',
+      [conversationId, userId]
+    );
+    
+    if (participantCheck.rows.length === 0) {
+      return NextResponse.json({
+        success: false,
+        error: 'Conversation not found or user not authorized'
+      }, { status: 403 });
+    }
+    
+    // Check if the other participant has soft-deleted this conversation
+    const otherParticipantCheck = await pool.query(
+      `SELECT cp.is_active, cp.left_at
+       FROM conversation_participants cp
+       WHERE cp.conversation_id = $1 AND cp.user_id != $2`,
+      [conversationId, userId]
+    );
+    
+    const otherUserDeleted = otherParticipantCheck.rows.length > 0 && 
+                            (!otherParticipantCheck.rows[0].is_active || 
+                             otherParticipantCheck.rows[0].left_at !== null);
+    
     // Get messages, excluding those deleted by the current user
     const messages = await pool.query(
       `SELECT
@@ -316,7 +422,10 @@ async function getConversationMessages(userId: number, conversationId: number) {
 
     return NextResponse.json({
       success: true,
-      messages: messages.rows
+      messages: messages.rows,
+      conversationInfo: {
+        otherUserDeleted: otherUserDeleted
+      }
     });
   } catch (error) {
     console.error('Error getting messages:', error);

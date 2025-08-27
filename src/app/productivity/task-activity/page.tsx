@@ -42,7 +42,7 @@ export default function TaskActivityPage() {
   const [zoomLevel, setZoomLevel] = useState(100)
   const [minZoom] = useState(50)
   const [maxZoom] = useState(200)
-  const [zoomStep] = useState(25)
+  const [zoomStep] = useState(10)
 
   // Zoom control functions
   const handleZoomIn = () => {

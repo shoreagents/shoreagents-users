@@ -17,6 +17,42 @@ export interface Notification {
 
 // In-memory store for current session notifications
 let inMemoryNotifications: Notification[] = []
+
+// Debounce mechanism to prevent rapid updates
+let updateTimeout: NodeJS.Timeout | null = null
+let pendingUpdates: Notification[] = []
+
+// Memory management: Clean up old notifications to prevent memory leaks
+const MAX_NOTIFICATIONS_IN_MEMORY = 100
+const CLEANUP_INTERVAL = 5 * 60 * 1000 // 5 minutes
+
+// Start periodic cleanup
+if (typeof window !== 'undefined') {
+  setInterval(() => {
+    if (inMemoryNotifications.length > MAX_NOTIFICATIONS_IN_MEMORY) {
+      // Keep only the most recent notifications
+      const sorted = [...inMemoryNotifications].sort((a, b) => b.time - a.time)
+      inMemoryNotifications = sorted.slice(0, MAX_NOTIFICATIONS_IN_MEMORY)
+      console.log(`🧹 Cleaned up notifications, kept ${inMemoryNotifications.length} most recent`)
+    }
+  }, CLEANUP_INTERVAL)
+}
+
+// Debounced update function to prevent flashing
+function debouncedUpdate(notifications: Notification[], delay: number = 100) {
+  pendingUpdates = notifications
+  
+  if (updateTimeout) {
+    clearTimeout(updateTimeout)
+  }
+  
+  updateTimeout = setTimeout(() => {
+    if (pendingUpdates.length > 0) {
+      saveNotifications(pendingUpdates)
+      pendingUpdates = []
+    }
+  }, delay)
+}
 // Parse DB timestamp and correct for break notification timezone bug only
 export function parseDbTimestampToMs(createdAt: any, notificationType?: string): number {
   try {
@@ -96,9 +132,15 @@ export function getNotifications(): Notification[] {
   return migrated
 }
 
+// Get notifications immediately (bypasses debounce)
+export function getNotificationsImmediate(): Notification[] {
+  return getNotifications()
+}
+
 // Save notifications for current user
 export function saveNotifications(notifications: Notification[]): void {
-  inMemoryNotifications = notifications.slice(0)
+  // Use debounced update to prevent rapid changes that cause flashing
+  debouncedUpdate(notifications, 100)
 }
 
 // Smart notification addition with deduplication
@@ -258,9 +300,60 @@ export function markNotificationAsRead(id: string): void {
 }
 
 // Mark all notifications as read
-export function markAllNotificationsAsRead(): void {
-  const updated = getNotifications().map(n => ({ ...n, read: true }))
-  saveNotifications(updated)
+export async function markAllNotificationsAsRead(): Promise<void> {
+  try {
+    // Get current user email from auth context or localStorage
+    const email = (typeof localStorage !== 'undefined' ? 
+      JSON.parse(localStorage.getItem('shoreagents-auth') || '{}')?.user?.email : null) || null
+    
+    if (email) {
+      // First, fetch all unread notifications from the database to get the complete list
+      const response = await fetch(`/api/notifications?email=${encodeURIComponent(email)}&limit=1000`, {
+        credentials: 'include'
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        if (data?.success && Array.isArray(data.notifications)) {
+          // Get all unread notification IDs from the database
+          const unreadNotifications = data.notifications.filter((n: any) => !n.is_read)
+          const notificationIds = unreadNotifications.map((n: any) => n.id)
+          
+          if (notificationIds.length > 0) {
+            console.log(`🔍 Found ${notificationIds.length} unread notifications to mark as read`)
+            
+            // Use the existing mark-read API to mark all notifications as read
+            const markReadResponse = await fetch('/api/notifications/mark-read', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({ 
+                ids: notificationIds, 
+                email 
+              })
+            })
+            
+            if (markReadResponse.ok) {
+              const result = await markReadResponse.json()
+              console.log('✅ Marked all notifications as read:', result)
+              
+              // IMPORTANT: After marking as read, refresh the in-memory store from database
+              // This ensures the UI shows the correct state
+              await syncNotificationsWithDatabase(email)
+            } else {
+              console.error('❌ Failed to mark all notifications as read:', markReadResponse.status)
+            }
+          } else {
+            console.log('ℹ️ No unread notifications found to mark as read')
+          }
+        }
+      } else {
+        console.error('❌ Failed to fetch notifications:', response.status)
+      }
+    }
+  } catch (error) {
+    console.error('❌ Error marking all notifications as read:', error)
+  }
   
   // Trigger a custom event to notify other components
   if (typeof window !== 'undefined') {
@@ -342,6 +435,17 @@ export function deleteNotification(id: string): void {
 // Clear all notifications
 export function clearAllNotifications(): void {
   saveNotifications([])
+}
+
+// Reset notification state (useful for debugging or when state gets out of sync)
+export function resetNotificationState(): void {
+  inMemoryNotifications = []
+  if (updateTimeout) {
+    clearTimeout(updateTimeout)
+    updateTimeout = null
+  }
+  pendingUpdates = []
+  console.log('🔄 Notification state reset')
 }
 
 // Remove duplicate notifications
