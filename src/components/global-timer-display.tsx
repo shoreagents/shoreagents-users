@@ -126,6 +126,57 @@ export function GlobalTimerDisplay() {
 
   const shiftEnded = isShiftEnded()
   
+  // Check if shift hasn't started yet
+  const isShiftNotStarted = () => {
+    try {
+      const currentUser = getCurrentUser()
+      if (!currentUser) return false
+
+      // Get current Philippines time
+      const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
+      
+      // Check if we have shift info from timer context
+      if (shiftInfo?.startTime) {
+        // Convert shift start time to Philippines timezone for accurate comparison
+        const shiftStartDate = new Date(shiftInfo.startTime)
+        const shiftStartDatePH = new Date(shiftStartDate.toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
+        return nowPH < shiftStartDatePH
+      }
+
+      // Fallback: try to parse from shift time string if available
+      if (shiftInfo?.time) {
+        const parsed = parseShiftTime(shiftInfo.time, nowPH)
+        if (parsed?.startTime) {
+          return nowPH < parsed.startTime
+        }
+      }
+
+      // Additional check: if we're before typical shift start time, consider shift not started
+      const currentHour = nowPH.getHours()
+      
+      // For night shift users (10 PM - 7 AM), shift starts at 10 PM (hour 22)
+      // Check if we're before 10 PM
+      if (currentHour < 22) {
+        // But only if it's not early morning (before 7 AM when night shift is still active)
+        if (currentHour >= 7) {
+          return true
+        }
+      }
+      
+      // For day shift users (6 AM - 7 PM), shift starts at 6 AM (hour 6)
+      // Check if we're before 6 AM
+      if (currentHour < 6) {
+        return true
+      }
+
+      return false
+    } catch (error) {
+      return false
+    }
+  }
+
+  const shiftNotStarted = isShiftNotStarted()
+  
   // Debug logging for shift end state
   useEffect(() => {
     // Shift end check - no logging needed
@@ -218,7 +269,15 @@ export function GlobalTimerDisplay() {
 
           {timerData ? (
             <div className="space-y-2">
-              {/* Shift End Banner */}
+              {/* Shift State Banners */}
+              {shiftNotStarted && (
+                <div className="bg-blue-100 dark:bg-blue-900/20 border border-blue-300 dark:border-blue-700 rounded p-2 text-center">
+                  <div className="text-xs font-medium text-blue-700 dark:text-blue-300">
+                    ⏰ Shift Not Started Yet - Timer Paused
+                  </div>
+                </div>
+              )}
+              
               {shiftEnded && (
                 <div className="bg-gray-100 dark:bg-gray-900/20 border border-gray-300 dark:border-gray-700 rounded p-2 text-center">
                   <div className="text-xs font-medium text-gray-700 dark:text-gray-300">
@@ -232,6 +291,8 @@ export function GlobalTimerDisplay() {
                                    <span className={`px-2 py-1 rounded text-xs font-medium ${
                     shiftEnded
                       ? 'bg-gray-100 text-gray-800 dark:bg-gray-950/20 dark:text-gray-300'
+                      : shiftNotStarted
+                      ? 'bg-blue-100 text-blue-800 dark:bg-blue-950/20 dark:text-blue-300'
                       : isInMeeting
                       ? 'bg-purple-100 text-purple-800 dark:bg-purple-950/20 dark:text-purple-300'
                       : isBreakActive && breakStatus?.is_paused
@@ -244,6 +305,8 @@ export function GlobalTimerDisplay() {
                   }`}>
                     {shiftEnded
                       ? 'Shift Ended'
+                      : shiftNotStarted
+                      ? 'Shift Not Started'
                       : isInMeeting
                       ? 'In Meeting'
                       : isBreakActive && breakStatus?.is_paused
@@ -256,19 +319,19 @@ export function GlobalTimerDisplay() {
                </div>
               
               <div className="grid grid-cols-2 gap-3">
-                 <div className={`p-2 rounded ${shiftEnded ? 'bg-gray-100 dark:bg-gray-900/20' : isBreakActive || isInMeeting ? 'bg-muted' : 'bg-green-50 dark:bg-green-950/20'}`}>
-                   <div className={`text-xs font-medium ${shiftEnded ? 'text-gray-600 dark:text-gray-400' : isBreakActive || isInMeeting ? 'text-muted-foreground' : 'text-green-700 dark:text-green-400'}`}>
+                 <div className={`p-2 rounded ${shiftEnded || shiftNotStarted ? 'bg-gray-100 dark:bg-gray-900/20' : isBreakActive || isInMeeting ? 'bg-muted' : 'bg-green-50 dark:bg-green-950/20'}`}>
+                   <div className={`text-xs font-medium ${shiftEnded || shiftNotStarted ? 'text-gray-600 dark:text-gray-400' : isBreakActive || isInMeeting ? 'text-muted-foreground' : 'text-green-700 dark:text-green-400'}`}>
                      Active
                    </div>
-                   <div className={`text-lg font-bold ${shiftEnded ? 'text-gray-500 dark:text-gray-400' : isBreakActive || isInMeeting ? 'text-muted-foreground' : 'text-green-600 dark:text-green-400'}`}>
-                     {shiftEnded ? '0s' : formatTime(liveActiveSeconds)}
+                   <div className={`text-lg font-bold ${shiftEnded || shiftNotStarted ? 'text-gray-500 dark:text-gray-400' : isBreakActive || isInMeeting ? 'text-muted-foreground' : 'text-green-600 dark:text-green-400'}`}>
+                     {shiftEnded || shiftNotStarted ? '0s' : formatTime(liveActiveSeconds)}
                    </div>
-                                       {shiftEnded ? (
+                                       {(shiftEnded || shiftNotStarted) ? (
                       <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
                         <span className="w-1 h-1 bg-gray-400 rounded-full"></span>
-                        Shift Ended
+                        {shiftEnded ? 'Shift Ended' : 'Shift Not Started'}
                       </div>
-                    ) : timerData.isActive && !isBreakActive && !isInMeeting && !shiftEnded && (
+                    ) : timerData.isActive && !isBreakActive && !isInMeeting && !shiftEnded && !shiftNotStarted && (
                       <div className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
                         <span className="w-1 h-1 bg-green-500 rounded-full animate-pulse"></span>
                         Counting...
@@ -294,19 +357,19 @@ export function GlobalTimerDisplay() {
                     )}
                  </div>
                  
-                 <div className={`p-2 rounded ${shiftEnded ? 'bg-gray-100 dark:bg-gray-900/20' : isBreakActive || isInMeeting ? 'bg-muted' : 'bg-red-50 dark:bg-red-950/20'}`}>
-                   <div className={`text-xs font-medium ${shiftEnded ? 'text-gray-600 dark:text-gray-400' : isBreakActive || isInMeeting ? 'text-muted-foreground' : 'text-red-700 dark:text-red-400'}`}>
+                 <div className={`p-2 rounded ${shiftEnded || shiftNotStarted ? 'bg-gray-100 dark:bg-gray-900/20' : isBreakActive || isInMeeting ? 'bg-muted' : 'bg-red-50 dark:bg-red-950/20'}`}>
+                   <div className={`text-xs font-medium ${shiftEnded || shiftNotStarted ? 'text-gray-600 dark:text-gray-400' : isBreakActive || isInMeeting ? 'text-muted-foreground' : 'text-red-700 dark:text-red-400'}`}>
                      Inactive
                    </div>
-                   <div className={`text-lg font-bold ${shiftEnded ? 'text-gray-500 dark:text-gray-400' : isBreakActive || isInMeeting ? 'text-muted-foreground' : 'text-red-600 dark:text-red-400'}`}>
-                     {shiftEnded ? '0s' : formatTime(liveInactiveSeconds)}
+                   <div className={`text-lg font-bold ${shiftEnded || shiftNotStarted ? 'text-gray-500 dark:text-gray-400' : isBreakActive || isInMeeting ? 'text-muted-foreground' : 'text-red-600 dark:text-red-400'}`}>
+                     {shiftEnded || shiftNotStarted ? '0s' : formatTime(liveInactiveSeconds)}
                    </div>
-                                       {shiftEnded ? (
+                                       {(shiftEnded || shiftNotStarted) ? (
                       <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
                         <span className="w-1 h-1 bg-gray-400 rounded-full"></span>
-                        Shift Ended
+                        {shiftEnded ? 'Shift Ended' : 'Shift Not Started'}
                       </div>
-                    ) : !timerData.isActive && !isBreakActive && !isInMeeting && !shiftEnded && (
+                    ) : !timerData.isActive && !isBreakActive && !isInMeeting && !shiftEnded && !shiftNotStarted && (
                       <div className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
                         <span className="w-1 h-1 bg-red-500 rounded-full animate-pulse"></span>
                         Counting...

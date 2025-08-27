@@ -1,139 +1,173 @@
--- Debug the is_break_reminder_due function step by step
-DO $$
+-- Debug version of precreate_next_day_activity_rows function
+-- This version will log every step to help us understand what's happening
+
+CREATE OR REPLACE FUNCTION public.precreate_next_day_activity_rows_debug(
+    p_check_time TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
+)
+RETURNS INTEGER
+LANGUAGE plpgsql
+AS $$
 DECLARE
-    p_agent_user_id INTEGER := 2;
-    p_break_type break_type_enum := 'Lunch';
-    p_check_time TIMESTAMP WITHOUT TIME ZONE := '2025-08-22 10:30:00';
-    
-    shift_time TEXT;
-    break_windows RECORD;
-    current_time_only TIME;
-    break_start_time TIME;
-    break_end_time TIME;
-    minutes_since_start INTEGER;
-    break_already_taken BOOLEAN;
-    last_notification_time TIMESTAMP;
-    minutes_since_last_notification INTEGER;
-    remainder INTEGER;
-    at_interval BOOLEAN;
+    rec RECORD;
+    created_count INTEGER := 0;
+    manila_date DATE;
+    next_date DATE;
+    start_time_tok TEXT;
+    end_time_tok TEXT;
+    start_minutes INTEGER;
+    end_minutes INTEGER;
+    now_minutes INTEGER;
+    shift_text TEXT;
+    is_day_shift BOOLEAN;
+    shift_has_both BOOLEAN;
+    debug_info TEXT;
 BEGIN
-    RAISE NOTICE '=== DEBUGGING is_break_reminder_due ===';
-    RAISE NOTICE 'User ID: %, Break Type: %, Check Time: %', p_agent_user_id, p_break_type, p_check_time;
+    -- Convert to Manila time and get dates
+    manila_date := (p_check_time AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila')::date;
+    next_date := manila_date + INTERVAL '1 day';
     
-    -- 1. Check agent shift information
-    RAISE NOTICE '1. Checking agent shift information...';
-    SELECT ji.shift_time INTO shift_time 
-    FROM job_info ji
-    WHERE ji.agent_user_id = p_agent_user_id 
-    LIMIT 1;
+    RAISE NOTICE 'DEBUG: manila_date = %, next_date = %', manila_date, next_date;
     
-    RAISE NOTICE '   Shift time: %', shift_time;
+    -- Get current time in Manila timezone, converted to minutes since midnight
+    now_minutes := EXTRACT(HOUR FROM (p_check_time AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila')) * 60 + 
+                   EXTRACT(MINUTE FROM (p_check_time AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila'));
     
-    IF shift_time IS NULL THEN
-        RAISE NOTICE '   ❌ No shift time found - function would return FALSE';
-        RETURN;
-    END IF;
+    RAISE NOTICE 'DEBUG: now_minutes = %', now_minutes;
     
-    -- 2. Check if break was already taken today
-    RAISE NOTICE '2. Checking if break was already taken today...';
-    SELECT EXISTS(
-        SELECT 1 FROM break_sessions
-        WHERE agent_user_id = p_agent_user_id
-        AND break_type = p_break_type
-        AND break_date = CURRENT_DATE
-        AND end_time IS NOT NULL
-    ) INTO break_already_taken;
-    
-    RAISE NOTICE '   Break already taken: %', break_already_taken;
-    
-    IF break_already_taken THEN
-        RAISE NOTICE '   ❌ Break already taken - function would return FALSE';
-        RETURN;
-    END IF;
-    
-    -- 3. Check break windows
-    RAISE NOTICE '3. Checking break windows...';
-    SELECT * INTO break_windows FROM calculate_break_windows(p_agent_user_id)
-    WHERE break_type = p_break_type LIMIT 1;
-    
-    IF NOT FOUND THEN
-        RAISE NOTICE '   ❌ No break windows found - function would return FALSE';
-        RETURN;
-    END IF;
-    
-    RAISE NOTICE '   Break window: % - % to %', break_windows.break_type, break_windows.start_time, break_windows.end_time;
-    
-    -- 4. Check if we're within the break window
-    RAISE NOTICE '4. Checking if current time is within break window...';
-    current_time_only := p_check_time::TIME;
-    break_start_time := break_windows.start_time;
-    break_end_time := break_windows.end_time;
-    
-    RAISE NOTICE '   Current time (time only): %', current_time_only;
-    RAISE NOTICE '   Break start time: %', break_start_time;
-    RAISE NOTICE '   Break end time: %', break_end_time;
-    
-    IF NOT (current_time_only >= break_start_time AND current_time_only <= break_end_time) THEN
-        RAISE NOTICE '   ❌ Not within break window - function would return FALSE';
-        RETURN;
-    END IF;
-    
-    RAISE NOTICE '   ✅ Within break window';
-    
-    -- 5. Calculate minutes since break started
-    RAISE NOTICE '5. Calculating minutes since break started...';
-    minutes_since_start := EXTRACT(EPOCH FROM (current_time_only - break_start_time)) / 60;
-    RAISE NOTICE '   Minutes since break started: %', minutes_since_start;
-    
-    IF minutes_since_start < 30 THEN
-        RAISE NOTICE '   ❌ Less than 30 minutes - function would return FALSE';
-        RETURN;
-    END IF;
-    
-    RAISE NOTICE '   ✅ At least 30 minutes have passed';
-    
-    -- 6. Check recent notifications
-    RAISE NOTICE '6. Checking recent notifications...';
-    SELECT MAX(created_at) INTO last_notification_time
-    FROM notifications
-    WHERE user_id = p_agent_user_id
-    AND category = 'break'
-    AND payload->>'reminder_type' = 'missed_break'
-    AND payload->>'break_type' = p_break_type::text
-    AND created_at < p_check_time
-    AND DATE(created_at AT TIME ZONE 'Asia/Manila') = CURRENT_DATE;
-    
-    RAISE NOTICE '   Last notification time: %', last_notification_time;
-    
-    IF last_notification_time IS NOT NULL THEN
-        minutes_since_last_notification := EXTRACT(EPOCH FROM (p_check_time - last_notification_time)) / 60;
-        RAISE NOTICE '   Minutes since last notification: %', minutes_since_last_notification;
+    -- Loop through all agents
+    FOR rec IN (
+        SELECT u.id AS user_id, ji.shift_time
+        FROM users u
+        JOIN agents a ON a.user_id = u.id
+        LEFT JOIN job_info ji ON ji.agent_user_id = u.id
+        WHERE u.user_type = 'Agent'
+    ) LOOP
+        RAISE NOTICE 'DEBUG: Processing user_id = %, shift_time = %', rec.user_id, rec.shift_time;
         
-        IF minutes_since_last_notification < 25 THEN
-            RAISE NOTICE '   ❌ Less than 25 minutes since last notification - function would return FALSE';
-            RETURN;
+        shift_text := COALESCE(rec.shift_time, '');
+        shift_has_both := false;
+        start_minutes := NULL; 
+        end_minutes := NULL;
+
+        -- Parse times like "6:00 AM - 1:36 PM"
+        IF shift_text ~* '(\d{1,2}:\d{2}\s*(AM|PM)).*-\s*(\d{1,2}:\d{2}\s*(AM|PM))' THEN
+            shift_has_both := true;
+            start_time_tok := regexp_replace(shift_text, '^.*?(\d{1,2}:\d{2}\s*(AM|PM)).*$', '\1', 1, 0, 'i');
+            end_time_tok := regexp_replace(shift_text, '^.*-\s*(\d{1,2}:\d{2}\s*(AM|PM)).*$', '\1', 1, 0, 'i');
+            RAISE NOTICE 'DEBUG: Parsed start_time_tok = %, end_time_tok = %', start_time_tok, end_time_tok;
+        ELSE
+            RAISE NOTICE 'DEBUG: Could not parse shift_text = %', shift_text;
+            CONTINUE;
+        END IF;
+
+        -- Convert start time to minutes
+        IF start_time_tok IS NOT NULL THEN
+            start_minutes := (
+                CASE UPPER(split_part(start_time_tok, ' ', 2))
+                    WHEN 'AM' THEN 
+                        (CASE WHEN split_part(start_time_tok, ':', 1)::INT % 12 = 0 THEN 0 
+                         ELSE split_part(start_time_tok, ':', 1)::INT END) * 60 + 
+                        split_part(split_part(start_time_tok, ' ', 1), ':', 2)::INT
+                    WHEN 'PM' THEN 
+                        (CASE WHEN split_part(start_time_tok, ':', 1)::INT = 12 THEN 12 
+                         ELSE split_part(start_time_tok, ':', 1)::INT + 12 END) * 60 + 
+                        split_part(split_part(start_time_tok, ' ', 1), ':', 2)::INT
+                END
+            );
+            RAISE NOTICE 'DEBUG: start_minutes = %', start_minutes;
         END IF;
         
-        RAISE NOTICE '   ✅ Enough time has passed since last notification';
-    ELSE
-        RAISE NOTICE '   ✅ No previous notifications found';
-    END IF;
-    
-    -- 7. Check 30-minute interval logic
-    RAISE NOTICE '7. Checking 30-minute interval logic...';
-    remainder := minutes_since_start % 30;
-    at_interval := remainder <= 5 OR remainder >= 25;
-    
-    RAISE NOTICE '   Minutes since start: %', minutes_since_start;
-    RAISE NOTICE '   Remainder when divided by 30: %', remainder;
-    RAISE NOTICE '   At 30-minute interval (with 5-min tolerance): %', at_interval;
-    
-    IF NOT at_interval THEN
-        RAISE NOTICE '   ❌ Not at 30-minute interval - function would return FALSE';
-        RETURN;
-    END IF;
-    
-    RAISE NOTICE '   ✅ At 30-minute interval';
-    
-    RAISE NOTICE '=== ALL CHECKS PASSED! Function should return TRUE ===';
-END $$;
+        -- Convert end time to minutes
+        IF end_time_tok IS NOT NULL THEN
+            end_minutes := (
+                CASE UPPER(split_part(end_time_tok, ' ', 2))
+                    WHEN 'AM' THEN 
+                        (CASE WHEN split_part(end_time_tok, ':', 1)::INT % 12 = 0 THEN 0 
+                         ELSE split_part(end_time_tok, ':', 1)::INT END) * 60 + 
+                        split_part(split_part(end_time_tok, ' ', 1), ':', 2)::INT
+                    WHEN 'PM' THEN 
+                        (CASE WHEN split_part(end_time_tok, ':', 1)::INT = 12 THEN 12 
+                         ELSE split_part(end_time_tok, ':', 1)::INT + 12 END) * 60 + 
+                        split_part(split_part(end_time_tok, ' ', 1), ':', 2)::INT
+                END
+            );
+            RAISE NOTICE 'DEBUG: end_minutes = %', end_minutes;
+        END IF;
+
+        -- Skip if we couldn't parse the times
+        IF start_minutes IS NULL OR end_minutes IS NULL THEN
+            RAISE NOTICE 'DEBUG: Skipping - could not parse times';
+            CONTINUE;
+        END IF;
+
+        -- Determine if this is a day shift (end > start) or night shift (end < start)
+        is_day_shift := end_minutes > start_minutes;
+        RAISE NOTICE 'DEBUG: is_day_shift = %', is_day_shift;
+
+        -- Check if shift has ended
+        IF is_day_shift THEN
+            -- Day shift: ended if current time >= end time
+            IF now_minutes < end_minutes THEN
+                RAISE NOTICE 'DEBUG: Day shift not yet ended - now_minutes (%) < end_minutes (%)', now_minutes, end_minutes;
+                CONTINUE; -- shift not yet ended
+            ELSE
+                RAISE NOTICE 'DEBUG: Day shift has ended - now_minutes (%) >= end_minutes (%)', now_minutes, end_minutes;
+            END IF;
+        ELSE
+            -- Night shift: end is next day; ended if current time >= end time (past midnight)
+            IF now_minutes < end_minutes THEN
+                RAISE NOTICE 'DEBUG: Night shift not yet ended - now_minutes (%) < end_minutes (%)', now_minutes, end_minutes;
+                CONTINUE; -- shift not yet ended
+            ELSE
+                RAISE NOTICE 'DEBUG: Night shift has ended - now_minutes (%) >= end_minutes (%)', now_minutes, end_minutes;
+            END IF;
+        END IF;
+
+        -- Check if row already exists for next day
+        IF EXISTS (
+            SELECT 1 FROM activity_data 
+            WHERE user_id = rec.user_id AND today_date = next_date
+        ) THEN
+            RAISE NOTICE 'DEBUG: Row already exists for user % on date % - skipping', rec.user_id, next_date;
+            CONTINUE; -- row already exists, skip
+        ELSE
+            RAISE NOTICE 'DEBUG: No existing row found for user % on date % - will create', rec.user_id, next_date;
+        END IF;
+
+        -- Create new row for next day
+        BEGIN
+            RAISE NOTICE 'DEBUG: Attempting to INSERT for user % on date %', rec.user_id, next_date;
+            
+            INSERT INTO activity_data (
+                user_id, 
+                is_currently_active, 
+                last_session_start, 
+                today_date, 
+                today_active_seconds, 
+                today_inactive_seconds, 
+                updated_at
+            ) VALUES (
+                rec.user_id, 
+                FALSE, 
+                NULL, 
+                next_date::text, 
+                0, 
+                0, 
+                p_check_time
+            );
+            
+            -- If we get here, the insert was successful
+            created_count := created_count + 1;
+            RAISE NOTICE 'DEBUG: SUCCESS! Inserted row for user % on date %. Total created: %', rec.user_id, next_date, created_count;
+            
+        EXCEPTION WHEN OTHERS THEN
+            -- Log error and continue with next user
+            RAISE WARNING 'DEBUG: Error creating row for user %: %', rec.user_id, SQLERRM;
+            CONTINUE;
+        END;
+    END LOOP;
+
+    RAISE NOTICE 'DEBUG: Function completed. Total rows created: %', created_count;
+    RETURN created_count;
+END;
+$$;

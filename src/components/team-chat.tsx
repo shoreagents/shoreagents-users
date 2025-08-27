@@ -49,8 +49,24 @@ export default function TeamChat({ selectedUser, onBack, currentUserId }: TeamCh
   // Initialize conversation when component mounts
   useEffect(() => {
     if (selectedUser && currentUserId && socket) {
+      // Reset conversation state when user changes
+      setConversationId(null);
+      setMessages([]);
+      setIsLoading(false);
+      setIsTyping(false);
+      setOtherUserTyping(false);
+      
       initializeConversation();
     }
+    
+    // Cleanup function to reset state when component unmounts
+    return () => {
+      setConversationId(null);
+      setMessages([]);
+      setIsLoading(false);
+      setIsTyping(false);
+      setOtherUserTyping(false);
+    };
   }, [selectedUser, currentUserId, socket]);
 
   // Socket event listeners for real-time chat
@@ -58,6 +74,13 @@ export default function TeamChat({ selectedUser, onBack, currentUserId }: TeamCh
     if (!socket) return;
 
     const handleNewMessage = (messageData: any) => {
+      console.log('🔌 Socket message received (before filtering):', {
+        messageData,
+        currentConversationId: conversationId,
+        messageConversationId: messageData.conversationId,
+        matches: messageData.conversationId === conversationId
+      });
+      
       if (messageData.conversationId === conversationId) {
         // Fix: Always use selectedUser.name for consistency since that's what the API returns
         // This ensures both typing indicator and sent messages show the same avatar
@@ -65,7 +88,7 @@ export default function TeamChat({ selectedUser, onBack, currentUserId }: TeamCh
           ? 'You' // For own messages, doesn't matter since they don't show avatar
           : selectedUser.name; // For other user, use the consistent name from API
         
-        console.log('🔌 Socket message received:', {
+        console.log('🔌 Socket message processed:', {
           messageData,
           senderId: messageData.senderId,
           currentUserId,
@@ -145,9 +168,15 @@ export default function TeamChat({ selectedUser, onBack, currentUserId }: TeamCh
         // Use existing conversation
         conversationId = findData.conversationId;
         console.log('✅ Found existing conversation:', conversationId);
+        console.log('🔍 Conversation details:', findData.conversation);
       } else {
-        // Create new conversation
-        console.log('🆕 Creating new conversation...');
+        // No existing conversation found - this could be:
+        // 1. First time chatting with this user
+        // 2. Previous conversation was deleted
+        // In both cases, we should create a new conversation
+        
+        console.log('🆕 No existing conversation found - creating new one...');
+        console.log('🔍 Reason:', findData.message);
         const createResponse = await fetch('/api/chat/conversations', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -159,14 +188,15 @@ export default function TeamChat({ selectedUser, onBack, currentUserId }: TeamCh
         });
 
         const createData = await createResponse.json();
-        console.log('🔍 Create conversation response:', createData);
+        console.log('🆕 Create conversation response:', createData);
         
         if (createData.success) {
           conversationId = createData.conversationId;
           console.log('✅ Created new conversation:', conversationId);
         } else {
-          console.error('❌ Failed to create conversation:', createData);
-          throw new Error(createData.error || 'Failed to create conversation');
+          console.error('❌ Failed to create conversation:', createData.error);
+          alert('Failed to create conversation. Please try again.');
+          return;
         }
       }
       
@@ -174,6 +204,12 @@ export default function TeamChat({ selectedUser, onBack, currentUserId }: TeamCh
       
       // Join chat room via socket
       if (socket) {
+        console.log('🔌 Joining chat room:', {
+          userId: currentUserId,
+          conversationId,
+          socketConnected: socket.connected
+        });
+        
         socket.emit('join-chat', {
           userId: currentUserId,
           conversationId
@@ -195,7 +231,7 @@ export default function TeamChat({ selectedUser, onBack, currentUserId }: TeamCh
     try {
       const response = await fetch('/api/chat/conversations', {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'Cache-Control': 'no-cache',
           'Pragma': 'no-cache'
@@ -250,14 +286,33 @@ export default function TeamChat({ selectedUser, onBack, currentUserId }: TeamCh
         setMessages(chatMessages);
       } else {
         console.error('❌ API returned error:', data.error);
+        
+        // Handle conversation not found (deleted) error
+        if (data.error === 'Conversation not found or user not authorized') {
+          console.log('🔄 Conversation was deleted, redirecting to user selection...');
+          alert('This conversation has been deleted. You will be redirected to the user selection screen.');
+          onBack(); // Go back to user selection
+          return;
+        }
+        
+        // For other errors, show a user-friendly message
+        alert(`Error loading messages: ${data.error}`);
       }
     } catch (error) {
       console.error('Error loading messages:', error);
+      alert('Failed to load messages. Please try again.');
     }
   };
 
   const sendMessage = async () => {
     if (!newMessage.trim() || !conversationId || !socket) return;
+
+    console.log('📤 Sending message:', {
+      message: newMessage.trim(),
+      conversationId,
+      currentUserId,
+      socketConnected: socket.connected
+    });
 
     try {
       // Send via socket for real-time delivery
@@ -268,8 +323,10 @@ export default function TeamChat({ selectedUser, onBack, currentUserId }: TeamCh
         messageType: 'text'
       });
 
+      console.log('✅ Socket message sent');
+
       // Also send via API for persistence
-      await fetch('/api/chat/conversations', {
+      const apiResponse = await fetch('/api/chat/conversations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -279,6 +336,9 @@ export default function TeamChat({ selectedUser, onBack, currentUserId }: TeamCh
           messageContent: newMessage.trim()
         })
       });
+
+      const apiData = await apiResponse.json();
+      console.log('📨 API response:', apiData);
 
       setNewMessage('');
       

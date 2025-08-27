@@ -162,12 +162,8 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
 
     // Listen for productivity score updates from the server
     const handleProductivityUpdate = (data: any) => {
-      console.log('🔄 Real-time productivity update received:', data);
-      
       // Check if this update is for the current user
       if (data.userId === currentUser.id || data.email === currentUser.email) {
-        console.log('✅ Updating productivity display with real-time data');
-        
         // Update the current month score with new data
         if (data.productivityScore !== undefined) {
           setCurrentMonthScore((prev: any) => ({
@@ -182,8 +178,6 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
           
           // Update the last update timestamp
           setLastUpdate(new Date().toLocaleTimeString());
-          
-          console.log('✅ Frontend productivity display updated in real-time');
         }
       }
     };
@@ -220,7 +214,6 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
       // This ensures data stays fresh even if WebSocket updates fail
       const interval = setInterval(() => {
         if (!isBreakActive && !isInMeeting) {
-          console.log('🔄 Periodic productivity data refresh (fallback)');
           fetchAllProductivityData();
         }
       }, 120000); // 2 minutes

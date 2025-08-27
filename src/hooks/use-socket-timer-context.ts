@@ -36,8 +36,6 @@ export const useSocketTimerContext = (email: string | null): UseSocketTimerConte
   
   const lastActivityStateRef = useRef<boolean | null>(null)
   const timerUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null)
-  const lastServerShiftIdRef = useRef<string | null>(null)
-  const lastServerResetAtRef = useRef<number | null>(null)
 
   // Update connection status based on socket state
   useEffect(() => {

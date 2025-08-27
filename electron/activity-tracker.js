@@ -86,7 +86,7 @@ class ActivityTracker {
     // Start system idle checking
     this.systemIdleCheckInterval = setInterval(() => {
       this.checkSystemIdle();
-    }, 5000); // Check every 5 seconds
+    }, 1000); // Check every 5 seconds
     
     // Start mouse tracking
     this.startMouseTracking();
@@ -332,7 +332,7 @@ class ActivityTracker {
     // Start system idle checking
     this.systemIdleCheckInterval = setInterval(() => {
       this.checkSystemIdle();
-    }, 5000); // Check every 5 seconds
+    }, 1000); // Check every 5 seconds
     
     // Start mouse tracking if system is not suspended
     if (!this.isSystemSuspended) {

@@ -81,7 +81,7 @@ DECLARE
   conversation_id INTEGER;
   existing_conversation_id INTEGER;
 BEGIN
-  -- Check if conversation already exists
+  -- Check if conversation already exists (only active ones)
   SELECT tc.id INTO existing_conversation_id
   FROM team_conversations tc
   JOIN conversation_participants cp1 ON tc.id = cp1.conversation_id
@@ -89,7 +89,11 @@ BEGIN
   WHERE tc.conversation_type = 'direct'
     AND cp1.user_id = user1_id
     AND cp2.user_id = user2_id
-    AND cp1.user_id != cp2.user_id;
+    AND cp1.user_id != cp2.user_id
+    AND cp1.is_active = TRUE -- Only consider active conversations
+    AND cp1.left_at IS NULL -- Don't consider conversations where user has left
+    AND cp2.is_active = TRUE -- Only consider active conversations
+    AND cp2.left_at IS NULL; -- Don't consider conversations where user has left
   
   -- If conversation exists, return it
   IF existing_conversation_id IS NOT NULL THEN
@@ -155,10 +159,13 @@ BEGIN
     WHERE tm2.created_at > COALESCE(mds.read_at, '1970-01-01'::timestamp)
       AND tm2.sender_id != user_id_param
       AND tm2.is_deleted = FALSE
+      AND (mds.deleted_at IS NULL OR mds.deleted_at < tm2.created_at)
     GROUP BY tm2.conversation_id
   ) unread ON tc.id = unread.conversation_id
   WHERE cp.user_id = user_id_param
     AND other_cp.user_id != user_id_param
+    AND cp.is_active = TRUE -- Only show conversations where current user is still active
+    AND cp.left_at IS NULL -- Don't show conversations where user has left
   ORDER BY tc.last_message_at DESC NULLS LAST;
 END;
 $$ LANGUAGE plpgsql;
