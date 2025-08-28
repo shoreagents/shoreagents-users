@@ -134,13 +134,19 @@ async function initializeGlobalNotificationListener() {
           }
         } else if (msg.channel === 'weekly_activity_change') {
           const payload = JSON.parse(msg.payload);
+          console.log(`📡 Weekly activity change notification received:`, payload);
           
           // Find all sockets for this user and emit to all of them
           if (payload.user_id) {
             let targetEmail = null;
+            console.log(`🔍 Looking for user ${payload.user_id} in ${connectedUsers.size} connected users`);
+            console.log(`🔍 Connected users:`, Array.from(connectedUsers.entries()).map(([id, data]) => `${id}: ${data.email} (userId: ${data.userId})`));
+            
+            // Find the user by database ID in the connected users
             for (const [socketId, userData] of connectedUsers.entries()) {
               if (userData.userId === payload.user_id) {
                 targetEmail = userData.email;
+                console.log(`✅ Found user ${payload.user_id} with email ${targetEmail}`);
                 break;
               }
             }
@@ -148,10 +154,16 @@ async function initializeGlobalNotificationListener() {
             if (targetEmail) {
               const userSockets = userConnections.get(targetEmail);
               if (userSockets && userSockets.size > 0) {
+                console.log(`📤 Broadcasting weekly activity update to ${userSockets.size} connections for user ${payload.user_id} (${targetEmail})`);
                 userSockets.forEach(socketId => {
                   io.to(socketId).emit('weekly-activity-update', payload);
+                  console.log(`📤 Emitted weekly-activity-update to socket ${socketId}`);
                 });
+              } else {
+                console.log(`⚠️ No active connections found for user ${payload.user_id} (${targetEmail})`);
               }
+            } else {
+              console.log(`⚠️ User ${payload.user_id} not found in connected users`);
             }
           }
         } else if (msg.channel === 'activity_data_change') {
@@ -184,13 +196,19 @@ async function initializeGlobalNotificationListener() {
           }
         } else if (msg.channel === 'monthly_activity_change') {
           const payload = JSON.parse(msg.payload);
+          console.log(`📡 Monthly activity change notification received:`, payload);
           
           // Find all sockets for this user and emit to all of them
           if (payload.user_id) {
             let targetEmail = null;
+            console.log(`🔍 Looking for user ${payload.user_id} in ${connectedUsers.size} connected users`);
+            console.log(`🔍 Connected users:`, Array.from(connectedUsers.entries()).map(([id, data]) => `${id}: ${data.email} (userId: ${data.userId})`));
+            
+            // Find the user by database ID in the connected users
             for (const [socketId, userData] of connectedUsers.entries()) {
               if (userData.userId === payload.user_id) {
                 targetEmail = userData.email;
+                console.log(`✅ Found user ${payload.user_id} with email ${targetEmail}`);
                 break;
               }
             }
@@ -198,10 +216,16 @@ async function initializeGlobalNotificationListener() {
             if (targetEmail) {
               const userSockets = userConnections.get(targetEmail);
               if (userSockets && userSockets.size > 0) {
+                console.log(`📤 Broadcasting monthly activity update to ${userSockets.size} connections for user ${payload.user_id} (${targetEmail})`);
                 userSockets.forEach(socketId => {
                   io.to(socketId).emit('monthly-activity-update', payload);
+                  console.log(`📤 Emitted monthly-activity-update to socket ${socketId}`);
                 });
+              } else {
+                console.log(`⚠️ No active connections found for user ${payload.user_id} (${targetEmail})`);
               }
+            } else {
+              console.log(`⚠️ User ${payload.user_id} not found in connected users`);
             }
           }
         }
@@ -2933,411 +2957,4 @@ server.listen(PORT, () => {
   console.log(`⏰ Break reminder scheduler: ${breakReminderScheduler.getStatus().isRunning ? '✅ Running' : '❌ Stopped'} (${breakReminderScheduler.getStatus().interval}s interval)`);
   console.log(`📋 Task notification scheduler: ${taskNotificationScheduler.getStatus().isRunning ? '✅ Running' : '❌ Stopped'} (${taskNotificationScheduler.getStatus().interval}s interval)`);
   console.log(`📡 Both schedulers are now active and monitoring for notifications`);
-}); 
-
-// Add this function to reset in-memory data when shift ends
-async function resetInMemoryDataAfterShiftEnd(email, userId) {
-  try {
-    const userInfo = userData.get(email);
-    if (!userInfo) return;
-    
-    const shiftInfo = userShiftInfo.get(email);
-    if (!shiftInfo) return;
-    
-    const currentTime = new Date();
-    
-    // Check if current shift has ended
-    if (shiftInfo.isNightShift) {
-      // For night shifts: check if we're between 7 AM and 10 PM (shift ended)
-      const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
-      const currentMinutes = nowPH.getHours() * 60 + nowPH.getMinutes();
-      const startMinutes = shiftInfo.startTime.getHours() * 60 + shiftInfo.startTime.getMinutes();
-      const endMinutes = shiftInfo.endTime.getHours() * 60 + shiftInfo.endTime.getMinutes();
-      
-      // Shift has ended if we're between end time (7 AM) and start time (10 PM)
-      const shiftEnded = currentMinutes >= endMinutes && currentMinutes < startMinutes;
-      
-      if (shiftEnded) {
-        console.log(`🌙 Night shift ended for ${email} - resetting in-memory timer to 0s`);
-        userInfo.activeSeconds = 0;
-        userInfo.inactiveSeconds = 0;
-        userInfo.isActive = false;
-        userInfo.sessionStart = new Date().toISOString();
-        // FIXED: Update lastShiftBoundaryTime when shift ends to prevent premature resets
-        userInfo.lastShiftBoundaryTime = currentTime.toISOString();
-        
-        // DON'T update the database when shift ends - preserve the completed day's data
-        // Only reset in-memory data for the new session
-        console.log(`💾 Preserving completed day's data for ${email} - shift ended, data saved`);
-        
-        // Notify frontend about the reset
-        const userSockets = userConnections.get(email);
-        if (userSockets) {
-          const resetData = {
-            userId: userInfo.userId,
-            email: email,
-            isActive: false,
-            activeSeconds: 0,
-            inactiveSeconds: 0,
-            sessionStart: userInfo.sessionStart,
-            resetReason: 'shift_ended',
-            shiftId: getCurrentShiftId(currentTime, shiftInfo)
-          };
-          
-          userSockets.forEach(socketId => {
-            io.to(socketId).emit('shiftReset', resetData);
-            io.to(socketId).emit('timerUpdated', resetData);
-          });
-          
-          console.log(`📡 Notified frontend about shift end reset for ${email}`);
-        }
-      }
-    } else {
-      // For day shifts: check if we're past 3 PM (shift ended)
-      const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
-      const currentMinutes = nowPH.getHours() * 60 + nowPH.getMinutes();
-      const endMinutes = shiftInfo.endTime.getHours() * 60 + shiftInfo.endTime.getMinutes();
-      
-      // Shift has ended if we're past 3 PM
-      const shiftEnded = currentMinutes >= endMinutes;
-      
-      if (shiftEnded) {
-        console.log(`☀️ Day shift ended for ${email} - resetting in-memory timer to 0s`);
-        userInfo.activeSeconds = 0;
-        userInfo.inactiveSeconds = 0;
-        userInfo.isActive = false;
-        userInfo.sessionStart = new Date().toISOString();
-        // FIXED: Update lastShiftBoundaryTime when shift ends to prevent premature resets
-        userInfo.lastShiftBoundaryTime = currentTime.toISOString();
-        
-        // DON'T update the database when shift ends - preserve the completed day's data
-        // Only reset in-memory data for the new session
-        console.log(`💾 Preserving completed day's data for ${email} - shift ended, data saved`);
-        
-        // Notify frontend about the reset
-        const userSockets = userConnections.get(email);
-        if (userSockets) {
-          const resetData = {
-            userId: userInfo.userId,
-            email: email,
-            isActive: false,
-            activeSeconds: 0,
-            inactiveSeconds: 0,
-            sessionStart: userInfo.sessionStart,
-            resetReason: 'shift_ended',
-            shiftId: getCurrentShiftId(currentTime, shiftInfo)
-          };
-          
-          userSockets.forEach(socketId => {
-            io.to(socketId).emit('shiftReset', resetData);
-            io.to(socketId).emit('timerUpdated', resetData);
-          });
-          
-          console.log(`📡 Notified frontend about shift end reset for ${email}`);
-        }
-        
-        // NEW: Immediately create next-day activity row when shift ends
-        try {
-          console.log(`🗓️ Shift ended for ${email} - creating next-day activity row...`);
-          const precreateResult = await globalNotificationClient.query(`
-            SELECT precreate_next_day_activity_rows() AS created
-          `);
-          const created = precreateResult.rows[0]?.created || 0;
-          if (created > 0) {
-            console.log(`✅ Created ${created} next-day activity rows for ${email}`);
-          } else {
-            console.log(`ℹ️ No new rows created for ${email} (may already exist)`);
-          }
-        } catch (precreateError) {
-          console.error(`❌ Error creating next-day row for ${email}:`, precreateError.message);
-        }
-      }
-    }
-  } catch (error) {
-    console.error(`Error resetting in-memory data for ${email}:`, error);
-  }
-}
-
-// Start real-time shift reset monitoring
-const shiftResetInterval = setInterval(async () => {
-  try {
-    console.log(`🔄 Shift reset monitoring cycle - checking ${userData.size} users`);
-    
-    // Check all connected users for shift resets
-    for (const [email, userInfo] of userData.entries()) {
-      if (userInfo.userId) {
-                  try {
-            const resetResult = await checkShiftReset(email, userInfo.userId);
-            if (resetResult) {
-              console.log(`✅ Shift reset completed for ${email}`);
-            }
-            
-            // NEW: Check if current shift has ended and reset in-memory data
-            await resetInMemoryDataAfterShiftEnd(email, userInfo.userId);
-            
-            // Also check break availability windows
-          const shiftInfo = userShiftInfo.get(email);
-          if (shiftInfo) {
-            // Check if we're within critical timing windows for more frequent checks
-            const currentTime = new Date();
-            const timeUntilReset = getTimeUntilNextReset(currentTime, shiftInfo);
-            
-            // Only do additional checks if we're within 5 minutes of reset
-            if (timeUntilReset <= 300000 && timeUntilReset > 0) {
-              // If within 30 seconds, log critical timing
-              if (timeUntilReset <= 30000) {
-                console.log(`⏰ Critical timing: ${email} reset in ${Math.floor(timeUntilReset/1000)}s`);
-              }
-              
-              // If within 10 seconds, log ultra-critical timing
-              if (timeUntilReset <= 10000) {
-                console.log(`🚨 Ultra-critical timing: ${email} reset in ${Math.floor(timeUntilReset/1000)}s`);
-              }
-              
-              // If within 5 seconds, log final countdown
-              if (timeUntilReset <= 5000) {
-                console.log(`💥 Final countdown: ${email} reset in ${Math.floor(timeUntilReset/1000)}s`);
-              }
-            }
-          }
-        } catch (userError) {
-          console.error(`❌ Error checking shift reset for ${email}:`, userError.message);
-          // Continue with other users instead of failing the entire cycle
-        }
-      }
-    }
-  } catch (error) {
-    console.error('❌ Error in shift reset monitoring:', error);
-  }
-}, 30000); // Check every 30 seconds to reduce log spam
-
-// Start periodic connected users refresh to keep status up to date
-const connectedUsersRefreshInterval = setInterval(async () => {
-  try {
-    // Only refresh if we have online users
-    if (userStatus.size > 0) {
-      console.log(`🔄 Periodic connected users refresh - checking ${userStatus.size} users`);
-      
-      // Find any online user to get team info
-      let referenceUser = null;
-      for (const [email, status] of userStatus.entries()) {
-        if (status.status === 'online') {
-          const userDataEntry = userData.get(email);
-          if (userDataEntry && userDataEntry.userId) {
-            referenceUser = userDataEntry;
-            break;
-          }
-        }
-      }
-      
-      if (referenceUser) {
-        // Get member_id and refresh team status
-        try {
-          const memberQuery = `
-            SELECT a.member_id
-            FROM agents a
-            WHERE a.user_id = $1
-            LIMIT 1
-          `;
-          const memberResult = await pool.query(memberQuery, [referenceUser.userId]);
-          
-          if (memberResult.rows.length > 0) {
-            const memberId = memberResult.rows[0].member_id;
-            await initializeTeamUserStatus(memberId);
-            console.log(`✅ Periodic team status refresh completed for team ${memberId}`);
-          }
-        } catch (error) {
-          console.error('❌ Error in periodic team status refresh:', error);
-        }
-      }
-    }
-  } catch (error) {
-    console.error('❌ Error in periodic connected users refresh:', error);
-  }
-}, 60000); // Check every 60 seconds
-
-// NEW: Start periodic database sync to ensure timer data is saved regularly
-const periodicDatabaseSyncInterval = setInterval(async () => {
-  try {
-    console.log(`💾 Periodic database sync - checking ${userData.size} users`);
-    
-    // Sync all connected users' timer data to database
-    for (const [email, userDataEntry] of userData.entries()) {
-      if (userDataEntry.userId && userDataEntry.userInfo) {
-        try {
-          const userInfo = userDataEntry.userInfo;
-          
-          // Skip if no timer data to sync
-          if (userInfo.activeSeconds === 0 && userInfo.inactiveSeconds === 0) {
-            continue;
-          }
-          
-          // Get or create user in database
-          let userId = userInfo.userId;
-          
-          // Use database function for consistent date calculation with API
-          let currentDate;
-          let withinShift = true;
-          
-          try {
-            // Get activity date using the same function as the API
-            const dateResult = await pool.query(
-              'SELECT TO_CHAR(get_activity_date_for_shift_simple($1), \'YYYY-MM-DD\') as activity_date',
-              [userId]
-            );
-            
-            if (dateResult.rows.length > 0) {
-              currentDate = dateResult.rows[0].activity_date;
-            } else {
-              throw new Error('No date result from function');
-            }
-            
-            // Determine withinShift using parsed shift window
-            try {
-              const shiftRes = await pool.query(
-                `SELECT ji.shift_time FROM job_info ji WHERE ji.agent_user_id = $1 LIMIT 1`,
-                [userId]
-              );
-              const shiftText = (shiftRes.rows[0]?.shift_time || '').toString();
-              const both = shiftText.match(/(\d{1,2}:\d{2}\s*(?:AM|PM))\s*-\s*(\d{1,2}:\d{2}\s*(?:AM|PM))/i);
-              if (both) {
-                const parseToMinutes = (token) => {
-                  const [hhmm, ampm] = token.split(/\s+/);
-                  const [hhStr, mmStr] = hhmm.split(':');
-                  let hh = parseInt(hhStr, 10);
-                  const mm = parseInt(mmStr, 10);
-                  if (ampm === 'AM') { if (hh === 12) hh = 0; } else if (ampm === 'PM') { if (hh !== 12) hh += 12; }
-                  return (hh * 60) + mm;
-                };
-                const startMinutes = parseToMinutes(both[1].trim().toUpperCase());
-                const endMinutes = parseToMinutes(both[2].trim().toUpperCase());
-                const nowPH = new Date(new Date().getTime() + (8 * 60 * 60 * 1000));
-                const curMinutes = nowPH.getHours() * 60 + nowPH.getMinutes();
-                if (endMinutes > startMinutes) {
-                  withinShift = curMinutes >= startMinutes && curMinutes < endMinutes; // day shift
-                } else {
-                  withinShift = (curMinutes >= startMinutes) || (curMinutes < endMinutes); // night shift crossing midnight
-                }
-              } else {
-                withinShift = true; // default allow if shift text not parsable
-              }
-            } catch (_) {
-              withinShift = true; // be permissive on errors so counting still saves
-            }
-            
-          } catch (dbError) {
-            console.error(`Database function failed for ${email}, falling back to manual calculation:`, dbError.message);
-            
-            // Fallback to manual calculation
-            const philippinesNow = new Date(new Date().getTime() + (8 * 60 * 60 * 1000));
-            const manilaYMD = (d) => {
-              const y = d.getFullYear();
-              const m = String(d.getMonth() + 1).padStart(2, '0');
-              const day = String(d.getDate()).padStart(2, '0');
-              return `${y}-${m}-${day}`;
-            };
-            currentDate = manilaYMD(philippinesNow);
-          }
-          
-          // Update activity data in database
-          if (withinShift) {
-            console.log(`💾 Periodic sync: Updating database for ${email} (date: ${currentDate}) - Active: ${userInfo.activeSeconds}s, Inactive: ${userInfo.inactiveSeconds}s`);
-            
-            // Check if a shift reset just occurred (activeSeconds is 0 and we're at shift start time)
-            const isShiftReset = userInfo.activeSeconds === 0 && userInfo.inactiveSeconds === 0 && userInfo.lastResetAt;
-            const timeSinceReset = isShiftReset ? Date.now() - userInfo.lastResetAt : 0;
-            const isRecentReset = timeSinceReset < 60000; // Within 1 minute of reset
-            
-            if (isRecentReset) {
-              // Use reset values directly (don't use GREATEST)
-              console.log(`🔄 Shift reset detected in periodic sync for ${email}, using reset values: Active=0, Inactive=0`);
-              await pool.query(
-                `INSERT INTO activity_data (user_id, is_currently_active, today_active_seconds, today_inactive_seconds, last_session_start, today_date, updated_at) 
-                 VALUES ($1, $2, $3, $4, $5, $6, NOW())
-                 ON CONFLICT (user_id, today_date) 
-                 DO UPDATE SET 
-                   is_currently_active = $2,
-                   today_active_seconds = $3,
-                   today_inactive_seconds = $4,
-                   last_session_start = COALESCE($5, activity_data.last_session_start),
-                   updated_at = NOW()`,
-                [userId, userInfo.isActive, userInfo.activeSeconds, userInfo.inactiveSeconds, userInfo.sessionStart, currentDate]
-              );
-              console.log(`✅ Shift reset sync completed for ${email}`);
-            } else {
-              // Normal sync - use GREATEST to preserve higher values
-              await pool.query(
-                `INSERT INTO activity_data (user_id, is_currently_active, today_active_seconds, today_inactive_seconds, last_session_start, today_date, updated_at) 
-                 VALUES ($1, $2, $3, $4, $5, $6, NOW())
-                 ON CONFLICT (user_id, today_date) 
-                 DO UPDATE SET 
-                   is_currently_active = $2,
-                   today_active_seconds = GREATEST(activity_data.today_active_seconds, $3),
-                   today_inactive_seconds = GREATEST(activity_data.today_inactive_seconds, $4),
-                   last_session_start = COALESCE($5, activity_data.last_session_start),
-                   updated_at = NOW()`,
-                [userId, userInfo.isActive, userInfo.activeSeconds, userInfo.inactiveSeconds, userInfo.sessionStart, currentDate]
-              );
-              console.log(`✅ Periodic sync completed for ${email}`);
-            }
-          } else {
-            console.log(`⏸️ Periodic sync: Skipping ${email} - outside shift window (date: ${currentDate})`);
-          }
-          
-        } catch (userError) {
-          console.error(`❌ Error in periodic sync for ${email}:`, userError.message);
-          // Continue with other users instead of failing the entire cycle
-        }
-      }
-    }
-  } catch (error) {
-    console.error('❌ Error in periodic database sync:', error);
-  }
-}, 15000); // Sync every 15 seconds to ensure data is saved regularly
-
-// Cleanup interval on server shutdown
-process.on('SIGINT', () => {
-  console.log('🛑 Shutting down socket server...');
-  
-  // Stop schedulers gracefully
-  if (breakReminderScheduler) {
-    console.log('⏰ Stopping break reminder scheduler...');
-    breakReminderScheduler.stop();
-  }
-  
-  if (taskNotificationScheduler) {
-    console.log('📋 Stopping task notification scheduler...');
-    taskNotificationScheduler.stop();
-  }
-  
-  // Clear monitoring intervals
-  clearInterval(shiftResetInterval);
-  clearInterval(connectedUsersRefreshInterval);
-  clearInterval(periodicDatabaseSyncInterval);
-  
-  console.log('✅ Graceful shutdown completed');
-  process.exit(0);
-});
-
-process.on('SIGTERM', () => {
-  console.log('🛑 Shutting down socket server...');
-  
-  // Stop schedulers gracefully
-  if (breakReminderScheduler) {
-    console.log('⏰ Stopping break reminder scheduler...');
-    breakReminderScheduler.stop();
-  }
-  
-  if (taskNotificationScheduler) {
-    console.log('📋 Stopping task notification scheduler...');
-    taskNotificationScheduler.stop();
-  }
-  
-  // Clear monitoring intervals
-  clearInterval(shiftResetInterval);
-  clearInterval(connectedUsersRefreshInterval);
-  clearInterval(periodicDatabaseSyncInterval);
-  
-  console.log('✅ Graceful shutdown completed');
-  process.exit(0);
 });

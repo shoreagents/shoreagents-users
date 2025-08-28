@@ -275,15 +275,10 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
   // Real-time activity data listener
   useEffect(() => {
     if (!currentUser?.id || !isAuthenticated) return
-
-    console.log('🔌 Setting up real-time activity data listener for user:', currentUser.id)
-    
     // Note: Initial data will be fetched when the component mounts
     
     // Listen for real-time activity data updates from the socket
     const handleActivityDataUpdate = (update: any) => {
-      console.log('📡 Real-time activity data update received:', update)
-      
       if (update.user_id === currentUser.id) {
         setRealtimeActivityData(update.data)
         setLastRealtimeUpdate(new Date())
@@ -302,12 +297,6 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
           if (update.data.today_inactive_seconds !== undefined) {
             setLiveInactiveSeconds(update.data.today_inactive_seconds)
           }
-          
-          console.log('✅ Activity data updated in real-time:', {
-            active: update.data.today_active_seconds,
-            inactive: update.data.today_inactive_seconds,
-            isActive: update.data.is_currently_active
-          })
         }
       }
     }
@@ -322,12 +311,10 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         setIsRealtimeConnected(true)
       })
       socket.on('disconnect', () => {
-        console.log('🔌 Socket disconnected, stopping activity data updates')
         setIsRealtimeConnected(false)
       })
 
       return () => {
-        console.log('🔌 Cleaning up activity data real-time listener')
         socket.off('activity-data-updated', handleActivityDataUpdate)
         socket.off('connect')
         socket.off('disconnect')
@@ -654,22 +641,12 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
   // Handle shift reset events from Socket.IO
   useEffect(() => {
     if (!isAuthenticated || !hasLoggedIn || !socket) {
-      console.log('🔌 Socket event handler setup skipped:', { 
-        isAuthenticated, 
-        hasLoggedIn, 
-        hasSocket: !!socket 
-      })
       return
     }
 
-    console.log('🔌 Setting up socket event handlers for shift reset and timer updates')
-
     const handleShiftReset = (resetData: any) => {
-      console.log('🔄 SHIFT RESET EVENT RECEIVED:', resetData)
-      
       // Prevent multiple reset sources from fighting over timer values
       if (isResetting) {
-        console.log('🔄 Shift reset already in progress, skipping duplicate reset')
         return
       }
       
@@ -690,15 +667,8 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         setActivityState(resetData.isActive)
       }
       
-      console.log('🔄 Live timer values after shift reset:', { 
-        activeSeconds: resetData.activeSeconds || 0, 
-        inactiveSeconds: resetData.inactiveSeconds || 0,
-        isActive: resetData.isActive
-      })
-      
       // Force activity tracking to resume if user should be active
       if (resetData.isActive) {
-        console.log('🔄 Shift reset: Resuming activity tracking for active user')
         // Trigger a small activity to wake up the tracking
         setTimeout(() => {
           setActivityState(true)
@@ -708,7 +678,6 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       // Allow timer updates again after a short delay
       resetTimeoutRef.current = setTimeout(() => {
         setIsResetting(false)
-        console.log('🔄 Reset lock released, timer updates allowed again')
       }, 2000) // 2 second lock to prevent conflicts
     }
 

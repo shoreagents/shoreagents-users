@@ -22,6 +22,12 @@ export function useMeetingStatusContext() {
         return
       }
 
+      // Only check meeting status if we're not already sure the user is not in a meeting
+      // This prevents unnecessary API calls when we know the user is not in a meeting
+      if (!isInMeeting && !isLoading) {
+        return
+      }
+
       const meetingStatus = await getMeetingStatus()
       setIsInMeeting(meetingStatus.isInMeeting || false)
       setCurrentMeeting(meetingStatus.activeMeeting || null)
@@ -93,11 +99,16 @@ export function useMeetingStatusContext() {
     }
   }, [socket, isConnected])
 
-  // Check meeting status periodically
+  // Check meeting status periodically - ONLY when user is in a meeting
   useEffect(() => {
+    // Only poll if user is currently in a meeting
+    if (!isInMeeting) {
+      return
+    }
+    
     const interval = setInterval(checkMeetingStatus, 30000) // Check every 30 seconds
     return () => clearInterval(interval)
-  }, [])
+  }, [isInMeeting])
 
   return {
     isInMeeting,

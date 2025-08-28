@@ -176,7 +176,7 @@ export function getBreaksForShift(shiftInfo: ShiftInfo): BreakInfo[] {
     {
       id: "Morning",
       name: "Morning Break",
-      duration: 15,
+      duration: 1,
       startTime: breakTimes.morning.start,
       endTime: breakTimes.morning.end,
       icon: Coffee,

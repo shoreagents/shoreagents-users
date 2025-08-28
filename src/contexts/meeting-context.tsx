@@ -72,9 +72,6 @@ export function MeetingProvider({ children }: MeetingProviderProps) {
 
       // Use the integer ID for database operations
       const agentUserId = typeof currentUser.id === 'number' ? currentUser.id : parseInt(currentUser.id)
-
-      console.log('📊 Fetching meeting data...')
-
       // Fetch meeting status and meetings in parallel
       const [statusResponse, meetingsResponse] = await Promise.all([
         fetch(`/api/meetings/status/?agent_user_id=${agentUserId}&days=7`),
