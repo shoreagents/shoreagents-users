@@ -4,20 +4,15 @@ import { useState, useEffect, useMemo, useCallback } from "react"
 import { Trophy, TrendingUp, User, Crown, Info } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { getAllUsersLeaderboard, getCurrentUserRank, type LeaderboardEntry } from "@/lib/leaderboard-utils"
-import { useSocket } from "@/contexts/socket-context"
 
 export function Leaderboard() {
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([])
-  const [currentUserRank, setCurrentUserRank] = useState<number>(0)
+  const [currentUserRank, setCurrentUserRank] = useState<number | null>(null)
+  const [currentMonth, setCurrentMonth] = useState<string>('')
   const [loading, setLoading] = useState(true)
-  const [currentMonth, setCurrentMonth] = useState<string>("")
-
-  const { socket, isConnected } = useSocket()
-
-
+  const [isInitialized, setIsInitialized] = useState(false) // Add flag to prevent immediate refresh
 
   // Function to truncate name with ellipsis
   const truncateName = useCallback((name: string, maxLength: number = 12) => {
@@ -49,6 +44,9 @@ export function Leaderboard() {
       const currentMonthYear = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
       setCurrentMonth(currentMonthYear)
       
+      // Mark as initialized after first successful load
+      setIsInitialized(true)
+      
       // Leaderboard data loaded
     } catch (error) {
       console.error('Error loading leaderboard:', error)
@@ -59,7 +57,13 @@ export function Leaderboard() {
 
   // Memoize the productivity update handler
   const handleProductivityUpdate = useCallback((event: CustomEvent) => {
+    // Only process productivity updates after initial load to prevent duplicate API calls
+    if (!isInitialized) {
+      return
+    }
+    
     const { email, userId, productivityScore, totalActiveTime, totalInactiveTime } = event.detail;
+    
     
     // Real-time productivity update received
     
@@ -86,15 +90,10 @@ export function Leaderboard() {
         rank: index + 1
       }));
     });
-  }, []);
+  }, [isInitialized])
 
   useEffect(() => {
     loadLeaderboard()
-    
-    // Refresh every 60 seconds instead of 30 (less aggressive)
-    const interval = setInterval(loadLeaderboard, 60000)
-    
-    return () => clearInterval(interval)
   }, [loadLeaderboard])
 
   // Listen for real-time productivity updates
@@ -200,7 +199,7 @@ export function Leaderboard() {
         </div>
         </TooltipProvider>
         
-        {currentUserRank > 0 && (
+        {currentUserRank !== null && (
           <div className="mt-3 pt-2 border-t">
             <div className="flex items-center gap-2 text-xs">
               <User className="h-3 w-3 text-muted-foreground flex-shrink-0" />

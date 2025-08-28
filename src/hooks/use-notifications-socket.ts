@@ -13,7 +13,6 @@ type DbNotificationPayload = {
   message: string
   payload?: any
   created_at: string
-  is_read?: boolean // Add is_read field from database
 }
 
 export function useNotificationsSocket(email: string | null) {
@@ -35,31 +34,6 @@ export function useNotificationsSocket(email: string | null) {
 
     const handleDbNotification = (n: DbNotificationPayload) => {
       const current = getNotifications()
-      const notificationId = `db_${n.id}`
-      
-      // Check if this notification already exists to prevent duplicates
-      const existingNotification = current.find(notif => notif.id === notificationId)
-      if (existingNotification) {
-        // If notification exists, only update if read status changed
-        if (existingNotification.read !== !!n.is_read) {
-          const updated = current.map(notif => 
-            notif.id === notificationId 
-              ? { ...notif, read: !!n.is_read }
-              : notif
-          )
-          saveNotifications(updated)
-          
-          // Trigger update event with correct unread count
-          if (typeof window !== 'undefined') {
-            const unreadCount = updated.filter(n => !n.read).length
-            window.dispatchEvent(new CustomEvent('notifications-updated', {
-              detail: { unreadCount }
-            }))
-          }
-        }
-        return // Skip adding duplicate
-      }
-      
       const payload = n.payload || {}
       const actionUrl = (() => {
         if (n.category === 'ticket' && (payload.ticket_id || payload.ticket_row_id)) {
@@ -82,12 +56,12 @@ export function useNotificationsSocket(email: string | null) {
         return 'Bell' as const
       })()
       const mapped = {
-        id: notificationId,
+        id: `db_${n.id}`,
         type: n.type,
         title: n.title,
         message: n.message,
         time: (require('@/lib/notification-service') as any).parseDbTimestampToMs(n.created_at, n.category),
-        read: !!n.is_read, // Use database read status instead of always false
+        read: false,
         icon,
         actionUrl,
         actionData: payload,
@@ -95,18 +69,9 @@ export function useNotificationsSocket(email: string | null) {
         priority: 'medium' as const,
         eventType: 'system' as const,
       }
-      
-      // Add new notification to the beginning and limit to 50
-      const updatedNotifications = [mapped, ...current].slice(0, 50)
-      saveNotifications(updatedNotifications)
-      
+      saveNotifications([mapped, ...current].slice(0, 50))
       if (typeof window !== 'undefined') {
-        // Trigger update event with correct unread count
-        const unreadCount = updatedNotifications.filter(n => !n.read).length
-        window.dispatchEvent(new CustomEvent('notifications-updated', {
-          detail: { unreadCount }
-        }))
-        
+        window.dispatchEvent(new CustomEvent('notifications-updated'))
         if (window.electronAPI?.systemNotifications) {
           try {
             window.electronAPI.systemNotifications.show({
@@ -120,13 +85,7 @@ export function useNotificationsSocket(email: string | null) {
               if (notifId === mapped.id) {
                 const updated = getNotifications().map(n => n.id === notifId ? { ...n, read: true } : n)
                 saveNotifications(updated)
-                
-                // Trigger update event with correct unread count
-                const unreadCount = updated.filter(n => !n.read).length
-                window.dispatchEvent(new CustomEvent('notifications-updated', {
-                  detail: { unreadCount }
-                }))
-                
+                window.dispatchEvent(new CustomEvent('notifications-updated'))
                 // Persist read state in DB
                 const email = (typeof localStorage !== 'undefined' ? JSON.parse(localStorage.getItem('shoreagents-auth') || '{}')?.user?.email : null) || null
                 if (email) {
@@ -155,5 +114,4 @@ export function useNotificationsSocket(email: string | null) {
     }
   }, [email])
 }
-
 

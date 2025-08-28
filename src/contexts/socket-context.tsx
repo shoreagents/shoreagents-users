@@ -42,23 +42,17 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const connect = () => {
-    console.log(`🔌 SocketProvider.connect() called (mount count: ${mountCountRef.current})`)
-    
-    // Only connect if this is the active provider
     if (!isActiveProvider) {
-      console.log('⚠️ Connection blocked - this provider is not active')
       return
     }
     
     if (isConnectingRef.current || (socketRef.current && socketRef.current.connected)) {
-      console.log('🔌 Socket connection already in progress or connected')
       return
     }
 
     // Get user email from auth
     const authData = localStorage.getItem("shoreagents-auth")
     if (!authData) {
-      console.log('🔌 No auth data found, cannot connect socket')
       return
     }
 
@@ -66,19 +60,16 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     try {
       authToken = JSON.parse(authData)
     } catch {
-      console.log('🔌 Invalid auth data, cannot connect socket')
       return
     }
 
     const email = authToken?.user?.email
     if (!email) {
-      console.log('🔌 No user email found, cannot connect socket')
       return
     }
 
     // Check if there's already a global socket instance
     if (typeof window !== 'undefined' && (window as any)._saSocket && (window as any)._saSocket.connected) {
-      console.log('🔌 Using existing global socket instance')
       socketRef.current = (window as any)._saSocket
       setSocket((window as any)._saSocket)
       setIsConnected(true)
@@ -112,7 +103,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     })
 
     newSocket.on('disconnect', () => {
-      console.log('🔌 Socket disconnected')
       setIsConnected(false)
       isConnectingRef.current = false
     })
@@ -161,17 +151,12 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     // Connect when component mounts and becomes active
     if (isActiveProvider && (!socketRef.current || !socketRef.current.connected)) {
       connect()
-    } else if (isActiveProvider) {
-      console.log('🔌 SocketProvider effect - socket already connected')
-    } else {
-      console.log('🔌 SocketProvider effect - not active provider')
-    }
+    } 
     
     // Cleanup when provider unmounts
     return () => {
       if (isActiveProvider && typeof window !== 'undefined') {
         (window as any)._saProviderMounted = false
-        console.log('🔌 SocketProvider unmounted - clearing global flag')
       }
     }
   }, [isActiveProvider])
@@ -179,7 +164,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     // Listen for logout events to disconnect socket
     const handleLogout = () => {
-      console.log('🚪 Logout detected - disconnecting socket')
       if (socketRef.current && socketRef.current.connected) {
         // Emit logout event to socket server
         socketRef.current.emit('logout')
@@ -187,12 +171,9 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         // Wait for server to process logout before disconnecting
         setTimeout(() => {
           if (socketRef.current && socketRef.current.connected) {
-            console.log('🔌 Disconnecting socket after logout processing')
             disconnect()
           }
         }, 300) // Wait 300ms for server to process logout
-      } else {
-        console.log('⚠️ Socket not connected during logout - cannot send logout event')
       }
     }
 

@@ -132,7 +132,37 @@ export default function MonthlyActivityDisplay({ currentUser }: MonthlyActivityD
     }
   };
 
+  // Function to update monthly data from real-time updates
+  const updateMonthlyDataFromSocket = (socketData: any) => {
+    if (!socketData || socketData.user_id !== currentUser?.id) return;
+    
+    console.log('📊 Received real-time monthly activity update:', socketData);
+    setLastUpdate(new Date().toLocaleTimeString());
+    
+    // Show real-time update notification
+    setCleanupStatus(`Real-time update: ${socketData.action} at ${new Date(socketData.timestamp).toLocaleTimeString()}`);
+    setTimeout(() => setCleanupStatus(''), 3000);
+    
+    // Don't make API calls on every socket event - this causes excessive requests
+    // Instead, just update the timestamp to show we received the update
+    // The data will be fetched on the next user interaction or page refresh
+  };
 
+  // Function to update weekly data from real-time updates
+  const updateWeeklyDataFromSocket = (socketData: any) => {
+    if (!socketData || socketData.user_id !== currentUser?.id) return;
+    
+    console.log('📊 Received real-time weekly activity update:', socketData);
+    setLastUpdate(new Date().toLocaleTimeString());
+    
+    // Show real-time update notification
+    setCleanupStatus(`Real-time update: ${socketData.action} at ${new Date(socketData.timestamp).toLocaleTimeString()}`);
+    setTimeout(() => setCleanupStatus(''), 3000);
+    
+    // Don't make API calls on every socket event - this causes excessive requests
+    // Instead, just update the timestamp to show we received the update
+    // The data will be fetched on the next user interaction or page refresh
+  };
 
   useEffect(() => {
     if (currentUser?.email) {
@@ -142,71 +172,55 @@ export default function MonthlyActivityDisplay({ currentUser }: MonthlyActivityD
     }
   }, [currentUser?.email]);
 
-  // Debounced real-time updates to prevent excessive API calls
-  const [pendingUpdate, setPendingUpdate] = useState(false);
-  const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // Periodic refresh only when user is active and not in break/meeting
+  useEffect(() => {
+    if (!currentUser?.email || isBreakActive || isInMeeting) return;
+    
+    // Refresh data every 2 minutes (120 seconds) instead of every few seconds
+    const interval = setInterval(() => {
+      console.log('🔄 Periodic refresh of monthly data (2-minute interval)');
+      fetchAllMonthlyDataSilently();
+    }, 120000); // 2 minutes
+    
+    return () => clearInterval(interval);
+  }, [currentUser?.email, isBreakActive, isInMeeting]);
+
+  // Refresh data when user returns to the tab
+  useEffect(() => {
+    const handleFocus = () => {
+      if (currentUser?.email && !isBreakActive && !isInMeeting) {
+        console.log('🔄 Tab focus detected, refreshing monthly data');
+        fetchAllMonthlyDataSilently();
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [currentUser?.email, isBreakActive, isInMeeting]);
 
   // Listen for real-time monthly activity updates
   useEffect(() => {
     if (!socket || !isConnected) return;
 
     const handleMonthlyActivityUpdate = (data: any) => {
-      // Check if this update is for the current user
-      if (data.user_id === currentUser?.id) {
-        setLastUpdate(new Date().toLocaleTimeString());
-        
-        // Debounce updates to prevent excessive API calls
-        if (updateTimeoutRef.current) {
-          clearTimeout(updateTimeoutRef.current);
-        }
-        
-        updateTimeoutRef.current = setTimeout(() => {
-          fetchAllMonthlyDataSilently();
-          setPendingUpdate(false);
-        }, 500); // Wait 500ms before updating
-        
-        setPendingUpdate(true);
-        
-        // Show a brief notification
-        setCleanupStatus('Real-time update queued...');
-        setTimeout(() => setCleanupStatus(''), 2000);
-      }
+      updateMonthlyDataFromSocket(data);
     };
 
     const handleWeeklyActivityUpdate = (data: any) => {
-      // Check if this update is for the current user
-      if (data.user_id === currentUser?.id) {
-        setLastUpdate(new Date().toLocaleTimeString());
-        
-        // Debounce updates to prevent excessive API calls
-        if (updateTimeoutRef.current) {
-          clearTimeout(updateTimeoutRef.current);
-        }
-        
-        updateTimeoutRef.current = setTimeout(() => {
-          fetchAllMonthlyDataSilently();
-          setPendingUpdate(false);
-        }, 500); // Wait 500ms before updating
-        
-        setPendingUpdate(true);
-        
-        // Show a brief notification
-        setCleanupStatus('Real-time update queued...');
-        setTimeout(() => setCleanupStatus(''), 2000);
-      }
+      updateWeeklyDataFromSocket(data);
     };
 
     // Listen for real-time updates
     socket.on('monthly-activity-update', handleMonthlyActivityUpdate);
     socket.on('weekly-activity-update', handleWeeklyActivityUpdate);
 
-    // Cleanup listeners and timeout
+    console.log('🔌 Listening for real-time monthly/weekly activity updates');
+
+    // Cleanup listeners
     return () => {
       socket.off('monthly-activity-update', handleMonthlyActivityUpdate);
       socket.off('weekly-activity-update', handleWeeklyActivityUpdate);
-      if (updateTimeoutRef.current) {
-        clearTimeout(updateTimeoutRef.current);
-      }
+      console.log('🔌 Stopped listening for real-time monthly/weekly activity updates');
     };
   }, [socket, isConnected, currentUser?.id]);
 
@@ -236,17 +250,24 @@ export default function MonthlyActivityDisplay({ currentUser }: MonthlyActivityD
                 </TooltipTrigger>
                 <TooltipContent>
                   <div className="space-y-2">
-                    <p className="font-medium">Current Month Status</p>
-                    <p className="text-sm">Active: {formatTime(currentMonthTotals.active)}</p>
-                    <p className="text-sm">Inactive: {formatTime(currentMonthTotals.inactive)}</p>
-                    <p className="text-sm">Month: {currentMonth?.monthStart ? formatDate(currentMonth.monthStart) : 'N/A'} - {currentMonth?.monthEnd ? formatDate(currentMonth.monthEnd) : 'N/A'}</p>
+                    <p className="text-sm">Month: {currentMonth?.monthStart ? formatDate(currentMonth.monthStart) : 'N/A'}</p>
                     {cleanupStatus && <p className="text-sm text-green-600">{cleanupStatus}</p>}
+                    <p className="text-sm ">Last Update: {lastUpdate}</p>
                   </div>
                 </TooltipContent>
               </Tooltip>
             </div>
             <div className="flex items-center gap-1 text-xs">
-              <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={fetchAllMonthlyData}
+                disabled={loading}
+                className="h-8 px-2"
+                title="Refresh monthly data"
+              >
+                <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              </Button>
             </div>
           </div>
         </CardHeader>

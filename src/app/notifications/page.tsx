@@ -37,6 +37,7 @@ import {
 } from "@/lib/notification-service"
 import { getCurrentUser } from "@/lib/ticket-utils"
 import { useRouter } from "next/navigation"
+import { useNotificationsSocketContext } from "@/hooks/use-notifications-socket-context"
 
 interface Notification {
   id: number
@@ -68,13 +69,24 @@ export default function NotificationsPage() {
   const [filterStatus, setFilterStatus] = useState<string>("all")
   const [showFilters, setShowFilters] = useState(false)
 
+  // Get real-time notifications from socket context
+  const currentUser = getCurrentUser()
+  const { 
+    notifications: socketNotifications, 
+    unreadCount: socketUnreadCount,
+    isConnected: socketConnected,
+    fetchNotifications: fetchSocketNotifications,
+    markAllAsRead: markAllAsReadSocket,
+    markAsRead: markAsReadSocket
+  } = useNotificationsSocketContext(currentUser?.email || null)
+
   // Load notifications (hydrate from DB once, then keep in-memory updates)
   useEffect(() => {
     const loadFromDb = async () => {
       try {
         const user = getCurrentUser()
         if (!user?.email) return
-        const res = await fetch(`/api/notifications?email=${encodeURIComponent(user.email)}&limit=100`, { credentials: 'include' })
+        const res = await fetch(`/api/notifications/?email=${encodeURIComponent(user.email)}&limit=100`, { credentials: 'include' })
         if (!res.ok) return
         const data = await res.json()
         if (data?.success && Array.isArray(data.notifications)) {
@@ -99,6 +111,7 @@ export default function NotificationsPage() {
               eventType: 'system' as const,
             }
           })
+          console.log('Loaded notifications from DB:', mapped)
           saveNotifications(mapped)
           setNotifications(mapped)
           // Don't call setUnreadCount here - let the component handle it naturally
@@ -112,8 +125,8 @@ export default function NotificationsPage() {
       // Don't call setUnreadCount here - let the component handle it naturally
     }
 
-    // Try DB hydrate first, then ensure memory state shown
-    loadFromDb().finally(() => { loadFromMemory(); setLoading(false) })
+    // Try DB hydrate first, then set loading to false
+    loadFromDb().finally(() => { setLoading(false) })
     
     // Listen for real-time notification updates
     const handleNotificationUpdate = () => {
@@ -188,20 +201,57 @@ export default function NotificationsPage() {
     if (notifications.length === 0) return
     
     try {
-      // Update in-memory and persist to DB using the updated service function
-      await markAllNotificationsAsRead()
-      
-      // Update local state
-      const real = getNotifications()
-      setNotifications(real)
-      
-      // Sync with database to ensure consistency
       const user = getCurrentUser()
-      if (user?.email) {
-        await syncNotificationsWithDatabase(user.email)
+      if (!user?.id) return
+      
+      // Get all unread notification IDs
+      const unreadNotifications = notifications.filter(n => !n.read)
+      if (unreadNotifications.length === 0) return
+      
+      // Extract numeric IDs from the db_ prefix format
+      const notificationIds = unreadNotifications
+        .map(n => {
+          const idStr = n.id.toString()
+          if (idStr.startsWith('db_')) {
+            return parseInt(idStr.slice(3))
+          }
+          return parseInt(idStr)
+        })
+        .filter(id => !isNaN(id))
+      
+      if (notificationIds.length === 0) return
+      
+      // Use socket context to mark all as read (this will update both DB and socket state)
+      if (socketConnected) {
+        console.log('Using socket context to mark all as read')
+        await markAllAsReadSocket(user.id, notificationIds)
+        // Refresh notifications to get updated state
+        await fetchSocketNotifications(user.id, 100, 0)
+      } else {
+        console.log('Socket not connected, using direct API call')
+        // Fallback to direct API call if socket is not connected
+        const response = await fetch('/api/notifications/mark-read', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ 
+            ids: notificationIds, 
+            email: user.email 
+          })
+        })
+        
+        if (response.ok) {
+          // Update local state to mark all as read
+          setNotifications(prev => prev.map(n => ({ ...n, read: true })))
+          // Update unread count
+          setUnreadCount(0)
+        }
       }
+      
+      // Also update the old notification service to keep it in sync
+      markAllNotificationsAsRead()
     } catch (error) {
-      console.warn('Error marking all notifications as read:', error)
+      console.error('Error marking all notifications as read:', error)
     }
   }
 
@@ -290,6 +340,87 @@ export default function NotificationsPage() {
     setCurrentPage(1)
   }, [notifications.length])
 
+  // Calculate unread count from notifications
+  useEffect(() => {
+    const unreadCount = notifications.filter(n => !n.read).length
+    console.log('Calculating unread count:', unreadCount, 'from', notifications.length, 'notifications')
+    setUnreadCount(unreadCount)
+  }, [notifications])
+
+  // Use socket unread count as fallback if local calculation is 0 but socket has unread
+  useEffect(() => {
+    if (unreadCount === 0 && socketUnreadCount > 0) {
+      console.log('Using socket unread count as fallback:', socketUnreadCount)
+      setUnreadCount(socketUnreadCount)
+    }
+  }, [unreadCount, socketUnreadCount])
+
+  // Initialize socket context and sync with real-time notifications
+  useEffect(() => {
+    if (currentUser?.id && socketConnected) {
+      console.log('Initializing socket context for user:', currentUser.id)
+      fetchSocketNotifications(currentUser.id, 100, 0)
+    }
+  }, [currentUser?.id, socketConnected, fetchSocketNotifications])
+
+  // Sync socket notifications with local state
+  useEffect(() => {
+    if (socketNotifications && socketNotifications.length > 0) {
+      console.log('Received socket notifications:', socketNotifications)
+      // Map socket notifications to the format expected by the page
+      const mappedNotifications = socketNotifications.map((n: any) => {
+        const payload = n.payload || {}
+        const actionUrl = payload.action_url
+          || (n.category === 'ticket' && (payload.ticket_id || payload.ticket_row_id) ? `/forms/${payload.ticket_id || ''}` : undefined)
+          || (n.category === 'break' ? '/status/breaks' : undefined)
+        const icon = n.category === 'ticket' ? 'FileText' : n.category === 'break' ? 'Clock' : 'Bell'
+        return {
+          id: `db_${n.id}`,
+          type: n.type,
+          title: n.title,
+          message: n.message,
+          time: (require('@/lib/notification-service') as any).parseDbTimestampToMs(n.created_at, n.category),
+          read: !!n.is_read,
+          icon,
+          actionUrl,
+          actionData: payload,
+          category: n.category,
+          priority: 'medium' as const,
+          eventType: 'system' as const,
+        }
+      })
+      
+      setNotifications(mappedNotifications)
+      console.log('Mapped and set notifications:', mappedNotifications)
+    }
+  }, [socketNotifications])
+
+  // Removed excessive refresh - socket context should handle updates automatically
+
+  // Removed debug logging to reduce console noise
+
+  // Listen for custom events from app-header to refresh notifications
+  useEffect(() => {
+    const handleMarkAllRead = () => {
+      console.log('Notification page: Received mark-all-read event')
+      // Don't need to refresh - socket context should handle updates automatically
+    }
+
+    const handleMarkRead = (event: Event) => {
+      const customEvent = event as CustomEvent
+      console.log('Notification page: Received mark-read event for notification:', customEvent.detail?.notificationId)
+      // Don't need to refresh - socket context should handle updates automatically
+    }
+
+    window.addEventListener('notifications-marked-all-read', handleMarkAllRead)
+    window.addEventListener('notification-marked-read', handleMarkRead)
+    
+    return () => {
+      window.removeEventListener('notifications-marked-all-read', handleMarkAllRead)
+      window.removeEventListener('notification-marked-read', handleMarkRead)
+    }
+  }, [])
+
   const getTypeColor = (type: string) => {
     switch (type) {
       case 'success':
@@ -319,6 +450,7 @@ export default function NotificationsPage() {
                     • Showing {filteredNotifications.length} of {notifications.length}
                   </span>
                 )}
+
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -331,6 +463,21 @@ export default function NotificationsPage() {
                 title="Mark all as read"
               >
                 Mark all read
+              </Button>
+              {/* Debug button - remove this later */}
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8"
+                onClick={async () => {
+                  if (currentUser?.id) {
+                    console.log('Manual refresh of notifications')
+                    await fetchSocketNotifications(currentUser.id, 100, 0)
+                  }
+                }}
+                title="Refresh notifications"
+              >
+                Refresh
               </Button>
               <Button
                 variant="outline"
@@ -585,17 +732,46 @@ export default function NotificationsPage() {
                   onClick={() => {
                     // Mark as read when clicking the card
                     if (!notification.read) {
+                      // Update local state first
+                      setNotifications(prev => 
+                        prev.map(n => 
+                          n.id === notification.id ? { ...n, read: true } : n
+                        )
+                      )
+                      
+                      // Update the old notification service
                       markNotificationAsRead(notification.id)
+                      
+                      // Persist to database
                       try {
-                        const auth = JSON.parse(localStorage.getItem('shoreagents-auth') || '{}')
-                        const email = auth?.user?.email
-                        if (email) {
-                          fetch('/api/notifications/mark-read', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            credentials: 'include',
-                            body: JSON.stringify({ id: notification.id, email })
-                          })
+                        const user = getCurrentUser()
+                        if (user?.email) {
+                          // Extract numeric ID from db_ prefix
+                          let notificationId: number
+                          const idStr = notification.id.toString()
+                          if (idStr.startsWith('db_')) {
+                            notificationId = parseInt(idStr.slice(3))
+                          } else {
+                            notificationId = parseInt(idStr)
+                          }
+                          
+                                                      if (!isNaN(notificationId)) {
+                              // Use socket context if available, otherwise fallback to direct API
+                              if (socketConnected && user.id) {
+                                console.log('Using socket context to mark as read:', notificationId)
+                                // Use socket context to mark as read
+                                markAsReadSocket(notificationId)
+                              } else {
+                                console.log('Socket not connected, using direct API call')
+                                // Fallback to direct API call
+                                fetch('/api/notifications/mark-read', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  credentials: 'include',
+                                  body: JSON.stringify({ id: notificationId, email: user.email })
+                                })
+                              }
+                            }
                         }
                       } catch {}
                     }

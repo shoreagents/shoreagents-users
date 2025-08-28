@@ -51,8 +51,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'User email not found' }, { status: 400 })
     }
     
-    console.log('User from request:', { id: user.id, type: typeof user.id, email: user.email })
-
     const url = new URL(request.url)
     const search = (url.searchParams.get('q') || '').trim()
     const limitParam = Number(url.searchParams.get('limit') || '50')
@@ -62,7 +60,6 @@ export async function GET(request: NextRequest) {
     const client = await pool.connect()
     try {
       // First, get the current user's member_id using email instead of user_id
-      console.log('Querying for user member_id with email:', user.email)
       const currentUserQuery = `
         SELECT a.member_id
         FROM agents a
@@ -70,14 +67,12 @@ export async function GET(request: NextRequest) {
         WHERE u.email = $1
       `
       const currentUserResult = await client.query(currentUserQuery, [user.email])
-      console.log('Current user query result:', currentUserResult.rows)
       
       if (currentUserResult.rows.length === 0) {
         return NextResponse.json({ success: false, error: 'User is not an agent' }, { status: 400 })
       }
       
       const currentUserMemberId = currentUserResult.rows[0].member_id
-      console.log('Current user member_id:', currentUserMemberId)
       
       // Now fetch all agents from the same team/company
       const parts: string[] = []
