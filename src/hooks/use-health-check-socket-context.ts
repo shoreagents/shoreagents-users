@@ -86,7 +86,6 @@ export function useHealthCheckSocketContext(email: string | null) {
     // Listen for health check updates
     const handleHealthCheckUpdate = (data: any) => {
       if (data.email === email) {
-        console.log('Health check update received:', data)
         // Handle different types of updates
         if (data.type === 'request_update') {
           setRequests(prev => {
@@ -140,7 +139,7 @@ export function useHealthCheckSocketContext(email: string | null) {
   // Fetch records from API
   const fetchRecords = useCallback(async (userId: number, limit: number = 10, offset: number = 0) => {
     try {
-      const response = await fetch(`/api/health/records?user_id=${userId}&limit=${limit}&offset=${offset}`)
+      const response = await fetch(`/api/health-check/records?user_id=${userId}&limit=${limit}&offset=${offset}`)
       const data = await response.json()
       
       if (data.success) {
@@ -154,7 +153,7 @@ export function useHealthCheckSocketContext(email: string | null) {
   // Fetch availability from API
   const fetchAvailability = useCallback(async (nurseId: number) => {
     try {
-      const response = await fetch(`/api/health/availability?nurse_id=${nurseId}`)
+      const response = await fetch(`/api/health-check/availability?nurse_id=${nurseId}`)
       const data = await response.json()
       
       if (data.success) {
@@ -173,7 +172,7 @@ export function useHealthCheckSocketContext(email: string | null) {
     priority: 'low' | 'normal' | 'high' | 'urgent'
   }) => {
     try {
-      const response = await fetch('/api/health/request', {
+      const response = await fetch('/api/health-check', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestData)
@@ -205,26 +204,32 @@ export function useHealthCheckSocketContext(email: string | null) {
 
   // Check if nurse is on duty
   const isNurseOnDuty = useCallback((nurseId: number) => {
-    const nurseAvailability = availability.find(avail => avail.nurse_id === nurseId)
-    if (!nurseAvailability) return null
-    
     const now = new Date()
     const currentDayOfWeek = now.getDay()
     const currentTime = now.toTimeString().slice(0, 5) // HH:MM format
     
-    if (nurseAvailability.day_of_week === currentDayOfWeek) {
-      const isInShift = currentTime >= nurseAvailability.shift_start && currentTime <= nurseAvailability.shift_end
-      const isOnBreak = nurseAvailability.break_start && nurseAvailability.break_end && 
-                       currentTime >= nurseAvailability.break_start && currentTime <= nurseAvailability.break_end
-      
-      return {
-        onDuty: isInShift && !isOnBreak,
-        onBreak: isOnBreak,
-        available: nurseAvailability.is_available
-      }
+    // Find availability for the current day of week
+    const nurseAvailability = availability.find(avail => 
+      avail.nurse_id === nurseId && avail.day_of_week === currentDayOfWeek
+    )
+    
+    if (!nurseAvailability) {
+      return null
     }
     
-    return null
+    const isInShift = currentTime >= nurseAvailability.shift_start && currentTime <= nurseAvailability.shift_end
+    
+    // Check if current time is during break
+    const isOnBreak = nurseAvailability.break_start && nurseAvailability.break_end && 
+                     currentTime >= nurseAvailability.break_start && currentTime <= nurseAvailability.break_end
+    
+    const result = {
+      onDuty: isInShift && !isOnBreak,
+      onBreak: isOnBreak,
+      available: nurseAvailability.is_available
+    }
+    
+    return result
   }, [availability])
 
   return {

@@ -310,6 +310,8 @@ const TaskCard = ({
                 src={(task.attachments as any)[0].url}
                 alt={task.attachments[0].name}
                 className="w-full h-full object-cover"
+                draggable="false"
+                onDragStart={(e) => e.preventDefault()}
                 onError={(e) => {
                   // Fallback to a placeholder if image fails to load
                   const target = e.target as HTMLImageElement
@@ -335,57 +337,73 @@ const TaskCard = ({
           <CardHeader className="pb-2">
             <div className="flex items-start justify-between">
               {isRenaming ? (
-                <input
-                  ref={renameInputRef}
-                  type="text"
-                  value={newTitle}
-                  onChange={(e) => setNewTitle(e.target.value)}
-                  onBlur={handleRenameBlur}
-                  onKeyDown={handleRenameKeyDown}
-                  onClick={(e) => e.stopPropagation()}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  className="text-sm font-medium leading-none bg-background border border-input rounded px-2 py-1 focus:ring-2 focus:ring-ring focus:border-ring flex-1 min-w-0"
-                  autoFocus
-                  onFocus={(e) => e.target.select()}
-                />
+                                 <input
+                   ref={renameInputRef}
+                   type="text"
+                   value={newTitle}
+                   onChange={(e) => setNewTitle(e.target.value)}
+                   onBlur={handleRenameBlur}
+                   onKeyDown={handleRenameKeyDown}
+                   onClick={(e) => e.stopPropagation()}
+                   onMouseDown={(e) => e.stopPropagation()}
+                   className="text-sm font-medium leading-none bg-background border border-input rounded px-2 py-1 focus:ring-2 focus:ring-ring focus:border-ring min-w-0"
+                   style={{ maxWidth: '140px' }}
+                   autoFocus
+                   onFocus={(e) => e.target.select()}
+                 />
               ) : (
-                <div className="flex items-center gap-2 min-w-0">
-                  <h4 className="text-sm font-medium leading-none truncate">{task.title}</h4>
-                  {(task as any).isOverdue && (
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-red-500 text-white dark:bg-red-600 dark:text-white">
-                      Overdue
-                    </span>
-                  )}
-                  {(task as any).dueSoon && !(task as any).isOverdue && (
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-red-100 text-red-700 dark:bg-red-950/20 dark:text-red-400">
-                      Due soon
-                    </span>
-                  )}
-                  {(task as any).isDone && (
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-100 text-green-700 dark:bg-green-950/20 dark:text-green-400">
-                      Complete
-                    </span>
-                  )}
-                  {task.is_owner === false && (
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-purple-100 text-purple-700 dark:bg-purple-950/20 dark:text-purple-400">
-                      Assigned
-                    </span>
-                  )}
-                </div>
+                                 <div className="flex items-center gap-2 min-w-0 flex-1">
+                   <div className="min-w-0 flex-1">
+                     <h4 
+                       className="text-sm font-medium leading-none truncate block" 
+                       title={task.title}
+                       style={{ maxWidth: '140px' }}
+                     >
+                       {task.title}
+                     </h4>
+                   </div>
+                   <div className="flex items-center gap-1 flex-shrink-0">
+                     {(task as any).isOverdue && (
+                       <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-red-500 text-white dark:bg-red-600 dark:text-white">
+                         Overdue
+                       </span>
+                     )}
+                     {(task as any).dueSoon && !(task as any).isOverdue && (
+                       <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-red-100 text-red-700 dark:bg-red-950/20 dark:text-red-400">
+                         Due soon
+                       </span>
+                     )}
+                     {(task as any).isDone && (
+                       <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-100 text-green-700 dark:bg-green-950/20 dark:text-green-400">
+                         Complete
+                       </span>
+                     )}
+                     {task.is_owner === false && (
+                       <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-purple-100 text-purple-700 dark:bg-purple-950/20 dark:text-purple-400">
+                         Assigned
+                       </span>
+                     )}
+                   </div>
+                 </div>
               )}
               <DropdownMenu open={isDropdownOpen} onOpenChange={setIsDropdownOpen}>
                 <DropdownMenuTrigger asChild onClick={handleDropdownClick}>
-                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    className="h-6 w-6 p-0"
+                    onDragStart={(e) => e.preventDefault()}
+                  >
                     <MoreHorizontal className="h-3 w-3" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={handleRename}>
+                  <DropdownMenuItem onClick={handleRename} onDragStart={(e) => e.preventDefault()}>
                     <Edit3 className="mr-2 h-4 w-4" />
                     Rename
                   </DropdownMenuItem>
                   <DropdownMenuSub>
-                    <DropdownMenuSubTrigger onClick={handleMoveToClick}>
+                    <DropdownMenuSubTrigger onClick={handleMoveToClick} onDragStart={(e) => e.preventDefault()}>
                       <ArrowRight className="mr-2 h-4 w-4" />
                       Move to
                     </DropdownMenuSubTrigger>
@@ -394,6 +412,7 @@ const TaskCard = ({
                         <DropdownMenuItem 
                           key={group.id} 
                           onClick={(e) => handleMoveTask(e, group.id)}
+                          onDragStart={(e) => e.preventDefault()}
                         >
                           {group.title}
                         </DropdownMenuItem>
@@ -401,7 +420,7 @@ const TaskCard = ({
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={handleDelete} className="text-red-600">
+                  <DropdownMenuItem onClick={handleDelete} className="text-red-600" onDragStart={(e) => e.preventDefault()}>
                     <Trash2 className="mr-2 h-4 w-4" />
                     Delete task
                   </DropdownMenuItem>
@@ -411,15 +430,23 @@ const TaskCard = ({
           </CardHeader>
           
           <CardContent className="pt-0">
-            <p className="text-xs text-muted-foreground mb-3 line-clamp-2">
-              {task.description}
-            </p>
+                         <p 
+               className="text-xs text-muted-foreground mb-3 line-clamp-2 task-description max-w-full" 
+               title={task.description}
+             >
+               {task.description}
+             </p>
             
             {/* Tags */}
             {task.tags && task.tags.length > 0 && (
               <div className="flex flex-wrap gap-1 mb-3">
                 {task.tags.map(tag => (
-                  <Badge key={tag} variant="secondary" className="text-xs">
+                  <Badge 
+                    key={tag} 
+                    variant="secondary" 
+                    className="text-xs"
+                    onDragStart={(e) => e.preventDefault()}
+                  >
                     {tag}
                   </Badge>
                 ))}
@@ -427,7 +454,7 @@ const TaskCard = ({
             )}
             
             {/* Footer */}
-            <div className="flex items-center justify-between min-w-0">
+            <div className="flex items-start justify-between min-w-0">
               <div className="flex items-center gap-2 min-w-0 flex-1">
                 <div className="flex flex-col items-start gap-1 min-w-0">
                   {/* Priority */}
@@ -482,18 +509,18 @@ const TaskCard = ({
                     const extraCount = ids.length - 1
                     return (
                       <>
-                        <Avatar className="h-6 w-6">
+                        <Avatar className="h-6 w-6" onDragStart={(e) => e.preventDefault()}>
                           <AvatarFallback className="text-xs">{firstInitials}</AvatarFallback>
                         </Avatar>
                         {extraCount > 0 && (
-                          <span className="text-xs text-muted-foreground px-1 rounded bg-muted/60">+{extraCount}</span>
+                          <span className="text-xs text-muted-foreground px-1 rounded bg-muted/60" onDragStart={(e) => e.preventDefault()}>+{extraCount}</span>
                         )}
                       </>
                     )
                   })()}
                 </div>
               ) : (
-                <Avatar className="h-6 w-6">
+                <Avatar className="h-6 w-6" onDragStart={(e) => e.preventDefault()}>
                   <AvatarFallback className="text-xs">{getInitials(task.assignee)}</AvatarFallback>
                 </Avatar>
               )}
@@ -584,12 +611,9 @@ const KanbanColumn = ({
       const taskElements = dropZone.querySelectorAll('[data-task-id]')
       let targetPosition = 1 // Default to first position
       
-      console.log(`Drop Y: ${dropY}, Task elements: ${taskElements.length}`)
-      
       // If no tasks in the column, position will be 1
       if (taskElements.length === 0) {
         targetPosition = 1
-        console.log('No tasks in column, setting position to 1')
       } else {
         // Check each task element to find the correct insertion point
         for (let i = 0; i < taskElements.length; i++) {
@@ -599,22 +623,15 @@ const KanbanColumn = ({
           const taskBottom = taskRect.bottom - dropRect.top
           const taskCenter = (taskTop + taskBottom) / 2
           
-          console.log(`Task ${i + 1}: top=${taskTop}, bottom=${taskBottom}, center=${taskCenter}`)
-          
           // If drop is above the middle of this task, insert before it
           if (dropY < taskCenter) {
             targetPosition = i + 1
-            console.log(`Drop above task ${i + 1}, setting position to ${targetPosition}`)
             break
           }
           // If drop is below this task, continue to next task
           targetPosition = i + 2
-          console.log(`Drop below task ${i + 1}, continuing...`)
         }
       }
-      
-      console.log(`Dropping task ${taskId} at position ${targetPosition} in column ${column.id}`)
-      console.log('Current tasks in column:', columnTasks.map(t => ({ id: t.id, title: t.title })))
       onTaskMove(taskId, column.id, targetPosition)
     }
   }
@@ -657,9 +674,9 @@ const KanbanColumn = ({
             <GripVertical className="h-4 w-4 text-muted-foreground cursor-move" />
           )}
           <h3 className="font-semibold text-sm">{column.title}</h3>
-          <Badge variant="secondary" className="text-xs">
-            {columnTasks.length}
-          </Badge>
+                     <Badge variant="secondary" className={`text-xs ${column.color}`}>
+             {columnTasks.length}
+           </Badge>
         </div>
         <div className="flex items-center gap-1">
           <Button
@@ -667,6 +684,7 @@ const KanbanColumn = ({
             size="sm"
             onClick={handleAddTask}
             className="h-6 w-6 p-0 hover:bg-background/80"
+            onDragStart={(e) => e.preventDefault()}
           >
             <Plus className="h-3 w-3" />
           </Button>
@@ -750,6 +768,7 @@ const KanbanColumn = ({
           size="sm" 
           onClick={handleAddTask}
           className="w-full justify-start text-muted-foreground hover:text-foreground"
+          onDragStart={(e) => e.preventDefault()}
         >
           <Plus className="h-3 w-3 mr-2" />
           Add Task

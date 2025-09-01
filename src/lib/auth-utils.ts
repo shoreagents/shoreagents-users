@@ -1,6 +1,146 @@
 // Authentication utilities
 import { authHelpers } from './supabase'
 
+// Helper function to check if running in Electron
+const isElectronApp = () => {
+  return typeof window !== 'undefined' && window.electronAPI
+}
+
+// Remember me functionality using Electron's secure storage
+// This stores credentials securely using the system keychain when available
+export const setRememberedCredentials = async (email: string, password: string) => {
+  try {
+    // Basic validation
+    if (!email || !password || email.trim() === '' || password.trim() === '') {
+      console.warn('Invalid credentials provided for remembering')
+      return
+    }
+    
+    // Check if we're in Electron environment
+    if (typeof window !== 'undefined' && window.electronAPI?.secureCredentials) {
+      try {
+        // Use Electron's secure storage
+        const result = await window.electronAPI.secureCredentials.store(email.trim(), password.trim())
+        if (result.success) {
+          console.log('✅ Credentials stored securely using Electron safeStorage')
+          return
+        } else {
+          console.warn('Electron secure storage failed, falling back to localStorage:', result.error)
+        }
+      } catch (error) {
+        console.warn('Electron secure storage error, falling back to localStorage:', error)
+      }
+    }
+    
+    // Fallback to localStorage if Electron storage is not available
+    const credentials = { 
+      email: email.trim(), 
+      password: password.trim(), 
+      timestamp: Date.now(),
+      version: '1.0' // For future compatibility
+    }
+    
+    localStorage.setItem('shoreagents-remembered', JSON.stringify(credentials))
+    
+    // Also store in a separate cookie for cross-tab access
+    const expires = new Date()
+    expires.setTime(expires.getTime() + 365 * 24 * 60 * 60 * 1000) // 1 year
+    const value = encodeURIComponent(JSON.stringify(credentials))
+    document.cookie = `shoreagents-remembered=${value};expires=${expires.toUTCString()};path=/;SameSite=Lax`
+    
+    console.log('✅ Credentials remembered using localStorage fallback')
+  } catch (error) {
+    console.error('Error remembering credentials:', error)
+  }
+}
+
+export const getRememberedCredentials = async () => {
+  try {
+    // Check if we're in Electron environment
+    if (typeof window !== 'undefined' && window.electronAPI?.secureCredentials) {
+      try {
+        // Use Electron's secure storage
+        const result = await window.electronAPI.secureCredentials.get()
+        if (result.success && result.credentials) {
+          // Check if credentials are not too old (max 1 year)
+          if (Date.now() - result.credentials.timestamp < 365 * 24 * 60 * 60 * 1000) {
+            console.log('✅ Retrieved credentials from Electron secure storage')
+            return result.credentials
+          } else {
+            console.log('Credentials expired, clearing them')
+            await window.electronAPI.secureCredentials.clear()
+            return null
+          }
+        } else {
+          console.log('No secure credentials found or error:', result.error)
+        }
+      } catch (error) {
+        console.warn('Electron secure storage error, falling back to localStorage:', error)
+      }
+    }
+    
+    // Fallback to localStorage if Electron storage is not available
+    const localCredentials = localStorage.getItem('shoreagents-remembered')
+    if (localCredentials) {
+      const parsed = JSON.parse(localCredentials)
+      // Check if credentials are not too old (max 1 year)
+      if (Date.now() - parsed.timestamp < 365 * 24 * 60 * 60 * 1000) {
+        return parsed
+      }
+    }
+    
+    // Fallback to cookie
+    const cookies = document.cookie.split(';')
+    const rememberedCookie = cookies.find(cookie => cookie.trim().startsWith('shoreagents-remembered='))
+    
+    if (rememberedCookie) {
+      const cookieValue = rememberedCookie.split('=')[1]
+      const parsed = JSON.parse(decodeURIComponent(cookieValue))
+      // Check if credentials are not too old (max 1 year)
+      if (Date.now() - parsed.timestamp < 365 * 24 * 60 * 60 * 1000) {
+        return parsed
+      }
+    }
+    
+    return null
+  } catch (error) {
+    console.error('Error getting remembered credentials:', error)
+    return null
+  }
+}
+
+export const clearRememberedCredentials = async () => {
+  try {
+    // Clear Electron secure storage if available
+    if (typeof window !== 'undefined' && window.electronAPI?.secureCredentials) {
+      try {
+        await window.electronAPI.secureCredentials.clear()
+        console.log('✅ Secure credentials cleared')
+      } catch (error) {
+        console.warn('Error clearing secure credentials:', error)
+      }
+    }
+    
+    // Clear localStorage fallback
+    localStorage.removeItem('shoreagents-remembered')
+    document.cookie = 'shoreagents-remembered=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;'
+    console.log('✅ Remembered credentials cleared')
+  } catch (error) {
+    console.error('Error clearing remembered credentials:', error)
+  }
+}
+
+// Get security information about remember me functionality
+export const getRememberMeSecurityInfo = () => {
+  return {
+    isElectron: isElectronApp(),
+    warning: isElectronApp() 
+      ? "Credentials are stored locally on your computer. Keep your device secure."
+      : "Credentials are stored in your browser. Keep your device secure.",
+    recommendation: "Only use this feature on your personal, secure device."
+  }
+}
+
 export const setAuthCookie = (authData: any, days: number = 7) => {
   const expires = new Date()
   expires.setTime(expires.getTime() + days * 24 * 60 * 60 * 1000)
@@ -139,6 +279,14 @@ export function forceLogout() {
 function performLogoutCleanup() {
   console.log('🧹 Performing logout cleanup...');
   
+  // Clear all notifications on logout
+  try {
+    const { clearAllNotificationsOnLogout } = require('./notification-service');
+    clearAllNotificationsOnLogout();
+  } catch (error) {
+    console.warn('Could not clear notifications on logout:', error);
+  }
+  
   // Clear localStorage
   localStorage.removeItem('shoreagents-auth')
   localStorage.removeItem('sb-sanljwkkoawwdpaxrper-auth-token')
@@ -150,7 +298,16 @@ function performLogoutCleanup() {
   // Clear sessionStorage
   sessionStorage.clear()
   
+  // Note: We don't clear remembered credentials here to preserve the "Remember me" functionality
+  // Users can still use remembered credentials after logout
+  
   console.log('✅ Logout cleanup completed, redirecting to login...');
+  
+  // Dispatch logout finished event for the logout context
+  if (typeof window !== 'undefined') {
+    const event = new CustomEvent('logout-finished');
+    window.dispatchEvent(event);
+  }
   
   // Redirect to login
   window.location.href = '/login'
@@ -167,6 +324,12 @@ export function clearAllAuthArtifacts() {
     document.cookie = 'sb-sanljwkkoawwdpaxrper-auth-token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;'
   } catch {}
   try { sessionStorage.clear() } catch {}
+}
+
+// Clear all auth artifacts including remembered credentials (used during logout)
+export function clearAllAuthArtifactsIncludingRemembered() {
+  clearAllAuthArtifacts()
+  clearRememberedCredentials()
 }
 
 /**

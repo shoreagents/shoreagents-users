@@ -48,13 +48,11 @@ export function MeetingProvider({ children }: MeetingProviderProps) {
     
     // Don't fetch if we've fetched in the last 2 seconds (unless forced)
     if (!force && timeSinceLastFetch < 2000) {
-      console.log('⏱️ Skipping meeting data fetch - too recent')
       return
     }
 
     // Don't fetch if already fetching
     if (isFetchingRef.current) {
-      console.log('⏱️ Skipping meeting data fetch - already in progress')
       return
     }
 
@@ -184,7 +182,6 @@ export function MeetingProvider({ children }: MeetingProviderProps) {
         
         // Only refresh full meeting data if status changed significantly
         if (data.isInMeeting !== isInMeeting) {
-          console.log('🔄 Meeting status changed - refreshing data')
           debouncedFetchMeetingData()
         }
       })
@@ -192,7 +189,6 @@ export function MeetingProvider({ children }: MeetingProviderProps) {
       // Listen for meeting data updates
       socket.on('meetings-updated', () => {
         if (!isActive.current) return
-        console.log('🔄 Meetings updated - refreshing data')
         debouncedFetchMeetingData()
       })
     }, 100) // Small delay to avoid rapid reconnections
@@ -271,7 +267,6 @@ export function MeetingProvider({ children }: MeetingProviderProps) {
   }
 
   const refreshMeetings = async () => {
-    console.log('🔄 Manual refresh requested')
     await debouncedFetchMeetingData(true)
   }
 

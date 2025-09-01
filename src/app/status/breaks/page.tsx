@@ -16,7 +16,8 @@ import {
   Pause, 
   AlertTriangle,
   CheckCircle,
-  X
+  X,
+  RefreshCw
 } from "lucide-react"
 import { BreakTimer } from "@/components/break-timer"
 import {
@@ -64,6 +65,14 @@ export default function BreaksPage() {
   const [showAllHistory, setShowAllHistory] = useState(false)
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [breakLoadingStates, setBreakLoadingStates] = useState<Record<BreakType, boolean>>({
+    Morning: false,
+    Lunch: false,
+    Afternoon: false,
+    NightFirst: false,
+    NightMeal: false,
+    NightSecond: false
+  })
   const [error, setError] = useState<string | null>(null)
   const [autoEnding, setAutoEnding] = useState(false)
   const [showMeetingEndDialog, setShowMeetingEndDialog] = useState(false)
@@ -369,7 +378,17 @@ export default function BreaksPage() {
     }
   }, [currentTime, breakStatus, setBreakActive, refreshBreakStatus])
 
-
+  // Cleanup black screens when component unmounts or user navigates away
+  useEffect(() => {
+    return () => {
+      // Close black screens when leaving the break page
+      if (typeof window !== 'undefined' && window.electronAPI?.multiMonitor) {
+        window.electronAPI.multiMonitor.closeBlackScreens().catch(error => {
+          console.warn('Failed to close black screens on cleanup:', error)
+        })
+      }
+    }
+  }, [])
 
   const isBreakAvailable = (breakId: BreakType) => {
     if (!breakStatus) return true
@@ -381,7 +400,7 @@ export default function BreaksPage() {
 
   const handleStartBreak = async (breakId: BreakType) => {
     try {
-      setLoading(true)
+      setBreakLoadingStates(prev => ({ ...prev, [breakId]: true }))
       setError(null)
 
       // Check if agent is in a meeting before starting break
@@ -400,6 +419,16 @@ export default function BreaksPage() {
         setActiveBreak(breakId)
         setBreakActive(true, breakId.toLowerCase())
         
+        // Start black screens on secondary monitors for break
+        if (typeof window !== 'undefined' && window.electronAPI?.multiMonitor) {
+          try {
+            await window.electronAPI.multiMonitor.createBlackScreens()
+            console.log('✅ Black screens created for break')
+          } catch (error) {
+            console.warn('Failed to create black screens:', error)
+          }
+        }
+        
         // Refresh break status after starting
         const { success, status } = await getBreakStatus()
         if (success && status) {
@@ -417,7 +446,7 @@ export default function BreaksPage() {
       console.error('Error starting break:', error)
       setError('Failed to start break session')
     } finally {
-      setLoading(false)
+      setBreakLoadingStates(prev => ({ ...prev, [breakId]: false }))
     }
   }
 
@@ -440,6 +469,16 @@ export default function BreaksPage() {
       if (result.success && result.breakSession) {
         setActiveBreak(pendingBreakId)
         setBreakActive(true, pendingBreakId.toLowerCase())
+        
+        // Start black screens on secondary monitors for break
+        if (typeof window !== 'undefined' && window.electronAPI?.multiMonitor) {
+          try {
+            await window.electronAPI.multiMonitor.createBlackScreens()
+            console.log('✅ Black screens created for break after ending meeting')
+          } catch (error) {
+            console.warn('Failed to create black screens:', error)
+          }
+        }
         
         // Refresh break status after starting
         const { success, status } = await getBreakStatus()
@@ -484,6 +523,16 @@ export default function BreaksPage() {
         setActiveBreak(null)
         setBreakActive(false)
         localStorage.removeItem('currentBreak')
+        
+        // Close black screens on secondary monitors when break ends
+        if (typeof window !== 'undefined' && window.electronAPI?.multiMonitor) {
+          try {
+            await window.electronAPI.multiMonitor.closeBlackScreens()
+            console.log('✅ Black screens closed when break ended')
+          } catch (error) {
+            console.warn('Failed to close black screens:', error)
+          }
+        }
         
         // Refresh break status after ending
         const { success, status } = await getBreakStatus()
@@ -535,6 +584,16 @@ export default function BreaksPage() {
         setActiveBreak(null)
         setBreakActive(false)
         
+        // Close black screens on secondary monitors when break is paused
+        if (typeof window !== 'undefined' && window.electronAPI?.multiMonitor) {
+          try {
+            await window.electronAPI.multiMonitor.closeBlackScreens()
+            console.log('✅ Black screens closed when break paused')
+          } catch (error) {
+            console.warn('Failed to close black screens:', error)
+          }
+        }
+        
         // Refresh break status after pausing
         const { success, status } = await getBreakStatus()
         if (success && status) {
@@ -558,7 +617,7 @@ export default function BreaksPage() {
 
   const handleResumeBreak = async (breakId: BreakType) => {
     try {
-      setLoading(true)
+      setBreakLoadingStates(prev => ({ ...prev, [breakId]: true }))
       setError(null)
 
 
@@ -586,7 +645,15 @@ export default function BreaksPage() {
         setActiveBreak(breakId)
         setBreakActive(true, breakId.toLowerCase())
         
-
+        // Start black screens on secondary monitors when break is resumed
+        if (typeof window !== 'undefined' && window.electronAPI?.multiMonitor) {
+          try {
+            await window.electronAPI.multiMonitor.createBlackScreens()
+            console.log('✅ Black screens created when break resumed')
+          } catch (error) {
+            console.warn('Failed to create black screens:', error)
+          }
+        }
         
         // Refresh timer context break status
         await refreshBreakStatus()
@@ -599,7 +666,22 @@ export default function BreaksPage() {
       console.error('❌ Error resuming break:', error)
       setError('Failed to resume break session')
     } finally {
-      setLoading(false)
+      setBreakLoadingStates(prev => ({ ...prev, [breakId]: false }))
+    }
+  }
+
+  const refreshBreakHistory = async () => {
+    try {
+      setLoadingHistory(true)
+      const days = showAllHistory ? 90 : 7
+      const { success, data } = await getBreakHistory(days, true)
+      if (success && data) {
+        setBreakHistory(data)
+      }
+    } catch (error) {
+      console.error('Error refreshing break history:', error)
+    } finally {
+      setLoadingHistory(false)
     }
   }
 
@@ -826,12 +908,16 @@ export default function BreaksPage() {
 
                     <Button 
                       onClick={() => isPausedThisBreak ? handleResumeBreak(breakInfo.id as BreakType) : handleStartBreak(breakInfo.id as BreakType)}
-                      disabled={isDisabled}
+                      disabled={isDisabled || breakLoadingStates[breakInfo.id as BreakType]}
                       className="w-full"
                       size="lg"
                     >
-                      <Play className="mr-2 h-4 w-4" />
-                      {loading ? (isPausedThisBreak ? 'Resuming...' : 'Starting...') : 
+                      {breakLoadingStates[breakInfo.id as BreakType] ? (
+                        <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                      ) : (
+                        <Play className="mr-2 h-4 w-4" />
+                      )}
+                      {breakLoadingStates[breakInfo.id as BreakType] ? (isPausedThisBreak ? 'Resuming...' : 'Starting...') : 
                        isPausedThisBreak ? `Resume ${breakInfo.name}` : `Start ${breakInfo.name}`}
                     </Button>
                   </CardContent>
@@ -889,6 +975,16 @@ export default function BreaksPage() {
                       <h4 className="font-medium">{showAllHistory ? 'All Break Sessions' : 'Recent Break Sessions'}</h4>
                       {breakHistory && (
                         <div className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={loadingHistory}
+                            onClick={refreshBreakHistory}
+                            className="flex items-center gap-2"
+                          >
+                            <RefreshCw className={`h-4 w-4 ${loadingHistory ? 'animate-spin' : ''}`} />
+                            {loadingHistory ? 'Refreshing...' : 'Refresh'}
+                          </Button>
                           {!showAllHistory ? (
                             <Button
                               variant="outline"

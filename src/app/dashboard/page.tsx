@@ -17,11 +17,15 @@ import {
   FileText, 
   Clock, 
   CheckCircle, 
-  AlertCircle,
+  AlertTriangle,
   Plus,
   Calendar,
   Tag,
-  Eye
+  Eye,
+  Target,
+  TrendingUp,
+  AlertCircle,
+  CheckSquare
 } from "lucide-react"
 import Link from "next/link"
 import { Ticket, getCurrentUser } from "@/lib/ticket-utils"
@@ -35,6 +39,9 @@ import {
   BarChart,
   Bar,
   CartesianGrid,
+  PieChart,
+  Pie,
+  Cell,
 } from "recharts"
 
 type BreakSession = {
@@ -48,12 +55,40 @@ type BreakSession = {
 
 type MeetingItem = any
 
+type TaskStatistics = {
+  groups: Array<{
+    id: number
+    group_title: string
+    group_color: string
+    position: number
+    task_count: string
+    urgent_count: string
+    high_count: string
+    normal_count: string
+    low_count: string
+  }>
+  priorities: Array<{
+    priority: string
+    count: string
+  }>
+  overdue: {
+    overdue_count: string
+    very_overdue_count: string
+  }
+  recentActivity: Array<{
+    date: string
+    count: number
+  }>
+  totalTasks: number
+}
+
 export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [recentTickets, setRecentTickets] = useState<Ticket[]>([])
   const [allTickets, setAllTickets] = useState<Ticket[]>([])
   const [breaks, setBreaks] = useState<BreakSession[]>([])
   const [meetings, setMeetings] = useState<MeetingItem[]>([])
+  const [taskStats, setTaskStats] = useState<TaskStatistics | null>(null)
   
   // Track user activity to prevent away status
   useActivityTracker()
@@ -63,8 +98,17 @@ export default function DashboardPage() {
       try {
         const currentUser = getCurrentUser()
         const userId = currentUser?.id
-        // Tickets
-        const ticketsRes = await fetch('/api/tickets', { credentials: 'include' })
+        
+        // Load all data in parallel
+        const [ticketsRes, breaksRes, meetingsRes, taskStatsRes] = await Promise.all([
+          fetch('/api/tickets', { credentials: 'include' }),
+          userId ? fetch(`/api/breaks/history?agent_user_id=${encodeURIComponent(userId)}&days=7&include_active=true`, { credentials: 'include' }) : Promise.resolve({ ok: false }),
+          userId ? fetch(`/api/meetings?agent_user_id=${encodeURIComponent(userId)}&days=7`, { credentials: 'include' }) : Promise.resolve({ ok: false }),
+          fetch('/api/task-statistics', { credentials: 'include' })
+        ])
+        
+
+        // Process tickets
         if (ticketsRes.ok) {
           const data = await ticketsRes.json()
           const tickets = (data?.tickets || []) as Ticket[]
@@ -77,20 +121,40 @@ export default function DashboardPage() {
           setRecentTickets(sorted.slice(0, 5))
         }
 
-        // Break history - last 7 days
-        if (userId) {
-          const breaksRes = await fetch(`/api/breaks/history?agent_user_id=${encodeURIComponent(userId)}&days=7&include_active=true`, { credentials: 'include' })
-          if (breaksRes.ok) {
-            const data = await breaksRes.json()
-            setBreaks([...(data?.data?.completed_breaks || []), ...(data?.data?.active_breaks || [])])
-          }
-          // Meeting history - last 7 days
-          const meetingsRes = await fetch(`/api/meetings?agent_user_id=${encodeURIComponent(userId)}&days=7`, { credentials: 'include' })
-          if (meetingsRes.ok) {
-            const data = await meetingsRes.json()
-            setMeetings(data?.meetings || [])
-          }
+        // Process breaks
+        if (breaksRes.ok && 'json' in breaksRes) {
+          const data = await breaksRes.json()
+          setBreaks([...(data?.data?.completed_breaks || []), ...(data?.data?.active_breaks || [])])
         }
+
+        // Process meetings
+        if (meetingsRes.ok && 'json' in meetingsRes) {
+          const data = await meetingsRes.json()
+          setMeetings(data?.meetings || [])
+        }
+
+              // Process task statistics
+        if (taskStatsRes.ok && 'json' in taskStatsRes) {
+          const data = await taskStatsRes.json()
+          setTaskStats(data?.statistics || null)
+        } else {
+          console.error('Task stats failed:', taskStatsRes.status, taskStatsRes.statusText)
+          // Set default empty stats with sample data for demo
+          const sampleData = {
+            groups: [
+              { id: 1, group_title: 'To Do', group_color: 'bg-gray-200', position: 0, task_count: '0', urgent_count: '0', high_count: '0', normal_count: '0', low_count: '0' },
+              { id: 2, group_title: 'In Progress', group_color: 'bg-blue-100', position: 1, task_count: '0', urgent_count: '0', high_count: '0', normal_count: '0', low_count: '0' },
+              { id: 3, group_title: 'Review', group_color: 'bg-yellow-100', position: 2, task_count: '0', urgent_count: '0', high_count: '0', normal_count: '0', low_count: '0' },
+              { id: 4, group_title: 'Done', group_color: 'bg-green-100', position: 3, task_count: '0', urgent_count: '0', high_count: '0', normal_count: '0', low_count: '0' }
+            ],
+            priorities: [],
+            overdue: { overdue_count: '0', very_overdue_count: '0' },
+            recentActivity: [],
+            totalTasks: 0
+          }
+          setTaskStats(sampleData)
+        }
+
       } catch (err) {
         console.error('Error loading dashboard:', err)
       } finally {
@@ -118,21 +182,61 @@ export default function DashboardPage() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'For Approval':
-        return <Badge variant="outline" className="border-[hsl(var(--chart-2))] text-[hsl(var(--chart-2))] bg-[hsl(var(--chart-4))]">For Approval</Badge>
+        return (
+          <Badge variant="outline" className="border-orange-500 text-orange-700 bg-orange-50">
+            <Clock className="w-3 h-3 mr-1" />
+            For Approval
+          </Badge>
+        )
       case 'On Hold':
-        return <Badge variant="destructive" className="text-white">On Hold</Badge>
+        return (
+          <Badge variant="destructive" className="text-white">
+            <AlertTriangle className="w-3 h-3 mr-1" />
+            On Hold
+          </Badge>
+        )
       case 'In Progress':
-        return <Badge variant="default" className="bg-[hsl(var(--chart-1))] text-white">In Progress</Badge>
+        return (
+          <Badge variant="default" className="bg-blue-500 text-white">
+            <AlertTriangle className="w-3 h-3 mr-1" />
+            In Progress
+          </Badge>
+        )
       case 'Approved':
-        return <Badge variant="outline" className="border-[hsl(var(--chart-1))] text-[hsl(var(--chart-1))] bg-[hsl(var(--chart-4))]">Approved</Badge>
+        return (
+          <Badge variant="outline" className="border-green-500 text-green-700 bg-green-50">
+            <CheckCircle className="w-3 h-3 mr-1" />
+            Approved
+          </Badge>
+        )
       case 'Stuck':
-        return <Badge variant="destructive" className="text-white">Stuck</Badge>
+        return (
+          <Badge variant="destructive" className="text-white">
+            <AlertTriangle className="w-3 h-3 mr-1" />
+            Stuck
+          </Badge>
+        )
       case 'Actioned':
-        return <Badge variant="outline" className="border-[hsl(var(--chart-2))] text-[hsl(var(--chart-2))] bg-[hsl(var(--chart-4))]">Actioned</Badge>
+        return (
+          <Badge variant="outline" className="border-blue-500 text-blue-700 bg-blue-50">
+            <CheckCircle className="w-3 h-3 mr-1" />
+            Actioned
+          </Badge>
+        )
       case 'Closed':
-        return <Badge variant="outline" className="border-[hsl(var(--chart-3))] text-[hsl(var(--chart-3))] bg-[hsl(var(--chart-4))]">Closed</Badge>
+        return (
+          <Badge variant="outline" className="border-green-500 text-green-700 bg-green-50">
+            <CheckCircle className="w-3 h-3 mr-1" />
+            Closed
+          </Badge>
+        )
       default:
-        return <Badge variant="secondary">{status}</Badge>
+        return (
+          <Badge variant="outline" className="border-gray-500 text-gray-700 bg-gray-50">
+            <Clock className="w-3 h-3 mr-1" />
+            {status}
+          </Badge>
+        )
     }
   }
 
@@ -171,6 +275,31 @@ export default function DashboardPage() {
     return days.map((d) => ({ date: d, count: map.get(d) || 0 }))
   }, [meetings])
 
+  // Prepare task data for charts
+  const taskGroupData = useMemo(() => {
+    if (!taskStats?.groups) return []
+    return taskStats.groups.map(group => ({
+      name: group.group_title,
+      count: parseInt(group.task_count) || 0,
+      color: group.group_color.includes('blue') ? '#3b82f6' : 
+             group.group_color.includes('green') ? '#10b981' :
+             group.group_color.includes('yellow') ? '#f59e0b' :
+             group.group_color.includes('red') ? '#ef4444' :
+             group.group_color.includes('purple') ? '#8b5cf6' : '#6b7280'
+    }))
+  }, [taskStats])
+
+  const priorityData = useMemo(() => {
+    if (!taskStats?.priorities) return []
+    return taskStats.priorities.map(priority => ({
+      name: priority.priority.charAt(0).toUpperCase() + priority.priority.slice(1),
+      value: parseInt(priority.count) || 0,
+      color: priority.priority === 'urgent' ? '#ef4444' :
+             priority.priority === 'high' ? '#f59e0b' :
+             priority.priority === 'normal' ? '#3b82f6' : '#6b7280'
+    }))
+  }, [taskStats])
+
   if (loading) {
     return (
       <SidebarProvider>
@@ -192,20 +321,47 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-3xl font-bold text-foreground">Overview</h1>
-              <p className="text-muted-foreground">Your activity, meetings, and recent tickets at a glance</p>
+              <p className="text-muted-foreground">Your activity, tasks, meetings, and recent tickets at a glance</p>
             </div>
-            <Link href="/forms/new">
-              <Button>
-                <Plus className="mr-2 h-4 w-4" />
-                New Ticket
-              </Button>
-            </Link>
+            <div className="flex gap-2">
+              <Link href="/productivity/task-activity">
+                <Button variant="outline">
+                  <Target className="mr-2 h-4 w-4" />
+                  Task Board
+                </Button>
+              </Link>
+              <Link href="/forms/new">
+                <Button>
+                  <Plus className="mr-2 h-4 w-4" />
+                  New Ticket
+                </Button>
+              </Link>
+            </div>
           </div>
-
-          <ShiftResetTimer />
-
           {/* KPI Cards */}
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Total Tasks</CardTitle>
+                <Target className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{taskStats?.totalTasks || 0}</div>
+                <p className="text-xs text-muted-foreground">Active tasks</p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Overdue Tasks</CardTitle>
+                <AlertCircle className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{taskStats?.overdue?.overdue_count || 0}</div>
+                <p className="text-xs text-muted-foreground">Past due date</p>
+              </CardContent>
+            </Card>
+
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">Total Tickets</CardTitle>
@@ -219,29 +375,8 @@ export default function DashboardPage() {
 
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">In Progress</CardTitle>
-                <AlertCircle className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{getStatusCount('In Progress')}</div>
-                <p className="text-xs text-muted-foreground">Being worked on</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Closed</CardTitle>
-                <CheckCircle className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{getStatusCount('Closed')}</div>
-                <p className="text-xs text-muted-foreground">Completed tickets</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">Meetings (7d)</CardTitle>
+                <Calendar className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">{meetings.length}</div>
@@ -250,7 +385,7 @@ export default function DashboardPage() {
             </Card>
           </div>
 
-          {/* Charts */}
+          {/* Additional Charts Row */}
           <div className="grid gap-4 lg:grid-cols-2">
             <Card>
               <CardHeader>
@@ -319,6 +454,114 @@ export default function DashboardPage() {
             </Card>
           </div>
 
+
+
+          {/* Charts */}
+          <div className="grid gap-4 lg:grid-cols-2">
+            {/* Task Summary by Status Chart */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Task Summary by Status</CardTitle>
+                <CardDescription>Task counts across all groups</CardDescription>
+              </CardHeader>
+              <CardContent className="h-64">
+                {taskStats?.groups && taskStats.groups.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={taskStats.groups} margin={{ left: 8, right: 8, top: 8, bottom: 8 }}>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                      <XAxis 
+                        dataKey="group_title" 
+                        tick={{ fontSize: 12 }}
+                        angle={-45}
+                        textAnchor="end"
+                        height={80}
+                      />
+                      <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
+                      <ReTooltip 
+                        formatter={(v: any) => [v, 'Tasks']}
+                        labelFormatter={(l) => l}
+                        contentStyle={{
+                          background: 'hsl(var(--card))',
+                          color: 'hsl(var(--foreground))',
+                          border: '1px solid hsl(var(--border))',
+                          borderRadius: 8,
+                        }}
+                        itemStyle={{ color: 'hsl(var(--foreground))' }}
+                        labelStyle={{ color: 'hsl(var(--muted-foreground))' }}
+                        wrapperStyle={{ outline: 'none' }}
+                      />
+                      <Bar 
+                        dataKey="task_count" 
+                        fill="hsl(var(--chart-1))" 
+                        radius={[4, 4, 0, 0]}
+                        name="Task Count"
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="text-center">
+                      <Target className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                      <p className="text-muted-foreground">No task data available</p>
+                      <p className="text-sm text-muted-foreground">Create your first task to see the summary</p>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Task Priority Distribution */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Task Priority Distribution</CardTitle>
+                <CardDescription>Tasks by priority level</CardDescription>
+              </CardHeader>
+              <CardContent className="h-64">
+                {priorityData && priorityData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={priorityData}
+                        cx="50%"
+                        cy="50%"
+                        labelLine={false}
+                        label={({ name, percent }) => `${name} ${((percent || 0) * 100).toFixed(0)}%`}
+                        outerRadius={80}
+                        fill="#8884d8"
+                        dataKey="value"
+                      >
+                        {priorityData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <ReTooltip 
+                        formatter={(v: any) => [v, 'Tasks']}
+                        contentStyle={{
+                          background: 'hsl(var(--card))',
+                          color: 'hsl(var(--foreground))',
+                          border: '1px solid hsl(var(--border))',
+                          borderRadius: 8,
+                        }}
+                        itemStyle={{ color: 'hsl(var(--foreground))' }}
+                        labelStyle={{ color: 'hsl(var(--muted-foreground))' }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="text-center">
+                      <Target className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                      <p className="text-muted-foreground">No priority data</p>
+                      <p className="text-sm text-muted-foreground">Create tasks with priorities to see distribution</p>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          
+
           {/* Recent Tickets */}
           <Card>
             <CardHeader>
@@ -346,32 +589,37 @@ export default function DashboardPage() {
                   </Link>
                 </div>
               ) : (
-                <div className="space-y-4">
+                <div className="grid gap-2">
                   {recentTickets.map((ticket) => (
-                    <div key={ticket.id} className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-2">
-                          <h4 className="font-semibold">{ticket.id}</h4>
-                          {getStatusBadge(ticket.status)}
-                        </div>
-                        <div className="flex items-center gap-4 text-sm text-muted-foreground mb-2">
-                          <div className="flex items-center gap-1">
-                            <Calendar className="h-3 w-3" />
-                            <span>{formatDate(ticket.createdAt || ticket.date)}</span>
+                    <div key={ticket.id} className="group relative p-3 rounded-lg border border-border/50 hover:border-border hover:bg-muted/30 transition-all duration-200">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="font-mono text-sm font-medium text-primary">{ticket.id}</span>
+                            {getStatusBadge(ticket.status)}
                           </div>
-                          <div className="flex items-center gap-1">
-                            <Tag className="h-3 w-3" />
-                            <span>{ticket.category}</span>
+                          <p className="text-sm font-medium text-foreground mb-1 line-clamp-1">{ticket.concern}</p>
+                          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                            <div className="flex items-center gap-1">
+                              <Calendar className="h-3 w-3" />
+                              <span>{formatDate(ticket.createdAt || ticket.date)}</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Tag className="h-3 w-3" />
+                              <span>{ticket.category}</span>
+                            </div>
                           </div>
                         </div>
-                        <p className="text-sm text-muted-foreground line-clamp-2">{ticket.concern}</p>
+                        <Link href={`/forms/${ticket.id}`}>
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 h-8 w-8 p-0"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                        </Link>
                       </div>
-                      <Link href={`/forms/${ticket.id}`}>
-                        <Button variant="outline" size="sm">
-                          <Eye className="mr-2 h-4 w-4" />
-                          View
-                        </Button>
-                      </Link>
                     </div>
                   ))}
                 </div>

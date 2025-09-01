@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo, useCallback } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { usePathname } from "next/navigation"
 import { HeaderUser } from "@/components/header-user"
 import {
@@ -14,7 +14,7 @@ import {
 import { Separator } from "@/components/ui/separator"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { getCurrentUser } from "@/lib/ticket-utils"
-import { Bell, CheckCircle, AlertCircle, Info, Clock, ArrowRight, CheckSquare, FileText, Sun, Moon } from "lucide-react"
+import { Bell, CheckCircle, AlertCircle, Info, Clock, ArrowRight, CheckSquare, FileText, Sun, Moon, Users } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -24,22 +24,26 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Badge } from "@/components/ui/badge"
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { useRouter } from "next/navigation"
 import { 
   getNotifications, 
   getUnreadCount, 
   markNotificationAsRead, 
-  checkAllNotifications,
   initializeNotificationChecking,
   addSampleNotifications,
-  markAllNotificationsAsRead,
   formatTimeAgo,
-  syncNotificationsWithDatabase
 } from "@/lib/notification-service"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { BellNotificationsSkeleton } from "@/components/skeleton-loaders"
-import { AppSidebar } from "@/components/app-sidebar"
 import { useNotificationsSocketContext } from "@/hooks/use-notifications-socket-context"
+import { useTeamStatus } from "@/contexts/team-status-context"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 interface BreadcrumbItem {
   title: string
@@ -65,8 +69,17 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
   const [notifications, setNotifications] = useState<any[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [loadingBell, setLoadingBell] = useState(true)
+  const [activeTab, setActiveTab] = useState<'all' | 'unread'>('all')
   // Trigger periodic re-render so formatTimeAgo updates (e.g., "Just now" -> "1 minute ago")
   const [nowTick, setNowTick] = useState<number>(() => Date.now())
+
+  // Filter notifications based on active tab
+  const filteredNotifications = useMemo(() => {
+    if (activeTab === 'unread') {
+      return notifications.filter(notification => !notification.read)
+    }
+    return notifications
+  }, [notifications, activeTab])
 
   // Start socket listener for DB notifications. The hook reacts to email changes.
   const { 
@@ -80,9 +93,7 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
 
   // Initialize socket context notifications when user is available
   useEffect(() => {
-    console.log('Socket connection status:', socketConnected, 'User email:', user?.email)
     if (user?.email && socketConnected) {
-      console.log('Fetching notifications for user:', user.email)
       fetchNotifications(0, 50, 0) // userId parameter is not used anymore
     }
   }, [user?.email, socketConnected, fetchNotifications])
@@ -216,7 +227,7 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
       setUser({
         name: currentUser.name || "Agent User",
         email: currentUser.email || "agent@shoreagents.com",
-        avatar: "/shoreagents-logo.png",
+        avatar: "/shoreagents-dp.png",
       })
           
           // Try to fetch fresh profile data from API
@@ -237,7 +248,7 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
                 setUser({
                   name: `${profile.first_name} ${profile.last_name}`.trim() || currentUser.name || "Agent User",
                   email: profile.email || currentUser.email || "agent@shoreagents.com",
-                  avatar: "/shoreagents-logo.png",
+                  avatar: "/shoreagents-dp.png",
                 })
               }
             }
@@ -252,7 +263,7 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
         setUser({
           name: "Agent User",
           email: "agent@shoreagents.com",
-          avatar: "/shoreagents-logo.png",
+          avatar: "/shoreagents-dp.png",
         })
       } finally {
         setUserLoading(false)
@@ -447,6 +458,9 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
     }
   }, [currentUnreadCount, unreadCount])
 
+  // Get team status for the badge
+  const { isLoading: teamStatusLoading, onlineTeamCount, totalTeamCount } = useTeamStatus()
+
   return (
     <header className="sticky top-0 z-50 flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12 bg-background/95 backdrop-blur-sm supports-[backdrop-filter]:bg-background/80 border-b border-border/40 shadow-sm">
       <div className="flex items-center gap-2 px-4">
@@ -476,6 +490,35 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
       </div>
       {showUser && (
         <div className="ml-auto flex items-center gap-2 px-4">
+          {/* Team Status Badge */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-3 flex items-center gap-2 hover:bg-blue-50 dark:hover:bg-blue-950/20"
+                  onClick={() => router.push('/settings/connected-users')}
+                >
+                  <Users className="w-4 h-4 text-muted-foreground" />
+                  <Badge 
+                    variant="secondary" 
+                    className={`${
+                      onlineTeamCount > 0 
+                        ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' 
+                        : 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
+                    }`}
+                  >
+                    {teamStatusLoading ? '...' : `${onlineTeamCount}/${totalTeamCount}`}
+                  </Badge>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent >
+                <p>Team Status: {onlineTeamCount} online out of {totalTeamCount} members</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
           {/* Theme toggle */}
           <Button
             variant="ghost"
@@ -527,7 +570,7 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
                       {Math.max(socketUnreadCount, socketNotifications ? socketNotifications.filter(n => !n.is_read).length : 0) > 9 ? '9+' : Math.max(socketUnreadCount, socketNotifications ? socketNotifications.filter(n => !n.is_read).length : 0)} new
                     </Badge>
                   )}
-                  {notifications.length > 0 && (
+                  {(socketUnreadCount > 0 || (socketNotifications && socketNotifications.filter(n => !n.is_read).length > 0)) && (
                     <Button
                       variant="ghost"
                       size="sm"
@@ -536,13 +579,9 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
                         try {
                           const currentUser = getCurrentUser()
                           if (currentUser?.id) {
-                            console.log('App-header: Marking all notifications as read')
-                            
                             // Use the socket context function to mark all as read
                             // This will update both the database and the socket context state
                             await markAllAsRead(currentUser.id)
-                            
-                            console.log('App-header: Mark all read completed, socket unread count:', socketUnreadCount)
                             
                             // Dispatch a custom event to notify other components (like notification page) to refresh
                             window.dispatchEvent(new CustomEvent('notifications-marked-all-read'))
@@ -560,17 +599,32 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
                 </div>
               </div>
               <DropdownMenuSeparator />
+              
+              {/* Notification Tabs */}
+              <div className="px-2">
+                <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'all' | 'unread')}>
+                  <TabsList className="grid w-full grid-cols-2">
+                    <TabsTrigger value="all">
+                      All
+                    </TabsTrigger>
+                    <TabsTrigger value="unread">
+                      Unread
+                    </TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </div>
+              
               <ScrollArea className="h-96">
-                <div className="p-2">
+                <div className="p-2 flex flex-col gap-1">
                   {loadingBell ? (
                     <BellNotificationsSkeleton rows={6} />
-                  ) : notifications.length === 0 ? (
+                  ) : filteredNotifications.length === 0 ? (
                     <div className="p-4 text-center text-sm text-muted-foreground">
-                      No notifications
+                      {activeTab === 'unread' ? 'No unread notifications' : 'No notifications'}
                     </div>
                   ) : (
                     <>
-                      {notifications.map((notification) => {
+                      {filteredNotifications.map((notification) => {
                         // Map icon string to component
                         const getIconComponent = (iconName: string) => {
                           switch (iconName) {
@@ -673,16 +727,19 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
                           </DropdownMenuItem>
                         )
                       })}
-                      {getNotifications().length > 8 && (
+                      {filteredNotifications.length > 8 && (
                         <div className="p-3 text-center text-xs text-muted-foreground border-t">
-                          Showing 8 most recent notifications
+                          {activeTab === 'unread' 
+                            ? `Showing ${filteredNotifications.length} unread notifications`
+                            : `Showing 8 most recent notifications`
+                          }
                         </div>
                       )}
                     </>
                   )}
                 </div>
               </ScrollArea>
-              {notifications.length > 0 && (
+              {filteredNotifications.length > 0 && (
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
@@ -690,7 +747,7 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
                     onClick={handleViewAllNotifications}
                   >
                     <div className="flex items-center justify-between w-full">
-                      <span>View All Notifications</span>
+                      <span>{activeTab === 'unread' ? 'View All Unread' : 'View All Notifications'}</span>
                       <ArrowRight className="h-4 w-4" />
                     </div>
                   </DropdownMenuItem>

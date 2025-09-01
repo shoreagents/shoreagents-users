@@ -7,7 +7,7 @@ try {
   // Send messages to main process
   send: (channel, data) => {
     // Whitelist channels
-    const validChannels = ['new-ticket', 'save-ticket', 'load-tickets', 'show-notification', 'notification-count-changed'];
+    const validChannels = ['new-ticket', 'save-ticket', 'load-tickets', 'show-notification', 'notification-count-changed', 'enter-fullscreen', 'exit-fullscreen', 'create-black-screens', 'close-black-screens', 'get-monitor-info', 'test-black-screens'];
     if (validChannels.includes(channel)) {
       ipcRenderer.send(channel, data);
     }
@@ -15,7 +15,7 @@ try {
   
   // Receive messages from main process
   receive: (channel, func) => {
-    const validChannels = ['new-ticket', 'ticket-saved', 'tickets-loaded', 'activity-update', 'inactivity-alert', 'activity-reset', 'app-closing', 'system-suspend', 'system-resume', 'force-logout-before-quit', 'navigate-to', 'mark-notification-read', 'notifications-updated', 'highlight-notification'];
+    const validChannels = ['new-ticket', 'ticket-saved', 'tickets-loaded', 'activity-update', 'inactivity-alert', 'activity-reset', 'app-closing', 'system-suspend', 'system-resume', 'force-logout-before-quit', 'navigate-to', 'mark-notification-read', 'notifications-updated', 'highlight-notification', 'break-focus-lost', 'break-minimized', 'break-hidden', 'emergency-escape-pressed'];
     if (validChannels.includes(channel)) {
       try {
         // Deliberately strip event as it includes `sender` 
@@ -34,7 +34,7 @@ try {
   
   // Remove all listeners for a channel
   removeAllListeners: (channel) => {
-    const validChannels = ['new-ticket', 'ticket-saved', 'tickets-loaded', 'activity-update', 'inactivity-alert', 'activity-reset', 'app-closing', 'force-logout-before-quit', 'navigate-to', 'mark-notification-read', 'notifications-updated', 'highlight-notification'];
+    const validChannels = ['new-ticket', 'ticket-saved', 'tickets-loaded', 'activity-update', 'inactivity-alert', 'activity-reset', 'app-closing', 'force-logout-before-quit', 'navigate-to', 'mark-notification-read', 'notifications-updated', 'highlight-notification', 'break-focus-lost', 'break-minimized', 'break-hidden', 'emergency-escape-pressed'];
     if (validChannels.includes(channel)) {
       ipcRenderer.removeAllListeners(channel);
     }
@@ -71,6 +71,43 @@ try {
     logoutCompleted: () => ipcRenderer.invoke('logout-completed'),
     userLoggedIn: () => ipcRenderer.invoke('user-logged-in'),
     userLoggedOut: () => ipcRenderer.invoke('user-logged-out')
+  },
+
+  // Secure credential storage methods
+  secureCredentials: {
+    store: (email, password) => ipcRenderer.invoke('store-credentials', { email, password }),
+    get: () => ipcRenderer.invoke('get-credentials'),
+    clear: () => ipcRenderer.invoke('clear-credentials')
+  },
+  
+  // Fullscreen methods
+  fullscreen: {
+    enter: () => ipcRenderer.invoke('enter-fullscreen'),
+    exit: () => ipcRenderer.invoke('exit-fullscreen')
+  },
+  
+  // Multi-monitor management methods
+  multiMonitor: {
+    createBlackScreens: () => ipcRenderer.invoke('create-black-screens'),
+    closeBlackScreens: () => ipcRenderer.invoke('close-black-screens'),
+    getMonitorInfo: () => ipcRenderer.invoke('get-monitor-info'),
+    testBlackScreens: () => ipcRenderer.invoke('test-black-screens')
+  },
+  
+  // Break monitoring methods
+  breakMonitoring: {
+    setActive: (active) => ipcRenderer.invoke('set-break-active', active),
+    getActive: () => ipcRenderer.invoke('get-break-active'),
+    confirmEndDueToFocusLoss: () => ipcRenderer.invoke('confirm-break-end-due-to-focus-loss'),
+    returnToBreak: () => ipcRenderer.invoke('return-to-break'),
+    emergencyEscape: () => ipcRenderer.invoke('emergency-escape')
+  },
+  
+  // Kiosk mode methods
+  kioskMode: {
+    enable: () => ipcRenderer.invoke('set-kiosk-mode', true),
+    disable: () => ipcRenderer.invoke('set-kiosk-mode', false),
+    setActive: (enabled) => ipcRenderer.invoke('set-kiosk-mode', enabled)
   },
   
   // Get app version

@@ -173,3 +173,11 @@ body:hover::-webkit-scrollbar-thumb {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+/* Change the green tooltip arrow to a different color */
+.custom-tooltip-arrow::before {
+  border-top-color: #3b82f6 !important; /* Blue arrow */
+}
+
+.custom-tooltip-arrow::after {
+  border-top-color: #3b82f6 !important; /* Blue arrow */
+}

@@ -69,11 +69,15 @@ export async function GET(request: NextRequest) {
       const stream = new ReadableStream<Uint8Array>({
         async start(controller) {
           const send = (data: any) => {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
+            if (!closed) {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
+            }
           }
 
           const heartbeat = () => {
-            controller.enqueue(encoder.encode(`: ping\n\n`))
+            if (!closed) {
+              controller.enqueue(encoder.encode(`: ping\n\n`))
+            }
           }
 
           const onClose = async () => {
@@ -83,10 +87,11 @@ export async function GET(request: NextRequest) {
             client.removeListener('notification', onNotification)
             client.release()
             await pool.end().catch(() => {})
-            controller.close()
+            // Don't call controller.close() here as it will be handled by the overridden close method
           }
 
           const onNotification = (msg: any) => {
+            if (closed) return
             try {
               const payload = JSON.parse(msg.payload || '{}')
               const record = payload.record || null
@@ -119,10 +124,12 @@ export async function GET(request: NextRequest) {
           // When the stream is canceled by the client
           ;(stream as any).cancel = onClose
 
-          // Ensure interval cleared on close
+          // Ensure interval cleared on close and prevent double-closing
           const originalClose = controller.close.bind(controller)
           controller.close = () => {
+            if (closed) return
             clearInterval(interval)
+            onClose()
             originalClose()
           }
         },
@@ -161,31 +168,19 @@ export async function GET(request: NextRequest) {
 
     try {
       // Get tickets for the user by user_id (using railway_id)
+      // OPTIMIZED: Only fetch columns that are actually displayed in the UI
       const ticketsQuery = `
         SELECT 
           t.id,
           t.ticket_id,
-          t.user_id,
           t.concern,
-          t.details,
           t.category_id,
           t.status,
-          t.resolved_by,
-          t.resolved_at,
           t.created_at,
-          t.updated_at,
           t.position,
-          t.supporting_files,
           t.file_count,
-          t.role_id,
-          u.email as user_email,
-          TRIM(CONCAT(COALESCE(pi_resolver.first_name, ''), ' ', COALESCE(pi_resolver.last_name, ''))) as resolved_by_name,
-          resolver.email as resolved_by_email,
           tc.name as category_name
         FROM tickets t
-        LEFT JOIN users u ON t.user_id = u.id
-        LEFT JOIN users resolver ON t.resolved_by = resolver.id
-        LEFT JOIN personal_info pi_resolver ON resolver.id = pi_resolver.user_id
         LEFT JOIN ticket_categories tc ON t.category_id = tc.id
         WHERE t.user_id = $1
         ORDER BY t.position ASC, t.created_at DESC
@@ -194,6 +189,7 @@ export async function GET(request: NextRequest) {
       const result = await client.query(ticketsQuery, [user.id])
 
       // Transform database results to match frontend interface
+      // OPTIMIZED: Only transform columns that are actually displayed in the UI
       const tickets = result.rows.map(row => ({
         id: row.ticket_id,
         name: row.concern,
@@ -208,9 +204,6 @@ export async function GET(request: NextRequest) {
         }) || '',
         concern: row.concern,
         category: row.category_name || 'Uncategorized',
-        details: row.details || '',
-        email: row.user_email,
-        files: row.supporting_files || [],
         status: row.status,
         createdAt: row.created_at?.toLocaleString('en-US', { 
           timeZone: 'Asia/Manila',
@@ -221,24 +214,8 @@ export async function GET(request: NextRequest) {
           minute: '2-digit',
           hour12: true
         }) || '',
-        userId: row.user_id,
-        userEmail: row.user_email,
-        resolvedBy: row.resolved_by,
-        resolvedByName: row.resolved_by_name,
-        resolvedByEmail: row.resolved_by_email,
-        resolvedAt: row.resolved_at?.toLocaleString('en-US', { 
-          timeZone: 'Asia/Manila',
-          year: 'numeric',
-          month: '2-digit',
-          day: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: true
-        }) || null,
         position: row.position,
         categoryId: row.category_id,
-        roleId: row.role_id,
-        supportingFiles: row.supporting_files || [],
         fileCount: row.file_count || 0
       }))
 

@@ -418,39 +418,20 @@ function shouldResetForShift(lastActivityTime, currentTime, shiftInfo) {
       // Compute the start boundary for the shift window that the CURRENT time belongs to
       const currentShiftStart = getShiftStartForDate(currentTime, shiftInfo);
       
-      // Add debug logging
-      console.log(`🕐 Day Shift reset check for ${shiftInfo.period}:`, {
-        lastActivity: lastActivityTime.toISOString(),
-        currentTime: currentTime.toISOString(),
-        currentShiftStart: currentShiftStart.toISOString(),
-        timeDiff: currentTime.getTime() - currentShiftStart.getTime(),
-        shouldReset: (lastActivityTime < currentShiftStart) && (currentTime >= currentShiftStart)
-      });
+      // FIXED: Check if this is a NEW DAY's shift, not just continuing the same shift
+      // Get the date of the last activity and current time in Manila timezone
+      const lastActivityDate = new Date(lastActivityTime.getTime() + (8 * 60 * 60 * 1000)).toISOString().split('T')[0];
+      const currentDate = new Date(currentTime.getTime() + (8 * 60 * 60 * 1000)).toISOString().split('T')[0];
       
-      // Reset when we CROSS the shift start boundary OR when we're at the exact shift start time
-      // This handles both cases: crossing the boundary and being exactly at the boundary
-      const isAtOrPastShiftStart = currentTime >= currentShiftStart;
-      const wasBeforeShiftStart = lastActivityTime < currentShiftStart;
+      // FIXED: Only reset when we're on a completely NEW DAY
+      // Don't reset when continuing the same shift on the same day
+      const isNewDay = lastActivityDate !== currentDate;
       
-      // CRITICAL: Only reset when we actually CROSS the shift start boundary
-      // Don't reset if we're already within the shift period
-      const shouldReset = wasBeforeShiftStart && isAtOrPastShiftStart;
-      
-      // Special case: if we're exactly at or just passed the shift start time, always reset
-      const timeDiff = Math.abs(currentTime.getTime() - currentShiftStart.getTime());
-      const isExactlyAtShiftStart = timeDiff <= 1000; // Within 1 second
-      const isJustPassedShiftStart = currentTime.getTime() >= currentShiftStart.getTime() && timeDiff <= 5000; // Within 5 seconds after
-      
-      if (isExactlyAtShiftStart || isJustPassedShiftStart) {
-        console.log(`🎯 Exact shift start time detected: isExactly=${isExactlyAtShiftStart}, isJustPassed=${isJustPassedShiftStart}`);
+      if (isNewDay) {
         return true;
       }
-      
-      if (shouldReset) {
-        console.log(`🔄 Shift reset condition met: wasBefore=${wasBeforeShiftStart}, isAtOrPast=${isAtOrPastShiftStart}, timeDiff=${timeDiff}ms`);
-      }
-      
-      return shouldReset;
+      // If it's the same day, don't reset - continue accumulating time
+      return false;
     }
   } catch (error) {
     console.error('Error in shouldResetForShift:', error);
@@ -519,9 +500,9 @@ function getBreakWindows(shiftInfo) {
   // Afternoon: 7h45m after start (1 hour duration)
   if (shiftInfo?.isNightShift) {
     // Night shift uses same timing pattern but different break type names
-                    addWindow('NightFirst', 120, 60);    // Morning equivalent: +2h, 1h
-                addWindow('NightMeal', 240, 180);    // Lunch equivalent: +4h, 3h
-                addWindow('NightSecond', 465, 60);   // Afternoon equivalent: +7h45m, 1h
+    addWindow('NightFirst', 120, 60);    // Morning equivalent: +2h, 1h
+    addWindow('NightMeal', 240, 180);    // Lunch equivalent: +4h, 3h
+    addWindow('NightSecond', 465, 60);   // Afternoon equivalent: +7h45m, 1h
   } else {
     // Day shift with consistent timing
     addWindow('Morning', 120, 60);       // +2h, 1h
@@ -557,12 +538,9 @@ async function getUserShiftInfo(userId) {
       if (shiftInfo) {
         shiftInfo.period = shiftData.shift_period || shiftInfo.period;
         shiftInfo.schedule = shiftData.shift_schedule || shiftInfo.schedule;
-        console.log(`🕐 Retrieved shift info for user ${userId}: ${shiftInfo.period} (${shiftInfo.time})`);
         return shiftInfo;
       }
     }
-    
-    console.log(`⏰ No shift info found for user ${userId}, using calendar-based reset`);
     return null;
   } catch (error) {
     console.error('Error getting user shift info:', error);
@@ -615,8 +593,6 @@ async function getUserInfo(userId) {
 // Function to initialize user status for all team members
 async function initializeTeamUserStatus(referenceMemberId) {
   try {
-    console.log(`🔍 Initializing user status for team ${referenceMemberId}...`);
-    
     // Fetch all team members from database
     const teamQuery = `
       SELECT 
@@ -782,25 +758,24 @@ async function checkShiftReset(email, userId) {
   try {
     const userInfo = userData.get(email);
     if (!userInfo) {
-      console.log(`⚠️ No user data found for ${email} during shift reset check`);
       return false;
     }
 
-    // CRITICAL: Prevent multiple resets during the same shift period
-    if (userInfo.lastResetAt) {
-      const timeSinceLastReset = Date.now() - userInfo.lastResetAt;
-      const shiftDuration = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+    // FIXED: Only prevent reset if we're still in the same shift period
+    // This allows legitimate shift resets while preventing multiple resets within the same shift
+    if (userInfo.lastResetAt && userInfo.lastShiftId) {
+      const currentShiftId = getCurrentShiftId(currentTime, shiftInfo);
       
-      // Only reset if it's been more than a full shift duration since last reset
-      if (timeSinceLastReset < shiftDuration) {
-        console.log(`🔄 Shift reset skipped for ${email} - already reset ${Math.floor(timeSinceLastReset / 1000)}s ago`);
+      // If we're in the same shift period, don't reset again
+      if (userInfo.lastShiftId === currentShiftId) {
+        const timeSinceLastReset = Date.now() - userInfo.lastResetAt;
         return false;
       }
+      // If we're in a new shift period, allow reset regardless of time since last reset
     }
 
     const shiftInfo = userShiftInfo.get(email);
     if (!shiftInfo) {
-      console.log(`⚠️ No shift info found for ${email} during shift reset check`);
       return false;
     }
 
@@ -812,36 +787,45 @@ async function checkShiftReset(email, userId) {
       return false;
     }
     
-    // ADDITIONAL: If we have recent activity data (within last hour), don't reset
-    // This prevents resetting when users reconnect shortly after shift start
+    // FIXED: Only prevent reset if we have recent activity data AND we're within the same shift period
+    // This allows legitimate shift resets while preventing false resets on reconnection
     if (userInfo.sessionStart) {
       const timeSinceSessionStart = Date.now() - new Date(userInfo.sessionStart).getTime();
       const oneHour = 60 * 60 * 1000; // 1 hour in milliseconds
       
       if (timeSinceSessionStart < oneHour) {
-        console.log(`🔄 Shift reset skipped for ${email} - session started ${Math.floor(timeSinceSessionStart / 1000)}s ago (too recent)`);
-        return false;
+        // Check if we're actually in a new shift period
+        const currentShiftId = getCurrentShiftId(currentTime, shiftInfo);
+        if (userInfo.lastShiftId && userInfo.lastShiftId === currentShiftId) {
+          return false;
+        }
+        // If we're in a new shift period, allow reset even with recent session
       }
     }
     
-    // ADDITIONAL: If we have accumulated time, don't reset unless it's a genuine shift boundary
-    // This prevents resetting when users reconnect with existing timer data
+    // FIXED: Only prevent reset if we have accumulated time AND we're within the same shift period
+    // This allows legitimate shift resets while preventing false resets on reconnection
     if (userInfo.activeSeconds > 0 || userInfo.inactiveSeconds > 0) {
-      console.log(`🔄 Shift reset skipped for ${email} - user has accumulated time (${userInfo.activeSeconds}s active, ${userInfo.inactiveSeconds}s inactive)`);
-      return false;
+      // Check if we're actually in a new shift period
+      const currentShiftId = getCurrentShiftId(currentTime, shiftInfo);
+      if (userInfo.lastShiftId && userInfo.lastShiftId === currentShiftId) {
+        return false;
+      }
+      // If we're in a new shift period, allow reset even with accumulated time
     }
     
     // Check if we should reset based on shift schedule
     const shouldReset = shouldResetForShift(userInfo.sessionStart, currentTime, shiftInfo);
     
     if (shouldReset) {
-      console.log(`🔄 Shift reset detected for ${email} (${shiftInfo.period}: ${shiftInfo.time})`);
+      // FIXED: For a new shift, always start as active unless explicitly set to inactive
+      // This ensures users start productive work at the beginning of each shift
+      let preserveActive = userInfo.isActive === false ? false : true;
       
-      // For a new shift, user should start as active (unless they were explicitly inactive)
-      // Only preserve inactive state if user was explicitly set to inactive
-      const preserveActive = userInfo.isActive === false ? false : true;
-      
-      console.log(`🔄 Shift reset: Activity state change for ${email}: ${userInfo.isActive} → ${preserveActive}`);
+      // If this is a genuine new shift (not just a reconnection), force active state
+      if (shiftInfo && shouldReset) {
+        preserveActive = true;
+      }
       
       // Reset user data
       userInfo.activeSeconds = 0;
@@ -860,13 +844,11 @@ async function checkShiftReset(email, userId) {
         // For night shifts, use the date when the current shift started
         const shiftStartDate = getShiftStartForDate(currentTime, shiftInfo);
         currentDate = shiftStartDate.toISOString().split('T')[0];
-        console.log(`🌙 Night shift detected for ${email} - using shift start date: ${currentDate} (not current calendar date)`);
       } else {
         // For day shifts, use current Manila time (not UTC)
         // Convert UTC to Manila time by adding 8 hours (UTC+8)
         const manilaTime = new Date(currentTime.getTime() + (8 * 60 * 60 * 1000));
         currentDate = manilaTime.toISOString().split('T')[0];
-        console.log(`☀️ Day shift detected for ${email} - using Manila date: ${currentDate} (current Manila time: ${manilaTime.toLocaleString()})`);
       }
       
       try {
@@ -880,7 +862,6 @@ async function checkShiftReset(email, userId) {
         } catch (insertError) {
           // If insert fails due to conflict, it means a row already exists for this date
           if (insertError.code === '23505') { // Unique constraint violation
-            console.log(`📊 Activity record already exists for ${email} on ${currentDate} during shift reset - updating instead`);
             await pool.query(
               `UPDATE activity_data 
                SET is_currently_active = $1, 
@@ -914,18 +895,12 @@ async function checkShiftReset(email, userId) {
           shiftId: currentShiftId
         };
         
-        console.log(`📡 Sending shift reset notification to ${userSockets.size} connections for ${email}:`, resetData);
         
         userSockets.forEach(socketId => {
           io.to(socketId).emit('shiftReset', resetData);
           io.to(socketId).emit('timerUpdated', resetData);
-          console.log(`📤 Sent shiftReset and timerUpdated events to socket ${socketId}`);
         });
-        
-        console.log(`📡 Notified ${userSockets.size} connections about shift reset for ${email}`);
-      } else {
-        console.log(`⚠️ No active connections found for ${email} during shift reset`);
-      }
+      } 
       
       return true;
     }
@@ -1174,7 +1149,7 @@ io.on('connection', (socket) => {
         // Creating new user data;
         userInfo = {
           userId: null, // Will be set after database lookup
-          isActive: false,
+          isActive: true, // FIXED: Start as active by default for productivity
           activeSeconds: 0,
           inactiveSeconds: 0,
           sessionStart: new Date().toISOString(),
@@ -1188,7 +1163,6 @@ io.on('connection', (socket) => {
         // New userInfo object created
         
         // Try to load existing data from database
-        console.log(`🔍 Checking database for user: ${emailString}`);
         try {
           const userResult = await pool.query('SELECT id FROM users WHERE email = $1', [emailString]);
           let userId;
@@ -1266,6 +1240,7 @@ io.on('connection', (socket) => {
             console.log(`📅 User ${emailString} (ID: ${userId}) - Last Activity: ${lastActivityTime.toISOString()}, Current: ${currentTime.toISOString()}`);
             
             // Check if we should reset based on shift schedule
+            // FIXED: Use the database session start time to determine if reset is needed
             const shouldReset = shouldResetForShift(lastActivityTime, currentTime, shiftInfo);
             
             if (!shouldReset) {
@@ -1315,9 +1290,15 @@ io.on('connection', (socket) => {
               } else {
                 console.log(`🔄 New day detected for ${emailString} (${dbDate} -> ${currentDate}) - resetting timers`);
               }
-              // For a new shift, user should start as active (unless they were explicitly inactive)
-              // Only preserve inactive state if user was explicitly set to inactive
-              const preserveActive = userInfo.isActive === false ? false : true;
+              // FIXED: For a new shift, always start as active unless explicitly set to inactive
+              // This ensures users start productive work at the beginning of each shift
+              let preserveActive = userInfo.isActive === false ? false : true;
+              
+              // If this is a genuine new shift (not just a reconnection), force active state
+              if (shiftInfo && shouldReset) {
+                console.log(`🔄 New shift detected - forcing active state for productivity`);
+                preserveActive = true;
+              }
               
               console.log(`🔄 Shift reset: Activity state change for ${email}: ${userInfo.isActive} → ${preserveActive}`);
               
@@ -1368,7 +1349,8 @@ io.on('connection', (socket) => {
               // Reset timers for user logging in after shift start
               userInfo.activeSeconds = 0;
               userInfo.inactiveSeconds = 0;
-              userInfo.isActive = false;
+              // FIXED: Start as active if shift has started, unless explicitly set to inactive
+              userInfo.isActive = true; // Start as active for shift that has begun
               userInfo.sessionStart = new Date().toISOString();
               // FIXED: Update lastShiftBoundaryTime when fresh start reset occurs
               userInfo.lastShiftBoundaryTime = currentTime.toISOString();
@@ -1376,12 +1358,13 @@ io.on('connection', (socket) => {
               userInfo.lastDbUpdate = 0; // Initialize for throttling
               userInfo.lastSocketEmit = 0; // Initialize for throttling
               userInfo.lastActivityEmit = 0; // Initialize for throttling
-              console.log(`⏰ Fresh start with reset for ${email} - ${resetReason}`);
+              console.log(`⏰ Fresh start with reset for ${email} - ${resetReason} - starting as ACTIVE`);
             } else {
               // Normal fresh start
               userInfo.activeSeconds = 0;
               userInfo.inactiveSeconds = 0;
-              userInfo.isActive = false;
+              // FIXED: Start as active by default for new users, unless shift hasn't started
+              userInfo.isActive = true; // Start as active by default
               userInfo.sessionStart = new Date().toISOString();
               // FIXED: Update lastShiftBoundaryTime for normal fresh start
               userInfo.lastShiftBoundaryTime = currentTime.toISOString();
@@ -1389,14 +1372,14 @@ io.on('connection', (socket) => {
               userInfo.lastDbUpdate = 0; // Initialize for throttling
               userInfo.lastSocketEmit = 0; // Initialize for throttling
               userInfo.lastActivityEmit = 0; // Initialize for throttling
-              console.log(`🆕 Fresh start for ${email} - no reset needed`);
+              console.log(`🆕 Fresh start for ${email} - no reset needed - starting as ACTIVE`);
             }
             
             // Create initial activity_data record
             await pool.query(
               `INSERT INTO activity_data (user_id, is_currently_active, today_active_seconds, today_inactive_seconds, last_session_start, today_date, updated_at) 
                VALUES ($1, $2, $3, $4, $5, $6::date, NOW())`,
-              [userId, false, 0, 0, userInfo.sessionStart, currentDate]
+              [userId, userInfo.isActive, 0, 0, userInfo.sessionStart, currentDate]
             );
           }
           
@@ -1527,9 +1510,15 @@ io.on('connection', (socket) => {
                 } else {
                   console.log(`🔄 New day detected during refresh for ${emailString} (${dbDate} -> ${currentDate}) - resetting timers`);
                 }
-              // For a new shift, user should start as active (unless they were explicitly inactive)
-              // Only preserve inactive state if user was explicitly set to inactive
-              const preserveActive = userInfo.isActive === false ? false : true;
+              // FIXED: For a new shift, always start as active unless explicitly set to inactive
+              // This ensures users start productive work at the beginning of each shift
+              let preserveActive = userInfo.isActive === false ? false : true;
+              
+              // If this is a genuine new shift (not just a reconnection), force active state
+              if (shiftInfo && shouldReset) {
+                console.log(`🔄 New shift detected - forcing active state for productivity`);
+                preserveActive = true;
+              }
               
               console.log(`🔄 Shift reset: Activity state change for ${email}: ${userInfo.isActive} → ${preserveActive}`);
               
@@ -1594,7 +1583,8 @@ io.on('connection', (socket) => {
                 // Reset timers for user refreshing after shift start
                 userInfo.activeSeconds = 0;
                 userInfo.inactiveSeconds = 0;
-                userInfo.isActive = false;
+                // FIXED: Start as active after shift start, not inactive
+                userInfo.isActive = true;
                 userInfo.sessionStart = new Date().toISOString();
                 // FIXED: Update lastShiftBoundaryTime when refresh reset occurs
                 userInfo.lastShiftBoundaryTime = currentTime.toISOString();
@@ -1790,86 +1780,18 @@ io.on('connection', (socket) => {
       // Pre-create next-day activity row if needed (shift already ended)
       try { await precreateNextDayRowIfEnded(userInfo.userId); } catch {}
 
-      // Hydrate timer from today's shift-anchored activity_data so it doesn't start at 0s
+      // FIXED: Simple hydration - use the existing data that was already loaded from the database
       try {
-        // Read shift window
-        const shiftRes = await pool.query(
-          `SELECT ji.shift_time FROM job_info ji WHERE ji.agent_user_id = $1 LIMIT 1`,
-          [userInfo.userId]
-        );
-        const shiftText = (shiftRes.rows[0]?.shift_time || '').toString();
-        let shiftStartMinutes = null;
-        const startMatch = shiftText.match(/(\d{1,2}:\d{2}\s*(?:AM|PM))/i);
-        if (startMatch) {
-          const tok = startMatch[1].trim().toUpperCase();
-          const [hhmm, ampm] = tok.split(/\s+/);
-          const [hhStr, mmStr] = hhmm.split(':');
-          let hh = parseInt(hhStr, 10); const mm = parseInt(mmStr, 10);
-          if (ampm === 'AM') { if (hh === 12) hh = 0; } else { if (hh !== 12) hh += 12; }
-          shiftStartMinutes = (hh * 60) + mm;
-        }
-        const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
-        const curMin = nowPH.getHours() * 60 + nowPH.getMinutes();
-        const manilaYMD = (d) => {
-          const y = d.getFullYear();
-          const m = String(d.getMonth() + 1).padStart(2, '0');
-          const day = String(d.getDate()).padStart(2, '0');
-          return `${y}-${m}-${day}`;
-        };
-        let effective = new Date(nowPH);
-        if (shiftStartMinutes !== null && curMin < shiftStartMinutes) {
-          effective.setDate(effective.getDate() - 1);
-        }
-        const effectiveDateStr = manilaYMD(effective);
-
-        const adRes = await pool.query(
-          `SELECT is_currently_active, today_active_seconds, today_inactive_seconds, last_session_start
-           FROM activity_data
-           WHERE user_id = $1 AND DATE(today_date) = $2::date
-           LIMIT 1`,
-          [userInfo.userId, effectiveDateStr]
-        );
+        console.log(`🔄 Using existing loaded data for ${emailString}: ${userInfo.activeSeconds}s active, ${userInfo.inactiveSeconds}s inactive, isActive: ${userInfo.isActive}`);
         
-        let hydratedData = null;
+        // The data was already loaded in the earlier database query during user creation
+        // Just ensure the initial timer data matches what was loaded
+        initialTimerData.isActive = userInfo.isActive;
+        initialTimerData.activeSeconds = userInfo.activeSeconds;
+        initialTimerData.inactiveSeconds = userInfo.inactiveSeconds;
+        initialTimerData.sessionStart = userInfo.sessionStart;
         
-        if (adRes.rows && adRes.rows[0]) {
-          const row = adRes.rows[0];
-          hydratedData = {
-            isActive: row.is_currently_active === true,
-            activeSeconds: Number(row.today_active_seconds) || 0,
-            inactiveSeconds: Number(row.today_inactive_seconds) || 0,
-            sessionStart: row.last_session_start
-          };
-          
-          // If the calculated date has zero data, check if this is a fresh shift start
-          // Don't fall back to old accumulated data - respect the fresh start
-          if (hydratedData.activeSeconds === 0 && hydratedData.inactiveSeconds === 0) {
-            console.log(`✅ Fresh shift start detected for ${emailString} on ${effectiveDateStr} - keeping zero values (no fallback to old data)`);
-            
-            // Ensure we're using the fresh start data
-            hydratedData = {
-              isActive: false, // Start inactive
-              activeSeconds: 0,
-              inactiveSeconds: 0,
-              sessionStart: new Date().toISOString()
-            };
-          }
-        }
-        
-        if (hydratedData) {
-          userInfo.isActive = hydratedData.isActive;
-          userInfo.activeSeconds = hydratedData.activeSeconds;
-          userInfo.inactiveSeconds = hydratedData.inactiveSeconds;
-          userInfo.sessionStart = hydratedData.sessionStart || userInfo.sessionStart;
-          
-          // Update initial timer data with hydrated values
-          initialTimerData.isActive = userInfo.isActive;
-          initialTimerData.activeSeconds = userInfo.activeSeconds;
-          initialTimerData.inactiveSeconds = userInfo.inactiveSeconds;
-          initialTimerData.sessionStart = userInfo.sessionStart;
-          
-          console.log(`🔄 Hydrated timer data for ${emailString}: ${userInfo.activeSeconds}s active, ${userInfo.inactiveSeconds}s inactive`);
-        }
+        console.log(`✅ Timer data initialized for ${emailString}: ${userInfo.activeSeconds}s active, ${userInfo.inactiveSeconds}s inactive`);
         
         // NOW send the authenticated event with proper hydrated data
         // Create clean data object to avoid circular references

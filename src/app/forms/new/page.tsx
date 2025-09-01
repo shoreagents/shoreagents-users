@@ -135,7 +135,14 @@ export default function NewTicketPage() {
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     setIsSubmitting(true)
-    setUploadingFiles(true)
+    
+    // Capture files at the beginning to avoid state changes during async operations
+    const filesToUpload = [...files]
+    
+    // Only set uploading files state if there are actually files to upload
+    if (filesToUpload.length > 0) {
+      setUploadingFiles(true)
+    }
     
     try {
       const formData = new FormData(e.currentTarget)
@@ -173,7 +180,7 @@ export default function NewTicketPage() {
       const newTicketId = result.ticket.id
       
       // Now upload files to Supabase storage using server-side API
-      if (files.length > 0) {
+      if (filesToUpload.length > 0) {
         console.log('📤 Uploading files to Supabase storage...')
         
         // Create FormData for file upload
@@ -181,7 +188,7 @@ export default function NewTicketPage() {
         uploadFormData.append('ticketId', newTicketId)
         
         // Add all files to FormData
-        files.forEach(file => {
+        filesToUpload.forEach(file => {
           uploadFormData.append('files', file)
         })
         
@@ -311,10 +318,6 @@ export default function NewTicketPage() {
                       </div>
                       <div className="flex items-start gap-3">
                         <div className="w-2 h-2 rounded-full bg-primary mt-2 flex-shrink-0"></div>
-                        <p className="text-sm">You'll receive an email confirmation shortly</p>
-                      </div>
-                      <div className="flex items-start gap-3">
-                        <div className="w-2 h-2 rounded-full bg-primary mt-2 flex-shrink-0"></div>
                         <p className="text-sm">Our team will review and respond within 24-48 hours</p>
                       </div>
                       <div className="flex items-start gap-3">
@@ -326,10 +329,10 @@ export default function NewTicketPage() {
 
                   {/* Action Buttons */}
                   <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                    <Link href="/dashboard" className="flex-1 sm:flex-none">
+                    <Link href="/forms/my-tickets" className="flex-1 sm:flex-none">
                       <Button variant="outline" className="w-full sm:w-auto">
                         <ArrowLeft className="mr-2 h-4 w-4" />
-                        Back to Dashboard
+                        View All My Tickets
                       </Button>
                     </Link>
                     <Button 
@@ -495,17 +498,26 @@ export default function NewTicketPage() {
                   <div className="space-y-4">
                     <Label htmlFor="files">Supporting Files (Optional)</Label>
                     <div
-                      className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
+                      className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors cursor-pointer hover:border-primary hover:bg-primary/5 ${
                         dragActive ? 'border-primary bg-primary/5' : 'border-muted-foreground/25'
                       }`}
                       onDragEnter={handleDrag}
                       onDragLeave={handleDrag}
                       onDragOver={handleDrag}
                       onDrop={handleDrop}
+                      onClick={() => document.getElementById('files')?.click()}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          document.getElementById('files')?.click()
+                        }
+                      }}
                     >
                       <Upload className="mx-auto h-8 w-8 text-muted-foreground mb-2" />
                       <p className="text-sm text-muted-foreground mb-2">
-                        Drag and drop files here, or click to select
+                        Drag and drop files here, or click anywhere to select
                       </p>
                       <p className="text-xs text-muted-foreground">
                         Maximum file size: 10MB. Supported formats: Images, PDF, Word, Excel, PowerPoint, Text, ZIP
@@ -523,7 +535,10 @@ export default function NewTicketPage() {
                         variant="outline"
                         size="sm"
                         className="mt-2"
-                        onClick={() => document.getElementById('files')?.click()}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          document.getElementById('files')?.click()
+                        }}
                       >
                         Select Files
                       </Button>
@@ -617,7 +632,7 @@ export default function NewTicketPage() {
                       {isSubmitting ? (
                         <>
                           <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                          Submitting...
+                          {uploadingFiles ? 'Uploading Files...' : 'Submitting...'}
                         </>
                       ) : (
                         <>

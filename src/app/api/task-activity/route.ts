@@ -337,8 +337,6 @@ export async function POST(request: NextRequest) {
       case 'move_task':
         const { task_id, new_group_id, target_position } = data
         
-        console.log('Moving task:', { task_id, new_group_id, target_position })
-        
         // Start a transaction
         const client = await pool.connect()
         
@@ -367,28 +365,35 @@ export async function POST(request: NextRequest) {
           }
           
           const currentTask = taskCheckResult.rows[0]
-          console.log('Current task:', currentTask)
-          console.log('Permission check:', { isCreator, isAssignee })
           
+                     // Determine if this is a column change or just reordering
+           const isColumnChange = currentTask.group_id !== parseInt(new_group_id)
+           const isReordering = currentTask.group_id === parseInt(new_group_id) && currentTask.position !== target_position
+           
+           // Early return if no changes are needed
+           if (!isColumnChange && !isReordering) {
+             // Return early without making any database changes
+             return NextResponse.json({
+               success: true,
+               task: currentTask,
+               message: 'No changes needed'
+             })
+           }
           // If moving to a different group, re-index the source group first
           if (currentTask.group_id !== parseInt(new_group_id)) {
-            console.log('Moving to different group, re-indexing source group')
             const reindexSourceQuery = `
               UPDATE tasks 
               SET position = position - 1, updated_at = NOW() AT TIME ZONE 'Asia/Manila'
               WHERE group_id = $1 AND status = 'active' AND position > $2
             `
             await client.query(reindexSourceQuery, [currentTask.group_id, currentTask.position])
-            console.log(`Re-indexed source group ${currentTask.group_id}`)
           }
           
           // If target_position is provided, we need to reorder tasks
           if (target_position !== undefined && target_position > 0) {
-            console.log('Moving to specific position:', target_position)
-            
             // Check if we're moving within the same group
             if (currentTask.group_id === parseInt(new_group_id)) {
-              console.log('Moving within same group')
+              // This is just reordering within the same column
               
               // For same group moves, we need to handle the position shift differently
               if (currentTask.position < target_position) {
@@ -409,8 +414,6 @@ export async function POST(request: NextRequest) {
                 await client.query(shiftQuery, [new_group_id, target_position, currentTask.position])
               }
             } else {
-              console.log('Moving to different group')
-              
               // Moving to different group: shift all tasks at and after the target position up by 1
               // But first, check if the task is already in this group
               const existingTaskQuery = `
@@ -422,7 +425,6 @@ export async function POST(request: NextRequest) {
               if (existingTaskResult.rows.length > 0) {
                 // Task is already in this group, handle same-group move
                 const existingPosition = existingTaskResult.rows[0].position
-                console.log(`Task already in group at position ${existingPosition}, moving to ${target_position}`)
                 
                 if (existingPosition < target_position) {
                   // Moving down: shift tasks between current and target positions down by 1
@@ -468,25 +470,19 @@ export async function POST(request: NextRequest) {
             
             await client.query('COMMIT')
             
-            console.log('Task moved successfully:', moveResult.rows[0])
-            
             return NextResponse.json({
               success: true,
               task: moveResult.rows[0]
             })
           } else {
-            console.log('Moving to end of group')
-            
             // If moving to a different group, re-index the source group first
             if (currentTask.group_id !== parseInt(new_group_id)) {
-              console.log('Moving to different group, re-indexing source group')
               const reindexSourceQuery = `
                 UPDATE tasks 
                 SET position = position - 1, updated_at = NOW() AT TIME ZONE 'Asia/Manila'
                 WHERE group_id = $1 AND status = 'active' AND position > $2
               `
               await client.query(reindexSourceQuery, [currentTask.group_id, currentTask.position])
-              console.log(`Re-indexed source group ${currentTask.group_id}`)
             }
             
             // If no target position, just add to the end
@@ -497,8 +493,6 @@ export async function POST(request: NextRequest) {
             `
             const movePositionResult = await client.query(movePositionQuery, [new_group_id])
             const moveNextPosition = movePositionResult.rows[0].next_position
-            
-            console.log('Next position:', moveNextPosition)
             
             // Move the task
             const moveTaskQuery = `
@@ -515,8 +509,6 @@ export async function POST(request: NextRequest) {
             ])
             
             await client.query('COMMIT')
-            
-            console.log('Task moved successfully:', moveResult.rows[0])
             
             return NextResponse.json({
               success: true,
@@ -538,8 +530,6 @@ export async function POST(request: NextRequest) {
       case 'reorder_groups':
         const { group_positions } = data
         
-        console.log('Reordering groups:', group_positions)
-        
         const reorderClient = await pool.connect()
         
         try {
@@ -556,8 +546,6 @@ export async function POST(request: NextRequest) {
           }
           
           await reorderClient.query('COMMIT')
-          
-          console.log('Groups reordered successfully')
           
           return NextResponse.json({
             success: true,
@@ -578,8 +566,6 @@ export async function POST(request: NextRequest) {
         
       case 'update_task':
         const { task_id: updateTaskId, updates } = data
-        
-        console.log('Updating task:', updateTaskId, updates)
         
         const updateClient = await pool.connect()
         
@@ -770,9 +756,6 @@ export async function POST(request: NextRequest) {
             RETURNING *
           `
           
-          console.log('Update query:', updateQuery)
-          console.log('Update values:', updateValues)
-          
           const updateResult = await updateClient.query(updateQuery, updateValues)
           
           if (updateResult.rows.length === 0) {
@@ -855,7 +838,6 @@ export async function POST(request: NextRequest) {
 
           await updateClient.query('COMMIT')
           
-          console.log('Task updated, loading enriched relations and assignees')
           const enriched = await updateClient.query(
             `SELECT t.*,
                     COALESCE(array_agg(DISTINCT ta.user_id) FILTER (WHERE ta.user_id IS NOT NULL), '{}') AS assignees,
@@ -883,7 +865,6 @@ export async function POST(request: NextRequest) {
             [updateTaskId]
           )
           const taskRow = enriched.rows[0] || updateResult.rows[0]
-          console.log('Task updated successfully:', taskRow)
           // Write activity history and notify via socket channel (pg_notify)
           try {
             const poolHist = getPool()

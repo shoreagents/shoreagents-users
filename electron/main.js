@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, shell, ipcMain, Notification, dialog } = require('electron');
+const { app, BrowserWindow, Menu, Tray, shell, ipcMain, Notification, dialog, screen, globalShortcut } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const isDev = process.env.NODE_ENV === 'development';
@@ -10,6 +10,1047 @@ try {
   soundPlay = null;
 }
 const ActivityTracker = require('./activity-tracker');
+
+// Global variables for black screen windows
+let blackScreenWindows = [];
+
+// Global variables for break monitoring
+let breakActive = false;
+let breakWindowId = null;
+let focusLossCooldown = false;
+let focusLossCooldownTimeout = null;
+let focusMonitoringSetup = false; // Flag to prevent multiple setup calls
+
+// Function to create black screen windows on secondary monitors
+function createBlackScreenWindows() {
+  try {
+    // Get all displays
+    const displays = screen.getAllDisplays();
+    const primaryDisplay = screen.getPrimaryDisplay();
+    
+    // Close any existing black screen windows
+    closeBlackScreenWindows();
+    
+    // Create black screen windows on secondary monitors
+    displays.forEach((display, index) => {
+      if (display.id !== primaryDisplay.id) {
+        const blackWindow = new BrowserWindow({
+          x: display.bounds.x,
+          y: display.bounds.y,
+          width: display.bounds.width,
+          height: display.bounds.height,
+          fullscreen: true,
+          alwaysOnTop: true,
+          skipTaskbar: true,
+          frame: false,
+          webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+            enableRemoteModule: false,
+            webSecurity: true
+          },
+          show: false
+        });
+        
+        // Load a completely minimal black HTML page
+        blackWindow.loadURL(`data:text/html,
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <meta charset="utf-8">
+              <title>Break Time</title>
+              <style>
+                * {
+                  margin: 0;
+                  padding: 0;
+                  border: 0;
+                  outline: 0;
+                  background: #000000 !important;
+                  color: #000000 !important;
+                }
+                html, body {
+                  width: 100vw;
+                  height: 100vh;
+                  overflow: hidden;
+                  background: #000000 !important;
+                  user-select: none;
+                  -webkit-user-select: none;
+                  -moz-user-select: none;
+                  -ms-user-select: none;
+                  cursor: none;
+                  /* Force full coverage including taskbar area */
+                  position: fixed;
+                  top: 0;
+                  left: 0;
+                  right: 0;
+                  bottom: 0;
+                  z-index: 2147483647; /* Maximum z-index */
+                }
+                .break-indicator {
+                  position: absolute;
+                  top: 50%;
+                  left: 50%;
+                  transform: translate(-50%, -50%);
+                  color: #ffffff !important;
+                  font-family: Arial, sans-serif;
+                  font-size: 24px;
+                  opacity: 0.3;
+                  pointer-events: none;
+                  z-index: 9999;
+                  background: transparent !important;
+                }
+                /* Additional overlay to ensure taskbar is covered */
+                .taskbar-cover {
+                  position: fixed;
+                  bottom: 0;
+                  left: 0;
+                  right: 0;
+                  height: 50px; /* Cover taskbar height */
+                  background: #000000 !important;
+                  z-index: 2147483646; /* Just below body */
+                }
+              </style>
+            </head>
+            <body>
+              <div class="break-indicator">Break Time</div>
+              <div class="taskbar-cover"></div>
+            </body>
+          </html>
+        `);
+        
+        // Allow mouse events but prevent keyboard interaction
+        blackWindow.setIgnoreMouseEvents(false);
+        blackWindow.setFocusable(false);
+        
+        // Set window properties to prevent keyboard interaction
+        blackWindow.setClosable(false);
+        blackWindow.setMinimizable(false);
+        blackWindow.setMaximizable(false);
+        blackWindow.setResizable(false);
+        
+        // Completely disable keyboard shortcuts, menu, and system interactions
+        blackWindow.setMenu(null);
+        blackWindow.setAutoHideMenuBar(true);
+        
+        // Prevent any system-level keyboard shortcuts
+        blackWindow.setAlwaysOnTop(true, 'screen-saver');
+        blackWindow.setSkipTaskbar(true);
+        
+        // Set maximum window level to ensure it covers everything including taskbar
+        blackWindow.setAlwaysOnTop(true, 'screen-saver', 1);
+        
+        // Force the window to be the topmost possible
+        blackWindow.moveTop();
+        
+        // Block ALL keyboard input completely at multiple levels
+        blackWindow.webContents.on('before-input-event', (event) => {
+          // Block every single keyboard input (F11, Alt+F4, Ctrl+W, etc.)
+          if (event.type === 'keyDown' || event.type === 'keyUp') {
+            event.preventDefault();
+            return false;
+          }
+        });
+        
+        // Block all keyboard events
+        blackWindow.webContents.on('keydown', (event) => {
+          event.preventDefault();
+          return false;
+        });
+        
+        blackWindow.webContents.on('keyup', (event) => {
+          event.preventDefault();
+          return false;
+        });
+        
+        // Block keyboard shortcuts at the system level
+        blackWindow.webContents.on('before-input-event', (event) => {
+          // Block all possible keyboard combinations
+          if (event.type === 'keyDown') {
+            // Block F11, Alt+F4, Ctrl+W, Ctrl+Q, etc.
+            if (event.key === 'F11' || event.key === 'F12' || 
+                event.control || event.alt || event.meta || event.shift) {
+              event.preventDefault();
+              return false;
+            }
+          }
+        });
+        
+        // Block system keyboard shortcuts and ensure no focus
+        blackWindow.on('focus', () => {
+          blackWindow.setFocusable(false);
+        });
+        
+        // Additional window-level keyboard blocking
+        blackWindow.on('keydown', (event) => {
+          event.preventDefault();
+          return false;
+        });
+        
+        blackWindow.on('keyup', (event) => {
+          event.preventDefault();
+          return false;
+        });
+        
+        // Block all possible keyboard shortcuts
+        blackWindow.on('blur', () => {
+          // Prevent window from losing focus to other windows
+          blackWindow.focus();
+        });
+        
+        // Block mouse events that could be used to interact with other windows
+        blackWindow.on('mouse-enter', () => {
+          // Keep focus on this window
+          blackWindow.focus();
+        });
+        
+        // Block any attempt to move or resize the window
+        blackWindow.on('moved', () => {
+          // Prevent window from being moved
+          const display = screen.getDisplayNearestPoint(blackWindow.getBounds());
+          if (display && display.id !== screen.getPrimaryDisplay().id) {
+            blackWindow.setBounds(display.bounds);
+          }
+        });
+        
+        blackWindow.on('resize', () => {
+          // Prevent window from being resized
+          const display = screen.getDisplayNearestPoint(blackWindow.getBounds());
+          if (display && display.id !== screen.getPrimaryDisplay().id) {
+            blackWindow.setBounds(display.bounds);
+          }
+        });
+        
+        // Block context menu
+        blackWindow.webContents.on('context-menu', (event) => {
+          event.preventDefault();
+        });
+        
+        // Block new window creation
+        blackWindow.webContents.setWindowOpenHandler(() => {
+          return { action: 'deny' };
+        });
+        
+        // Block navigation
+        blackWindow.webContents.on('will-navigate', (event) => {
+          event.preventDefault();
+        });
+        
+        // Block window movement and resizing
+        blackWindow.on('moved', (event) => {
+          // Prevent window from being moved
+          const display = screen.getDisplayNearestPoint(blackWindow.getBounds());
+          if (display && display.id !== screen.getPrimaryDisplay().id) {
+            blackWindow.setBounds(display.bounds);
+          }
+        });
+        
+        blackWindow.on('resize', (event) => {
+          // Prevent window from being resized
+          const display = screen.getDisplayNearestPoint(blackWindow.getBounds());
+          if (display && display.id !== screen.getPrimaryDisplay().id) {
+            blackWindow.setBounds(display.bounds);
+          }
+        });
+        
+        // Store references to event handlers so we can remove them later
+        const closeHandler = (event) => {
+          event.preventDefault();
+          return false;
+        };
+        
+        const minimizeHandler = (event) => {
+          event.preventDefault();
+          blackWindow.show();
+          return false;
+        };
+        
+        const maximizeHandler = (event) => {
+          event.preventDefault();
+          return false;
+        };
+        
+        const restoreHandler = (event) => {
+          event.preventDefault();
+          return false;
+        };
+        
+        const hideHandler = (event) => {
+          event.preventDefault();
+          blackWindow.show();
+          return false;
+        };
+        
+        // Block window close attempts and prevent any system shortcuts
+        blackWindow.on('close', closeHandler);
+        
+        // Block minimize, maximize, and restore events
+        blackWindow.on('minimize', minimizeHandler);
+        
+        blackWindow.on('maximize', maximizeHandler);
+        
+        blackWindow.on('restore', restoreHandler);
+        
+        // Block any attempt to close the window
+        blackWindow.on('closed', () => {
+          // This should never happen, but just in case
+          console.warn('Black screen window was closed unexpectedly');
+        });
+        
+        // Prevent window from being hidden
+        blackWindow.on('hide', hideHandler);
+        
+        // Store the event handlers for later removal
+        blackWindow._eventHandlers = {
+          close: closeHandler,
+          minimize: minimizeHandler,
+          maximize: maximizeHandler,
+          restore: restoreHandler,
+          hide: hideHandler
+        };
+        
+        // Set window background color as additional fallback
+        blackWindow.setBackgroundColor('#000000');
+        
+        // Show the window
+        blackWindow.show();
+        
+        // Store reference
+        blackScreenWindows.push(blackWindow);
+        
+        console.log(`✅ Created black screen window on monitor ${index + 1} (ID: ${blackWindow.id})`);
+      }
+    });
+    
+    // Add a small delay and then ensure main window has focus
+    setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.focus();
+      }
+    }, 500);
+    
+    return { success: true, count: blackScreenWindows.length };
+  } catch (error) {
+    console.error('Error creating black screen windows:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+// Function to close all black screen windows
+function closeBlackScreenWindows() {
+  try {
+    console.log(`🔄 Closing ${blackScreenWindows.length} black screen windows...`);
+    
+    blackScreenWindows.forEach((window, index) => {
+      if (window && !window.isDestroyed()) {
+        // Force close by removing specific event listeners and destroying the window
+        try {
+          // Remove specific event handlers that prevent closing
+          if (window._eventHandlers) {
+            window.removeListener('close', window._eventHandlers.close);
+            window.removeListener('minimize', window._eventHandlers.minimize);
+            window.removeListener('maximize', window._eventHandlers.maximize);
+            window.removeListener('restore', window._eventHandlers.restore);
+            window.removeListener('hide', window._eventHandlers.hide);
+          }
+          
+          // Force destroy the window
+          window.destroy();
+        } catch (windowError) {
+          console.warn(`Error destroying window ${window.id}:`, windowError);
+          // Fallback: try to close normally
+          try {
+            window.close();
+          } catch (closeError) {
+            console.warn(`Error closing window ${window.id}:`, closeError);
+          }
+        }
+      }
+    });
+    
+    blackScreenWindows = [];
+    console.log('✅ All black screen windows closed');
+    return { success: true };
+  } catch (error) {
+    console.error('Error closing black screen windows:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+// Function to get monitor information
+function getMonitorInfo() {
+  try {
+    const displays = screen.getAllDisplays();
+    const primaryDisplay = screen.getPrimaryDisplay();
+    
+    return {
+      success: true,
+      displays: displays.map(display => ({
+        id: display.id,
+        isPrimary: display.id === primaryDisplay.id,
+        bounds: display.bounds,
+        workArea: display.workArea,
+        scaleFactor: display.scaleFactor
+      })),
+      primaryDisplay: {
+        id: primaryDisplay.id,
+        bounds: primaryDisplay.bounds,
+        workArea: primaryDisplay.workArea,
+        scaleFactor: primaryDisplay.scaleFactor
+      }
+    };
+  } catch (error) {
+    console.error('Error getting monitor info:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+// Function to setup break focus monitoring
+function setupBreakFocusMonitoring() {
+  try {
+    // Check if monitoring is already set up
+    if (focusMonitoringSetup) {
+      return { success: true, alreadySetup: true };
+    }
+    
+    console.log('🔄 Setting up break focus monitoring...');
+    focusMonitoringSetup = true;
+    
+    // Enable kiosk mode on main window
+    if (mainWindow) {
+      // Set kiosk mode to prevent taskbar access
+      mainWindow.setKiosk(true);
+      console.log('✅ Kiosk mode enabled');
+      
+      // Set always on top with highest priority
+      mainWindow.setAlwaysOnTop(true, 'screen-saver');
+      
+      // Hide menu bar completely
+      mainWindow.setMenuBarVisibility(false);
+      mainWindow.setAutoHideMenuBar(true);
+      
+      // Disable window controls
+      mainWindow.setClosable(false);
+      mainWindow.setMinimizable(false);
+      mainWindow.setMaximizable(false);
+      mainWindow.setResizable(false);
+      
+      // Windows-specific: Block virtual desktop creation at system level
+      if (process.platform === 'win32') {
+        try {
+          // Use Windows API to disable virtual desktop switching
+          const { exec } = require('child_process');
+          
+                  // Disable Windows+Tab (Task View)
+        exec('reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" /v "EnableTaskView" /t REG_DWORD /d 0 /f', (error) => {
+          if (error) {
+            console.warn('Could not disable Task View via registry (may require admin):', error.message);
+          }
+        });
+        
+        // Disable virtual desktop creation
+        exec('reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" /v "EnableVirtualDesktop" /t REG_DWORD /d 0 /f', (error) => {
+          if (error) {
+            console.warn('Could not disable virtual desktops via registry (may require admin):', error.message);
+          }
+        });
+        
+        // Disable taskbar grouping and switching
+        exec('reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" /v "TaskbarGrouping" /t REG_DWORD /d 0 /f', (error) => {
+          if (error) {
+            console.warn('Could not disable taskbar grouping via registry:', error.message);
+          }
+        });
+        
+        // Disable taskbar previews
+        exec('reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" /v "EnableTaskbarThumbnails" /t REG_DWORD /d 0 /f', (error) => {
+          if (error) {
+            console.warn('Could not disable taskbar thumbnails via registry:', error.message);
+          }
+        });
+        
+        // Hide taskbar on secondary monitors during break
+        exec('reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" /v "MultiTaskbarAltTab" /t REG_DWORD /d 0 /f', (error) => {
+          if (error) {
+            console.warn('Could not disable multi-taskbar via registry:', error.message);
+          }
+        });
+        
+        // Hide taskbar completely on secondary monitors
+        exec('reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" /v "ShowTaskbarOnSecondaryDisplays" /t REG_DWORD /d 0 /f', (error) => {
+          if (error) {
+            console.warn('Could not hide taskbar on secondary displays via registry:', error.message);
+          }
+        });
+          
+        } catch (registryError) {
+          console.log('Registry modification not available:', registryError.message);
+        }
+      }
+    }
+    
+    // Monitor when main window loses focus
+    if (mainWindow) {
+      mainWindow.on('blur', () => {
+        if (breakActive && !focusLossCooldown) {
+          console.log('⚠️ Break timer lost focus - showing confirmation dialog');
+          mainWindow.webContents.send('break-focus-lost');
+          // DON'T close black screens here - just show dialog
+        }
+      });
+      
+      mainWindow.on('minimize', () => {
+        if (breakActive && !focusLossCooldown) {
+          console.log('⚠️ Break timer minimized - showing confirmation dialog');
+          mainWindow.webContents.send('break-minimized');
+          // DON'T close black screens here - just show dialog
+        }
+      });
+      
+      mainWindow.on('hide', () => {
+        if (breakActive && !focusLossCooldown) {
+          console.log('⚠️ Break timer hidden - showing confirmation dialog');
+          mainWindow.webContents.send('break-hidden');
+          // DON'T close black screens here - just show dialog
+        }
+      });
+      
+      // Store break window reference
+      breakWindowId = mainWindow.id;
+      console.log(`Break window ID set to: ${breakWindowId}`);
+    }
+    
+    // Monitor when other windows gain focus
+    app.on('browser-window-focus', (event, focusedWindow) => {
+      if (breakActive && !focusLossCooldown && focusedWindow && focusedWindow.id !== breakWindowId) {
+        console.log(`⚠️ User switched to different window (ID: ${focusedWindow.id}) during break`);
+        mainWindow.webContents.send('break-focus-lost');
+        // DON'T close black screens here - just show dialog
+      }
+    });
+    
+    // Register global shortcuts to block virtual desktop creation and switching
+    try {
+      // Block Windows+Tab (Task View) - MORE AGGRESSIVE
+      globalShortcut.register('Meta+Tab', () => {
+        if (breakActive) {
+          console.log('Windows+Tab (Task View) blocked during break');
+          // Force focus back to main window immediately
+          if (mainWindow) {
+            mainWindow.focus();
+            // Ensure it's still in fullscreen and kiosk mode
+            if (!mainWindow.isFullScreen()) {
+              mainWindow.setFullScreen(true);
+            }
+            if (!mainWindow.isKiosk()) {
+              mainWindow.setKiosk(true);
+            }
+          }
+          mainWindow.webContents.send('break-focus-lost');
+          return false;
+        }
+        return true;
+      });
+      
+      // Block Windows+Ctrl+D (Create new virtual desktop) - MORE AGGRESSIVE
+      globalShortcut.register('Meta+Ctrl+D', () => {
+        if (breakActive) {
+          console.log('Windows+Ctrl+D (New virtual desktop) blocked during break');
+          // Force focus back to main window immediately
+          if (mainWindow) {
+            mainWindow.focus();
+            // Ensure it's still in fullscreen and kiosk mode
+            if (!mainWindow.isFullScreen()) {
+              mainWindow.setFullScreen(true);
+            }
+            if (!mainWindow.isKiosk()) {
+              mainWindow.setKiosk(true);
+            }
+          }
+          mainWindow.webContents.send('break-focus-lost');
+          return false;
+        }
+        return true;
+      });
+      
+      // Block Windows+Ctrl+Left/Right (Switch between virtual desktops) - MORE AGGRESSIVE
+      globalShortcut.register('Meta+Ctrl+Left', () => {
+        if (breakActive) {
+          console.log('Windows+Ctrl+Left (Switch desktop left) blocked during break');
+          // Force focus back to main window immediately
+          if (mainWindow) {
+            mainWindow.focus();
+            // Ensure it's still in fullscreen and kiosk mode
+            if (!mainWindow.isFullScreen()) {
+              mainWindow.setFullScreen(true);
+            }
+            if (!mainWindow.isKiosk()) {
+              mainWindow.setKiosk(true);
+            }
+          }
+          mainWindow.webContents.send('break-focus-lost');
+          return false;
+        }
+        return true;
+      });
+      
+      globalShortcut.register('Meta+Ctrl+Right', () => {
+        if (breakActive) {
+          console.log('Windows+Ctrl+Right (Switch desktop right) blocked during break');
+          // Force focus back to main window immediately
+          if (mainWindow) {
+            mainWindow.focus();
+            // Ensure it's still in fullscreen and kiosk mode
+            if (!mainWindow.isFullScreen()) {
+              mainWindow.setFullScreen(true);
+            }
+            if (!mainWindow.isKiosk()) {
+              mainWindow.setKiosk(true);
+            }
+          }
+          mainWindow.webContents.send('break-focus-lost');
+          return false;
+        }
+        return true;
+      });
+      
+      // Block Windows+Ctrl+F4 (Close virtual desktop) - MORE AGGRESSIVE
+      globalShortcut.register('Meta+Ctrl+F4', () => {
+        if (breakActive) {
+          console.log('Windows+Ctrl+F4 (Close virtual desktop) blocked during break');
+          // Force focus back to main window immediately
+          if (mainWindow) {
+            mainWindow.focus();
+            // Ensure it's still in fullscreen and kiosk mode
+            if (!mainWindow.isFullScreen()) {
+              mainWindow.setFullScreen(true);
+            }
+            if (!mainWindow.isKiosk()) {
+              mainWindow.setKiosk(true);
+            }
+          }
+          mainWindow.webContents.send('break-focus-lost');
+          return false;
+        }
+        return true;
+      });
+      
+      // Block Alt+Tab (switch between applications)
+      globalShortcut.register('Alt+Tab', () => {
+        if (breakActive) {
+          console.log('Alt+Tab blocked during break');
+          // Force focus back to main window immediately
+          if (mainWindow) {
+            mainWindow.focus();
+            // Ensure it's still in fullscreen and kiosk mode
+            if (!mainWindow.isFullScreen()) {
+              mainWindow.setFullScreen(true);
+            }
+            if (!mainWindow.isKiosk()) {
+              mainWindow.setKiosk(true);
+            }
+          }
+          mainWindow.webContents.send('break-focus-lost');
+          return false;
+        }
+        return true;
+      });
+      
+      // Block F11 (fullscreen toggle)
+      globalShortcut.register('F11', () => {
+        if (breakActive) {
+          console.log('F11 (fullscreen toggle) blocked during break');
+          return false;
+        }
+        return true;
+      });
+      
+      // Block Windows key and taskbar access - FIXED VERSION
+      globalShortcut.register('Meta', () => {
+        if (breakActive) {
+          console.log('Windows key blocked during break');
+          // Force focus back to main window immediately
+          if (mainWindow) {
+            mainWindow.focus();
+            // Ensure it's still in fullscreen and kiosk mode
+            if (!mainWindow.isFullScreen()) {
+              mainWindow.setFullScreen(true);
+            }
+            if (!mainWindow.isKiosk()) {
+              mainWindow.setKiosk(true);
+            }
+          }
+          mainWindow.webContents.send('break-focus-lost');
+          return false;
+        }
+        return true;
+      });
+      
+      // Block Ctrl+Esc (Start menu)
+      globalShortcut.register('Ctrl+Escape', () => {
+        if (breakActive) {
+          console.log('Ctrl+Esc (Start menu) blocked during break');
+          return false;
+        }
+        return true;
+      });
+      
+      // Block Windows+Space (input method)
+      globalShortcut.register('Meta+Space', () => {
+        if (breakActive) {
+          console.log('Windows+Space blocked during break');
+          return false;
+        }
+        return true;
+      });
+      
+      // Block Windows+D (show desktop)
+      globalShortcut.register('Meta+D', () => {
+        if (breakActive) {
+          console.log('Windows+D (show desktop) blocked during break');
+          return false;
+        }
+        return true;
+      });
+      
+      // Block Windows+M (minimize all)
+      globalShortcut.register('Meta+M', () => {
+        if (breakActive) {
+          console.log('Windows+M (minimize all) blocked during break');
+          return false;
+        }
+        return true;
+      });
+      
+      // ADDITIONAL VIRTUAL DESKTOP BLOCKING
+      // Block Windows+Ctrl+Shift+D (Create new virtual desktop alternative)
+      globalShortcut.register('Meta+Ctrl+Shift+D', () => {
+        if (breakActive) {
+          console.log('Windows+Ctrl+Shift+D (Alternative new desktop) blocked during break');
+          if (mainWindow) {
+            mainWindow.focus();
+            if (!mainWindow.isFullScreen()) mainWindow.setFullScreen(true);
+            if (!mainWindow.isKiosk()) mainWindow.setKiosk(true);
+          }
+          mainWindow.webContents.send('break-focus-lost');
+          return false;
+        }
+        return true;
+      });
+      
+      // Block Windows+Ctrl+Shift+Left/Right (Alternative desktop switching)
+      globalShortcut.register('Meta+Ctrl+Shift+Left', () => {
+        if (breakActive) {
+          console.log('Windows+Ctrl+Shift+Left (Alternative desktop left) blocked during break');
+          if (mainWindow) {
+            mainWindow.focus();
+            if (!mainWindow.isFullScreen()) mainWindow.setFullScreen(true);
+            if (!mainWindow.isKiosk()) mainWindow.setKiosk(true);
+          }
+          mainWindow.webContents.send('break-focus-lost');
+          return false;
+        }
+        return true;
+      });
+      
+      globalShortcut.register('Meta+Ctrl+Shift+Right', () => {
+        if (breakActive) {
+          console.log('Windows+Ctrl+Shift+Right (Alternative desktop right) blocked during break');
+          if (mainWindow) {
+            mainWindow.focus();
+            if (!mainWindow.isFullScreen()) mainWindow.setFullScreen(true);
+            if (!mainWindow.isKiosk()) mainWindow.setKiosk(true);
+          }
+          mainWindow.webContents.send('break-focus-lost');
+          return false;
+        }
+        return true;
+      });
+      
+      // BLOCK ALL POSSIBLE VIRTUAL DESKTOP COMBINATIONS
+      // Block any Meta key combination that might create/switch desktops
+      const metaCombinations = [
+        'Meta+1', 'Meta+2', 'Meta+3', 'Meta+4', 'Meta+5', 'Meta+6', 'Meta+7', 'Meta+8', 'Meta+9',
+        'Meta+Shift+1', 'Meta+Shift+2', 'Meta+Shift+3', 'Meta+Shift+4', 'Meta+Shift+5',
+        'Meta+Ctrl+1', 'Meta+Ctrl+2', 'Meta+Ctrl+3', 'Meta+Ctrl+4', 'Meta+Ctrl+5',
+        'Meta+Alt+1', 'Meta+Alt+2', 'Meta+Alt+3', 'Meta+Alt+4', 'Meta+Alt+5'
+      ];
+      
+      metaCombinations.forEach(combo => {
+        try {
+          globalShortcut.register(combo, () => {
+            if (breakActive) {
+              console.log(`${combo} blocked during break`);
+              if (mainWindow) {
+                mainWindow.focus();
+                if (!mainWindow.isFullScreen()) mainWindow.setFullScreen(true);
+                if (!mainWindow.isKiosk()) mainWindow.setKiosk(true);
+              }
+              mainWindow.webContents.send('break-focus-lost');
+              return false;
+            }
+            return true;
+          });
+        } catch (error) {
+          // Some combinations might not be valid, ignore errors
+        }
+      });
+      
+      console.log('✅ Kiosk mode shortcuts blocked');
+    } catch (shortcutError) {
+      console.warn('Some virtual desktop shortcuts could not be blocked:', shortcutError.message);
+    }
+    
+    console.log('✅ Break focus monitoring setup complete');
+    
+    // Set up periodic focus check to catch any attempts to switch away
+    if (breakActive) {
+      const focusCheckInterval = setInterval(() => {
+        if (!breakActive) {
+          clearInterval(focusCheckInterval);
+          return;
+        }
+        
+        // Check if main window is still focused
+        if (mainWindow && !mainWindow.isFocused() && !focusLossCooldown) {
+          console.log('⚠️ Periodic check: Main window lost focus during break');
+          mainWindow.webContents.send('break-focus-lost');
+          // DON'T close black screens here - just show dialog
+        }
+        
+        // Ensure kiosk mode and fullscreen are still active
+        if (mainWindow) {
+          if (!mainWindow.isKiosk()) {
+            mainWindow.setKiosk(true);
+          }
+          if (!mainWindow.isFullScreen()) {
+            mainWindow.setFullScreen(true);
+          }
+          if (!mainWindow.isFocused()) {
+            mainWindow.focus();
+          }
+        }
+        
+        // Ensure black screen windows are still active on secondary monitors
+        if (blackScreenWindows.length === 0) {
+          console.log('🔄 Periodic check: Recreating missing black screen windows...');
+          const blackScreenResult = createBlackScreenWindows();
+          if (blackScreenResult.success) {
+            console.log(`✅ Recreated ${blackScreenResult.count} black screen windows`);
+          }
+        }
+        
+        // Ensure black screen windows stay on top and cover taskbar
+        blackScreenWindows.forEach((window, index) => {
+          if (window && !window.isDestroyed()) {
+            try {
+              // Force window to stay on top
+              window.setAlwaysOnTop(true, 'screen-saver', 1);
+              window.moveTop();
+              
+              // Ensure it's still fullscreen
+              if (!window.isFullScreen()) {
+                window.setFullScreen(true);
+              }
+              
+              // Force bounds to cover entire monitor including taskbar
+              const display = screen.getDisplayNearestPoint(window.getBounds());
+              if (display) {
+                const bounds = display.bounds;
+                // Extend height to ensure taskbar is covered
+                const extendedBounds = {
+                  x: bounds.x,
+                  y: bounds.y,
+                  width: bounds.width,
+                  height: bounds.height + 50 // Extra height to cover taskbar
+                };
+                window.setBounds(extendedBounds);
+              }
+            } catch (error) {
+              console.warn(`Error maintaining black screen window ${index}:`, error.message);
+            }
+          }
+        });
+      }, 1000); // Check every 1 second (more aggressive)
+      
+      // Store the interval for cleanup
+      mainWindow._focusCheckInterval = focusCheckInterval;
+    }
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error setting up break focus monitoring:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+// Function to set break active state
+function setBreakActiveState(active) {
+  breakActive = active;
+  console.log(`🔄 Break active state: ${active}`);
+  
+  if (active) {
+    // Add a delay to prevent focus monitoring from triggering during fullscreen transition
+    setTimeout(() => {
+      if (breakActive) { // Double-check that break is still active
+        // Additional check: ensure window is stable in fullscreen mode and has focus
+        if (mainWindow && mainWindow.isFullScreen() && mainWindow.isFocused()) {
+          console.log('✅ Setting up focus monitoring...');
+          setupBreakFocusMonitoring();
+          
+          // Ensure black screen windows are active on secondary monitors
+          if (blackScreenWindows.length === 0) {
+            console.log('🔄 Recreating missing black screen windows...');
+            const blackScreenResult = createBlackScreenWindows();
+            if (blackScreenResult.success) {
+              console.log(`✅ Recreated ${blackScreenResult.count} black screen windows`);
+            }
+          }
+        } else {
+          // Wait another second if not yet ready
+          setTimeout(() => {
+            if (breakActive && mainWindow && mainWindow.isFullScreen() && mainWindow.isFocused()) {
+              console.log('✅ Setting up focus monitoring...');
+              setupBreakFocusMonitoring();
+              
+              // Ensure black screen windows are active on secondary monitors
+              if (blackScreenWindows.length === 0) {
+                console.log('🔄 Recreating missing black screen windows...');
+                const blackScreenResult = createBlackScreenWindows();
+                if (blackScreenResult.success) {
+                  console.log(`✅ Recreated ${blackScreenResult.count} black screen windows`);
+                }
+              }
+            } else {
+              setupBreakFocusMonitoring();
+            }
+          }, 1000);
+        }
+      }
+    }, 2000); // 2 second delay
+  } else {
+    // Unregister global shortcuts when break becomes inactive
+    try {
+      globalShortcut.unregisterAll();
+    } catch (shortcutError) {
+      console.warn('Error unregistering global shortcuts:', shortcutError.message);
+    }
+    
+    // Clear focus check interval
+    if (mainWindow && mainWindow._focusCheckInterval) {
+      clearInterval(mainWindow._focusCheckInterval);
+      mainWindow._focusCheckInterval = null;
+    }
+    
+    // Reset focus monitoring setup flag
+    focusMonitoringSetup = false;
+  }
+  
+  return { success: true, breakActive: active };
+}
+
+// Function to get break active state
+function getBreakActiveState() {
+  return { success: true, breakActive: breakActive };
+}
+
+// Function to restore window to normal state
+function restoreWindowToNormalState() {
+  try {
+    if (mainWindow) {
+      // Exit kiosk mode first
+      mainWindow.setKiosk(false);
+      console.log('Kiosk mode disabled');
+      
+      // Exit fullscreen
+      mainWindow.setFullScreen(false);
+      
+      // Restore normal window size and position
+      mainWindow.setBounds({
+        x: mainWindow.getBounds().x,
+        y: mainWindow.getBounds().y,
+        width: 1200,
+        height: 800
+      });
+      
+      // Show menu bar
+      mainWindow.setMenuBarVisibility(true);
+      
+      // Remove always on top on Windows
+      if (process.platform === 'win32') {
+        mainWindow.setAlwaysOnTop(false);
+      }
+      
+      // Re-enable window controls
+      mainWindow.setClosable(true);
+      mainWindow.setMinimizable(true);
+      mainWindow.setMaximizable(true);
+      mainWindow.setResizable(true);
+      
+      // Windows-specific: Restore virtual desktop functionality
+      if (process.platform === 'win32') {
+        try {
+          const { exec } = require('child_process');
+          
+          // Re-enable Windows+Tab (Task View)
+          exec('reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" /v "EnableTaskView" /t REG_DWORD /d 1 /f', (error) => {
+            if (error) {
+              console.warn('Could not re-enable Task View via registry:', error.message);
+            }
+          });
+          
+          // Re-enable virtual desktop creation
+          exec('reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" /v "EnableVirtualDesktop" /t REG_DWORD /d 1 /f', (error) => {
+            if (error) {
+              console.warn('Could not re-enable virtual desktops via registry:', error.message);
+            }
+          });
+          
+          // Re-enable taskbar grouping and switching
+          exec('reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" /v "TaskbarGrouping" /t REG_DWORD /d 1 /f', (error) => {
+            if (error) {
+              console.warn('Could not re-enable taskbar grouping via registry:', error.message);
+            }
+          });
+          
+          // Re-enable taskbar previews
+          exec('reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" /v "EnableTaskbarThumbnails" /t REG_DWORD /d 1 /f', (error) => {
+            if (error) {
+              console.warn('Could not re-enable taskbar thumbnails via registry:', error.message);
+            }
+          });
+          
+          // Re-enable multi-taskbar on secondary monitors
+          exec('reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Advanced" /v "MultiTaskbarAltTab" /t REG_DWORD /d 1 /f', (error) => {
+            if (error) {
+              console.warn('Could not re-enable multi-taskbar via registry:', error.message);
+            }
+          });
+          
+          // Re-enable taskbar on secondary displays
+          exec('reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced" /v "ShowTaskbarOnSecondaryDisplays" /t REG_DWORD /d 1 /f', (error) => {
+            if (error) {
+              console.warn('Could not re-enable taskbar on secondary displays via registry:', error.message);
+            }
+          });
+          
+        } catch (registryError) {
+          console.log('Registry restoration not available:', registryError.message);
+        }
+      }
+      
+      // Ensure window is visible and focused
+      mainWindow.show();
+      mainWindow.focus();
+      
+      console.log('Window restored to normal state');
+      return { success: true };
+    }
+    return { success: false, error: 'Main window not available' };
+  } catch (error) {
+    console.error('Error restoring window to normal state:', error);
+    return { success: false, error: error.message };
+  }
+}
 
 // Keep a global reference of the window object
 let mainWindow;
@@ -543,6 +1584,39 @@ function createWindow() {
       }
     }
   });
+  
+  // Handle window focus - clear notifications if user is not authenticated
+  mainWindow.on('focus', async () => {
+    try {
+      const authState = await checkUserLoggedIn();
+      if (!authState.isLoggedIn && notificationBadgeCount > 0) {
+        console.log('🧹 Window focused: User not authenticated - clearing notifications');
+        clearAllSystemNotifications();
+        notificationBadgeCount = 0;
+        
+        // Clear app icon badge (Windows)
+        if (process.platform === 'win32') {
+          mainWindow.setOverlayIcon(null, '');
+        }
+        
+        // Clear dock badge (macOS)
+        if (process.platform === 'darwin') {
+          app.setBadgeCount(0);
+        }
+        
+        // Update tray icon
+        if (tray) {
+          const noNotificationIconPath = createTrayIconWithIndicator(0);
+          if (noNotificationIconPath) {
+            tray.setImage(noNotificationIconPath);
+          }
+          tray.setToolTip('ShoreAgents Dashboard');
+        }
+      }
+    } catch (error) {
+      console.error('Error checking auth state on window focus:', error);
+    }
+  });
 }
 
 // Create system tray
@@ -558,9 +1632,35 @@ function createTray() {
   
   tray.setToolTip('ShoreAgents Dashboard');
   
-  // Set up periodic check for notification count sync
+  // Set up periodic check for notification count sync and auth state
   setInterval(async () => {
     if (tray && mainWindow && !mainWindow.isDestroyed()) {
+      // Check authentication state and clear notifications if not logged in
+      const authState = await checkUserLoggedIn();
+      if (!authState.isLoggedIn && notificationBadgeCount > 0) {
+        console.log('🧹 Periodic check: User not authenticated - clearing notifications');
+        clearAllSystemNotifications();
+        notificationBadgeCount = 0;
+        
+        // Clear app icon badge (Windows)
+        if (mainWindow && process.platform === 'win32') {
+          mainWindow.setOverlayIcon(null, '');
+        }
+        
+        // Clear dock badge (macOS)
+        if (process.platform === 'darwin') {
+          app.setBadgeCount(0);
+        }
+        
+        // Update tray icon
+        const noNotificationIconPath = createTrayIconWithIndicator(0);
+        if (noNotificationIconPath) {
+          tray.setImage(noNotificationIconPath);
+        }
+        tray.setToolTip('ShoreAgents Dashboard');
+      }
+      
+      // Update notification count
       await updateTrayWithActualCount();
     }
   }, 10000); // Check every 10 seconds
@@ -827,6 +1927,32 @@ async function updateTrayMenu() {
     const isLoggedIn = authState.isLoggedIn;
     const breakState = await checkUserOnBreak();
     const isOnBreak = breakState.isOnBreak;
+    
+    // If user is not logged in, clear all notifications and badge count
+    if (!isLoggedIn && notificationBadgeCount > 0) {
+      console.log('🧹 User not authenticated - clearing notifications and badge count');
+      clearAllSystemNotifications();
+      notificationBadgeCount = 0;
+      
+      // Clear app icon badge (Windows)
+      if (mainWindow && process.platform === 'win32') {
+        mainWindow.setOverlayIcon(null, '');
+      }
+      
+      // Clear dock badge (macOS)
+      if (process.platform === 'darwin') {
+        app.setBadgeCount(0);
+      }
+      
+      // Update tray icon to remove notification indicator
+      if (tray) {
+        const initialTrayIconPath = createTrayIconWithIndicator(0);
+        if (initialTrayIconPath) {
+          tray.setImage(initialTrayIconPath);
+        }
+        tray.setToolTip('ShoreAgents Dashboard');
+      }
+    }
   
   const baseMenuItems = [
     {
@@ -1133,10 +2259,43 @@ function createMenu() {
 }
 
 // App event handlers
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   createWindow();
   createMenu();
   createTray();
+  
+  // Check authentication state on app start and clear notifications if not logged in
+  setTimeout(async () => {
+    try {
+      const authState = await checkUserLoggedIn();
+      if (!authState.isLoggedIn && notificationBadgeCount > 0) {
+        console.log('🧹 App started: User not authenticated - clearing notifications');
+        clearAllSystemNotifications();
+        notificationBadgeCount = 0;
+        
+        // Clear app icon badge (Windows)
+        if (mainWindow && process.platform === 'win32') {
+          mainWindow.setOverlayIcon(null, '');
+        }
+        
+        // Clear dock badge (macOS)
+        if (process.platform === 'darwin') {
+          app.setBadgeCount(0);
+        }
+        
+        // Update tray icon
+        if (tray) {
+          const noNotificationIconPath = createTrayIconWithIndicator(0);
+          if (noNotificationIconPath) {
+            tray.setImage(noNotificationIconPath);
+          }
+          tray.setToolTip('ShoreAgents Dashboard');
+        }
+      }
+    } catch (error) {
+      console.error('Error checking auth state on app start:', error);
+    }
+  }, 2000); // Wait 2 seconds for window to be ready
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -1162,6 +2321,9 @@ app.on('before-quit', () => {
     tray.destroy();
     tray = null;
   }
+  
+  // Close black screen windows
+  closeBlackScreenWindows();
   
   // Mark user as logged out before app quits
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -1206,13 +2368,43 @@ ipcMain.handle('confirm-logout-and-quit', async () => {
 });
 
 ipcMain.handle('logout-completed', () => {
+  console.log('🧹 Logout completed - clearing notifications and badge count');
+  
+  // Clear all system notifications
+  clearAllSystemNotifications();
+  
+  // Reset notification badge count
+  notificationBadgeCount = 0;
+  
+  // Clear app icon badge (Windows)
+  if (mainWindow && process.platform === 'win32') {
+    mainWindow.setOverlayIcon(null, '');
+  }
+  
+  // Clear dock badge (macOS)
+  if (process.platform === 'darwin') {
+    app.setBadgeCount(0);
+  }
+  
+  // Update tray icon to remove notification indicator
+  if (tray) {
+    const initialTrayIconPath = createTrayIconWithIndicator(0);
+    if (initialTrayIconPath) {
+      tray.setImage(initialTrayIconPath);
+    }
+    tray.setToolTip('ShoreAgents Dashboard');
+  }
+  
   // Update tray menu to show "Quit" instead of "Logout & Quit"
   updateTrayMenu();
+  
   // Logout is done, now we can safely quit
   setTimeout(() => {
     isQuitting = true;
     app.quit();
   }, 500);
+  
+  console.log('✅ Notifications and badge count cleared on logout completion');
   return { success: true };
 });
 
@@ -1229,10 +2421,382 @@ ipcMain.handle('user-logged-in', async () => {
 
 ipcMain.handle('user-logged-out', async () => {
   try {
+    console.log('🧹 User logged out - clearing notifications and badge count');
+    
+    // Clear all system notifications
+    clearAllSystemNotifications();
+    
+    // Reset notification badge count
+    notificationBadgeCount = 0;
+    
+    // Clear app icon badge (Windows)
+    if (mainWindow && process.platform === 'win32') {
+      mainWindow.setOverlayIcon(null, '');
+    }
+    
+    // Clear dock badge (macOS)
+    if (process.platform === 'darwin') {
+      app.setBadgeCount(0);
+    }
+    
+    // Update tray icon to remove notification indicator
+    if (tray) {
+      const initialTrayIconPath = createTrayIconWithIndicator(0);
+      if (initialTrayIconPath) {
+        tray.setImage(initialTrayIconPath);
+      }
+      tray.setToolTip('ShoreAgents Dashboard');
+    }
+    
+    // Update tray menu
     await updateTrayMenu();
+    
+    console.log('✅ Notifications and badge count cleared on logout');
     return { success: true };
   } catch (error) {
     console.error('Error in user-logged-out handler:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Secure credential storage using Electron's safeStorage
+ipcMain.handle('store-credentials', async (event, { email, password }) => {
+  try {
+    const { safeStorage } = require('electron');
+    
+    if (!safeStorage.isEncryptionAvailable()) {
+      console.warn('Safe storage encryption not available, falling back to localStorage');
+      return { success: false, error: 'Encryption not available' };
+    }
+    
+    // Encrypt the password using the system keychain
+    const encryptedPassword = safeStorage.encryptString(password);
+    
+    // Store encrypted credentials in app data directory
+    const userDataPath = app.getPath('userData');
+    const credentialsPath = path.join(userDataPath, 'secure-credentials.json');
+    
+    const credentials = {
+      email,
+      encryptedPassword: encryptedPassword.toString('base64'),
+      timestamp: Date.now(),
+      version: '1.0'
+    };
+    
+    fs.writeFileSync(credentialsPath, JSON.stringify(credentials, null, 2));
+    
+    console.log('✅ Credentials stored securely using Electron safeStorage');
+    return { success: true };
+  } catch (error) {
+    console.error('Error storing credentials:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('get-credentials', async (event) => {
+  try {
+    const { safeStorage } = require('electron');
+    
+    if (!safeStorage.isEncryptionAvailable()) {
+      console.warn('Safe storage encryption not available');
+      return { success: false, error: 'Encryption not available' };
+    }
+    
+    // Read encrypted credentials from app data directory
+    const userDataPath = app.getPath('userData');
+    const credentialsPath = path.join(userDataPath, 'secure-credentials.json');
+    
+    if (!fs.existsSync(credentialsPath)) {
+      return { success: false, error: 'No credentials found' };
+    }
+    
+    const credentialsData = fs.readFileSync(credentialsPath, 'utf8');
+    const credentials = JSON.parse(credentialsData);
+    
+    // Decrypt the password
+    const encryptedPassword = Buffer.from(credentials.encryptedPassword, 'base64');
+    const decryptedPassword = safeStorage.decryptString(encryptedPassword);
+    
+    return {
+      success: true,
+      credentials: {
+        email: credentials.email,
+        password: decryptedPassword,
+        timestamp: credentials.timestamp,
+        version: credentials.version
+      }
+    };
+  } catch (error) {
+    console.error('Error getting credentials:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('clear-credentials', async (event) => {
+  try {
+    const userDataPath = app.getPath('userData');
+    const credentialsPath = path.join(userDataPath, 'secure-credentials.json');
+    
+    if (fs.existsSync(credentialsPath)) {
+      fs.unlinkSync(credentialsPath);
+      console.log('✅ Secure credentials cleared');
+    }
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error clearing credentials:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// IPC handlers for fullscreen functionality
+ipcMain.handle('enter-fullscreen', () => {
+  try {
+    if (mainWindow) {
+      // Hide menu bar and enter fullscreen
+      mainWindow.setMenuBarVisibility(false);
+      mainWindow.setFullScreen(true);
+      
+      // On Windows, also hide the taskbar by setting always on top
+      if (process.platform === 'win32') {
+        mainWindow.setAlwaysOnTop(true, 'screen-saver');
+      }
+      
+      // Create black screen windows on secondary monitors FIRST
+      const blackScreenResult = createBlackScreenWindows();
+      console.log('Black screen windows created:', blackScreenResult);
+      
+      // Wait a moment for black screens to stabilize, then set break active
+      setTimeout(() => {
+        console.log('Setting break active after black screens are stable...');
+        setBreakActiveState(true);
+      }, 1000);
+      
+      return { success: true, blackScreens: blackScreenResult };
+    }
+    return { success: false, error: 'Main window not available' };
+  } catch (error) {
+    console.error('Error entering fullscreen:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('exit-fullscreen', () => {
+  try {
+    if (mainWindow) {
+      // Restore window to normal state
+      restoreWindowToNormalState();
+      
+      // Close black screen windows on secondary monitors
+      const blackScreenResult = closeBlackScreenWindows();
+      console.log('Black screen windows closed:', blackScreenResult);
+      
+      return { success: true, blackScreens: blackScreenResult };
+    }
+    return { success: false, error: 'Main window not available' };
+  } catch (error) {
+    console.error('Error exiting fullscreen:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// IPC handlers for multi-monitor management
+ipcMain.handle('create-black-screens', () => {
+  try {
+    return createBlackScreenWindows();
+  } catch (error) {
+    console.error('Error in create-black-screens:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('close-black-screens', () => {
+  try {
+    return closeBlackScreenWindows();
+  } catch (error) {
+    console.error('Error in close-black-screens:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('get-monitor-info', () => {
+  try {
+    return getMonitorInfo();
+  } catch (error) {
+    console.error('Error in get-monitor-info:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// IPC handlers for break monitoring
+ipcMain.handle('set-break-active', (event, active) => {
+  try {
+    return setBreakActiveState(active);
+  } catch (error) {
+    console.error('Error in set-break-active:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// IPC handler to enable/disable kiosk mode
+ipcMain.handle('set-kiosk-mode', (event, enabled) => {
+  try {
+    if (mainWindow) {
+      if (enabled) {
+        // Enable kiosk mode
+        mainWindow.setKiosk(true);
+        mainWindow.setAlwaysOnTop(true, 'screen-saver');
+        mainWindow.setMenuBarVisibility(false);
+        mainWindow.setAutoHideMenuBar(true);
+        mainWindow.setClosable(false);
+        mainWindow.setMinimizable(false);
+        mainWindow.setMaximizable(false);
+        mainWindow.setResizable(false);
+        console.log('Kiosk mode enabled');
+      } else {
+        // Disable kiosk mode
+        mainWindow.setKiosk(false);
+        mainWindow.setAlwaysOnTop(false);
+        mainWindow.setMenuBarVisibility(true);
+        mainWindow.setAutoHideMenuBar(false);
+        mainWindow.setClosable(true);
+        mainWindow.setMinimizable(true);
+        mainWindow.setMaximizable(true);
+        mainWindow.setResizable(true);
+        console.log('Kiosk mode disabled');
+      }
+      return { success: true, kioskMode: enabled };
+    }
+    return { success: false, error: 'Main window not available' };
+  } catch (error) {
+    console.error('Error setting kiosk mode:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('get-break-active', () => {
+  try {
+    return getBreakActiveState();
+  } catch (error) {
+    console.error('Error in get-break-active:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Handle when user confirms they want to end break
+ipcMain.handle('confirm-break-end-due-to-focus-loss', () => {
+  try {
+    if (breakActive) {
+      // Close black screen windows
+      const blackScreenResult = closeBlackScreenWindows();
+      
+      // Exit fullscreen and restore normal window state
+      restoreWindowToNormalState();
+      
+      // Reset break state
+      breakActive = false;
+      
+      console.log('Break ended due to focus loss - window state restored');
+      return { success: true, blackScreens: blackScreenResult };
+    }
+    return { success: false, error: 'Break not active' };
+  } catch (error) {
+    console.error('Error in confirm-break-end-due-to-focus-loss:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Handle when user wants to return to break (set cooldown)
+ipcMain.handle('return-to-break', () => {
+  try {
+    if (breakActive) {
+      // Set cooldown to prevent immediate re-triggering
+      focusLossCooldown = true;
+      
+      // Clear any existing timeout
+      if (focusLossCooldownTimeout) {
+        clearTimeout(focusLossCooldownTimeout);
+      }
+      
+      // Set cooldown for 3 seconds
+      focusLossCooldownTimeout = setTimeout(() => {
+        focusLossCooldown = false;
+      }, 3000);
+      
+      // Force focus back to main window without changing window state
+      if (mainWindow) {
+        // Just focus the window without changing alwaysOnTop
+        mainWindow.focus();
+        
+        // Ensure it's still in fullscreen and kiosk mode
+        if (!mainWindow.isFullScreen()) {
+          mainWindow.setFullScreen(true);
+        }
+        if (!mainWindow.isKiosk()) {
+          mainWindow.setKiosk(true);
+        }
+        
+        // Ensure menu bar is hidden
+        mainWindow.setMenuBarVisibility(false);
+      }
+      
+      // RECREATE BLACK SCREEN WINDOWS ON SECONDARY MONITORS
+      console.log('🔄 Recreating black screen windows after return to break...');
+      const blackScreenResult = createBlackScreenWindows();
+      if (blackScreenResult.success) {
+        console.log(`✅ Recreated ${blackScreenResult.count} black screen windows`);
+      } else {
+        console.warn('Failed to recreate black screen windows:', blackScreenResult.error);
+      }
+      
+      console.log('✅ Return to break - cooldown active, black screens recreated');
+      return { success: true, blackScreens: blackScreenResult };
+    }
+    return { success: false, error: 'Break not active' };
+  } catch (error) {
+    console.error('Error in return-to-break:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Handle emergency escape from kiosk mode
+ipcMain.handle('emergency-escape', () => {
+  try {
+    if (breakActive) {
+      console.log('🚨 Emergency escape requested - ending break');
+      
+      // Close black screen windows
+      const blackScreenResult = closeBlackScreenWindows();
+      
+      // Exit kiosk mode and fullscreen
+      restoreWindowToNormalState();
+      
+      // Reset break state
+      breakActive = false;
+      
+      // Notify renderer
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('emergency-escape-pressed');
+      }
+      
+      console.log('✅ Emergency escape completed');
+      return { success: true, blackScreens: blackScreenResult };
+    }
+    return { success: false, error: 'Break not active' };
+  } catch (error) {
+    console.error('Error in emergency-escape:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Test handler for debugging multi-monitor functionality
+ipcMain.handle('test-black-screens', () => {
+  try {
+    console.log('🧪 Testing black screen creation...');
+    const result = createBlackScreenWindows();
+    return result;
+  } catch (error) {
+    console.error('Error in test-black-screens:', error);
     return { success: false, error: error.message };
   }
 });

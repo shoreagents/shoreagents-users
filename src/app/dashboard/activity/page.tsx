@@ -8,6 +8,7 @@ import { AppSidebar } from '@/components/app-sidebar'
 import { AppHeader } from '@/components/app-header'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Calendar, Clock, Database, TrendingUp, RefreshCw } from 'lucide-react'
 import WeeklyActivityDisplay from '@/components/weekly-activity-display'
 import MonthlyActivityDisplay from '@/components/monthly-activity-display'
@@ -111,11 +112,11 @@ export default function TestActivityPage() {
             <Card className="lg:col-span-1 shadow-lg border border-border/50 bg-card/90 backdrop-blur-sm dark:bg-card/90">
               <CardHeader className="pb-4">
                 <CardTitle className="flex items-center gap-2 text-lg">
-                  <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
-                    <span className="text-white font-bold text-lg">
+                  <Avatar className="w-10 h-10">
+                    <AvatarFallback className="text-lg font-bold">
                       {currentUser?.name?.charAt(0) || 'U'}
-                    </span>
-                  </div>
+                    </AvatarFallback>
+                  </Avatar>
                   <div>
                     <div className="font-semibold">{currentUser?.name || 'User'}</div>
                   <div className="text-sm text-muted-foreground">{currentUser?.email || 'user@example.com'}</div>
@@ -164,8 +165,7 @@ export default function TestActivityPage() {
                     <Clock className="w-4 h-4 text-white" />
                   </div>
                   <div>
-                    <div className="text-xl font-bold">Live Activity Timer</div>
-                    <div className="text-sm text-muted-foreground">Real-time tracking</div>
+                    <div className="text-xl font-bold">Today Activity</div>
                   </div>
                 </CardTitle>
               </CardHeader>
@@ -287,14 +287,17 @@ export default function TestActivityPage() {
               <p className="text-muted-foreground">Track your productivity points across different time periods</p>
             </div>
             
-            {/* Weekly Activity Tracking */}
-            <div className="transform hover:scale-[1.02] transition-all duration-300">
-              <WeeklyActivityDisplay key={`weekly-${refreshKey}`} currentUser={currentUser} />
-            </div>
+            {/* Weekly and Monthly Activity Tracking in Two Columns */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              {/* Weekly Activity Tracking */}
+              <div className="transform hover:scale-[1.02] transition-all duration-300">
+                <WeeklyActivityDisplay key={`weekly-${refreshKey}`} currentUser={currentUser} />
+              </div>
 
-            {/* Monthly Activity Tracking */}
-            <div className="transform hover:scale-[1.02] transition-all duration-300">
-              <MonthlyActivityDisplay key={`monthly-${refreshKey}`} currentUser={currentUser} />
+              {/* Monthly Activity Tracking */}
+              <div className="transform hover:scale-[1.02] transition-all duration-300">
+                <MonthlyActivityDisplay key={`monthly-${refreshKey}`} currentUser={currentUser} />
+              </div>
             </div>
 
             {/* Productivity Score Tracking */}

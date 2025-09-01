@@ -6,12 +6,15 @@ import { BreakProvider } from "@/contexts/break-context";
 import { TimerProvider } from "@/contexts/timer-context";
 import { MeetingProvider } from "@/contexts/meeting-context";
 import { SocketProvider } from "@/contexts/socket-context";
+import { LogoutProvider } from "@/contexts/logout-context";
+import { TeamStatusProvider } from "@/contexts/team-status-context";
 
 import ElectronLogoutHandler from "@/components/electron-logout-handler";
 import DatabaseInitializer from "@/components/database-initializer";
 import { GlobalTimerDisplay } from "@/components/global-timer-display";
 import { AuthMonitor } from "@/components/auth-monitor";
 import AuthNormalizer from "@/components/auth-normalizer";
+import { LogoutLoadingOverlay } from "@/components/logout-loading-overlay";
 import { Toaster } from "sonner";
 
 
@@ -46,25 +49,30 @@ export default function RootLayout({
             `,
           }}
         />
-        <AuthMonitor>
-          <BreakProvider>
-            <ActivityProvider>
-              <MeetingProvider>
-                <SocketProvider>
-                  <TimerProvider>
-                    {/* Keep auth stores in sync as early as possible */}
-                    <AuthNormalizer />
-                    <DatabaseInitializer />
-                    <ElectronLogoutHandler />
-                    {children}
-                    <GlobalTimerDisplay />
-                    <Toaster position="top-right" richColors />
-                  </TimerProvider>
-                </SocketProvider>
-              </MeetingProvider>
-            </ActivityProvider>
-          </BreakProvider>
-        </AuthMonitor>
+        <LogoutProvider>
+          <AuthMonitor>
+            <BreakProvider>
+              <ActivityProvider>
+                <MeetingProvider>
+                  <SocketProvider>
+                    <TeamStatusProvider>
+                      <TimerProvider>
+                        {/* Keep auth stores in sync as early as possible */}
+                        <AuthNormalizer />
+                        <DatabaseInitializer />
+                        <ElectronLogoutHandler />
+                        {children}
+                        <GlobalTimerDisplay />
+                        <Toaster position="top-right" richColors />
+                      </TimerProvider>
+                    </TeamStatusProvider>
+                  </SocketProvider>
+                </MeetingProvider>
+              </ActivityProvider>
+            </BreakProvider>
+            <LogoutLoadingOverlay />
+          </AuthMonitor>
+        </LogoutProvider>
       </body>
     </html>
   );
