@@ -38,7 +38,7 @@ async function getTicketRowId(client: any, idParam: string): Promise<number | nu
 // GET: list comments for a ticket
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   let pool: Pool | null = null
   try {
@@ -88,7 +88,7 @@ export async function GET(
 // POST: add comment to a ticket
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   let pool: Pool | null = null
   try {

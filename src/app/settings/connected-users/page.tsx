@@ -60,6 +60,8 @@ export default function ConnectedUsersPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedUser, setSelectedUser] = useState<TeamAgent | null>(null)
   const [currentUserId, setCurrentUserId] = useState<number>(1) // TODO: Get from auth context
+  const [currentUserEmail, setCurrentUserEmail] = useState<string>('')
+  const [isAutoSelecting, setIsAutoSelecting] = useState(false)
   const { socket, isConnected } = useSocket()
 
   // Fix hydration issue by only rendering time on client
@@ -86,12 +88,16 @@ export default function ConnectedUsersPage() {
     }
   }, [socket])
 
-  // Get current user ID from authentication
+  // Get current user ID and email from authentication
   useEffect(() => {
     const currentUser = getCurrentUser()
     if (currentUser?.id) {
       setCurrentUserId(currentUser.id)
-    } else {
+    }
+    if (currentUser?.email) {
+      setCurrentUserEmail(currentUser.email)
+    }
+    if (!currentUser?.id && !currentUser?.email) {
       console.warn('⚠️ No authenticated user found')
     }
   }, [])
@@ -149,6 +155,28 @@ export default function ConnectedUsersPage() {
   useEffect(() => {
     fetchTeamAgents()
   }, [])
+
+  // Auto-select current user when team agents are loaded
+  useEffect(() => {
+    if (teamAgents.length > 0 && !selectedUser && (currentUserEmail || currentUserId)) {
+      setIsAutoSelecting(true)
+      
+      // Try to find current user by email first (more reliable), then by ID
+      let currentUserAgent = teamAgents.find(agent => agent.email === currentUserEmail)
+      if (!currentUserAgent && currentUserId) {
+        currentUserAgent = teamAgents.find(agent => agent.id === currentUserId)
+      }
+      
+      if (currentUserAgent) {
+        setSelectedUser(currentUserAgent)
+        console.log('✅ Auto-selected current user:', currentUserAgent.name || currentUserAgent.email)
+      } else {
+        console.warn('⚠️ Could not find current user in team agents list')
+      }
+      
+      setIsAutoSelecting(false)
+    }
+  }, [teamAgents, currentUserId, currentUserEmail, selectedUser])
 
   // Socket integration for real-time status updates
   useEffect(() => {
@@ -275,7 +303,6 @@ export default function ConnectedUsersPage() {
                     <Users className="w-8 h-8 text-blue-600" />
                   </div>
                   <p className="text-lg font-medium text-gray-900 dark:text-white">Loading Team Status...</p>
-                  <p className="text-muted-foreground">Fetching real-time information about your team members</p>
                 </div>
               </CardContent>
             </Card>
@@ -525,7 +552,7 @@ export default function ConnectedUsersPage() {
                     <div className="flex items-center space-x-4">
                       <Avatar className="w-16 h-16">
                         <AvatarImage src={selectedUser.avatar} />
-                        <AvatarFallback className="bg-blue-100 text-blue-800 dark:bg-blue-900 text-xl">
+                        <AvatarFallback className="text-xl">
                           {getInitials(selectedUser.name)}
                         </AvatarFallback>
                       </Avatar>
@@ -538,25 +565,8 @@ export default function ConnectedUsersPage() {
                           <Badge variant="secondary" className="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
                             {teamInfo?.company || 'Team Member'}
                           </Badge>
-                          {userStatuses.get(selectedUser.email)?.status === 'online' ? (
-                            <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
-                              Online
-                            </Badge>
-                          ) : (
-                            <Badge variant="secondary" className="bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200">
-                              Offline
-                            </Badge>
-                          )}
                         </div>
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setSelectedUser(null)}
-                        className="p-2"
-                      >
-                        <Users className="w-4 h-4" />
-                      </Button>
                     </div>
                   </div>
 

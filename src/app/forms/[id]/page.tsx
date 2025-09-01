@@ -84,9 +84,6 @@ export default function TicketDetailsPage() {
         if (response.ok) {
           const result = await response.json()
           if (result.success) {
-            console.log('✅ Ticket loaded successfully:', result.ticket)
-            console.log('Supporting files:', result.ticket.supportingFiles)
-            console.log('Files (old format):', result.ticket.files)
             setTicket(result.ticket)
             // Load comments via API
             try {
@@ -534,11 +531,6 @@ export default function TicketDetailsPage() {
               {/* Attachments */}
               {(() => {
                 const hasFiles = (ticket.files && ticket.files.length > 0) || (ticket.supportingFiles && ticket.supportingFiles.length > 0)
-                console.log('Rendering attachments section:', { 
-                  hasFiles, 
-                  filesLength: ticket.files?.length, 
-                  supportingFilesLength: ticket.supportingFiles?.length 
-                })
                 return hasFiles
               })() && (
                 <Card>

@@ -29,7 +29,6 @@ export default function WeeklyActivityDisplay({ currentUser }: WeeklyActivityDis
   const [loading, setLoading] = useState(false);
   const [currentWeek, setCurrentWeek] = useState<any>(null);
   const [cleanupStatus, setCleanupStatus] = useState<string>('');
-  const [cleanupTime, setCleanupTime] = useState<number>(0);
   const [lastUpdate, setLastUpdate] = useState<string>('');
 
   // Get break and meeting status to pause auto-refresh
@@ -102,7 +101,6 @@ export default function WeeklyActivityDisplay({ currentUser }: WeeklyActivityDis
   const updateWeeklyDataFromSocket = (socketData: any) => {
     if (!socketData || socketData.user_id !== currentUser?.id) return;
     
-    console.log('📊 Received real-time weekly activity update:', socketData);
     setLastUpdate(new Date().toLocaleTimeString());
     
     // Show real-time update notification
@@ -118,7 +116,6 @@ export default function WeeklyActivityDisplay({ currentUser }: WeeklyActivityDis
   const updateMonthlyDataFromSocket = (socketData: any) => {
     if (!socketData || socketData.user_id !== currentUser?.id) return;
     
-    console.log('📊 Received real-time monthly activity update:', socketData);
     setLastUpdate(new Date().toLocaleTimeString());
     
     // Show real-time update notification
@@ -179,7 +176,6 @@ export default function WeeklyActivityDisplay({ currentUser }: WeeklyActivityDis
     
     // Refresh data every 2 minutes (120 seconds) instead of every few seconds
     const interval = setInterval(() => {
-      console.log('🔄 Periodic refresh of weekly data (2-minute interval)');
       fetchAllWeeklyDataSilently();
     }, 120000); // 2 minutes
     
@@ -190,7 +186,6 @@ export default function WeeklyActivityDisplay({ currentUser }: WeeklyActivityDis
   useEffect(() => {
     const handleFocus = () => {
       if (currentUser?.email && !isBreakActive && !isInMeeting) {
-        console.log('🔄 Tab focus detected, refreshing weekly data');
         fetchAllWeeklyDataSilently();
       }
     };
@@ -215,13 +210,10 @@ export default function WeeklyActivityDisplay({ currentUser }: WeeklyActivityDis
     socket.on('weekly-activity-update', handleWeeklyActivityUpdate);
     socket.on('monthly-activity-update', handleMonthlyActivityUpdate);
 
-    console.log('🔌 Listening for real-time weekly/monthly activity updates');
-
     // Cleanup listeners
     return () => {
       socket.off('weekly-activity-update', handleWeeklyActivityUpdate);
       socket.off('monthly-activity-update', handleMonthlyActivityUpdate);
-      console.log('🔌 Stopped listening for real-time weekly/monthly activity updates');
     };
   }, [socket, isConnected, currentUser?.id]);
 
@@ -252,7 +244,6 @@ export default function WeeklyActivityDisplay({ currentUser }: WeeklyActivityDis
                 <TooltipContent>
                   <div className="space-y-2">
                     <p className="text-sm">Week: {currentWeek?.weekStart ? formatDate(currentWeek.weekStart) : 'N/A'} - {currentWeek?.weekEnd ? formatDate(currentWeek.weekEnd) : 'N/A'}</p>
-                    {cleanupStatus && <p className="text-sm text-green-600">{cleanupStatus}</p>}
                     <p className="text-sm">Last Update: {lastUpdate}</p>
                   </div>
                 </TooltipContent>

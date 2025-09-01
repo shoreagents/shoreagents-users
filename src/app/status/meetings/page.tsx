@@ -42,14 +42,9 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Pagination, PaginationContent, PaginationEllipsis, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@/components/ui/pagination"
-import { getCurrentUserInfo } from "@/lib/user-profiles"
-import { createMeeting, canCreateMeeting, type Meeting } from "@/lib/meeting-utils"
+import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@/components/ui/pagination"
+import { canCreateMeeting, type Meeting } from "@/lib/meeting-utils"
 import { useMeeting } from "@/contexts/meeting-context"
-
-
-
-const mockMeetings: Meeting[] = []
 
 // MeetingCard Component
 interface MeetingCardProps {
@@ -173,9 +168,7 @@ export default function MeetingsPage() {
     meetings, 
     isLoading: loading, 
     startNewMeeting, 
-    endCurrentMeeting,
     refreshMeetings,
-    connectionStatus 
   } = useMeeting()
   
   const [currentTime, setCurrentTime] = useState(new Date())
@@ -250,7 +243,6 @@ export default function MeetingsPage() {
            
            // Auto-end expired meetings (handle async operations outside setState)
            if (expiredMeetings.length > 0 && !isProcessingAutoEnd.current) {
-             console.log(`Found ${expiredMeetings.length} expired meetings to auto-end:`, expiredMeetings)
              isProcessingAutoEnd.current = true
              // Use setTimeout to handle async operations after state update
              setTimeout(async () => {
@@ -262,7 +254,6 @@ export default function MeetingsPage() {
                for (const meetingId of expiredMeetings) {
                  // Skip if we've already processed this meeting
                  if (processedMeetings.has(meetingId)) {
-                   console.log(`Meeting ${meetingId} already processed, skipping`)
                    continue
                  }
                  
@@ -272,15 +263,8 @@ export default function MeetingsPage() {
                    const meeting = currentMeetings.find(m => m.id === meetingId)
                    
                    if (meeting && meeting.status === 'in-progress') {
-                     console.log(`Auto-ending meeting ${meetingId} (status: ${meeting.status})`)
                      const { endMeeting } = await import('@/lib/meeting-utils')
                      await endMeeting(meetingId)
-                     console.log(`Successfully auto-ended meeting ${meetingId}`)
-                   } else if (meeting) {
-                     // Meeting exists but is not in-progress (might already be completed)
-                     console.log(`Meeting ${meetingId} is already ${meeting.status}, skipping auto-end`)
-                   } else {
-                     console.log(`Meeting ${meetingId} not found in current meetings list`)
                    }
                  } catch (error) {
                    console.error(`Error auto-ending meeting ${meetingId}:`, error)
@@ -447,7 +431,6 @@ export default function MeetingsPage() {
       setCanCreateNewMeeting(canCreateResult.canCreate)
       setCreateMeetingReason(canCreateResult.reason || null)
 
-      console.log('Meeting started:', meetingId)
     } catch (error) {
       console.error('Error starting meeting:', error)
       setError('Failed to start meeting')
@@ -474,7 +457,6 @@ export default function MeetingsPage() {
       setCanCreateNewMeeting(canCreateResult.canCreate)
       setCreateMeetingReason(canCreateResult.reason || null)
 
-      console.log('Meeting ended:', meetingId)
     } catch (error) {
       console.error('Error ending meeting:', error)
       setError('Failed to end meeting')
@@ -494,7 +476,6 @@ export default function MeetingsPage() {
       setCanCreateNewMeeting(canCreateResult.canCreate)
       setCreateMeetingReason(canCreateResult.reason || null)
 
-      console.log('Meeting cancelled:', meetingId)
     } catch (error) {
       console.error('Error cancelling meeting:', error)
       setError('Failed to cancel meeting')
@@ -524,11 +505,6 @@ export default function MeetingsPage() {
         setDialogError(canCreate.reason || 'Cannot create meeting at this time')
         return
       }
-
-      // Calculate start and end times based on current time
-      const now = new Date()
-      const startTime = now.toTimeString().slice(0, 5) // HH:MM format
-      const endTime = new Date(now.getTime() + newMeeting.duration * 60000).toTimeString().slice(0, 5)
 
       // Determine the actual title to use
       const actualTitle = newMeeting.title === 'custom' ? customTitle : newMeeting.title
@@ -562,7 +538,6 @@ export default function MeetingsPage() {
       // Close dialog
       setShowAddForm(false)
 
-      console.log('Meeting added successfully')
     } catch (error) {
       console.error('Error adding meeting:', error)
       setError('Failed to add meeting')
@@ -679,6 +654,7 @@ export default function MeetingsPage() {
                     <div className="inline-block">
                       <Button 
                         onClick={() => setShowAddForm(true)} 
+                        size="sm"
                         disabled={!canCreateNewMeeting}
                         className="flex items-center gap-2"
                       >

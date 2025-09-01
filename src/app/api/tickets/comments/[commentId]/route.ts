@@ -23,7 +23,7 @@ function getUserFromRequest(request: NextRequest) {
 // PUT: update a comment (only author or admin)
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { commentId: string } }
+  { params }: { params: Promise<{ commentId: string }> }
 ) {
   let pool: Pool | null = null
   try {
@@ -75,7 +75,7 @@ export async function PUT(
 // DELETE: delete a comment (only author or admin)
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { commentId: string } }
+  { params }: { params: Promise<{ commentId: string }> }
 ) {
   let pool: Pool | null = null
   try {

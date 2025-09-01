@@ -87,7 +87,6 @@ export default function HealthPage() {
   const nurseOnBreak = nurseStatus && typeof nurseStatus === 'object' ? nurseStatus.onBreak : false
 
   // Get current nurse availability
-  const currentNurseAvailability = availability.find(avail => avail.nurse_id === 1)
   const currentDayOfWeek = new Date().getDay()
   const todayAvailability = availability.find(avail => 
     avail.nurse_id === 1 && avail.day_of_week === currentDayOfWeek
@@ -162,7 +161,7 @@ export default function HealthPage() {
           </div>
           <div className="flex items-center gap-2">
             <Avatar className="h-8 w-8">
-              <AvatarFallback className="bg-blue-500 text-white text-sm font-medium">
+              <AvatarFallback className="text-sm font-medium">
                 {record.nurse_first_name && record.nurse_last_name ? 
                   `${record.nurse_first_name[0]}${record.nurse_last_name[0]}` : 
                   record.nurse_first_name?.[0] || 'N'
@@ -184,28 +183,28 @@ export default function HealthPage() {
         {/* Main Content Grid */}
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           <div className="space-y-3">
-            <h5 className="font-medium text-sm text-muted-foreground uppercase tracking-wide">Chief Complaint</h5>
-            <p className="text-base font-medium p-3 bg-muted/50 rounded-lg">{record.chief_complaint}</p>
+            <h5 className="font-medium text-sm uppercase tracking-wide">Chief Complaint</h5>
+            <p className="text-xs font-medium text-muted-foreground ">{record.chief_complaint}</p>
           </div>
 
           <div className="space-y-3">
-            <h5 className="font-medium text-sm text-muted-foreground uppercase tracking-wide">Medicines Issued</h5>
-            <div className="p-3 bg-muted/50 rounded-lg">
+            <h5 className="font-medium text-sm uppercase tracking-wide">Medicines Issued</h5>
+            <div className="text-xs font-medium text-muted-foreground ">
               {record.medicines_issued ? (
-                <p className="text-base">{record.medicines_issued}</p>
+                <p className="text-xs">{record.medicines_issued}</p>
               ) : (
-                <p className="text-sm text-muted-foreground italic">No medicines prescribed</p>
+                <p className="text-xs text-muted-foreground italic">No medicines prescribed</p>
               )}
             </div>
           </div>
 
           <div className="space-y-3">
-            <h5 className="font-medium text-sm text-muted-foreground uppercase tracking-wide">Supplies Issued</h5>
-            <div className="p-3 bg-muted/50 rounded-lg">
+            <h5 className="font-medium text-sm uppercase tracking-wide">Supplies Issued</h5>
+            <div className="text-xs font-medium text-muted-foreground ">
               {record.supplies_issued ? (
-                <p className="text-base">{record.supplies_issued}</p>
+                <p className="text-xs">{record.supplies_issued}</p>
               ) : (
-                <p className="text-sm text-muted-foreground italic">No supplies issued</p>
+                <p className="text-xs text-muted-foreground italic">No supplies issued</p>
               )}
             </div>
           </div>
@@ -222,9 +221,9 @@ export default function HealthPage() {
             </div>
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <h6 className="text-sm font-medium text-muted-foreground">Follow-up Date</h6>
+                <h6 className="text-sm font-medium uppercase">Follow-up Date</h6>
                 {record.follow_up_date ? (
-                  <p className="text-base font-medium p-3 bg-orange-500/10 rounded-lg text-orange-700 dark:text-orange-300">
+                  <p className="text-xs font-medium  text-orange-700 dark:text-orange-300">
                     {new Date(record.follow_up_date).toLocaleDateString('en-US', { 
                       weekday: 'long',
                       month: 'long', 
@@ -233,17 +232,17 @@ export default function HealthPage() {
                     })}
                   </p>
                 ) : (
-                  <p className="text-sm text-muted-foreground italic p-3 bg-muted/30 rounded-lg">Not scheduled yet</p>
+                  <p className="text-sm text-muted-foreground italic">Not scheduled yet</p>
                 )}
               </div>
               <div className="space-y-2">
-                <h6 className="text-sm font-medium text-muted-foreground">Follow-up Notes</h6>
+                <h6 className="text-sm font-medium uppercase">Follow-up Notes</h6>
                 {record.follow_up_notes ? (
-                  <p className="text-base p-3 bg-orange-500/10 rounded-lg text-orange-700 dark:text-orange-300">
+                  <p className="text-xs text-orange-700 dark:text-orange-300">
                     {record.follow_up_notes}
                   </p>
                 ) : (
-                  <p className="text-sm text-muted-foreground italic p-3 bg-muted/30 rounded-lg">No specific instructions</p>
+                  <p className="text-sm text-muted-foreground italic">No specific instructions</p>
                 )}
               </div>
             </div>
@@ -417,7 +416,7 @@ export default function HealthPage() {
               <CardHeader>
                 <div className="flex items-center gap-4">
                   <Avatar className="h-16 w-16">
-                    <AvatarFallback className="bg-blue-500 text-white text-lg font-semibold">
+                    <AvatarFallback className="text-lg font-semibold">
                       {todayAvailability?.nurse_first_name?.[0]?.toUpperCase() || 'N'}
                     </AvatarFallback>
                   </Avatar>
@@ -472,12 +471,6 @@ export default function HealthPage() {
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Connection:</span>
-                    <Badge variant={isConnected ? "default" : "destructive"}>
-                      {isConnected ? "Connected" : "Disconnected"}
-                    </Badge>
-                  </div>
                 </div>
 
                 {todayAvailability?.break_start && todayAvailability?.break_end && (

@@ -434,24 +434,20 @@ export default function MyTicketsPage() {
               </Card>
             ) : (
               <>
-              <div className="grid gap-3">
+              <div className="grid gap-2">
                   {currentTickets.map((ticket) => (
-                  <Card key={ticket.id} className="hover:shadow-md transition-shadow">
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
+                    <div key={ticket.id} className="group relative p-3 rounded-lg border border-border/50 hover:border-border hover:bg-muted/30 transition-all duration-200">
+                      <div className="flex items-center justify-between gap-3">
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-3 mb-2">
-                            <h3 className="text-lg font-semibold truncate">{ticket.id}</h3>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="font-mono text-sm font-medium text-primary">{ticket.id}</span>
                             {getStatusBadge(ticket.status)}
                             <Badge variant="outline" className="text-xs">
                               {getCategoryLabel(ticket.category)}
                             </Badge>
-                            <Badge variant="secondary" className="text-xs">
-                              #{ticket.position}
-                            </Badge>
                           </div>
-                          
-                          <div className="flex items-center gap-4 text-sm text-muted-foreground mb-2">
+                          <p className="text-sm font-medium text-foreground mb-1 line-clamp-1">{ticket.concern}</p>
+                          <div className="flex items-center gap-3 text-xs text-muted-foreground">
                             <div className="flex items-center gap-1">
                               <Calendar className="h-3 w-3" />
                               <span>{formatDate(ticket.createdAt)}</span>
@@ -463,21 +459,18 @@ export default function MyTicketsPage() {
                               </div>
                             )}
                           </div>
-                          
-                          <p className="text-sm text-muted-foreground line-clamp-1">
-                            {ticket.concern}
-                          </p>
                         </div>
-                        
                         <Link href={`/forms/${ticket.id}`}>
-                          <Button variant="outline" size="sm" className="ml-4 flex-shrink-0">
-                            <Eye className="mr-2 h-4 w-4" />
-                            View Details
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 h-8 w-8 p-0"
+                          >
+                            <Eye className="h-4 w-4" />
                           </Button>
                         </Link>
                       </div>
-                    </CardContent>
-                  </Card>
+                    </div>
                 ))}
               </div>
 

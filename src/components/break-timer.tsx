@@ -20,11 +20,15 @@ import {
   X, 
   Clock, 
   AlertTriangle,
-  CheckCircle
 } from "lucide-react"
 import { useBreak } from "@/contexts/break-context"
 
 import { getCurrentBreak } from "@/lib/break-manager"
+
+// Check if running in Electron environment
+const isElectron = () => {
+  return typeof window !== 'undefined' && window.electronAPI;
+}
 
 interface BreakInfo {
   id: string
@@ -92,8 +96,92 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
   const [showPauseWarning, setShowPauseWarning] = useState(false)
   const [showEndConfirm, setShowEndConfirm] = useState(false)
   const [startTime] = useState(savedStartTime || Date.now()) // Use saved start time or current time
+  const [blackScreensActive, setBlackScreensActive] = useState(false)
+  const [showFocusLossDialog, setShowFocusLossDialog] = useState(false)
+  const [showEmergencyEscapeDialog, setShowEmergencyEscapeDialog] = useState(false)
   const Icon = breakInfo.icon
   const { setBreakActive } = useBreak()
+
+  // Function to close black screen windows
+  const handleCloseBlackScreens = useCallback(async () => {
+    if (!isElectron()) return;
+    
+    try {
+      if (window.electronAPI?.multiMonitor?.closeBlackScreens) {
+        const result = await window.electronAPI.multiMonitor.closeBlackScreens();
+        
+        if (result?.success) {
+          setBlackScreensActive(false);
+          console.log('Black screen windows closed successfully');
+        } else {
+          console.warn('Failed to close black screen windows:', result?.error);
+        }
+      }
+    } catch (error) {
+      console.error('Error closing black screen windows:', error);
+    }
+  }, []);
+
+  // Function to create black screen windows
+  const handleCreateBlackScreens = useCallback(async () => {
+    if (!isElectron()) return;
+    
+    try {
+      if (window.electronAPI?.multiMonitor?.createBlackScreens) {
+        const result = await window.electronAPI.multiMonitor.createBlackScreens();
+        
+        if (result?.success) {
+          setBlackScreensActive(true);
+          console.log('Black screen windows created successfully');
+        } else {
+          console.warn('Failed to create black screen windows:', result?.error);
+        }
+      }
+    } catch (error) {
+      console.error('Error creating black screen windows:', error);
+    }
+  }, []);
+
+  // Function to handle focus loss confirmation
+  const handleFocusLossConfirm = useCallback(async () => {
+    try {
+      if ((window.electronAPI as any)?.breakMonitoring?.confirmEndDueToFocusLoss) {
+        const result = await (window.electronAPI as any).breakMonitoring.confirmEndDueToFocusLoss();
+        if (result?.success) {
+          console.log('Break ended due to focus loss');
+          setBreakActive(false);
+          onEnd();
+          setShowFocusLossDialog(false);
+        }
+      }
+    } catch (error) {
+      console.error('Error ending break due to focus loss:', error);
+    }
+  }, [onEnd, setBreakActive]);
+
+  const handleFocusLossCancel = useCallback(async () => {
+    setShowFocusLossDialog(false);
+    
+    try {
+      // Call the return-to-break method to set cooldown and force focus
+      if ((window.electronAPI as any)?.breakMonitoring?.returnToBreak) {
+        const result = await (window.electronAPI as any).breakMonitoring.returnToBreak();
+        if (result?.success) {
+          console.log('Return to break successful - cooldown active');
+          
+          // Check if black screen windows were recreated
+          if (result.blackScreens?.success) {
+            console.log(`Black screen windows recreated: ${result.blackScreens.count} windows`);
+            setBlackScreensActive(true);
+          } else {
+            console.warn('Failed to recreate black screen windows:', result.blackScreens?.error);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error returning to break:', error);
+    }
+  }, []);
 
   // Ensure hasPaused is properly set from emergencyPauseUsed
   useEffect(() => {
@@ -101,6 +189,66 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
       setHasPaused(true)
     }
   }, [emergencyPauseUsed])
+
+  // Check initial black screen state when component mounts
+  useEffect(() => {
+    if (!isElectron()) return;
+    
+    // Check if black screens are currently active by looking at the current break state
+    const checkInitialBlackScreenState = async () => {
+      try {
+        // If we're in a break and not paused, black screens should be active
+        if (!isPaused && timeLeft > 0) {
+          setBlackScreensActive(true);
+        }
+      } catch (error) {
+        console.error('Error checking initial black screen state:', error);
+      }
+    };
+    
+    checkInitialBlackScreenState();
+  }, [isPaused, timeLeft]);
+
+  // Setup break focus monitoring
+  useEffect(() => {
+    if (!isElectron()) return;
+
+    const handleBreakFocusLost = () => {
+      console.log('Break focus lost - showing confirmation dialog');
+      setShowFocusLossDialog(true);
+    };
+
+    const handleBreakMinimized = () => {
+      console.log('Break minimized - showing confirmation dialog');
+      setShowFocusLossDialog(true);
+    };
+
+    const handleBreakHidden = () => {
+      console.log('Break hidden - showing confirmation dialog');
+      setShowFocusLossDialog(true);
+    };
+
+    // Listen for focus loss events from main process
+    if (window.electronAPI?.receive) {
+      window.electronAPI.receive('break-focus-lost', handleBreakFocusLost);
+      window.electronAPI.receive('break-minimized', handleBreakMinimized);
+      window.electronAPI.receive('break-hidden', handleBreakHidden);
+      window.electronAPI.receive('emergency-escape-pressed', () => {
+        console.log('Emergency escape requested - showing dialog');
+        setShowEmergencyEscapeDialog(true);
+      });
+    }
+
+    // Note: Break monitoring is now set active by the main process after fullscreen transition
+    // No need to set it active here anymore
+
+    return () => {
+      // Set break as inactive when component unmounts
+      if ((window.electronAPI as any)?.breakMonitoring?.setActive) {
+        (window.electronAPI as any).breakMonitoring.setActive(false);
+      }
+    };
+  }, []);
 
   // Prevent page reload during active break
   useEffect(() => {
@@ -117,13 +265,178 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
     }
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Prevent F5, Ctrl+R, Ctrl+Shift+R (hard refresh) silently
+      // Block most keyboard input when break timer is active
       if (isRunning && !hasEnded && timeLeft > 0) {
+        // Block common system shortcuts and navigation keys
         if (e.key === 'F5' || 
+            e.key === 'F11' || 
+            e.key === 'F12' ||
+            e.key === 'Escape' ||
+            e.key === 'Meta' || // Windows key
+            e.key === 'Super' || // Windows key (alternative)
+            e.key === 'OS' || // Windows key (alternative)
             (e.ctrlKey && e.key === 'r') || 
-            (e.ctrlKey && e.shiftKey && e.key === 'R')) {
+            (e.ctrlKey && e.shiftKey && e.key === 'R') ||
+            (e.ctrlKey && e.key === 'w') ||
+            (e.ctrlKey && e.key === 'q') ||
+            (e.altKey && e.key === 'Tab') ||
+            (e.altKey && e.key === 'F4') ||
+            (e.metaKey && e.key === 'Tab') ||
+            (e.metaKey && e.key === 'w') ||
+            (e.metaKey && e.key === 'q') ||
+            (e.metaKey && e.key === 'Space') || // Windows + Space
+            (e.metaKey && e.key === 'D') || // Windows + D (show desktop)
+            (e.metaKey && e.key === 'E') || // Windows + E (explorer)
+            (e.metaKey && e.key === 'R') || // Windows + R (run)
+            (e.metaKey && e.key === 'L') || // Windows + L (lock)
+            (e.metaKey && e.key === 'M') || // Windows + M (minimize all)
+            (e.metaKey && e.key === 'Shift') || // Windows + Shift
+            (e.metaKey && e.key === 'Tab') || // Windows + Tab
+            e.key === 'Tab' ||
+            e.key === ' ' ||
+            e.key === 'Enter') {
           e.preventDefault()
           e.stopPropagation()
+          e.stopImmediatePropagation()
+          return false
+        }
+        
+        // Block arrow keys and navigation keys
+        if (e.key === 'ArrowUp' || 
+            e.key === 'ArrowDown' || 
+            e.key === 'ArrowLeft' || 
+            e.key === 'ArrowRight' ||
+            e.key === 'Home' ||
+            e.key === 'End' ||
+            e.key === 'PageUp' ||
+            e.key === 'PageDown') {
+          e.preventDefault()
+          e.stopPropagation()
+          e.stopImmediatePropagation()
+          return false
+        }
+        
+        // Block Windows key and any Meta key combinations
+        if (e.metaKey || e.key === 'Meta' || e.key === 'Super' || e.key === 'OS') {
+          e.preventDefault()
+          e.stopPropagation()
+          e.stopImmediatePropagation()
+          return false
+        }
+        
+        // Block Alt+Tab and other Alt combinations
+        if (e.altKey && (e.key === 'Tab' || e.key === 'F4' || e.key === 'Enter')) {
+          e.preventDefault()
+          e.stopPropagation()
+          e.stopImmediatePropagation()
+          return false
+        }
+        
+        // Block most other keys (allow only essential ones for accessibility)
+        const allowedKeys = [
+          // Keep minimal keys for emergency situations
+          'Escape' // Allow escape for emergency exit (though blocked above, this is a fallback)
+        ]
+        
+        if (!allowedKeys.includes(e.key)) {
+          e.preventDefault()
+          e.stopPropagation()
+          e.stopImmediatePropagation()
+          return false
+        }
+      }
+    }
+
+
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      // Block keyup events for blocked keys
+      if (isRunning && !hasEnded && timeLeft > 0) {
+        if (e.key === 'F5' || 
+            e.key === 'F11' || 
+            e.key === 'F12' ||
+            e.key === 'Escape' ||
+            e.key === 'Meta' || // Windows key
+            e.key === 'Super' || // Windows key (alternative)
+            e.key === 'OS' || // Windows key (alternative)
+            (e.ctrlKey && e.key === 'r') || 
+            (e.ctrlKey && e.shiftKey && e.key === 'R') ||
+            (e.ctrlKey && e.key === 'w') ||
+            (e.ctrlKey && e.key === 'q') ||
+            (e.altKey && e.key === 'Tab') ||
+            (e.altKey && e.key === 'F4') ||
+            (e.metaKey && e.key === 'Tab') ||
+            (e.metaKey && e.key === 'w') ||
+            (e.metaKey && e.key === 'q') ||
+            (e.metaKey && e.key === 'Space') || // Windows + Space
+            (e.metaKey && e.key === 'D') || // Windows + D (show desktop)
+            (e.metaKey && e.key === 'E') || // Windows + E (explorer)
+            (e.metaKey && e.key === 'R') || // Windows + R (run)
+            (e.metaKey && e.key === 'L') || // Windows + L (lock)
+            (e.metaKey && e.key === 'M') || // Windows + M (minimize all)
+            (e.metaKey && e.key === 'Shift') || // Windows + Shift
+            (e.metaKey && e.key === 'Tab') || // Windows + Tab
+            e.key === 'Tab' ||
+            e.key === ' ' ||
+            e.key === 'Enter' ||
+            e.key === 'ArrowUp' || 
+            e.key === 'ArrowDown' || 
+            e.key === 'ArrowLeft' || 
+            e.key === 'ArrowRight' ||
+            e.key === 'Home' ||
+            e.key === 'End' ||
+            e.key === 'PageUp' ||
+            e.key === 'PageDown') {
+          e.preventDefault()
+          e.stopPropagation()
+          e.stopImmediatePropagation()
+          return false
+        }
+      }
+    }
+
+    const handleKeyPress = (e: KeyboardEvent) => {
+      // Block keypress events for blocked keys
+      if (isRunning && !hasEnded && timeLeft > 0) {
+        if (e.key === 'F5' || 
+            e.key === 'F11' || 
+            e.key === 'F12' ||
+            e.key === 'Escape' ||
+            e.key === 'Meta' || // Windows key
+            e.key === 'Super' || // Windows key (alternative)
+            e.key === 'OS' || // Windows key (alternative)
+            (e.ctrlKey && e.key === 'r') || 
+            (e.ctrlKey && e.shiftKey && e.key === 'R') ||
+            (e.ctrlKey && e.key === 'w') ||
+            (e.ctrlKey && e.key === 'q') ||
+            (e.altKey && e.key === 'Tab') ||
+            (e.altKey && e.key === 'F4') ||
+            (e.metaKey && e.key === 'Tab') ||
+            (e.metaKey && e.key === 'w') ||
+            (e.metaKey && e.key === 'q') ||
+            (e.metaKey && e.key === 'Space') || // Windows + Space
+            (e.metaKey && e.key === 'D') || // Windows + D (show desktop)
+            (e.metaKey && e.key === 'E') || // Windows + E (explorer)
+            (e.metaKey && e.key === 'R') || // Windows + R (run)
+            (e.metaKey && e.key === 'L') || // Windows + L (lock)
+            (e.metaKey && e.key === 'M') || // Windows + M (minimize all)
+            (e.metaKey && e.key === 'ArrowDown') || // Windows + M (minimize all)
+            (e.metaKey && e.key === 'Shift') || // Windows + Shift
+            (e.metaKey && e.key === 'Tab') || // Windows + Tab
+            e.key === 'Tab' ||
+            e.key === ' ' ||
+            e.key === 'Enter' ||
+            e.key === 'ArrowUp' || 
+            e.key === 'ArrowDown' || 
+            e.key === 'ArrowLeft' || 
+            e.key === 'ArrowRight' ||
+            e.key === 'Home' ||
+            e.key === 'End' ||
+            e.key === 'PageUp' ||
+            e.key === 'PageDown') {
+          e.preventDefault()
+          e.stopPropagation()
+          e.stopImmediatePropagation()
           return false
         }
       }
@@ -132,11 +445,15 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
     window.addEventListener('beforeunload', handleBeforeUnload)
     document.addEventListener('visibilitychange', handleVisibilityChange)
     document.addEventListener('keydown', handleKeyDown)
+    document.addEventListener('keyup', handleKeyUp)
+    document.addEventListener('keypress', handleKeyPress)
 
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       document.removeEventListener('keydown', handleKeyDown)
+      document.removeEventListener('keyup', handleKeyUp)
+      document.removeEventListener('keypress', handleKeyPress)
     }
   }, [isRunning, hasEnded, timeLeft])
 
@@ -215,11 +532,21 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
     setIsRunning(false)
     
     try {
+      // Close black screen windows when pausing
+      if (isElectron()) {
+        await handleCloseBlackScreens();
+        
+        // Disable break monitoring when pausing
+        if ((window.electronAPI as any)?.breakMonitoring?.setActive) {
+          await (window.electronAPI as any).breakMonitoring.setActive(false);
+        }
+      }
+      
       // Call the database pause API - this should NOT end the break
       await onPause(timeLeft) // Pass remaining time in seconds to database
       
       // Pause break via API
-    const pauseTime = Date.now()
+      const pauseTime = Date.now()
       
       // Return to breaks page WITHOUT ending the break session  
       // The break should remain active but paused in database
@@ -231,25 +558,108 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
       setHasPaused(false)
       setIsRunning(true)
     }
-  }, [hasPaused, onPause, breakInfo.id, timeLeft, startTime])
+  }, [hasPaused, onPause, breakInfo.id, timeLeft, startTime, handleCloseBlackScreens])
 
   // Handle resume - this should restore the timer from where it was paused
-  const handleResume = () => {
+  const handleResume = async () => {
     setIsRunning(true)
     onResume()
+    
+    // Recreate black screen windows when resuming
+    if (isElectron()) {
+      await handleCreateBlackScreens();
+      
+      // Re-enable break monitoring when resuming
+      if ((window.electronAPI as any)?.breakMonitoring?.setActive) {
+        await (window.electronAPI as any).breakMonitoring.setActive(true);
+      }
+    }
+    
     // Don't clear the saved state - we want to restore from where it was paused
     // The useEffect above will handle updating timeLeft from saved state
   }
 
+  // Enter fullscreen and manage multi-monitor when break starts (only in Electron)
+  useEffect(() => {
+    if (!isElectron()) return;
+
+    const enterFullscreen = async () => {
+      try {
+        // Enable kiosk mode first
+        if (window.electronAPI?.kioskMode?.enable) {
+          await window.electronAPI.kioskMode.enable();
+          console.log('Kiosk mode enabled');
+        }
+        
+        // Then enter fullscreen
+        if (window.electronAPI?.fullscreen?.enter) {
+          const result = await window.electronAPI.fullscreen.enter();
+          
+          // Check if black screen windows were created successfully
+          if (result?.blackScreens?.success) {
+            console.log(`Break started: ${result.blackScreens.count || 0} black screen windows created on secondary monitors`);
+            setBlackScreensActive(true);
+          } else if (result?.blackScreens?.error) {
+            console.warn('Black screen windows creation had issues:', result.blackScreens.error);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to enter fullscreen:', error);
+      }
+    };
+
+    // Enter fullscreen when component mounts (break is active)
+    enterFullscreen();
+
+    // Exit fullscreen when component unmounts
+    return () => {
+      const exitFullscreen = async () => {
+        try {
+          // Exit fullscreen first
+          if (window.electronAPI?.fullscreen?.exit) {
+            const result = await window.electronAPI.fullscreen.exit();
+            
+            // Check if black screen windows were closed successfully
+            if (result?.blackScreens?.success) {
+              console.log('Break ended: Black screen windows closed on secondary monitors');
+              setBlackScreensActive(false);
+            } else if (result?.blackScreens?.error) {
+              console.warn('Black screen windows closure had issues:', result.blackScreens.error);
+            }
+          }
+          
+          // Disable kiosk mode
+          if (window.electronAPI?.kioskMode?.disable) {
+            await window.electronAPI.kioskMode.disable();
+            console.log('Kiosk mode disabled');
+          }
+        } catch (error) {
+          console.error('Failed to exit fullscreen:', error);
+        }
+      };
+      exitFullscreen();
+    };
+  }, []);
+
   // Auto-end when timer reaches zero
   useEffect(() => {
     if (timeLeft === 0) {
-      setTimeout(() => {
+      setTimeout(async () => {
+        // Close black screen windows when break automatically ends
+        if (isElectron()) {
+          await handleCloseBlackScreens();
+          
+          // Disable break monitoring when break automatically ends
+          if ((window.electronAPI as any)?.breakMonitoring?.setActive) {
+            await (window.electronAPI as any).breakMonitoring.setActive(false);
+          }
+        }
+        
         setBreakActive(false)
         onEnd()
       }, 2000) // Give user 2 seconds to see completion
     }
-  }, [timeLeft, onEnd, setBreakActive, breakInfo.id])
+  }, [timeLeft, onEnd, setBreakActive, breakInfo.id, handleCloseBlackScreens])
 
   // Handle end break confirmation
   const handleEndBreak = () => {
@@ -257,9 +667,20 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
   }
 
   // Confirm end break
-  const confirmEndBreak = () => {
+  const confirmEndBreak = async () => {
     setHasEnded(true)
     setBreakActive(false)
+    
+    // Close black screen windows when ending break
+    if (isElectron()) {
+      await handleCloseBlackScreens();
+      
+      // Disable break monitoring when ending break
+      if ((window.electronAPI as any)?.breakMonitoring?.setActive) {
+        await (window.electronAPI as any).breakMonitoring.setActive(false);
+      }
+    }
+    
     onEnd()
     setShowEndConfirm(false)
   }
@@ -268,6 +689,8 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
   const cancelEndBreak = () => {
     setShowEndConfirm(false)
   }
+
+
 
   return (
     <div className="fixed inset-0 bg-background z-50 flex items-center justify-center p-4">
@@ -297,6 +720,8 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
                 Paused - Emergency Break
               </Badge>
             )}
+            
+
             
 
           </CardHeader>
@@ -333,15 +758,6 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
                 </span>
               </div>
             </div>
-
-            {/* Status Messages */}
-            {timeLeft === 0 && (
-              <div className="text-center p-6 bg-green-50 border border-green-200 rounded-lg mb-6">
-                <CheckCircle className="h-12 w-12 text-green-600 mx-auto mb-4" />
-                <p className="text-green-800 font-medium text-xl">Break completed!</p>
-                <p className="text-green-600 text-lg">Returning to dashboard...</p>
-              </div>
-            )}
 
             {showPauseWarning && (
               <div className="text-center p-6 bg-orange-50 border border-orange-200 rounded-lg mb-6">
@@ -383,6 +799,9 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
               </Button>
             </div>
 
+
+
+
             {/* Break Info */}
             <div className="text-center text-base text-muted-foreground">
               <p>This break will automatically end when the timer reaches zero.</p>
@@ -391,6 +810,7 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
                   Emergency pause has been used for this break.
                 </p>
               )}
+
             </div>
           </CardContent>
         </Card>
@@ -416,6 +836,67 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
             <Button variant="destructive" onClick={confirmEndBreak}>
               <X className="mr-2 h-4 w-4" />
               End Break
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Focus Loss Confirmation Dialog */}
+      <Dialog open={showFocusLossDialog} onOpenChange={setShowFocusLossDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-orange-500" />
+              Break Interrupted
+            </DialogTitle>
+            <DialogDescription>
+              You've switched away from your break timer or tried to create/switch virtual desktops. 
+              This will end your current break session. Are you sure you want to continue?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={handleFocusLossCancel}>
+              Return to Break
+            </Button>
+            <Button variant="destructive" onClick={handleFocusLossConfirm}>
+              <X className="mr-2 h-4 w-4" />
+              End Break
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Emergency Escape Dialog */}
+      <Dialog open={showEmergencyEscapeDialog} onOpenChange={setShowEmergencyEscapeDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-red-500" />
+              Emergency Exit Requested
+            </DialogTitle>
+            <DialogDescription>
+              You've pressed the Escape key to request an emergency exit from kiosk mode. 
+              This will end your current break session. Are you sure you want to continue?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setShowEmergencyEscapeDialog(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={async () => {
+              setShowEmergencyEscapeDialog(false);
+              // Exit kiosk mode and end break
+              if (isElectron()) {
+                await handleCloseBlackScreens();
+                if ((window.electronAPI as any)?.breakMonitoring?.setActive) {
+                  await (window.electronAPI as any).breakMonitoring.setActive(false);
+                }
+              }
+              setBreakActive(false);
+              onEnd();
+            }}>
+              <X className="mr-2 h-4 w-4" />
+              Emergency Exit
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { executeQuery } from '@/lib/database-server'
-import { getCurrentUserInfo } from '@/lib/user-profiles'
 
 // GET /api/meetings - Get user's meetings
 export async function GET(request: NextRequest) {

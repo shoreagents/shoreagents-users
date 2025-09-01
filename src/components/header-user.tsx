@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Button } from "@/components/ui/button"
 import { useActivity } from "@/contexts/activity-context"
+import { useLogout } from "@/contexts/logout-context"
 import { getCurrentUser } from "@/lib/ticket-utils"
 import { hasOngoingMeeting, endMeeting } from "@/lib/meeting-utils"
 import { forceLogout } from "@/lib/auth-utils"
@@ -39,6 +40,7 @@ export function HeaderUser({
 }) {
   const router = useRouter()
   const { setUserLoggedOut } = useActivity()
+  const { startLogout } = useLogout()
 
   const getInitials = (fullName?: string, email?: string) => {
     const name = (fullName || '').trim()
@@ -62,6 +64,9 @@ export function HeaderUser({
 
   const handleLogout = async () => {
     console.log('🔄 Logout button clicked (header)')
+    
+    // Start logout loading state
+    startLogout()
     
     // Get current user before clearing auth
     const currentUser = getCurrentUser()
@@ -94,15 +99,15 @@ export function HeaderUser({
     // Stop activity tracking (this will be picked up by the auth monitor)
     setUserLoggedOut()
     
-    // Redirect to login
-    router.push("/login")
+    // Note: forceLogout will handle the redirect, so we don't need router.push here
+    // The logout loading state will be cleared by the logout-finished event
   }
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" className="relative h-8 w-8 rounded-full cursor-pointer">
-          <Avatar className="h-8 w-8">
+          <Avatar className="h-8 w-8 dark:bg-gray-800 bg-gray-200">
             <AvatarImage src={user.avatar} alt={user.name} />
             <AvatarFallback>{getInitials(user.name, user.email)}</AvatarFallback>
           </Avatar>
@@ -119,17 +124,13 @@ export function HeaderUser({
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
-          <DropdownMenuItem>
-            <BadgeCheck className="mr-2 h-4 w-4" />
-            <span>Account</span>
-          </DropdownMenuItem>
-          <DropdownMenuItem>
+          <DropdownMenuItem onClick={() => router.push('/notifications')} className="cursor-pointer">
             <Bell className="mr-2 h-4 w-4" />
             <span>Notifications</span>
           </DropdownMenuItem>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={handleLogout}>
+        <DropdownMenuItem onClick={handleLogout} className="cursor-pointer">
           <LogOut className="mr-2 h-4 w-4" />
           <span>Log out</span>
         </DropdownMenuItem>

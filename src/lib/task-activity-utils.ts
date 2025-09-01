@@ -152,8 +152,6 @@ export async function moveTask(taskId: number, newGroupId: number, targetPositio
       }
     }
     
-    console.log('Sending move task request:', requestBody)
-    
     const response = await fetch(`/api/task-activity?email=${encodeURIComponent(user.email)}`, {
       method: 'POST',
       headers: {
@@ -163,7 +161,6 @@ export async function moveTask(taskId: number, newGroupId: number, targetPositio
     })
     
     const data = await response.json()
-    console.log('Move task response:', data)
     
     if (data.success) {
       return data.task
@@ -246,7 +243,7 @@ export function getDefaultGroups(): TaskGroup[] {
     {
       id: 0,
       title: 'To Do',
-      color: 'bg-gray-100 dark:bg-gray-800',
+      color: 'bg-gray-200 dark:bg-gray-800',
       position: 0,
       is_default: true,
       tasks: []
@@ -254,7 +251,7 @@ export function getDefaultGroups(): TaskGroup[] {
     {
       id: 0,
       title: 'In Progress',
-      color: 'bg-blue-50 dark:bg-blue-950/20',
+      color: 'bg-blue-100 dark:bg-blue-950/20',
       position: 1,
       is_default: true,
       tasks: []
@@ -262,16 +259,32 @@ export function getDefaultGroups(): TaskGroup[] {
     {
       id: 0,
       title: 'Review',
-      color: 'bg-yellow-50 dark:bg-yellow-950/20',
+      color: 'bg-yellow-100 dark:bg-yellow-950/20',
       position: 2,
       is_default: true,
       tasks: []
     },
     {
       id: 0,
-      title: 'Done',
-      color: 'bg-green-50 dark:bg-green-950/20',
+      title: 'On Hold',
+      color: 'bg-purple-100 dark:bg-purple-950/20',
       position: 3,
+      is_default: true,
+      tasks: []
+    },
+    {
+      id: 0,
+      title: 'Done',
+      color: 'bg-green-100 dark:bg-green-950/20',
+      position: 4,
+      is_default: true,
+      tasks: []
+    },
+    {
+      id: 0,
+      title: 'Overdue',
+      color: 'bg-red-200 dark:bg-red-950/20',
+      position: 5,
       is_default: true,
       tasks: []
     }
@@ -294,8 +307,6 @@ export async function reorderGroups(groupPositions: Array<{id: number, position:
         group_positions: groupPositions
       }
     }
-    console.log('Sending reorder groups request:', requestBody)
-    
     const response = await fetch(`/api/task-activity?email=${encodeURIComponent(user.email)}`, {
       method: 'POST',
       headers: {
@@ -305,7 +316,6 @@ export async function reorderGroups(groupPositions: Array<{id: number, position:
     })
     
     const data = await response.json()
-    console.log('Reorder groups response:', data)
     
     if (!data.success) {
       throw new Error(data.error || 'Failed to reorder groups')

@@ -342,6 +342,24 @@ export function deleteNotification(id: string): void {
 // Clear all notifications
 export function clearAllNotifications(): void {
   saveNotifications([])
+  
+  // Trigger a custom event to notify other components
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('notifications-updated', {
+      detail: { unreadCount: 0 }
+    }))
+    
+    // Also trigger notification count change for system tray
+    if (window.electronAPI?.send) {
+      window.electronAPI.send('notification-count-changed', { count: 0 });
+    }
+  }
+}
+
+// Clear all notifications on logout
+export function clearAllNotificationsOnLogout(): void {
+  console.log('🧹 Clearing all notifications on logout');
+  clearAllNotifications();
 }
 
 // Remove duplicate notifications

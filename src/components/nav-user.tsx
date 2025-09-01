@@ -31,6 +31,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 import { useActivity } from "@/contexts/activity-context"
+import { useLogout } from "@/contexts/logout-context"
 import { getCurrentUser } from "@/lib/ticket-utils"
 import { hasOngoingMeeting, endMeeting } from "@/lib/meeting-utils"
 import { forceLogout } from "@/lib/auth-utils"
@@ -47,6 +48,7 @@ export function NavUser({
   const { isMobile } = useSidebar()
   const router = useRouter()
   const { setUserLoggedOut } = useActivity()
+  const { startLogout } = useLogout()
 
   const getInitials = (fullName?: string, email?: string) => {
     const name = (fullName || '').trim()
@@ -70,6 +72,9 @@ export function NavUser({
 
   const handleLogout = async () => {
     console.log('🔄 Logout button clicked')
+    
+    // Start logout loading state
+    startLogout()
     
     // Get current user before clearing auth
     const currentUser = getCurrentUser()

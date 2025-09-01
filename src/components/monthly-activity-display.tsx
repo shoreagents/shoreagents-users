@@ -136,7 +136,6 @@ export default function MonthlyActivityDisplay({ currentUser }: MonthlyActivityD
   const updateMonthlyDataFromSocket = (socketData: any) => {
     if (!socketData || socketData.user_id !== currentUser?.id) return;
     
-    console.log('📊 Received real-time monthly activity update:', socketData);
     setLastUpdate(new Date().toLocaleTimeString());
     
     // Show real-time update notification
@@ -152,7 +151,6 @@ export default function MonthlyActivityDisplay({ currentUser }: MonthlyActivityD
   const updateWeeklyDataFromSocket = (socketData: any) => {
     if (!socketData || socketData.user_id !== currentUser?.id) return;
     
-    console.log('📊 Received real-time weekly activity update:', socketData);
     setLastUpdate(new Date().toLocaleTimeString());
     
     // Show real-time update notification
@@ -178,7 +176,6 @@ export default function MonthlyActivityDisplay({ currentUser }: MonthlyActivityD
     
     // Refresh data every 2 minutes (120 seconds) instead of every few seconds
     const interval = setInterval(() => {
-      console.log('🔄 Periodic refresh of monthly data (2-minute interval)');
       fetchAllMonthlyDataSilently();
     }, 120000); // 2 minutes
     
@@ -189,7 +186,6 @@ export default function MonthlyActivityDisplay({ currentUser }: MonthlyActivityD
   useEffect(() => {
     const handleFocus = () => {
       if (currentUser?.email && !isBreakActive && !isInMeeting) {
-        console.log('🔄 Tab focus detected, refreshing monthly data');
         fetchAllMonthlyDataSilently();
       }
     };
@@ -214,13 +210,10 @@ export default function MonthlyActivityDisplay({ currentUser }: MonthlyActivityD
     socket.on('monthly-activity-update', handleMonthlyActivityUpdate);
     socket.on('weekly-activity-update', handleWeeklyActivityUpdate);
 
-    console.log('🔌 Listening for real-time monthly/weekly activity updates');
-
     // Cleanup listeners
     return () => {
       socket.off('monthly-activity-update', handleMonthlyActivityUpdate);
       socket.off('weekly-activity-update', handleWeeklyActivityUpdate);
-      console.log('🔌 Stopped listening for real-time monthly/weekly activity updates');
     };
   }, [socket, isConnected, currentUser?.id]);
 
@@ -251,7 +244,6 @@ export default function MonthlyActivityDisplay({ currentUser }: MonthlyActivityD
                 <TooltipContent>
                   <div className="space-y-2">
                     <p className="text-sm">Month: {currentMonth?.monthStart ? formatDate(currentMonth.monthStart) : 'N/A'}</p>
-                    {cleanupStatus && <p className="text-sm text-green-600">{cleanupStatus}</p>}
                     <p className="text-sm ">Last Update: {lastUpdate}</p>
                   </div>
                 </TooltipContent>

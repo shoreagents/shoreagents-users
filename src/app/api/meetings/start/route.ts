@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { executeQuery } from '@/lib/database-server'
-import { getCurrentUserInfo } from '@/lib/user-profiles'
 
 // POST /api/meetings/start - Start a meeting
 export async function POST(request: NextRequest) {

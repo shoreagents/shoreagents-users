@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useMemo } from "react"
 import { AppSidebar } from "@/components/app-sidebar"
 import { AppHeader } from "@/components/app-header"
 import {
@@ -36,7 +36,6 @@ export default function TaskActivityPage() {
   const [isAddGroupOpen, setIsAddGroupOpen] = useState(false)
   const [newGroupName, setNewGroupName] = useState("")
   const [isEditMode, setIsEditMode] = useState(false)
-  const [canManageGroups, setCanManageGroups] = useState(false)
 
   // Zoom functionality
   const [zoomLevel, setZoomLevel] = useState(100)
@@ -70,6 +69,13 @@ export default function TaskActivityPage() {
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [socketInstance, setSocketInstance] = useState<any>(null)
   
+  // Compute canManageGroups based on current user data
+  const canManageGroups = useMemo(() => {
+    if (!currentUser) return false
+    const role = currentUser?.role || currentUser?.user_type || currentUser?.type || ''
+    return /^(internal)$/i.test(role.toString())
+  }, [currentUser])
+  
   // Socket.IO for real-time updates
   const { isConnected, startTaskActivity, pauseTaskActivity, resumeTaskActivity, completeTaskActivity, emitTaskMoved, emitTaskCreated, emitGroupCreated, emitGroupsReordered } = useTaskActivitySocketContext(userEmail)
 
@@ -81,8 +87,6 @@ export default function TaskActivityPage() {
         const parsed = JSON.parse(authData)
         setUserEmail(parsed.user.email)
         setCurrentUser(parsed.user)
-        const role: string | undefined = (parsed.user?.role || parsed.user?.type || '').toString()
-        setCanManageGroups(/^(internal)$/i.test(role || ''))
       } catch (error) {
         console.error('Error parsing auth data:', error)
       }
@@ -537,7 +541,6 @@ export default function TaskActivityPage() {
 
     // Listen for task moved events
     s.on('taskMoved', ({ taskId, newGroupId, task }: { taskId: string; newGroupId: string; task: any }) => {
-      console.log('Received taskMoved event:', { taskId, newGroupId, task })
       setGroups(prevGroups => {
         const updatedGroups = [...prevGroups]
         
@@ -555,7 +558,6 @@ export default function TaskActivityPage() {
             group.tasks.forEach((task, index) => {
               task.position = index + 1
             })
-            console.log(`Socket: Re-indexed ${group.tasks.length} tasks in source group`)
             break
           }
         }
@@ -660,6 +662,22 @@ export default function TaskActivityPage() {
 
   const handleTaskMove = async (taskId: string, newGroupId: string, targetPosition?: number) => {
     try {
+      // Check if the move is actually needed before proceeding
+      const currentGroup = groups.find(group => 
+        group.tasks?.some(task => task.id.toString() === taskId)
+      )
+      const currentTask = currentGroup?.tasks?.find(task => task.id.toString() === taskId)
+      
+      if (currentGroup && currentTask) {
+        const currentGroupId = currentGroup.id.toString()
+        const currentPosition = currentTask.position
+        
+        // If no changes are needed, skip the entire operation
+        if (currentGroupId === newGroupId && currentPosition === targetPosition) {
+          return
+        }
+      }
+      
       // Optimistic update - immediately update the UI
       let movedTask: Task | null = null
       
@@ -680,7 +698,6 @@ export default function TaskActivityPage() {
             taskArray.forEach((task, index) => {
               task.position = index + 1
             })
-            console.log(`Re-indexed ${group.tasks.length} tasks in source group`)
             break
           }
         }
@@ -699,16 +716,13 @@ export default function TaskActivityPage() {
             if (targetPosition) {
               // Insert at specific position
               const insertIndex = targetPosition - 1
-              console.log(`Inserting task at index ${insertIndex} (position ${targetPosition})`)
               const tgArray = targetGroup.tasks || (targetGroup.tasks = [])
-              console.log(`Current tasks in group: ${tgArray.length}`)
               tgArray.splice(insertIndex, 0, updatedTask)
               
               // Update positions for all tasks in the group
               tgArray.forEach((task, index) => {
                 task.position = index + 1
               })
-              console.log(`After insertion: ${tgArray.length} tasks`)
             } else {
               // Add to end
               const tgArray = targetGroup.tasks || (targetGroup.tasks = [])
@@ -722,16 +736,10 @@ export default function TaskActivityPage() {
       })
       
       // Make the API call in the background
-      console.log(`Calling API: moveTask(${taskId}, ${newGroupId}, ${targetPosition})`)
       const movedTaskResult = await moveTask(parseInt(taskId), parseInt(newGroupId), targetPosition)
-      console.log('API response:', movedTaskResult)
       
       // Emit Socket.IO event for real-time updates with the updated task data
-      console.log('Emitting taskMoved event:', { taskId, newGroupId, movedTaskResult })
       emitTaskMoved(parseInt(taskId), parseInt(newGroupId), movedTaskResult)
-      
-      // Debug: Log the move operation
-      console.log(`Task ${taskId} moved to group ${newGroupId} at position ${targetPosition || 'end'}`)
       
       // Optionally refresh data to ensure consistency
       // await loadTaskData()
@@ -801,8 +809,6 @@ export default function TaskActivityPage() {
 
   const handleTaskUpdate = async (taskId: string, updates: any) => {
     try {
-      console.log('Task update:', taskId, updates)
-      
       // Check if this is a group move (group_id is being updated)
       const isGroupMove = updates.group_id !== undefined
       
@@ -924,8 +930,6 @@ export default function TaskActivityPage() {
       
       // Make the API call in the background
       const updatedTask = await updateTask(parseInt(taskId), updates)
-      console.log('Task updated successfully:', updatedTask)
-      
       // Update with the real task data from the API response
       setGroups(prevGroups => {
         const updatedGroups = [...prevGroups]
@@ -967,8 +971,6 @@ export default function TaskActivityPage() {
 
   const handleTaskRename = async (taskId: string, newTitle: string) => {
     try {
-      console.log('Task rename:', taskId, newTitle)
-      
       // Optimistic update - immediately update the UI
       setGroups(prevGroups => {
         const updatedGroups = [...prevGroups]
@@ -991,8 +993,6 @@ export default function TaskActivityPage() {
       
       // Make the API call in the background
       const updatedTask = await updateTask(parseInt(taskId), { title: newTitle })
-      console.log('Task renamed successfully:', updatedTask)
-      
       // Update with the real task data from the API response
       setGroups(prevGroups => {
         const updatedGroups = [...prevGroups]
@@ -1039,8 +1039,6 @@ export default function TaskActivityPage() {
 
   const handleColumnsReorder = async (newColumns: any[]) => {
     try {
-      console.log('Columns reorder:', newColumns)
-      
       // Convert to the format expected by the API
       const groupPositions = newColumns.map((column, index) => ({
         id: parseInt(column.id),
@@ -1062,8 +1060,6 @@ export default function TaskActivityPage() {
       
       // Persist to database
       await reorderGroups(groupPositions)
-      console.log('Groups reordered successfully')
-      
       // Emit Socket.IO event for real-time updates
       emitGroupsReordered(groupPositions)
       
@@ -1184,7 +1180,7 @@ export default function TaskActivityPage() {
               
               <div className="flex items-center gap-2 flex-shrink-0">
                 {/* Zoom Controls */}
-                <div className="flex items-center gap-1 border rounded-md p-1 bg-muted/50">
+                <div className="flex items-center gap-1 border rounded-md px-1 py-0.5 bg-muted/50">
                   <Button
                     variant="ghost"
                     size="sm"
@@ -1226,7 +1222,7 @@ export default function TaskActivityPage() {
                   size="sm"
                   onClick={toggleEditMode}
                   disabled={!canManageGroups}
-                  className={`flex items-center gap-2 ${isEditMode ? 'bg-blue-600 hover:bg-blue-700' : ''} ${!canManageGroups ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  className={`flex items-center gap-2 ${isEditMode ? 'bg-blue-600 hover:bg-blue-700' : ''} ${!canManageGroups ? 'opacity-50 cursor-not-allowed hidden' : ''}`}
                   title={!canManageGroups ? 'Only Internal users can edit the board' : undefined}
                 >
                   <Settings className={`h-4 w-4 ${isEditMode ? 'animate-spin' : ''}`} />

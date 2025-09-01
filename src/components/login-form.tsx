@@ -8,11 +8,12 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { useActivity } from "@/contexts/activity-context"
 import { getCurrentPhilippinesTime } from "@/lib/timezone-utils"
-import { setAuthCookie, clearAllAuthArtifacts } from "@/lib/auth-utils"
-import { authHelpers, supabase } from "@/lib/supabase"
+import { setAuthCookie, clearAllAuthArtifacts, setRememberedCredentials, getRememberedCredentials, clearRememberedCredentials } from "@/lib/auth-utils"
 
 export function LoginForm({
   className,
@@ -21,8 +22,10 @@ export function LoginForm({
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
+  const [rememberMe, setRememberMe] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
+  const [securityInfo, setSecurityInfo] = useState({ warning: "", recommendation: "" })
   const router = useRouter()
   const { setUserLoggedIn } = useActivity()
 
@@ -30,6 +33,40 @@ export function LoginForm({
   useEffect(() => {
     clearAllAuthArtifacts()
   }, [])
+
+  // Load remembered credentials if they exist
+  useEffect(() => {
+    const loadCredentials = async () => {
+      try {
+        const remembered = await getRememberedCredentials()
+        if (remembered) {
+          setEmail(remembered.email)
+          setPassword(remembered.password)
+          setRememberMe(true)
+          console.log('✅ Loaded remembered credentials')
+        }
+      } catch (error) {
+        console.error('Error loading remembered credentials:', error)
+      }
+    }
+    
+    loadCredentials()
+  }, [])
+
+
+  // Handle remember me checkbox change
+  const handleRememberMeChange = (checked: boolean) => {
+    setRememberMe(checked)
+    
+    // If user unchecks remember me, clear saved credentials
+    if (!checked) {
+      clearRememberedCredentials().then(() => {
+        console.log('✅ Remembered credentials cleared')
+      }).catch((error) => {
+        console.error('Error clearing credentials:', error)
+      })
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -72,6 +109,15 @@ export function LoginForm({
       setAuthCookie(authData, 7)
       localStorage.setItem('shoreagents-auth', JSON.stringify(authData))
       setUserLoggedIn()
+
+      // Save credentials if "Remember me" is checked
+      if (rememberMe) {
+        setRememberedCredentials(email, password).then(() => {
+          console.log('✅ Credentials saved for future logins')
+        }).catch((error) => {
+          console.error('Error saving credentials:', error)
+        })
+      }
 
       // Emit login event to socket server
       try {
@@ -172,6 +218,45 @@ export function LoginForm({
                 </span>
               </Button>
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <TooltipProvider>
+              <div className="flex items-center space-x-2">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Checkbox
+                      id="remember-me"
+                      checked={rememberMe}
+                      onCheckedChange={handleRememberMeChange}
+                      disabled={isLoading}
+                    />
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p className="max-w-xs">
+                      Check this to save your email and password for future logins. 
+                      Your credentials will be stored securely using system encryption.
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Label
+                      htmlFor="remember-me"
+                      className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-help"
+                    >
+                      Remember me
+                    </Label>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p className="max-w-xs">
+                      Check this to save your email and password for future logins. 
+                      Your credentials will be stored securely using system encryption.
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+            </TooltipProvider>
           </div>
 
           {error && (

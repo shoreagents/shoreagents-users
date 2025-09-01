@@ -40,7 +40,7 @@ function getUserFromRequest(request: NextRequest) {
 // GET: Retrieve a specific ticket by ID
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   // Optional SSE stream for a single ticket
   try {
@@ -294,7 +294,7 @@ export async function GET(
 // PATCH: Update a specific ticket (e.g., for file uploads)
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   let pool: Pool | null = null
   

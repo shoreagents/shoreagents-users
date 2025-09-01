@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { getCurrentUser, hasValidAuthTokens, forceLogout } from '@/lib/auth-utils'
+import { useLogout } from '@/contexts/logout-context'
 
 interface AuthMonitorProps {
   children: React.ReactNode
@@ -11,6 +12,7 @@ interface AuthMonitorProps {
 export function AuthMonitor({ children }: AuthMonitorProps) {
   const router = useRouter()
   const pathname = usePathname()
+  const { startLogout } = useLogout()
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
   const lastCheckRef = useRef<{
     shoreagentsAuth: string | null
@@ -73,6 +75,7 @@ export function AuthMonitor({ children }: AuthMonitorProps) {
       
       if (hadAuthBefore) {
         console.log('🚪 Auto-logout: Authentication tokens removed')
+        startLogout()
         clearAllAuthTokens()
         forceLogout()
         return
@@ -86,6 +89,9 @@ export function AuthMonitor({ children }: AuthMonitorProps) {
 
     if (shoreagentsAuthRemoved || supabaseAuthRemoved || cookiesRemoved) {
       console.log('🚪 Auto-logout: Authentication token deleted - clearing all auth data')
+      
+      // Start logout loading state
+      startLogout()
       
       // Clear all remaining auth tokens
       clearAllAuthTokens()
@@ -107,6 +113,7 @@ export function AuthMonitor({ children }: AuthMonitorProps) {
       if (!e.newValue) {
         // Token was removed in another tab
         console.log('🚪 Auto-logout: Token removed in another tab - clearing all auth data')
+        startLogout()
         clearAllAuthTokens()
         forceLogout()
       }
