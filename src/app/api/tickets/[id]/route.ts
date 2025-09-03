@@ -1,10 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Pool } from 'pg'
+import { redisCache, cacheKeys, cacheTTL } from '@/lib/redis-cache'
+import { getOptimizedClient } from '@/lib/database-optimized'
 
 // Database configuration
 const databaseConfig = {
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  max: 10, // Limit concurrent connections
+  idleTimeoutMillis: 30000, // Close idle connections after 30 seconds
+  connectionTimeoutMillis: 10000, // Timeout after 10 seconds (increased from 2s)
+  statement_timeout: 30000, // 30 second statement timeout
+  query_timeout: 30000, // 30 second query timeout
 }
 
 // Helper function to get user from request
@@ -56,50 +63,116 @@ export async function GET(
       }
 
       const ticketId = (await params).id
-      const pool = new Pool(databaseConfig)
-      const client = await pool.connect()
       const encoder = new TextEncoder()
       let closed = false
+      let pool: Pool | null = null
+      let client: any = null
 
       const stream = new ReadableStream<Uint8Array>({
         async start(controller) {
+          try {
+            // Create database connection
+            pool = new Pool(databaseConfig)
+            client = await pool.connect()
+          } catch (error) {
+            console.error('❌ Failed to connect to database:', error instanceof Error ? error.message : String(error))
+            controller.close()
+            return
+          }
+
           const send = (data: any) => {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
+            if (!closed) {
+              try {
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
+              } catch (error) {
+                if (!closed) {
+                  console.error('❌ Error sending SSE data:', error instanceof Error ? error.message : String(error))
+                  onClose()
+                }
+              }
+            }
           }
 
           const heartbeat = () => {
-            controller.enqueue(encoder.encode(`: ping\n\n`))
+            if (!closed) {
+              try {
+                controller.enqueue(encoder.encode(`: ping\n\n`))
+              } catch (error) {
+                if (!closed) {
+                  console.error('❌ Error sending heartbeat:', error instanceof Error ? error.message : String(error));
+                  onClose()
+                }
+              }
+            }
           }
 
           const onClose = async () => {
             if (closed) return
             closed = true
-            try { await client.query('UNLISTEN ticket_changes') } catch {}
-            client.removeListener('notification', onNotification)
-            client.release()
-            await pool.end().catch(() => {})
+            try { 
+              if (client) {
+                await client.query('UNLISTEN ticket_changes') 
+                await client.query('UNLISTEN ticket_comments')
+                client.removeListener('notification', onNotification)
+                client.release()
+              }
+            } catch {}
+            try { 
+              if (pool) {
+                await pool.end()
+              }
+            } catch {}
             try { controller.close() } catch {}
           }
 
           const onNotification = (msg: any) => {
             try {
               const payload = JSON.parse(msg.payload || '{}')
-              const record = payload.record || null
-              const oldRecord = payload.old_record || null
-              const affectedTicketId = (record?.ticket_id ?? oldRecord?.ticket_id) as string | undefined
-              const affectedUserId = (record?.user_id ?? oldRecord?.user_id) as number | undefined
-              // Only emit if this event is for the requested ticket and belongs to this user (or user is admin)
-              const currentUserIdNum = Number((user as any).id)
-              if (affectedTicketId === ticketId && (user.role === 'admin' || (Number.isFinite(currentUserIdNum) && affectedUserId === currentUserIdNum))) {
-                send(payload)
+              
+              if (msg.channel === 'ticket_changes') {
+                const record = payload.record || null
+                const oldRecord = payload.old_record || null
+                const affectedTicketId = (record?.ticket_id ?? oldRecord?.ticket_id) as string | undefined
+                const affectedUserId = (record?.user_id ?? oldRecord?.user_id) as number | undefined
+                // Only emit if this event is for the requested ticket and belongs to this user (or user is admin)
+                const currentUserIdNum = Number((user as any).id)
+                if (affectedTicketId === ticketId && (user.role === 'admin' || (Number.isFinite(currentUserIdNum) && affectedUserId === currentUserIdNum))) {
+                  send(payload)
+                }
+              } else if (msg.channel === 'ticket_comments') {
+                console.log('🔔 Received ticket_comments event:', payload)
+                // Handle comment changes - check if this comment is for the current ticket
+                const commentTicketRowId = payload.ticket_row_id
+                if (commentTicketRowId) {
+                  // Get the ticket_id for this ticket_row_id to match with the requested ticketId
+                  client.query('SELECT ticket_id FROM tickets WHERE id = $1', [commentTicketRowId])
+                    .then((result: any) => {
+                      if (result.rows.length > 0 && result.rows[0].ticket_id === ticketId) {
+                        console.log('✅ Sending comment event to frontend for ticket:', ticketId)
+                        // This comment is for the current ticket, send it
+                        send({ ...payload, channel: 'ticket_comments' })
+                      } else {
+                        console.log('❌ Comment event not for current ticket:', ticketId)
+                      }
+                    })
+                    .catch((error: any) => {
+                      console.error('❌ Error checking ticket_id:', error)
+                    })
+                } else {
+                  console.log('❌ No ticket_row_id in comment payload')
+                }
               }
             } catch {}
           }
 
-          await client.query('LISTEN ticket_changes')
-          client.on('notification', onNotification)
+          if (client) {
+            await client.query('LISTEN ticket_changes')
+            await client.query('LISTEN ticket_comments')
+            client.on('notification', onNotification)
+          }
 
           send({ type: 'connected', channel: 'ticket_changes', scope: 'ticket', ticketId })
+          send({ type: 'connected', channel: 'ticket_comments', scope: 'ticket', ticketId })
 
           const interval = setInterval(heartbeat, 25000)
           const abortHandler = () => onClose()
@@ -156,6 +229,24 @@ export async function GET(
     const client = await pool.connect()
 
     try {
+      // Check if this is a real-time update request (bypass cache)
+      const url = new URL(request.url)
+      const bypassCache = url.searchParams.get('bypass_cache') === 'true'
+      
+      // Check Redis cache first (unless bypassing)
+      const cacheKey = cacheKeys.ticket(ticketId)
+      let cachedData = null
+      
+      if (!bypassCache) {
+        cachedData = await redisCache.get(cacheKey)
+        if (cachedData) {
+          console.log('✅ Ticket served from Redis cache')
+          return NextResponse.json(cachedData)
+        }
+      } else {
+        console.log('🔄 Bypassing Redis cache for real-time update')
+      }
+
       // Get specific ticket for the user
       const ticketQuery = `
         SELECT 
@@ -257,10 +348,16 @@ export async function GET(
         fileCount: row.file_count || 0
       }
 
-      return NextResponse.json({
+      const responseData = {
         success: true,
         ticket
-      })
+      }
+
+      // Cache the result in Redis
+      await redisCache.set(cacheKey, responseData, cacheTTL.ticket)
+      console.log('✅ Ticket cached in Redis')
+
+      return NextResponse.json(responseData)
 
     } catch (error) {
       console.error('❌ Error fetching ticket:', error)
@@ -289,7 +386,197 @@ export async function GET(
       await pool.end()
     }
   }
-} 
+}
+
+// PUT: Update a specific ticket (e.g., status, details, etc.)
+export async function PUT(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  let pool: Pool | null = null
+  
+  try {
+    // Get user from request
+    const user = getUserFromRequest(request)
+    console.log('🔍 PUT - User from request:', user)
+    
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Unauthorized - User not found' },
+        { status: 401 }
+      )
+    }
+
+    const ticketId = (await params).id
+    console.log('🔍 PUT - Ticket ID:', ticketId)
+
+    // Parse request body
+    const body = await request.json()
+    const { status, concern, details, category, resolved_by } = body
+    
+    console.log('🔍 PUT request body:', body)
+
+    // Create database connection
+    pool = new Pool(databaseConfig)
+    const client = await pool.connect()
+
+    try {
+      await client.query('BEGIN')
+
+      // Check if ticket exists and user has permission
+      const ticketQuery = `
+        SELECT t.id, t.user_id, u.email as user_email, t.status as current_status
+        FROM tickets t 
+        LEFT JOIN users u ON t.user_id = u.id 
+        WHERE t.ticket_id = $1
+      `
+      const ticketResult = await client.query(ticketQuery, [ticketId])
+
+      if (ticketResult.rows.length === 0) {
+        await client.query('ROLLBACK')
+        return NextResponse.json(
+          { error: 'Ticket not found' },
+          { status: 404 }
+        )
+      }
+
+      const ticket = ticketResult.rows[0]
+      console.log('🔍 Ticket user_id:', ticket.user_id, 'Ticket user_email:', ticket.user_email)
+      console.log('🔍 Request user.id:', user.id, 'Request user.email:', user.email)
+
+      // Check if the current user is the ticket owner or has admin access
+      // Compare by email since user.id might be in different format
+      if (ticket.user_email !== user.email && user.role !== 'admin') {
+        await client.query('ROLLBACK')
+        return NextResponse.json(
+          { error: 'Unauthorized - You can only update your own tickets' },
+          { status: 403 }
+        )
+      }
+
+      // Build dynamic update query based on provided fields
+      const updateFields = []
+      const updateValues = []
+      let paramCount = 1
+
+      if (status !== undefined) {
+        updateFields.push(`status = $${paramCount}`)
+        updateValues.push(status)
+        paramCount++
+      }
+
+      if (concern !== undefined) {
+        updateFields.push(`concern = $${paramCount}`)
+        updateValues.push(concern)
+        paramCount++
+      }
+
+      if (details !== undefined) {
+        updateFields.push(`details = $${paramCount}`)
+        updateValues.push(details)
+        paramCount++
+      }
+
+      if (resolved_by !== undefined) {
+        updateFields.push(`resolved_by = $${paramCount}`)
+        updateValues.push(resolved_by)
+        paramCount++
+      }
+
+      // Always update the updated_at timestamp
+      updateFields.push(`updated_at = NOW() AT TIME ZONE 'Asia/Manila'`)
+
+      if (updateFields.length === 1) { // Only updated_at
+        await client.query('ROLLBACK')
+        return NextResponse.json(
+          { error: 'No fields to update' },
+          { status: 400 }
+        )
+      }
+
+      // Add ticket_id as the last parameter
+      updateValues.push(ticketId)
+
+      const updateQuery = `
+        UPDATE tickets 
+        SET ${updateFields.join(', ')}
+        WHERE ticket_id = $${paramCount}
+        RETURNING id, ticket_id, concern, details, status, resolved_by, updated_at
+      `
+
+      console.log('🔍 Update query:', updateQuery)
+      console.log('🔍 Update values:', updateValues)
+
+      const updateResult = await client.query(updateQuery, updateValues)
+
+      if (updateResult.rows.length === 0) {
+        await client.query('ROLLBACK')
+        return NextResponse.json(
+          { error: 'Failed to update ticket' },
+          { status: 500 }
+        )
+      }
+
+      await client.query('COMMIT')
+
+      const updatedTicket = updateResult.rows[0]
+
+      // Invalidate Redis cache for this user's tickets and individual ticket
+      const userTicketsCacheKey = cacheKeys.tickets(ticket.user_email)
+      const individualTicketCacheKey = cacheKeys.ticket(ticketId)
+      await redisCache.del(userTicketsCacheKey)
+      await redisCache.del(individualTicketCacheKey)
+      console.log('✅ Tickets cache invalidated after ticket update')
+
+      return NextResponse.json({
+        success: true,
+        ticket: {
+          id: updatedTicket.ticket_id,
+          concern: updatedTicket.concern,
+          details: updatedTicket.details,
+          status: updatedTicket.status,
+          resolvedBy: updatedTicket.resolved_by,
+          updatedAt: updatedTicket.updated_at?.toLocaleString('en-US', { 
+            timeZone: 'Asia/Manila',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true
+          }) || ''
+        }
+      })
+
+    } catch (error) {
+      await client.query('ROLLBACK')
+      console.error('❌ Error updating ticket:', error)
+      return NextResponse.json(
+        { 
+          error: 'Failed to update ticket',
+          details: error instanceof Error ? error.message : 'Unknown error'
+        },
+        { status: 500 }
+      )
+    } finally {
+      client.release()
+    }
+
+  } catch (error) {
+    console.error('❌ Error in ticket PUT API:', error)
+    return NextResponse.json(
+      { 
+        error: 'Internal server error',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      },
+      { status: 500 }
+    )
+  } finally {
+    if (pool) {
+      await pool.end()
+    }
+  }
+}
 
 // PATCH: Update a specific ticket (e.g., for file uploads)
 export async function PATCH(
@@ -321,11 +608,11 @@ export async function PATCH(
     console.log('🔍 supporting_files:', supporting_files)
     console.log('🔍 file_count:', file_count)
 
-    // Create database connection
-    pool = new Pool(databaseConfig)
-    const client = await pool.connect()
-
+    // Use optimized database connection
     try {
+      const client = await getOptimizedClient()
+      
+      try {
       // Check if ticket exists and user has permission
       const ticketQuery = `
         SELECT t.id, t.user_id, u.email as user_email 
@@ -389,6 +676,13 @@ export async function PATCH(
 
       const updatedTicket = updateResult.rows[0]
 
+      // Invalidate Redis cache for this user's tickets and individual ticket
+      const userTicketsCacheKey = cacheKeys.tickets(ticket.user_email)
+      const individualTicketCacheKey = cacheKeys.ticket(ticketId)
+      await redisCache.del(userTicketsCacheKey)
+      await redisCache.del(individualTicketCacheKey)
+      console.log('✅ Tickets cache invalidated after ticket file update')
+
       return NextResponse.json({
         success: true,
         ticket: {
@@ -407,10 +701,19 @@ export async function PATCH(
         },
         { status: 500 }
       )
-    } finally {
-      client.release()
+      } finally {
+        client.release()
+      }
+    } catch (dbError) {
+      console.error('❌ Database connection error in ticket PATCH API:', dbError)
+      return NextResponse.json(
+        { 
+          error: 'Database connection failed',
+          details: dbError instanceof Error ? dbError.message : 'Connection timeout or database unavailable'
+        },
+        { status: 503 }
+      )
     }
-
   } catch (error) {
     console.error('❌ Error in ticket PATCH API:', error)
     return NextResponse.json(
@@ -420,9 +723,5 @@ export async function PATCH(
       },
       { status: 500 }
     )
-  } finally {
-    if (pool) {
-      await pool.end()
-    }
   }
 } 

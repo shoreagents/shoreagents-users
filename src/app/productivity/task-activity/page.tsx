@@ -22,8 +22,17 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { fetchTaskActivityData, createTask, createGroup, moveTask, reorderGroups, updateTask, deleteTask as deleteTaskApi, TaskGroup, Task } from "@/lib/task-activity-utils"
+import { TaskGroup, Task } from "@/lib/task-activity-utils"
 import { useTaskActivitySocketContext } from "@/hooks/use-task-activity-socket-context"
+import { 
+  useTaskActivity, 
+  useCreateTask, 
+  useCreateGroup, 
+  useMoveTask, 
+  useUpdateTask, 
+  useDeleteTask, 
+  useReorderGroups 
+} from "@/hooks/use-task-activity"
 
 // Utility function to generate unique IDs
 const generateUniqueId = (prefix: string = 'temp') => {
@@ -31,8 +40,22 @@ const generateUniqueId = (prefix: string = 'temp') => {
 }
 
 export default function TaskActivityPage() {
-  const [groups, setGroups] = useState<TaskGroup[]>([])
-  const [isLoading, setIsLoading] = useState(true)
+  // React Query hooks for data management
+  const { 
+    data: groups = [], 
+    isLoading, 
+    triggerRealtimeUpdate, 
+    updateCacheOptimistically,
+    currentUser 
+  } = useTaskActivity()
+  
+  const createTaskMutation = useCreateTask()
+  const createGroupMutation = useCreateGroup()
+  const moveTaskMutation = useMoveTask()
+  const updateTaskMutation = useUpdateTask()
+  const deleteTaskMutation = useDeleteTask()
+  const reorderGroupsMutation = useReorderGroups()
+  
   const [isAddGroupOpen, setIsAddGroupOpen] = useState(false)
   const [newGroupName, setNewGroupName] = useState("")
   const [isEditMode, setIsEditMode] = useState(false)
@@ -66,7 +89,6 @@ export default function TaskActivityPage() {
 
   // Get current user email for Socket.IO
   const [userEmail, setUserEmail] = useState<string | null>(null)
-  const [currentUser, setCurrentUser] = useState<any>(null)
   const [socketInstance, setSocketInstance] = useState<any>(null)
   
   // Compute canManageGroups based on current user data
@@ -81,17 +103,10 @@ export default function TaskActivityPage() {
 
   // Get user email on component mount
   useEffect(() => {
-    const authData = localStorage.getItem("shoreagents-auth")
-    if (authData) {
-      try {
-        const parsed = JSON.parse(authData)
-        setUserEmail(parsed.user.email)
-        setCurrentUser(parsed.user)
-      } catch (error) {
-        console.error('Error parsing auth data:', error)
-      }
+    if (currentUser?.email) {
+      setUserEmail(currentUser.email)
     }
-  }, [])
+  }, [currentUser])
 
   // Automatically disable edit mode for non-internal users
   useEffect(() => {
@@ -256,10 +271,7 @@ export default function TaskActivityPage() {
     }
   }, [groups])
 
-  // Fetch task data on component mount
-  useEffect(() => {
-    loadTaskData()
-  }, [])
+  // Task data is now fetched automatically by React Query
 
   // Handle wheel zoom events
   useEffect(() => {
@@ -300,47 +312,89 @@ export default function TaskActivityPage() {
     }
   }, [zoomStep, minZoom, maxZoom])
 
-  // Fallback: pick up global socket when available
+  // Get socket instance from context or global fallback
   useEffect(() => {
-    const id = setInterval(() => {
+    const setupSocket = () => {
       try {
-        const s = (window as any)._saSocket
-        if (s && s.connected) {
-          setSocketInstance(s)
-          clearInterval(id)
+        // First try to get socket from context
+        const contextSocket = (window as any)._saSocket
+        if (contextSocket && contextSocket.connected) {
+          setSocketInstance(contextSocket)
+          return
         }
-      } catch {}
-    }, 250)
-    return () => clearInterval(id)
+        
+        // If no context socket, try to get from global
+        const globalSocket = (window as any)._saSocket
+        if (globalSocket && globalSocket.connected) {
+          setSocketInstance(globalSocket)
+          return
+        }
+      } catch (error) {
+        console.warn('Error accessing socket:', error)
+      }
+    }
+
+    // Try immediately
+    setupSocket()
+
+    // Set up interval to check for socket availability
+    const id = setInterval(setupSocket, 250)
+    
+    // Also listen for socket connection events
+    const handleSocketConnected = () => {
+      setupSocket()
+    }
+    
+    window.addEventListener('socket-connected', handleSocketConnected)
+    
+    return () => {
+      clearInterval(id)
+      window.removeEventListener('socket-connected', handleSocketConnected)
+    }
   }, [])
 
   // Socket.IO event listeners for real-time updates
   useEffect(() => {
     const s = socketInstance
-    if (!s) return
+    if (!s || !s.connected) {
+      return
+    }
+    
+    
     const parse = (payload: any) => {
       try { return typeof payload === 'string' ? JSON.parse(payload) : payload } catch { return null }
     }
     // Live task updates from Postgres NOTIFY -> socket
     const onTaskUpdated = (payload: any) => {
       const msg = parse(payload)
-      if (!msg) return
+      if (!msg) {
+        console.warn('Failed to parse task_updated payload:', payload)
+        return
+      }
       // Support both enriched { task } and generic trigger { table, action, new, old }
       let t = msg.task
       if (!t && msg.table === 'tasks') {
         if (msg.action === 'DELETE' && msg.old?.id) {
           const delId = Number(msg.old.id)
-          setGroups(prev => prev.map(g => ({
-            ...g,
-            tasks: g.tasks.filter((task: any) => Number(task.id) !== delId)
-          })) as any)
+          console.log('Deleting task with ID:', delId)
+          updateCacheOptimistically(prev => {
+            if (!prev) return []
+            return prev.map(g => ({
+              ...g,
+              tasks: g.tasks.filter((task: any) => Number(task.id) !== delId)
+            }))
+          })
           return
         }
         t = msg.new
       }
-      if (!t || !t.id) return
+      if (!t || !t.id) {
+        console.warn('Invalid task data in update:', t)
+        return
+      }
       const idNum = Number(t.id)
-      setGroups(prev => {
+      updateCacheOptimistically(prev => {
+        if (!prev) return []
         // If group_id changed due to manual update, move between groups
         const next = prev.map(g => ({ ...g, tasks: g.tasks.slice() })) as any
         let foundGroupIdx = -1
@@ -417,19 +471,22 @@ export default function TaskActivityPage() {
       setTimeout(() => refreshTaskDataSilently(), 300) // Small delay to ensure DB is updated
       
       // Also update the current state immediately for better UX
-      setGroups(prev => prev.map(g => ({
-        ...g,
-        tasks: g.tasks.map((task: any) => {
-          if (Number(task.id) !== taskId) return task
-          const list: number[] = Array.isArray((task as any).assignees) ? (task as any).assignees.slice() : []
-          if (msg.action === 'INSERT') {
-            if (!list.includes(userId)) list.push(userId)
-          } else if (msg.action === 'DELETE') {
-            const idx = list.indexOf(userId); if (idx !== -1) list.splice(idx, 1)
-          }
-          return { ...task, assignees: list }
-        })
-      })) as any)
+      updateCacheOptimistically(prev => {
+        if (!prev) return []
+        return prev.map(g => ({
+          ...g,
+          tasks: g.tasks.map((task: any) => {
+            if (Number(task.id) !== taskId) return task
+            const list: number[] = Array.isArray((task as any).assignees) ? (task as any).assignees.slice() : []
+            if (msg.action === 'INSERT') {
+              if (!list.includes(userId)) list.push(userId)
+            } else if (msg.action === 'DELETE') {
+              const idx = list.indexOf(userId); if (idx !== -1) list.splice(idx, 1)
+            }
+            return { ...task, assignees: list }
+          })
+        }))
+      })
     }
     s.on('task_assignees', onTaskAssignees)
 
@@ -438,25 +495,28 @@ export default function TaskActivityPage() {
       if (!msg?.table || msg.table !== 'task_custom_fields') return
       const row = msg.new || msg.old
       const taskId = Number(row.task_id)
-      setGroups(prev => prev.map(g => ({
-        ...g,
-        tasks: g.tasks.map((task: any) => {
-          if (Number(task.id) !== taskId) return task
-          const list = ((task as any).custom_fields || (task as any).task_custom_fields || []).slice()
-          if (msg.action === 'INSERT' && msg.new) {
-            const cf = { id: String(row.id), title: row.title || '', description: row.description || '', position: row.position ?? 0 }
-            if (!list.some((f: any) => String(f.id) === String(cf.id))) list.push(cf)
-          } else if (msg.action === 'UPDATE' && msg.new) {
-            const idx = list.findIndex((f: any) => String(f.id) === String(row.id))
-            if (idx !== -1) list[idx] = { ...list[idx], title: row.title || '', description: row.description || '', position: row.position ?? list[idx].position }
-          } else if (msg.action === 'DELETE' && msg.old) {
-            const idx = list.findIndex((f: any) => String(f.id) === String(row.id))
-            if (idx !== -1) list.splice(idx, 1)
-          }
-          // Keep both aliases
-          return { ...task, custom_fields: list, task_custom_fields: list }
-        })
-      })) as any)
+      updateCacheOptimistically(prev => {
+        if (!prev) return []
+        return prev.map(g => ({
+          ...g,
+          tasks: g.tasks.map((task: any) => {
+            if (Number(task.id) !== taskId) return task
+            const list = ((task as any).custom_fields || (task as any).task_custom_fields || []).slice()
+            if (msg.action === 'INSERT' && msg.new) {
+              const cf = { id: String(row.id), title: row.title || '', description: row.description || '', position: row.position ?? 0 }
+              if (!list.some((f: any) => String(f.id) === String(cf.id))) list.push(cf)
+            } else if (msg.action === 'UPDATE' && msg.new) {
+              const idx = list.findIndex((f: any) => String(f.id) === String(row.id))
+              if (idx !== -1) list[idx] = { ...list[idx], title: row.title || '', description: row.description || '', position: row.position ?? list[idx].position }
+            } else if (msg.action === 'DELETE' && msg.old) {
+              const idx = list.findIndex((f: any) => String(f.id) === String(row.id))
+              if (idx !== -1) list.splice(idx, 1)
+            }
+            // Keep both aliases
+            return { ...task, custom_fields: list, task_custom_fields: list }
+          })
+        }))
+      })
     }
     s.on('task_custom_fields', onTaskCustomFields)
 
@@ -465,24 +525,27 @@ export default function TaskActivityPage() {
       if (!msg?.table || msg.table !== 'task_attachments') return
       const row = msg.new || msg.old
       const taskId = Number(row.task_id)
-      setGroups(prev => prev.map(g => ({
-        ...g,
-        tasks: g.tasks.map((task: any) => {
-          if (Number(task.id) !== taskId) return task
-          const list = (task.attachments || []).slice()
-          if (msg.action === 'INSERT' && msg.new) {
-            const att = { id: String(row.id), name: row.name || 'Attachment', url: row.url, size: row.size }
-            if (!list.some((f: any) => String(f.id) === String(att.id))) list.push(att as any)
-          } else if (msg.action === 'UPDATE' && msg.new) {
-            const idx = list.findIndex((f: any) => String(f.id) === String(row.id))
-            if (idx !== -1) list[idx] = { ...list[idx], name: row.name || list[idx].name, url: row.url || list[idx].url }
-          } else if (msg.action === 'DELETE' && msg.old) {
-            const idx = list.findIndex((f: any) => String(f.id) === String(row.id))
-            if (idx !== -1) list.splice(idx, 1)
-          }
-          return { ...task, attachments: list }
-        })
-      })) as any)
+      updateCacheOptimistically(prev => {
+        if (!prev) return []
+        return prev.map(g => ({
+          ...g,
+          tasks: g.tasks.map((task: any) => {
+            if (Number(task.id) !== taskId) return task
+            const list = (task.attachments || []).slice()
+            if (msg.action === 'INSERT' && msg.new) {
+              const att = { id: String(row.id), name: row.name || 'Attachment', url: row.url, size: row.size }
+              if (!list.some((f: any) => String(f.id) === String(att.id))) list.push(att as any)
+            } else if (msg.action === 'UPDATE' && msg.new) {
+              const idx = list.findIndex((f: any) => String(f.id) === String(row.id))
+              if (idx !== -1) list[idx] = { ...list[idx], name: row.name || list[idx].name, url: row.url || list[idx].url }
+            } else if (msg.action === 'DELETE' && msg.old) {
+              const idx = list.findIndex((f: any) => String(f.id) === String(row.id))
+              if (idx !== -1) list.splice(idx, 1)
+            }
+            return { ...task, attachments: list }
+          })
+        }))
+      })
     }
     s.on('task_attachments', onTaskAttachments)
 
@@ -494,31 +557,34 @@ export default function TaskActivityPage() {
       const b = Number(row.related_task_id)
       const rel = { taskId: String(b), type: String(row.type || 'related_to') }
       const inv = { taskId: String(a), type: String(row.type || 'related_to') }
-      setGroups(prev => prev.map(g => ({
-        ...g,
-        tasks: g.tasks.map((task: any) => {
-          const idNum = Number(task.id)
-          if (msg.action === 'INSERT') {
-            if (idNum === a) {
-              const list = ((task as any).relationships || (task as any).task_relationships || []).slice()
-              if (!list.some((r: any) => String(r.taskId) === String(rel.taskId))) list.push(rel)
-              return { ...task, relationships: list, task_relationships: list }
+      updateCacheOptimistically(prev => {
+        if (!prev) return []
+        return prev.map(g => ({
+          ...g,
+          tasks: g.tasks.map((task: any) => {
+            const idNum = Number(task.id)
+            if (msg.action === 'INSERT') {
+              if (idNum === a) {
+                const list = ((task as any).relationships || (task as any).task_relationships || []).slice()
+                if (!list.some((r: any) => String(r.taskId) === String(rel.taskId))) list.push(rel)
+                return { ...task, relationships: list, task_relationships: list }
+              }
+              if (idNum === b) {
+                const list = ((task as any).relationships || (task as any).task_relationships || []).slice()
+                if (!list.some((r: any) => String(r.taskId) === String(inv.taskId))) list.push(inv)
+                return { ...task, relationships: list, task_relationships: list }
+              }
+            } else if (msg.action === 'DELETE') {
+              if (idNum === a || idNum === b) {
+                const targetId = idNum === a ? b : a
+                const list = ((task as any).relationships || (task as any).task_relationships || []).filter((r: any) => String(r.taskId) !== String(targetId))
+                return { ...task, relationships: list, task_relationships: list }
+              }
             }
-            if (idNum === b) {
-              const list = ((task as any).relationships || (task as any).task_relationships || []).slice()
-              if (!list.some((r: any) => String(r.taskId) === String(inv.taskId))) list.push(inv)
-              return { ...task, relationships: list, task_relationships: list }
-            }
-          } else if (msg.action === 'DELETE') {
-            if (idNum === a || idNum === b) {
-              const targetId = idNum === a ? b : a
-              const list = ((task as any).relationships || (task as any).task_relationships || []).filter((r: any) => String(r.taskId) !== String(targetId))
-              return { ...task, relationships: list, task_relationships: list }
-            }
-          }
-          return task
-        })
-      })) as any)
+            return task
+          })
+        }))
+      })
     }
     s.on('task_relations', onTaskRelations)
 
@@ -526,36 +592,44 @@ export default function TaskActivityPage() {
       const msg = parse(payload)
       if (!msg?.table || msg.table !== 'task_groups') return
       if (msg.action === 'INSERT' && msg.new) {
-        setGroups(prev => {
+        updateCacheOptimistically(prev => {
+          if (!prev) return []
           const exists = prev.some(g => Number(g.id) === Number(msg.new.id))
           if (exists) return prev
           return ([...prev, { ...msg.new, tasks: [] }])
         })
       } else if (msg.action === 'UPDATE' && msg.new) {
-        setGroups(prev => prev.map(g => (Number(g.id) === Number(msg.new.id) ? { ...g, ...msg.new } : g)))
+        updateCacheOptimistically(prev => {
+          if (!prev) return []
+          return prev.map(g => (Number(g.id) === Number(msg.new.id) ? { ...g, ...msg.new } : g))
+        })
       } else if (msg.action === 'DELETE' && msg.old) {
-        setGroups(prev => prev.filter(g => Number(g.id) !== Number(msg.old.id)))
+        updateCacheOptimistically(prev => {
+          if (!prev) return []
+          return prev.filter(g => Number(g.id) !== Number(msg.old.id))
+        })
       }
     }
     s.on('task_groups', onTaskGroups)
 
     // Listen for task moved events
     s.on('taskMoved', ({ taskId, newGroupId, task }: { taskId: string; newGroupId: string; task: any }) => {
-      setGroups(prevGroups => {
+      updateCacheOptimistically(prevGroups => {
+        if (!prevGroups) return []
         const updatedGroups = [...prevGroups]
         
         // Find and remove the task from its current group
         let movedTask: Task | null = null
         let sourceGroup: any = null
         for (const group of updatedGroups) {
-          const taskIndex = group.tasks.findIndex(t => t.id.toString() === taskId)
+          const taskIndex = group.tasks.findIndex((t: any) => t.id.toString() === taskId)
           if (taskIndex !== -1) {
             movedTask = group.tasks[taskIndex]
             sourceGroup = group
             group.tasks.splice(taskIndex, 1)
             
             // Re-index remaining tasks in the source group
-            group.tasks.forEach((task, index) => {
+            group.tasks.forEach((task: any, index: number) => {
               task.position = index + 1
             })
             break
@@ -577,7 +651,7 @@ export default function TaskActivityPage() {
             targetGroup.tasks.splice(insertIndex, 0, updatedTask)
             
             // Update positions for all tasks in the group
-            targetGroup.tasks.forEach((t, index) => {
+            targetGroup.tasks.forEach((t: any, index: number) => {
               t.position = index + 1
             })
           }
@@ -589,7 +663,8 @@ export default function TaskActivityPage() {
 
     // Listen for task created events
     s.on('taskCreated', ({ groupId, task }: { groupId: string; task: any }) => {
-      setGroups(prevGroups => {
+      updateCacheOptimistically(prevGroups => {
+        if (!prevGroups) return []
         const updatedGroups = [...prevGroups]
         const targetGroup = updatedGroups.find(group => group.id.toString() === groupId)
         if (targetGroup) {
@@ -601,7 +676,8 @@ export default function TaskActivityPage() {
 
     // Listen for group created events
     s.on('groupCreated', ({ group }: { group: any }) => {
-      setGroups(prevGroups => {
+      updateCacheOptimistically(prevGroups => {
+        if (!prevGroups) return []
         const exists = prevGroups.some(g => Number(g.id) === Number(group.id))
         if (exists) return prevGroups
         return [...prevGroups, group]
@@ -611,7 +687,8 @@ export default function TaskActivityPage() {
     // Listen for groups reordered events
     s.on('groupsReordered', ({ groupPositions }: { groupPositions: Array<{ id: number; position: number }> }) => {
       console.log('Received groupsReordered event:', groupPositions)
-      setGroups(prevGroups => {
+      updateCacheOptimistically(prevGroups => {
+        if (!prevGroups) return []
         const updatedGroups = [...prevGroups]
         // Reorder groups based on the new positions
         updatedGroups.sort((a, b) => {
@@ -624,6 +701,7 @@ export default function TaskActivityPage() {
     })
 
     return () => {
+      console.log('Cleaning up task activity socket event listeners')
       s.off('taskMoved')
       s.off('taskCreated')
       s.off('groupCreated')
@@ -635,26 +713,13 @@ export default function TaskActivityPage() {
       s.off('task_relations')
       s.off('task_groups')
     }
-  }, [])
-
-  const loadTaskData = async () => {
-    try {
-      setIsLoading(true)
-      const data = await fetchTaskActivityData()
-      setGroups(data)
-    } catch (error) {
-      console.error('Error loading task data:', error)
-    } finally {
-      setIsLoading(false)
-    }
-  }
+  }, [socketInstance, currentUser])
 
   // Lightweight refresh that does not toggle the global loading spinner.
   // Use this for real-time updates such as assignee changes to avoid UI flicker.
   const refreshTaskDataSilently = async () => {
     try {
-      const data = await fetchTaskActivityData()
-      setGroups(data)
+      await triggerRealtimeUpdate()
     } catch (error) {
       console.error('Error silently refreshing task data:', error)
     }
@@ -678,132 +743,34 @@ export default function TaskActivityPage() {
         }
       }
       
-      // Optimistic update - immediately update the UI
-      let movedTask: Task | null = null
-      
-      setGroups(prevGroups => {
-        const updatedGroups = [...prevGroups]
-        
-        // Find the task and remove it from its current group
-        let sourceGroup: any = null
-        for (const group of updatedGroups) {
-          const taskArray = group.tasks || (group.tasks = [])
-          const taskIndex = taskArray.findIndex(task => task.id.toString() === taskId)
-          if (taskIndex !== -1) {
-            movedTask = taskArray[taskIndex]
-            sourceGroup = group
-            taskArray.splice(taskIndex, 1)
-            
-            // Re-index remaining tasks in the source group
-            taskArray.forEach((task, index) => {
-              task.position = index + 1
-            })
-            break
-          }
-        }
-        
-        // Add the task to the new group
-        if (movedTask) {
-          const targetGroup = updatedGroups.find(group => group.id.toString() === newGroupId)
-          if (targetGroup) {
-            // Update task properties for the new group
-            const updatedTask = {
-              ...movedTask,
-              group_id: parseInt(newGroupId),
-              position: targetPosition || ((targetGroup.tasks || []).length + 1)
-            }
-            
-            if (targetPosition) {
-              // Insert at specific position
-              const insertIndex = targetPosition - 1
-              const tgArray = targetGroup.tasks || (targetGroup.tasks = [])
-              tgArray.splice(insertIndex, 0, updatedTask)
-              
-              // Update positions for all tasks in the group
-              tgArray.forEach((task, index) => {
-                task.position = index + 1
-              })
-            } else {
-              // Add to end
-              const tgArray = targetGroup.tasks || (targetGroup.tasks = [])
-              tgArray.push(updatedTask)
-              updatedTask.position = tgArray.length
-            }
-          }
-        }
-        
-        return updatedGroups
+      // Use React Query mutation for task move
+      await moveTaskMutation.mutateAsync({
+        taskId: parseInt(taskId),
+        newGroupId: parseInt(newGroupId),
+        targetPosition
       })
       
-      // Make the API call in the background
-      const movedTaskResult = await moveTask(parseInt(taskId), parseInt(newGroupId), targetPosition)
+      // Emit Socket.IO event for real-time updates
+      emitTaskMoved(parseInt(taskId), parseInt(newGroupId), currentTask)
       
-      // Emit Socket.IO event for real-time updates with the updated task data
-      emitTaskMoved(parseInt(taskId), parseInt(newGroupId), movedTaskResult)
-      
-      // Optionally refresh data to ensure consistency
-      // await loadTaskData()
     } catch (error) {
       console.error('Error moving task:', error)
-      // Revert optimistic update on error
-      await loadTaskData()
     }
   }
 
   const handleTaskCreate = async (groupId: string) => {
     try {
-      // Generate a unique temporary ID
-      const tempId = generateUniqueId('task')
-      
-      // Optimistic update - immediately add a placeholder task
-      const newTask: Task = {
-        id: parseInt(tempId.replace(/\D/g, '')), // Convert to number for compatibility
+      // Use React Query mutation for task creation
+      const createdTask = await createTaskMutation.mutateAsync({
+        groupId: parseInt(groupId),
         title: 'New Task',
-        description: 'Task description',
-        priority: 'normal',
-        assignee: 'Unassigned',
-          due_date: '',
-      tags: [],
-        position: 0,
-        status: 'active',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      }
-      
-      setGroups(prevGroups => {
-        const updatedGroups = [...prevGroups]
-        const targetGroup = updatedGroups.find(group => group.id.toString() === groupId)
-        if (targetGroup) {
-          // Set the position to the next available position
-          newTask.position = targetGroup.tasks.length + 1
-          targetGroup.tasks.push(newTask)
-        }
-        return updatedGroups
-      })
-      
-      // Make the API call in the background
-      const createdTask = await createTask(parseInt(groupId))
-      
-      // Update with the real task data
-      setGroups(prevGroups => {
-        const updatedGroups = [...prevGroups]
-        const targetGroup = updatedGroups.find(group => group.id.toString() === groupId)
-        if (targetGroup) {
-          // Replace the temporary task with the real one
-          const taskIndex = targetGroup.tasks.findIndex(task => task.id === newTask.id)
-          if (taskIndex !== -1) {
-            targetGroup.tasks[taskIndex] = createdTask
-          }
-        }
-        return updatedGroups
+        description: 'Task description'
       })
       
       // Emit Socket.IO event for real-time updates
       emitTaskCreated(parseInt(groupId), createdTask)
     } catch (error) {
       console.error('Error creating task:', error)
-      // Revert optimistic update on error
-      await loadTaskData()
     }
   }
 
@@ -813,227 +780,51 @@ export default function TaskActivityPage() {
       const isGroupMove = updates.group_id !== undefined
       
       if (isGroupMove) {
-        // Handle group move similar to handleTaskMove
-        const newGroupId = updates.group_id.toString()
-        
-        // Optimistic update - immediately move the task
-        setGroups(prevGroups => {
-          const updatedGroups = [...prevGroups]
-          
-          // Find and remove the task from its current group
-          let movedTask: any = null
-          for (const group of updatedGroups) {
-            const taskIndex = (group.tasks || []).findIndex(task => task.id.toString() === taskId)
-            if (taskIndex !== -1) {
-              const arr = group.tasks || (group.tasks = [])
-              movedTask = { ...arr[taskIndex], ...updates }
-              arr.splice(taskIndex, 1)
-              
-              // Re-index remaining tasks in the source group
-              arr.forEach((task, index) => {
-                task.position = index + 1
-              })
-              break
-            }
-          }
-          
-          // Add the task to the new group
-          if (movedTask) {
-            const targetGroup = updatedGroups.find(group => group.id.toString() === newGroupId)
-            if (targetGroup) {
-              movedTask.group_id = updates.group_id
-              const arr = targetGroup.tasks || (targetGroup.tasks = [])
-              arr.push(movedTask)
-              movedTask.position = arr.length
-            }
-          }
-          
-          return updatedGroups
+        // Handle group move using the move task mutation
+        await moveTaskMutation.mutateAsync({
+          taskId: parseInt(taskId),
+          newGroupId: updates.group_id,
+          targetPosition: updates.position
         })
       } else {
-        // Regular update - just update the task in place
-        setGroups(prevGroups => {
-          const updatedGroups = [...prevGroups]
-          
-          // If relationships are provided, propagate optimistic changes to counterpart tasks
-          if (Array.isArray(updates.relationships)) {
-            // Find previous relationships for this task
-            let previousRels: Array<{ taskId: string; type: string }> = []
-            for (const g of updatedGroups) {
-              const arr = g.tasks || (g.tasks = [])
-              const t = arr.find(t => t.id.toString() === taskId)
-              if (t) {
-                previousRels = (t as any).relationships || (t as any).task_relationships || []
-                break
-              }
-            }
-            const prevIds = new Set(previousRels.map(r => String(r.taskId)))
-            const newIds = new Set((updates.relationships as any[]).map((r: any) => String(r.taskId)))
-            const removedIds: string[] = [...prevIds].filter(id => !newIds.has(id))
-            const addedIds: string[] = [...newIds].filter(id => !prevIds.has(id))
-
-            // Remove inverse link from counterpart tasks
-            if (removedIds.length > 0) {
-              for (const g of updatedGroups) {
-                g.tasks = (g.tasks || []).map((t: any) => {
-                  if (removedIds.includes(String(t.id))) {
-                    const list = (t.relationships || t.task_relationships || []) as Array<{ taskId: string; type: string }>
-                    const filtered = list.filter(rel => String(rel.taskId) !== String(taskId))
-                    return { ...t, relationships: filtered, task_relationships: filtered }
-                  }
-                  return t
-                }) as any
-              }
-            }
-
-            // Add inverse link to counterpart tasks
-            if (addedIds.length > 0) {
-              for (const g of updatedGroups) {
-                g.tasks = (g.tasks || []).map((t: any) => {
-                  if (addedIds.includes(String(t.id))) {
-                    const list = (t.relationships || t.task_relationships || []) as Array<{ taskId: string; type: string }>
-                    const exists = list.some(rel => String(rel.taskId) === String(taskId))
-                    const next = exists ? list : [...list, { taskId: String(taskId), type: 'related_to' }]
-                    return { ...t, relationships: next, task_relationships: next }
-                  }
-                  return t
-                }) as any
-              }
-            }
-          }
-          
-          // Find and update the task
-          for (const group of updatedGroups) {
-            const taskIndex = (group.tasks || []).findIndex(task => task.id.toString() === taskId)
-            if (taskIndex !== -1) {
-              // Update the task with new data
-              const base = (group.tasks || (group.tasks = []))[taskIndex]
-              group.tasks[taskIndex] = {
-                ...base,
-                ...updates,
-                ...(updates.custom_fields ? { custom_fields: updates.custom_fields, task_custom_fields: updates.custom_fields } : {}),
-                // Merge server shape if present (e.g., assignees array)
-                ...(updates.assignees ? { assignees: updates.assignees } : {}),
-                updated_at: new Date().toISOString()
-              }
-              break
-            }
-          }
-          
-          return updatedGroups
-        })
         // If local-only UI sync, don't call API
         if (updates && updates.__localOnly) {
           return
         }
+        
+        // Use React Query mutation for task update
+        await updateTaskMutation.mutateAsync({
+          taskId: parseInt(taskId),
+          updates
+        })
       }
-      
-      // Make the API call in the background
-      const updatedTask = await updateTask(parseInt(taskId), updates)
-      // Update with the real task data from the API response
-      setGroups(prevGroups => {
-        const updatedGroups = [...prevGroups]
-        
-        for (const group of updatedGroups) {
-          const taskIndex = (group.tasks || []).findIndex(task => task.id.toString() === taskId)
-          if (taskIndex !== -1) {
-            const prev = (group.tasks || (group.tasks = []))[taskIndex] as any
-            const merged = { ...prev, ...updatedTask }
-            // Preserve relationships if API didn't include them
-            if (merged.task_relationships == null && prev.task_relationships != null) {
-              merged.task_relationships = prev.task_relationships
-            }
-            // Keep relationships mirrored object too
-            if (merged.relationships == null && merged.task_relationships != null) {
-              (merged as any).relationships = merged.task_relationships
-            }
-            // Preserve custom_fields if API didn't include them
-            if ((merged as any).task_custom_fields == null && (prev as any).task_custom_fields != null) {
-              (merged as any).task_custom_fields = (prev as any).task_custom_fields
-            }
-            if ((merged as any).custom_fields == null && (prev as any).custom_fields != null) {
-              (merged as any).custom_fields = (prev as any).custom_fields
-            }
-            group.tasks[taskIndex] = merged as any
-            break
-          }
-        }
-        
-        return updatedGroups
-      })
       
     } catch (error) {
       console.error('Error updating task:', error)
-      // Revert optimistic update on error
-      await loadTaskData()
     }
   }
 
   const handleTaskRename = async (taskId: string, newTitle: string) => {
     try {
-      // Optimistic update - immediately update the UI
-      setGroups(prevGroups => {
-        const updatedGroups = [...prevGroups]
-        
-        // Find and update the task title
-        for (const group of updatedGroups) {
-          const taskIndex = (group.tasks || []).findIndex(task => task.id.toString() === taskId)
-          if (taskIndex !== -1) {
-            group.tasks[taskIndex] = {
-              ...group.tasks[taskIndex],
-              title: newTitle,
-              updated_at: new Date().toISOString()
-            }
-            break
-          }
-        }
-        
-        return updatedGroups
+      // Use React Query mutation for task rename
+      await updateTaskMutation.mutateAsync({
+        taskId: parseInt(taskId),
+        updates: { title: newTitle }
       })
-      
-      // Make the API call in the background
-      const updatedTask = await updateTask(parseInt(taskId), { title: newTitle })
-      // Update with the real task data from the API response
-      setGroups(prevGroups => {
-        const updatedGroups = [...prevGroups]
-        
-        for (const group of updatedGroups) {
-          const taskIndex = (group.tasks || []).findIndex(task => task.id.toString() === taskId)
-          if (taskIndex !== -1) {
-            const prev = group.tasks[taskIndex] as any
-            const merged = { ...prev, ...updatedTask }
-            if (merged.task_relationships == null && prev.task_relationships != null) {
-              merged.task_relationships = prev.task_relationships
-            }
-            group.tasks[taskIndex] = merged as any
-            break
-          }
-        }
-        
-        return updatedGroups
-      })
-      
     } catch (error) {
       console.error('Error renaming task:', error)
-      // Revert optimistic update on error
-      await loadTaskData()
     }
   }
 
   const handleTaskDeletePermanent = async (taskId: string) => {
     try {
-      // Optimistic local removal
-      setGroups(prev => prev.map(g => ({
-        ...g,
-        tasks: (g.tasks || []).filter(t => String(t.id) !== String(taskId))
-      })))
-
-      // Call API to delete
-      await deleteTaskApi(parseInt(taskId), true)
+      // Use React Query mutation for task deletion
+      await deleteTaskMutation.mutateAsync({
+        taskId: parseInt(taskId),
+        hard: true
+      })
     } catch (err) {
       console.error('Error deleting task:', err)
-      // Reload to restore consistency if needed
-      await loadTaskData()
     }
   }
 
@@ -1045,28 +836,14 @@ export default function TaskActivityPage() {
         position: index
       }))
       
-      // Update local state immediately (optimistic update)
-      setGroups(prevGroups => {
-        const updatedGroups = [...prevGroups]
-        // Reorder groups based on newColumns order
-        const newOrder = newColumns.map(col => col.id)
-        updatedGroups.sort((a, b) => {
-          const aIndex = newOrder.indexOf(a.id.toString())
-          const bIndex = newOrder.indexOf(b.id.toString())
-          return aIndex - bIndex
-        })
-        return updatedGroups
-      })
+      // Use React Query mutation for group reordering
+      await reorderGroupsMutation.mutateAsync(groupPositions)
       
-      // Persist to database
-      await reorderGroups(groupPositions)
       // Emit Socket.IO event for real-time updates
       emitGroupsReordered(groupPositions)
       
     } catch (error) {
       console.error('Error reordering groups:', error)
-      // Revert optimistic update on error
-      await loadTaskData()
     }
   }
 
@@ -1081,42 +858,19 @@ export default function TaskActivityPage() {
   const handleAddGroup = async () => {
     if (newGroupName.trim()) {
       try {
-        // Generate a unique temporary ID
-        const tempId = generateUniqueId('group')
-        
-        // Optimistic update - immediately add the group
-        const newGroup: TaskGroup = {
-          id: parseInt(tempId.replace(/\D/g, '')), // Convert to number for compatibility
-        title: newGroupName,
-          color: 'bg-purple-50 dark:bg-purple-950/20',
-          position: groups.length,
-          is_default: false,
-          tasks: []
-      }
-        
-        setGroups(prevGroups => [...prevGroups, newGroup])
-      setNewGroupName("")
-      setIsAddGroupOpen(false)
-        
-        // Make the API call in the background
-        const createdGroup = await createGroup(newGroupName)
-        
-        // Update with the real group data
-        setGroups(prevGroups => {
-          const updatedGroups = [...prevGroups]
-          const groupIndex = updatedGroups.findIndex(group => group.id === newGroup.id)
-          if (groupIndex !== -1) {
-            updatedGroups[groupIndex] = createdGroup
-          }
-          return updatedGroups
+        // Use React Query mutation for group creation
+        const createdGroup = await createGroupMutation.mutateAsync({
+          title: newGroupName,
+          color: 'bg-purple-50 dark:bg-purple-950/20'
         })
+        
+        setNewGroupName("")
+        setIsAddGroupOpen(false)
         
         // Emit Socket.IO event for real-time updates
         emitGroupCreated(createdGroup)
       } catch (error) {
         console.error('Error creating group:', error)
-        // Revert optimistic update on error
-        await loadTaskData()
       }
     }
   }

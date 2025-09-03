@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Pool } from 'pg';
+import { redisCache, cacheKeys, cacheTTL } from '@/lib/redis-cache';
 
 const databaseConfig = {
   connectionString: process.env.DATABASE_URL,
@@ -35,6 +36,15 @@ export async function POST(request: NextRequest) {
 
     switch (action) {
       case 'get_all':
+        // Check Redis cache first
+        const cacheKey = cacheKeys.monthlyActivity(email, monthsToKeep)
+        const cachedData = await redisCache.get(cacheKey)
+        
+        if (cachedData) {
+          console.log('✅ Monthly activity served from Redis cache')
+          return NextResponse.json(cachedData)
+        }
+
         // Single request to get all monthly data - aggregation now happens automatically via triggers!
         const allMonthStart = await getMonthStartDate(pool);
         const allMonthEnd = await getMonthEndDate(pool);
@@ -62,7 +72,7 @@ export async function POST(request: NextRequest) {
           [actualUserId, allMonthStart, allMonthEnd]
         );
         
-        return NextResponse.json({
+        const responseData = {
           message: 'Monthly data retrieved and processed',
           monthlySummaries: allSummaryResult.rows,
           currentMonth: allCurrentMonthResult.rows,
@@ -70,7 +80,13 @@ export async function POST(request: NextRequest) {
           monthEnd: allMonthEnd,
           deletedRecords: allDeletedCount,
           monthsKept: monthsToKeep
-        });
+        }
+
+        // Cache the result in Redis
+        await redisCache.set(cacheKey, responseData, cacheTTL.monthlyActivity)
+        console.log('✅ Monthly activity cached in Redis')
+
+        return NextResponse.json(responseData);
 
       case 'aggregate':
         // Aggregate current month's daily data into monthly summary

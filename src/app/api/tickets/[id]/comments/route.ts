@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Pool } from 'pg'
+import { redisCache, cacheKeys, cacheTTL } from '@/lib/redis-cache'
 
 // Database configuration
 const databaseConfig = {
@@ -45,9 +46,28 @@ export async function GET(
     pool = new Pool(databaseConfig)
     const client = await pool.connect()
     try {
-      const ticketRowId = await getTicketRowId(client, (await params).id)
+      const ticketId = (await params).id
+      const ticketRowId = await getTicketRowId(client, ticketId)
       if (!ticketRowId) {
         return NextResponse.json({ success: false, error: 'Ticket not found' }, { status: 404 })
+      }
+
+      // Check if this is a real-time update request (bypass cache)
+      const url = new URL(request.url)
+      const bypassCache = url.searchParams.get('bypass_cache') === 'true'
+      
+      // Check Redis cache first (unless bypassing)
+      const cacheKey = cacheKeys.ticketComments(ticketId)
+      let cachedData = null
+      
+      if (!bypassCache) {
+        cachedData = await redisCache.get(cacheKey)
+        if (cachedData) {
+          console.log('✅ Ticket comments served from Redis cache')
+          return NextResponse.json(cachedData)
+        }
+      } else {
+        console.log('🔄 Bypassing Redis cache for real-time comment update')
       }
 
       const q = `
@@ -74,7 +94,13 @@ export async function GET(
         authorEmail: r.email,
       }))
 
-      return NextResponse.json({ success: true, comments: items })
+      const responseData = { success: true, comments: items }
+
+      // Cache the result in Redis
+      await redisCache.set(cacheKey, responseData, cacheTTL.ticketComments)
+      console.log('✅ Ticket comments cached in Redis')
+
+      return NextResponse.json(responseData)
     } finally {
       client.release()
     }
@@ -134,6 +160,13 @@ export async function POST(
 
       const created = insert.rows[0]
       const authorName = user.name || user.email
+      
+      // Invalidate comments cache for this ticket
+      const ticketId = (await params).id
+      const cacheKey = cacheKeys.ticketComments(ticketId)
+      await redisCache.del(cacheKey)
+      console.log('✅ Ticket comments cache invalidated after new comment')
+      
       return NextResponse.json({
         success: true,
         comment: {

@@ -44,6 +44,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { GlobalSearch } from "@/components/global-search"
 
 interface BreadcrumbItem {
   title: string
@@ -54,6 +55,25 @@ interface BreadcrumbItem {
 interface AppHeaderProps {
   breadcrumbs?: BreadcrumbItem[]
   showUser?: boolean
+}
+
+// Function to truncate long notification messages
+function truncateNotificationMessage(message: string, maxLength: number = 60): string {
+  if (message.length <= maxLength) {
+    return message
+  }
+  
+  // Find the last space before the max length to avoid cutting words
+  const truncated = message.substring(0, maxLength)
+  const lastSpaceIndex = truncated.lastIndexOf(' ')
+  
+  if (lastSpaceIndex > maxLength * 0.7) {
+    // If we found a space in a reasonable position, cut there
+    return message.substring(0, lastSpaceIndex) + '...'
+  } else {
+    // Otherwise, just cut at max length and add ellipsis
+    return truncated + '...'
+  }
 }
 
 export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
@@ -141,8 +161,9 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
     }
     
     // Listen for system notification clicks
+    let cleanupElectronListeners: (() => void) | undefined
     if (window.electronAPI) {
-      window.electronAPI.receive('mark-notification-read', (notificationId: string) => {
+      const markReadHandler = (notificationId: string) => {
         // Mark the notification as read
         markNotificationAsRead(notificationId)
         
@@ -150,14 +171,30 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
         const updatedNotifications = getNotifications()
         setNotifications(updatedNotifications)
         // Don't call setUnreadCount here - let useMemo handle it
-      })
+      }
       
-      // Listen for general notification updates
-      window.electronAPI.receive('notifications-updated', () => {
+      const updateHandler = () => {
         const updatedNotifications = getNotifications()
         setNotifications(updatedNotifications)
         // Don't call setUnreadCount here - let useMemo handle it
-      })
+      }
+      
+      window.electronAPI.receive('mark-notification-read', markReadHandler)
+      window.electronAPI.receive('notifications-updated', updateHandler)
+      
+      // Store cleanup function
+      cleanupElectronListeners = () => {
+        if (window.electronAPI?.removeAllListeners) {
+          window.electronAPI.removeAllListeners('mark-notification-read')
+          window.electronAPI.removeAllListeners('notifications-updated')
+        }
+      }
+    }
+    
+    return () => {
+      if (cleanupElectronListeners) {
+        cleanupElectronListeners()
+      }
     }
   }, [])
 
@@ -488,6 +525,7 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
           </BreadcrumbList>
         </Breadcrumb>
       </div>
+      
       {showUser && (
         <div className="ml-auto flex items-center gap-2 px-4">
           {/* Team Status Badge */}
@@ -518,6 +556,11 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
+
+          {/* Global Search */}
+          <div className="w-64">
+            <GlobalSearch />
+          </div>
 
           {/* Theme toggle */}
           <Button
@@ -561,7 +604,7 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
 
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent className="w-80" align="end" forceMount>
+            <DropdownMenuContent className="w-96 max-w-[calc(100vw-2rem)]" align="end" forceMount>
               <div className="flex items-center justify-between p-4 pb-2">
                 <h3 className="text-sm font-semibold">Notifications</h3>
                 <div className="flex items-center gap-2">
@@ -643,7 +686,7 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
                         return (
                           <DropdownMenuItem
                             key={notification.id}
-                            className={`p-4 cursor-pointer rounded-md transition-colors ${
+                            className={`p-4 cursor-pointer rounded-md transition-colors w-full ${
                               !notification.read
                                 ? 'bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/40 hover:bg-blue-100/70 dark:hover:bg-blue-900/30'
                                 : 'hover:bg-muted/40 dark:hover:bg-muted/20'
@@ -685,13 +728,24 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
                               }
                               
                                // Navigate if actionUrl is provided
-                              if (notification.actionUrl) {
-                                router.push(notification.actionUrl)
+                              let actionUrl = notification.actionUrl || notification.actionData?.action_url
+                              
+                              // For task notifications, ensure taskId is included in the URL
+                              if (notification.category === 'task' && notification.actionData?.task_id && actionUrl) {
+                                // Check if taskId is already in the URL
+                                if (!actionUrl.includes('taskId=')) {
+                                  const separator = actionUrl.includes('?') ? '&' : '?'
+                                  actionUrl = `${actionUrl}${separator}taskId=${notification.actionData.task_id}`
+                                }
                               }
+                              
+                              if (actionUrl) {
+                                router.push(actionUrl)
+                              } 
                             }}
                           >
-                            <div className="flex items-start gap-3 w-full">
-                              <div className={`mt-0.5 ${
+                            <div className="flex items-center gap-3 w-full min-w-0">
+                              <div className={`flex-shrink-0 ${
                                 notification.type === 'success' ? 'text-green-600 dark:text-green-400' :
                                 notification.type === 'warning' ? 'text-yellow-600 dark:text-yellow-400' :
                                 notification.type === 'error' ? 'text-red-600 dark:text-red-400' :
@@ -699,27 +753,25 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
                               }`}>
                                 <IconComponent className="h-4 w-4" />
                               </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-start justify-between gap-2">
-                                  <div className="flex-1">
-                                    <h4 className={`text-sm font-medium ${
-                                      !notification.read ? 'text-foreground' : 'text-muted-foreground'
-                                    }`}>
-                                      {notification.title}
-                                    </h4>
-                                    <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                                      {notification.message}
-                                    </p>
-                                    <div className="flex items-center gap-2 mt-2">
-                                      <span key={nowTick} className="text-xs text-muted-foreground">
-                                        {formatTimeAgo(notification.time)}
-                                      </span>
-                                      {!notification.read && (
-                                        <Badge variant="destructive" className="text-xs bg-red-500 text-white">
-                                          New
-                                        </Badge>
-                                      )}
-                                    </div>
+                              <div className="flex-1 min-w-0 overflow-hidden">
+                                <div className="space-y-1">
+                                  <h4 className={`text-sm font-medium leading-tight ${
+                                    !notification.read ? 'text-foreground' : 'text-muted-foreground'
+                                  }`}>
+                                    {notification.title}
+                                  </h4>
+                                  <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2">
+                                    {truncateNotificationMessage(notification.message)}
+                                  </p>
+                                  <div className="flex items-center justify-between gap-2 pt-1">
+                                    <span key={nowTick} className="text-xs text-muted-foreground">
+                                      {formatTimeAgo(notification.time)}
+                                    </span>
+                                    {!notification.read && (
+                                      <Badge variant="destructive" className="text-xs bg-red-500 text-white flex-shrink-0">
+                                        New
+                                      </Badge>
+                                    )}
                                   </div>
                                 </div>
                               </div>

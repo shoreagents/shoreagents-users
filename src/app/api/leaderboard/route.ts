@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { redisCache, cacheKeys, cacheTTL } from '@/lib/redis-cache';
 
 // Ensure Node.js runtime for pg
 export const runtime = 'nodejs';
@@ -22,6 +23,15 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const monthYear = searchParams.get('month') || await getCurrentMonthYear(pool);
     const limit = parseInt(searchParams.get('limit') || '10');
+
+    // Check Redis cache first
+    const cacheKey = cacheKeys.leaderboard(limit)
+    const cachedData = await redisCache.get(cacheKey)
+    
+    if (cachedData) {
+      console.log('✅ Leaderboard served from Redis cache')
+      return NextResponse.json(cachedData)
+    }
     let memberIdParam = searchParams.get('member_id');
 
     // Try to infer member_id from authenticated user if not provided
@@ -235,14 +245,20 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({
+    const responseData = {
       success: true,
       leaderboard,
       currentUserRank,
       monthYear,
       currentMonthYear,
       memberId: memberIdParam ? parseInt(memberIdParam) : null
-    });
+    }
+
+    // Cache the result in Redis
+    await redisCache.set(cacheKey, responseData, cacheTTL.leaderboard)
+    console.log('✅ Leaderboard cached in Redis')
+
+    return NextResponse.json(responseData);
 
   } catch (error) {
     console.error('❌ Leaderboard API Error:', error);

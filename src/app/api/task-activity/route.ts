@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { redisCache, cacheKeys, cacheTTL } from '@/lib/redis-cache'
 
 // Helper function to get database pool
 function getPool() {
@@ -62,9 +63,25 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('userId');
     const email = searchParams.get('email');
+    const bypassCache = searchParams.get('bypass_cache') === 'true';
     
     if (!userId && !email) {
       return NextResponse.json({ error: 'userId or email parameter is required' }, { status: 400 });
+    }
+
+    // Check cache first (only if email is provided and not bypassing cache)
+    if (email && !bypassCache) {
+      const cacheKey = cacheKeys.taskActivity(email);
+      const cachedData = await redisCache.get(cacheKey);
+      
+      if (cachedData) {
+        console.log(`📦 Task activity cache hit for ${email}`);
+        return NextResponse.json({
+          success: true,
+          groups: cachedData,
+          cached: true
+        });
+      }
     }
 
     const pool = getPool()
@@ -156,6 +173,7 @@ export async function GET(request: NextRequest) {
                ) AS attachments
         FROM task_attachments ta WHERE ta.task_id = t.id
       ) att ON TRUE
+      WHERE tg.created_by = $1 OR tg.is_default = true
       ORDER BY group_position, t.position
     `
     
@@ -203,9 +221,18 @@ export async function GET(request: NextRequest) {
     
     await pool.end()
     
+    const groupsData = Array.from(groups.values());
+    
+    // Store in cache if email is provided
+    if (email) {
+      const cacheKey = cacheKeys.taskActivity(email);
+      await redisCache.set(cacheKey, groupsData, cacheTTL.taskActivity);
+      console.log(`💾 Task activity cached for ${email}`);
+    }
+    
     return NextResponse.json({
       success: true,
-      groups: Array.from(groups.values())
+      groups: groupsData
     })
     
   } catch (error) {
@@ -242,6 +269,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'userId or email parameter is required' }, { status: 400 });
     }
     
+    // Helper function to invalidate cache
+    const invalidateCache = async () => {
+      if (email) {
+        const cacheKey = cacheKeys.taskActivity(email);
+        await redisCache.del(cacheKey);
+        console.log(`🗑️ Task activity cache invalidated for ${email}`);
+      }
+    };
+
     switch (action) {
       case 'create_task':
         const { group_id, title, description, start_date: incomingStart, due_date: incomingDue } = data
@@ -293,6 +329,9 @@ export async function POST(request: NextRequest) {
         
         await pool.end()
         
+        // Invalidate cache after successful task creation
+        await invalidateCache();
+        
         return NextResponse.json({
           success: true,
           task: {
@@ -328,6 +367,9 @@ export async function POST(request: NextRequest) {
         ])
         
         await pool.end()
+        
+        // Invalidate cache after successful group creation
+        await invalidateCache();
         
         return NextResponse.json({
           success: true,
@@ -470,6 +512,9 @@ export async function POST(request: NextRequest) {
             
             await client.query('COMMIT')
             
+            // Invalidate cache after successful task move
+            await invalidateCache();
+            
             return NextResponse.json({
               success: true,
               task: moveResult.rows[0]
@@ -510,6 +555,9 @@ export async function POST(request: NextRequest) {
             
             await client.query('COMMIT')
             
+            // Invalidate cache after successful task move
+            await invalidateCache();
+            
             return NextResponse.json({
               success: true,
               task: moveResult.rows[0]
@@ -546,6 +594,9 @@ export async function POST(request: NextRequest) {
           }
           
           await reorderClient.query('COMMIT')
+          
+          // Invalidate cache after successful group reorder
+          await invalidateCache();
           
           return NextResponse.json({
             success: true,
@@ -888,6 +939,9 @@ export async function POST(request: NextRequest) {
           } catch (e) {
             console.error('Failed to persist/notify task_activity_events:', e)
           }
+          
+          // Invalidate cache after successful task update
+          await invalidateCache();
           
           return NextResponse.json({
             success: true,

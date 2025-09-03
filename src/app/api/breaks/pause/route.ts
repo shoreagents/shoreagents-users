@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
     const pauseQuery = `
       UPDATE break_sessions 
       SET 
-        pause_time = NOW() AT TIME ZONE 'Asia/Manila',
+        pause_time = NOW(),
         pause_used = true,
         time_remaining_at_pause = $2
       WHERE id = $1 AND end_time IS NULL

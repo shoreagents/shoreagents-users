@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Pool } from 'pg';
+import { redisCache, cacheKeys, cacheTTL } from '@/lib/redis-cache';
 
 const databaseConfig = {
   connectionString: process.env.DATABASE_URL,
@@ -35,6 +36,15 @@ export async function POST(request: NextRequest) {
 
     switch (action) {
       case 'get_all':
+        // Check Redis cache first
+        const cacheKey = cacheKeys.weeklyActivity(email, weeksToKeep)
+        const cachedData = await redisCache.get(cacheKey)
+        
+        if (cachedData) {
+          console.log('✅ Weekly activity served from Redis cache')
+          return NextResponse.json(cachedData)
+        }
+
         // Single request to get all weekly data - aggregation now happens automatically via triggers!
         const allWeekStart = await getWeekStartDate(pool);
         const allWeekEnd = await getWeekEndDate(pool);
@@ -62,7 +72,7 @@ export async function POST(request: NextRequest) {
           [actualUserId, allWeekStart, allWeekEnd]
         );
         
-        return NextResponse.json({
+        const responseData = {
           message: 'Weekly data retrieved and processed',
           weeklySummaries: allSummaryResult.rows,
           currentWeek: allCurrentWeekResult.rows,
@@ -70,7 +80,13 @@ export async function POST(request: NextRequest) {
           weekEnd: allWeekEnd,
           deletedRecords: allDeletedCount,
           weeksKept: weeksToKeep
-        });
+        }
+
+        // Cache the result in Redis
+        await redisCache.set(cacheKey, responseData, cacheTTL.weeklyActivity)
+        console.log('✅ Weekly activity cached in Redis')
+
+        return NextResponse.json(responseData);
 
       case 'aggregate':
         // Aggregate current week's daily data into weekly summary

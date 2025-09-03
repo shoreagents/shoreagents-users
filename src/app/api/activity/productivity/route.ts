@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Pool } from 'pg';
+import { redisCache, cacheKeys, cacheTTL } from '@/lib/redis-cache';
 
 const databaseConfig = {
   connectionString: process.env.DATABASE_URL,
@@ -39,6 +40,15 @@ export async function POST(request: NextRequest) {
 
     switch (action) {
       case 'get_all':
+        // Check Redis cache first
+        const cacheKey = cacheKeys.productivity(email, monthsBack)
+        const cachedData = await redisCache.get(cacheKey)
+        
+        if (cachedData) {
+          console.log('✅ Productivity data served from Redis cache')
+          return NextResponse.json(cachedData)
+        }
+
         // Single request to get all productivity data
         const currentMonthYear = await getCurrentMonthYear(pool);
         
@@ -119,13 +129,19 @@ export async function POST(request: NextRequest) {
           }
         }
         
-        return NextResponse.json({
+        const responseData = {
           message: 'Productivity data retrieved and processed',
           productivityScores: allScoresResult.rows,
           currentMonthScore: allCurrentMonthScore,
           averageProductivityScore: allAverageScore,
           monthsBack
-        });
+        }
+
+        // Cache the result in Redis
+        await redisCache.set(cacheKey, responseData, cacheTTL.productivity)
+        console.log('✅ Productivity data cached in Redis')
+
+        return NextResponse.json(responseData);
 
       case 'calculate_score':
         // Calculate productivity score for current month or specified month

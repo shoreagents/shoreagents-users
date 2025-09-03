@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Pool } from 'pg'
+import { redisCache, cacheKeys, cacheTTL } from '@/lib/redis-cache'
 
 
 
@@ -45,6 +46,15 @@ export async function GET(request: NextRequest) {
     }
 
     const userId = currentUser.id
+
+    // Check Redis cache first
+    const cacheKey = cacheKeys.taskStats()
+    const cachedData = await redisCache.get(cacheKey)
+    
+    if (cachedData) {
+      console.log('✅ Task statistics served from Redis cache')
+      return NextResponse.json(cachedData)
+    }
 
     // Create pool connection
     pool = new Pool({
@@ -168,7 +178,7 @@ export async function GET(request: NextRequest) {
       }
     })
 
-    return NextResponse.json({
+    const responseData = {
       success: true,
       statistics: {
         groups: groupStats.rows,
@@ -177,7 +187,13 @@ export async function GET(request: NextRequest) {
         recentActivity: activitySeries,
         totalTasks: groupStats.rows.reduce((sum: number, group: any) => sum + parseInt(group.task_count), 0)
       }
-    })
+    }
+
+    // Cache the result in Redis
+    await redisCache.set(cacheKey, responseData, cacheTTL.taskStats)
+    console.log('✅ Task statistics cached in Redis')
+
+    return NextResponse.json(responseData)
 
   } catch (error) {
     console.error('Error fetching task statistics:', error)

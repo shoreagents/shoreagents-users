@@ -111,26 +111,47 @@ async function initializeGlobalNotificationListener() {
           }
         } else if (msg.channel === 'ticket_comments') {
           const payload = JSON.parse(msg.payload);
-          console.log(`📡 Global ticket comment notification received for user ${payload.user_id}`);
+          console.log(`📡 Global ticket comment notification received for user ${payload.user_id}, ticket_row_id ${payload.ticket_row_id}`);
           
-          // Find all sockets for this user and emit to all of them
-          if (payload.user_id) {
-            let targetEmail = null;
-            for (const [socketId, userData] of connectedUsers.entries()) {
-              if (userData.userId === payload.user_id) {
-                targetEmail = userData.email;
-                break;
-              }
-            }
+          // Get the ticket owner's user_id from the database
+          try {
+            const ticketResult = await globalNotificationClient.query(
+              'SELECT user_id FROM tickets WHERE id = $1',
+              [payload.ticket_row_id]
+            );
             
-            if (targetEmail) {
-              const userSockets = userConnections.get(targetEmail);
-              if (userSockets && userSockets.size > 0) {
-                userSockets.forEach(socketId => {
-                  io.to(socketId).emit('ticket-comment', payload);
-                });
+            if (ticketResult.rows.length > 0) {
+              const ticketOwnerId = ticketResult.rows[0].user_id;
+              console.log(`📝 Ticket owner ID: ${ticketOwnerId}, Comment author ID: ${payload.user_id}`);
+              
+              // Emit to both comment author and ticket owner (if different)
+              const userIdsToNotify = [payload.user_id];
+              if (ticketOwnerId !== payload.user_id) {
+                userIdsToNotify.push(ticketOwnerId);
+              }
+              
+              for (const userId of userIdsToNotify) {
+                let targetEmail = null;
+                for (const [socketId, userData] of connectedUsers.entries()) {
+                  if (userData.userId === userId) {
+                    targetEmail = userData.email;
+                    break;
+                  }
+                }
+                
+                if (targetEmail) {
+                  const userSockets = userConnections.get(targetEmail);
+                  if (userSockets && userSockets.size > 0) {
+                    console.log(`📤 Emitting ticket-comment to user ${userId} (${targetEmail})`);
+                    userSockets.forEach(socketId => {
+                      io.to(socketId).emit('ticket-comment', payload);
+                    });
+                  }
+                }
               }
             }
+          } catch (error) {
+            console.error('❌ Error getting ticket owner:', error);
           }
         } else if (msg.channel === 'weekly_activity_change') {
           const payload = JSON.parse(msg.payload);

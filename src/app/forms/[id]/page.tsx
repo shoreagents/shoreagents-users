@@ -35,6 +35,8 @@ import Link from "next/link"
 import { Ticket } from "@/lib/ticket-utils"
 import { ImageViewerDialog } from "@/components/image-viewer-dialog"
 import { useTicketCommentsSocket } from "../../../hooks/use-ticket-comments-socket"
+import { useTicket, useTicketComments } from "@/hooks/use-tickets"
+import { useQueryClient } from '@tanstack/react-query'
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 
@@ -50,13 +52,16 @@ interface CurrentUser {
 
 export default function TicketDetailsPage() {
   const params = useParams()
-  const [ticket, setTicket] = useState<Ticket | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [notFound, setNotFound] = useState(false)
+  const ticketId = params.id as string
+  
+  // Use React Query hooks for data fetching
+  const { data: ticketData, isLoading: ticketLoading, error: ticketError, triggerRealtimeUpdate } = useTicket(ticketId)
+  const { data: commentsData, isLoading: commentsLoading, addComment, triggerCommentsUpdate } = useTicketComments(ticketId)
+  const queryClient = useQueryClient()
+  
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null)
   const [imageViewerOpen, setImageViewerOpen] = useState(false)
   const [selectedImage, setSelectedImage] = useState<{ url: string; name: string } | null>(null)
-  const [comments, setComments] = useState<Array<{ id: string; userId?: number; author: string; email?: string; content: string; createdAt: string }>>([])
   const [newComment, setNewComment] = useState("")
   const [submittingComment, setSubmittingComment] = useState(false)
   const seenCommentIdsRef = useRef<Set<string>>(new Set())
@@ -64,94 +69,82 @@ export default function TicketDetailsPage() {
   const [editingText, setEditingText] = useState<string>("")
   const [actionsVisibleId, setActionsVisibleId] = useState<string | null>(null)
   const commentsEndRef = useRef<HTMLDivElement | null>(null)
+  
+  // Extract data from React Query
+  const ticket = ticketData?.ticket || null
+  const loading = ticketLoading || commentsLoading
+  const notFound = ticketError?.message === 'Ticket not found'
+  const comments = commentsData?.comments || []
   const scrollCommentsToBottom = (behavior: ScrollBehavior = 'auto') => {
     try {
       commentsEndRef.current?.scrollIntoView({ behavior })
     } catch {}
   }
 
+  // Set up SSE for real-time updates
   useEffect(() => {
-    const loadTicket = async () => {
-      try {
-        const ticketId = params.id as string
-        
-        // Fetch ticket details from API
-        const response = await fetch(`/api/tickets/${ticketId}`, {
-          method: 'GET',
-          credentials: 'include' // Include authentication cookies
-        })
-        
-        if (response.ok) {
-          const result = await response.json()
-          if (result.success) {
-            setTicket(result.ticket)
-            // Load comments via API
-            try {
-              const cRes = await fetch(`/api/tickets/${ticketId}/comments`, { credentials: 'include' })
-              const cData = await cRes.json()
-              if (cRes.ok && cData?.success && Array.isArray(cData.comments)) {
-                const mapped = cData.comments.map((c: any) => ({
-                  id: String(c.id),
-                  userId: c.userId ?? c.user_id,
-                  author: c.authorName || c.authorEmail || 'User',
-                  email: c.authorEmail,
-                  content: c.content,
-                  createdAt: c.createdAt,
-                }))
-                setComments(mapped)
-                 try { seenCommentIdsRef.current = new Set(mapped.map((m:any)=>m.id)) } catch {}
-                 // Scroll to latest after initial load
-                 setTimeout(() => scrollCommentsToBottom('auto'), 0)
-              } else {
-                setComments([])
-                seenCommentIdsRef.current = new Set()
-              }
-            } catch {
-              setComments([])
-              seenCommentIdsRef.current = new Set()
-            }
-          } else {
-            console.error('❌ Failed to load ticket:', result.error)
-            setNotFound(true)
-          }
-        } else if (response.status === 404) {
-          setNotFound(true)
-        } else {
-          console.error('❌ Error response:', response.status)
-          setNotFound(true)
-        }
-      } catch (error) {
-        console.error('❌ Error loading ticket:', error)
-        setNotFound(true)
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    loadTicket()
+    if (!ticketId) return
 
     // Subscribe to SSE for this specific ticket
-    const ticketId = params.id as string
     const es = new EventSource(`/api/tickets/${ticketId}?stream=1`)
     const debounce = { timer: null as any }
-    es.onmessage = (event) => {
+    
+    es.onmessage = async (event) => {
       try {
         const data = JSON.parse(event.data)
         if (data?.type === 'connected') return
-        // Refresh details after a short debounce
-        if (debounce.timer) clearTimeout(debounce.timer)
-        debounce.timer = setTimeout(() => {
-          loadTicket()
-        }, 300)
-      } catch {}
+        
+        console.log('🔔 SSE event received:', data)
+        
+        // Handle different types of events
+        if (data.channel === 'ticket_comments') {
+          console.log('📝 Comment event received via SSE:', data)
+          // Handle comment events
+          if (data.event === 'insert') {
+            const newId = String(data.comment_id)
+            if (!seenCommentIdsRef.current.has(newId)) {
+              console.log('✅ New comment via SSE, updating...', { commentId: newId, ticketId })
+              seenCommentIdsRef.current.add(newId)
+              // Use the dedicated function to trigger fresh comment update
+              await triggerCommentsUpdate()
+              setTimeout(() => scrollCommentsToBottom('smooth'), 100)
+            }
+          } else if (data.event === 'update' || data.event === 'delete') {
+            console.log('📝 Comment update/delete via SSE, refreshing...', { event: data.event, commentId: data.comment_id })
+            await triggerCommentsUpdate()
+          }
+        } else {
+          // Handle ticket updates
+          if (debounce.timer) clearTimeout(debounce.timer)
+          debounce.timer = setTimeout(() => {
+            triggerRealtimeUpdate()
+          }, 300)
+        }
+      } catch (error) {
+        console.error('❌ Error parsing SSE event:', error)
+      }
     }
+    
     es.onerror = () => {
       try { es.close() } catch {}
     }
+    
     return () => {
       try { es.close() } catch {}
+      if (debounce.timer) clearTimeout(debounce.timer)
     }
-  }, [params.id])
+  }, [ticketId, triggerRealtimeUpdate])
+
+  // Initialize seen comment IDs when comments load
+  useEffect(() => {
+    if (comments.length > 0) {
+      try {
+        seenCommentIdsRef.current = new Set(comments.map((c: any) => String(c.id)))
+        // Scroll to latest after initial load
+        setTimeout(() => scrollCommentsToBottom('auto'), 0)
+      } catch {}
+    }
+  }, [comments])
 
   // Get current user information
   useEffect(() => {
@@ -184,42 +177,61 @@ export default function TicketDetailsPage() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'For Approval':
-        return <Badge variant="outline" className="flex items-center gap-1 border-orange-500 text-orange-700 bg-orange-50">
-          <Clock className="h-3 w-3" />
-          For Approval
-        </Badge>
+        return (
+          <Badge variant="outline" className="border-orange-500 text-orange-700 bg-orange-50">
+            <Clock className="w-3 h-3 mr-1" />
+            For Approval
+          </Badge>
+        )
       case 'On Hold':
-        return <Badge variant="destructive" className="flex items-center gap-1">
-          <AlertTriangle className="h-3 w-3" />
-          On Hold
-        </Badge>
+        return (
+          <Badge variant="destructive" className="text-white">
+            <AlertTriangle className="w-3 h-3 mr-1" />
+            On Hold
+          </Badge>
+        )
       case 'In Progress':
-        return <Badge variant="default" className="flex items-center gap-1">
-          <AlertTriangle className="h-3 w-3" />
-          In Progress
-        </Badge>
+        return (
+          <Badge variant="default" className="bg-blue-500 text-white">
+            <AlertTriangle className="w-3 h-3 mr-1" />
+            In Progress
+          </Badge>
+        )
       case 'Approved':
-        return <Badge variant="outline" className="flex items-center gap-1 text-green-600 border-green-200">
-          <CheckCircle className="h-3 w-3" />
-          Approved
-        </Badge>
+        return (
+          <Badge variant="outline" className="border-green-500 text-green-700 bg-green-50">
+            <CheckCircle className="w-3 h-3 mr-1" />
+            Approved
+          </Badge>
+        )
       case 'Stuck':
-        return <Badge variant="destructive" className="flex items-center gap-1">
-          <AlertTriangle className="h-3 w-3" />
-          Stuck
-        </Badge>
+        return (
+          <Badge variant="destructive" className="text-white">
+            <AlertTriangle className="w-3 h-3 mr-1" />
+            Stuck
+          </Badge>
+        )
       case 'Actioned':
-        return <Badge variant="outline" className="flex items-center gap-1 text-blue-600 border-blue-200">
-          <CheckCircle className="h-3 w-3" />
-          Actioned
-        </Badge>
+        return (
+          <Badge variant="outline" className="border-blue-500 text-blue-700 bg-blue-50">
+            <CheckCircle className="w-3 h-3 mr-1" />
+            Actioned
+          </Badge>
+        )
       case 'Closed':
-        return <Badge variant="outline" className="flex items-center gap-1 text-green-600 border-green-200">
-          <CheckCircle className="h-3 w-3" />
-          Closed
-        </Badge>
+        return (
+          <Badge variant="outline" className="border-green-500 text-green-700 bg-green-50">
+            <CheckCircle className="w-3 h-3 mr-1" />
+            Closed
+          </Badge>
+        )
       default:
-        return <Badge variant="secondary">{status}</Badge>
+        return (
+          <Badge variant="outline" className="border-gray-500 text-gray-700 bg-gray-50">
+            <Clock className="w-3 h-3 mr-1" />
+            {status}
+          </Badge>
+        )
     }
   }
 
@@ -283,7 +295,6 @@ export default function TicketDetailsPage() {
     const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg']
     const lowerFileName = fileName.toLowerCase()
     const isImage = imageExtensions.some(ext => lowerFileName.endsWith(ext))
-    console.log(`Checking if ${fileName} is image: ${isImage}`)
     return isImage
   }
 
@@ -309,38 +320,17 @@ export default function TicketDetailsPage() {
 
   const handleAddComment = async () => {
     const trimmed = newComment.trim()
-    if (!trimmed || !params?.id) return
+    if (!trimmed || !ticketId) return
+    
     try {
       setSubmittingComment(true)
-      const res = await fetch(`/api/tickets/${params.id}/comments`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ comment: trimmed }),
-      })
-      const data = await res.json()
-      if (res.ok && data?.success && data.comment) {
-        const newId = String(data.comment.id)
-        if (!seenCommentIdsRef.current.has(newId)) {
-          setComments(prev => [
-            ...prev,
-            {
-              id: newId,
-              userId: Number(currentUser?.id) || undefined,
-              author: data.comment.authorName || currentUser?.name || currentUser?.email || 'You',
-              email: data.comment.authorEmail || currentUser?.email,
-              content: data.comment.content,
-              createdAt: data.comment.createdAt || new Date().toISOString(),
-            },
-          ])
-           seenCommentIdsRef.current.add(newId)
-           // Scroll to latest on own insert
-           setTimeout(() => scrollCommentsToBottom('smooth'), 0)
-        }
-        setNewComment("")
-      }
-    } catch (e) {
-      // Silently ignore for now; could add toast
+      await addComment.mutateAsync({ content: trimmed })
+      setNewComment("")
+      // Scroll to latest on own insert
+      setTimeout(() => scrollCommentsToBottom('smooth'), 0)
+    } catch (error) {
+      console.error('Error adding comment:', error)
+      // Could add toast notification here
     } finally {
       setSubmittingComment(false)
     }
@@ -350,38 +340,29 @@ export default function TicketDetailsPage() {
   useTicketCommentsSocket((payload: any) => {
     try {
       if (!ticket) return
-      // Accept only events for this ticket by matching ticket_row_id with the DB id we fetched
-      // We have only ticket.ticket_id string; fetch-time didn’t include row id. Accept all for now.
+      console.log('🔌 Socket comment event received:', payload)
 
       if (payload?.event === 'insert') {
         const newId = String(payload.comment_id)
         if (!seenCommentIdsRef.current.has(newId)) {
-          setComments(prev => [
-            ...prev,
-            {
-              id: newId,
-              userId: payload.user_id ? Number(payload.user_id) : undefined,
-              author: payload.authorName || payload.author_email || payload.authorEmail || 'User',
-              email: payload.author_email || payload.authorEmail || undefined,
-              content: payload.comment,
-              createdAt: payload.created_at,
-            },
-          ])
+          console.log('✅ New comment via socket, updating...', { commentId: newId, ticketId })
+          // Add to seen IDs to prevent duplicates
           seenCommentIdsRef.current.add(newId)
-          }
+          // Use the dedicated function to trigger fresh comment update
+          triggerCommentsUpdate()
+          // Scroll to latest comment
+          setTimeout(() => scrollCommentsToBottom('smooth'), 100)
+        }
       } else if (payload?.event === 'update') {
-        const updId = String(payload.comment_id)
-        setComments(prev => prev.map(c => c.id === updId ? {
-          ...c,
-          content: payload.comment ?? c.content,
-          author: payload.authorName || payload.author_email || payload.authorEmail || c.author,
-          email: payload.author_email || payload.authorEmail || c.email,
-          createdAt: payload.updated_at || c.createdAt,
-        } : c))
+        console.log('📝 Comment updated via socket, refreshing...')
+        triggerCommentsUpdate()
       } else if (payload?.event === 'delete') {
-        setComments(prev => prev.filter(c => c.id !== String(payload.comment_id)))
+        console.log('🗑️ Comment deleted via socket, refreshing...')
+        triggerCommentsUpdate()
       }
-    } catch {}
+    } catch (error) {
+      console.error('❌ Error handling socket comment event:', error)
+    }
   })
 
   if (loading) {
@@ -454,9 +435,6 @@ export default function TicketDetailsPage() {
                         <div className="flex items-center gap-3">
                           <h2 className="text-2xl font-bold">{ticket.id}</h2>
                           {getStatusBadge(ticket.status)}
-                          <Badge variant="secondary" className="text-sm">
-                            #{ticket.position}
-                          </Badge>
                         </div>
                       <div className="flex items-center gap-4 text-sm text-muted-foreground">
                         <div className="flex items-center gap-1">
@@ -547,7 +525,6 @@ export default function TicketDetailsPage() {
                           // Extract filename from URL
                           const fileName = fileUrl.split('/').pop() || `File ${index + 1}`
                           const isImage = isImageFile(fileName)
-                          console.log(`Processing file: ${fileName}, isImage: ${isImage}, URL: ${fileUrl}`)
                           
                           return (
                             <div key={index} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
@@ -712,7 +689,7 @@ export default function TicketDetailsPage() {
                                                     try {
                                                       const res = await fetch(`/api/tickets/comments/${comment.id}`, { method: 'DELETE', credentials: 'include' })
                                                       if (res.ok) {
-                                                        setComments(prev => prev.filter(c => c.id !== comment.id))
+                                                        // Comments will be refetched automatically by React Query
                                                         try { seenCommentIdsRef.current.delete(comment.id) } catch {}
                                                       }
                                                     } catch {}
@@ -741,9 +718,7 @@ export default function TicketDetailsPage() {
                                                       body: JSON.stringify({ comment: trimmed })
                                                     })
                                                     if (res.ok) {
-                                                      const data = await res.json().catch(() => null)
-                                                      const updatedAt = data?.comment?.updated_at_ph || data?.comment?.updatedAt || new Date().toISOString()
-                                                      setComments(prev => prev.map(c => c.id === comment.id ? { ...c, content: trimmed, createdAt: updatedAt } : c))
+                                                      // Comments will be refetched automatically by React Query
                                                       setEditingId(null)
                                                       setEditingText('')
                                                     }

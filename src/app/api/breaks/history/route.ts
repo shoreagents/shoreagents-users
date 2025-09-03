@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { executeQuery } from '@/lib/database-server';
+import { redisCache, cacheKeys, cacheTTL } from '@/lib/redis-cache';
 
 export async function GET(request: NextRequest) {
   try {
@@ -14,6 +15,15 @@ export async function GET(request: NextRequest) {
         { success: false, error: 'agent_user_id is required' },
         { status: 400 }
       );
+    }
+
+    // Check Redis cache first
+    const cacheKey = cacheKeys.breaksHistory(agent_user_id, days, include_active)
+    const cachedData = await redisCache.get(cacheKey)
+    
+    if (cachedData) {
+      console.log('✅ Breaks history served from Redis cache')
+      return NextResponse.json(cachedData)
     }
 
     // Verify agent exists
@@ -122,7 +132,7 @@ export async function GET(request: NextRequest) {
 
     // Break history retrieved;
 
-    return NextResponse.json({
+    const responseData = {
       success: true,
       agent: agentResult[0],
       data: {
@@ -142,7 +152,13 @@ export async function GET(request: NextRequest) {
           today_break_time: todayResult.reduce((sum, session) => sum + (session.duration_minutes || 0), 0)
         }
       }
-    });
+    }
+
+    // Cache the result in Redis
+    await redisCache.set(cacheKey, responseData, cacheTTL.breaksHistory)
+    console.log('✅ Breaks history cached in Redis')
+
+    return NextResponse.json(responseData);
 
   } catch (error) {
     console.error('❌ Error fetching break history:', error);

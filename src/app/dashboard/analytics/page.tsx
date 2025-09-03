@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useMemo } from "react"
 import { AppSidebar } from "@/components/app-sidebar"
 import { AppHeader } from "@/components/app-header"
 import { DashboardSkeleton } from "@/components/skeleton-loaders"
@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { TrendingUp, Target, Award } from "lucide-react"
-import { getCurrentUser } from "@/lib/ticket-utils"
+import { useAnalyticsData } from "@/hooks/use-analytics"
 import { 
   AreaChart,
   Area,
@@ -34,76 +34,18 @@ type LeaderboardRow = { rank: number; name: string; productivityScore: number }
 type ProductivityScore = { month_year: string; productivity_score: number }
 
 export default function AnalyticsPage() {
-  const [loading, setLoading] = useState(true)
-  const [weeklyDays, setWeeklyDays] = useState<WeeklyDay[]>([])
-  const [weeklySummaries, setWeeklySummaries] = useState<WeeklySummary[]>([])
-  const [monthlySummaries, setMonthlySummaries] = useState<MonthlySummary[]>([])
-  const [leaderboard, setLeaderboard] = useState<LeaderboardRow[]>([])
-  const [leaderboardMonth, setLeaderboardMonth] = useState<string>('')
-  const [prodScores, setProdScores] = useState<ProductivityScore[]>([])
-  const [prodAverage, setProdAverage] = useState<number>(0)
-
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const user = getCurrentUser()
-        const email = user?.email
-        const userId = user?.id
-        if (!email) {
-          setLoading(false); return
-        }
-
-        // Weekly
-        const weeklyRes = await fetch('/api/activity/weekly', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'get_all', email, weeksToKeep: 2 })
-        })
-        if (weeklyRes.ok) {
-          const data = await weeklyRes.json()
-          setWeeklySummaries(data.weeklySummaries || [])
-          setWeeklyDays((data.currentWeek || []).map((d: any) => ({
-            today_date: d.today_date,
-            active_seconds: d.active_seconds || 0,
-            inactive_seconds: d.inactive_seconds || 0,
-          })))
-        }
-
-        // Monthly
-        const monthlyRes = await fetch('/api/activity/monthly', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'get_all', email, monthsToKeep: 12 })
-        })
-        if (monthlyRes.ok) {
-          const data = await monthlyRes.json()
-          setMonthlySummaries(data.monthlySummaries || [])
-        }
-
-        // Leaderboard (top 10)
-        const lbRes = await fetch('/api/leaderboard?limit=10', { credentials: 'include' })
-        if (lbRes.ok) {
-          const data = await lbRes.json()
-          setLeaderboard(data.leaderboard || [])
-          setLeaderboardMonth(data.monthYear || '')
-        }
-
-        // Productivity
-        const prodRes = await fetch('/api/activity/productivity', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'get_all', email, monthsBack: 12 })
-        })
-        if (prodRes.ok) {
-          const data = await prodRes.json()
-          setProdScores(data.productivityScores || [])
-          setProdAverage(parseFloat(data.averageProductivityScore || 0))
-        }
-      } catch (e) {
-        console.error('Analytics load error:', e)
-      } finally {
-        setLoading(false)
-      }
-    }
-    load()
-  }, [])
+  // Use React Query hooks for all analytics data
+  const {
+    weeklyDays,
+    weeklySummaries,
+    monthlySummaries,
+    leaderboard,
+    leaderboardMonth,
+    prodScores,
+    prodAverage,
+    isLoading,
+    hasError
+  } = useAnalyticsData()
 
   const weeklyDaySeries = useMemo(() => {
     return weeklyDays
@@ -177,7 +119,7 @@ export default function AnalyticsPage() {
       }))
   }, [prodScores])
 
-  if (loading) {
+  if (isLoading) {
     return (
       <SidebarProvider>
         <AppSidebar />

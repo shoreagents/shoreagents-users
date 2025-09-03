@@ -4,6 +4,8 @@ import React, { createContext, useContext, useState, useEffect, useRef, ReactNod
 import { io, Socket } from 'socket.io-client'
 import { getCurrentUser } from '@/lib/ticket-utils'
 import { getMeetingStatus, createMeeting, type Meeting } from '@/lib/meeting-utils'
+import { useMeetings, useMeetingStatus } from '@/hooks/use-meetings'
+import { initializeMeetingScheduler, stopMeetingScheduler } from '@/lib/meeting-scheduler'
 
 interface MeetingContextType {
   // Meeting state
@@ -14,7 +16,7 @@ interface MeetingContextType {
   connectionStatus: 'connecting' | 'connected' | 'disconnected' | 'error'
   
   // Meeting actions
-  startNewMeeting: (title: string, description?: string, expectedDuration?: number) => Promise<{ success: boolean; message?: string }>
+  startNewMeeting: (title: string, description?: string, scheduledTime?: string) => Promise<{ success: boolean; message?: string }>
   endCurrentMeeting: () => Promise<{ success: boolean; message?: string }>
   refreshMeetings: () => Promise<void>
   
@@ -29,78 +31,34 @@ interface MeetingProviderProps {
 }
 
 export function MeetingProvider({ children }: MeetingProviderProps) {
-  const [isInMeeting, setIsInMeeting] = useState(false)
-  const [currentMeeting, setCurrentMeeting] = useState<Meeting | null>(null)
-  const [meetings, setMeetings] = useState<Meeting[]>([])
-  const [isLoading, setIsLoading] = useState(true)
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'error'>('disconnected')
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   
+  // Use React-Query hooks for data fetching
+  const { 
+    data: meetingsData, 
+    isLoading: meetingsLoading, 
+    error: meetingsError,
+    refetch: refetchMeetings
+  } = useMeetings(7)
+  
+  const { 
+    data: statusData, 
+    isLoading: statusLoading,
+    error: statusError 
+  } = useMeetingStatus(7)
+  
+  // Extract data from react-query and ensure compatibility
+  const meetings = (meetingsData?.meetings || []).map(meeting => ({
+    ...meeting,
+    is_in_meeting: meeting.status === 'in-progress'
+  }))
+  const isInMeeting = statusData?.isInMeeting || false
+  const currentMeeting = statusData?.activeMeeting || null
+  const isLoading = meetingsLoading || statusLoading
+  
   const socketRef = useRef<Socket | null>(null)
   const refreshTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  const lastFetchRef = useRef<Date | null>(null)
-  const isFetchingRef = useRef(false)
-
-  // Debounced fetch function to prevent rapid API calls
-  const debouncedFetchMeetingData = async (force = false) => {
-    const now = new Date()
-    const timeSinceLastFetch = lastFetchRef.current ? now.getTime() - lastFetchRef.current.getTime() : Infinity
-    
-    // Don't fetch if we've fetched in the last 2 seconds (unless forced)
-    if (!force && timeSinceLastFetch < 2000) {
-      return
-    }
-
-    // Don't fetch if already fetching
-    if (isFetchingRef.current) {
-      return
-    }
-
-    isFetchingRef.current = true
-    lastFetchRef.current = now
-
-    try {
-      const currentUser = getCurrentUser()
-      if (!currentUser?.id) {
-        setIsInMeeting(false)
-        setCurrentMeeting(null)
-        setMeetings([])
-        return
-      }
-
-      // Use the integer ID for database operations
-      const agentUserId = typeof currentUser.id === 'number' ? currentUser.id : parseInt(currentUser.id)
-      // Fetch meeting status and meetings in parallel
-      const [statusResponse, meetingsResponse] = await Promise.all([
-        fetch(`/api/meetings/status/?agent_user_id=${agentUserId}&days=7`),
-        fetch(`/api/meetings/?agent_user_id=${agentUserId}&days=7`)
-      ])
-
-      if (statusResponse.ok && meetingsResponse.ok) {
-        const [statusData, meetingsData] = await Promise.all([
-          statusResponse.json(),
-          meetingsResponse.json()
-        ])
-
-        if (statusData.success) {
-          setIsInMeeting(statusData.isInMeeting || false)
-          setCurrentMeeting(statusData.activeMeeting || null)
-        }
-
-        if (meetingsData.success) {
-          setMeetings(meetingsData.meetings || [])
-        }
-        
-        setLastUpdated(new Date())
-      } else {
-        console.error('Failed to fetch meeting data')
-      }
-    } catch (error) {
-      console.error('Error fetching meeting data:', error)
-    } finally {
-      isFetchingRef.current = false
-    }
-  }
 
   // Initialize Socket.IO connection for real-time updates
   useEffect(() => {
@@ -109,9 +67,11 @@ export function MeetingProvider({ children }: MeetingProviderProps) {
     
     if (!email) {
       console.log('No user email available for Meeting Socket.IO connection')
-      setIsLoading(false)
       return
     }
+
+    // Initialize meeting scheduler for automatic meeting starts
+    initializeMeetingScheduler()
 
     // Use a ref to track if this effect is still active
     const isActive = { current: true }
@@ -176,27 +136,21 @@ export function MeetingProvider({ children }: MeetingProviderProps) {
       // Listen for meeting status updates from Socket.IO server
       socket.on('meeting-status-update', (data: { isInMeeting: boolean; activeMeeting?: Meeting }) => {
         if (!isActive.current) return
-        setIsInMeeting(data.isInMeeting)
-        setCurrentMeeting(data.activeMeeting || null)
         setLastUpdated(new Date())
         
-        // Only refresh full meeting data if status changed significantly
-        if (data.isInMeeting !== isInMeeting) {
-          debouncedFetchMeetingData()
-        }
+        // Refresh data when status changes
+        refetchMeetings()
       })
 
       // Listen for meeting data updates
       socket.on('meetings-updated', () => {
         if (!isActive.current) return
-        debouncedFetchMeetingData()
+        refetchMeetings()
       })
     }, 100) // Small delay to avoid rapid reconnections
 
-    // Initial data fetch (forced)
-    debouncedFetchMeetingData(true).finally(() => {
-      setIsLoading(false)
-    })
+    // Initial data fetch is handled by React-Query hooks
+    // No need for manual fetching
 
     return () => {
       // Mark effect as inactive
@@ -225,20 +179,23 @@ export function MeetingProvider({ children }: MeetingProviderProps) {
       if (typeof window !== 'undefined') {
         (window as any).meetingSocket = null
       }
+
+      // Stop meeting scheduler
+      stopMeetingScheduler()
     }
   }, []) // Empty dependency array to run only once
 
-  const startNewMeeting = async (title: string, description?: string, expectedDuration?: number) => {
+  const startNewMeeting = async (title: string, description?: string, scheduledTime?: string) => {
     try {
       const result = await createMeeting({
         title,
         description: description || '',
-        duration: expectedDuration || 30,
-        type: 'video'
+        type: 'video',
+        scheduledTime
       })
       
       // Refresh meetings after creating a new one
-      debouncedFetchMeetingData()
+      refetchMeetings()
       
       return { success: true, message: 'Meeting created successfully' }
     } catch (error) {
@@ -257,7 +214,7 @@ export function MeetingProvider({ children }: MeetingProviderProps) {
       await endMeeting(currentMeeting.id)
       
       // Refresh meetings after ending one
-      debouncedFetchMeetingData()
+      refetchMeetings()
       
       return { success: true, message: 'Meeting ended successfully' }
     } catch (error) {
@@ -267,7 +224,8 @@ export function MeetingProvider({ children }: MeetingProviderProps) {
   }
 
   const refreshMeetings = async () => {
-    await debouncedFetchMeetingData(true)
+    await refetchMeetings()
+    setLastUpdated(new Date())
   }
 
   const value: MeetingContextType = {

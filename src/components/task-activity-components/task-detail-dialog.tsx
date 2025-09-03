@@ -87,6 +87,27 @@ interface TaskDetailDialogProps {
   onOpenTask?: (taskId: string) => void
 }
 
+// Function to truncate long notification messages
+function truncateNotificationMessage(message: string, maxLength: number = 15): string {
+  if (message.length <= maxLength) {
+    return message
+  }
+  
+  // Find the last space before the max length to avoid cutting words
+  const truncated = message.substring(0, maxLength)
+  const lastSpaceIndex = truncated.lastIndexOf(' ')
+  
+  if (lastSpaceIndex > maxLength * 0.7) {
+    // If we found a space in a reasonable position, cut there
+    return message.substring(0, lastSpaceIndex) + '...'
+  } else {
+    // Otherwise, just cut at max length and add ellipsis
+    return truncated + '...'
+  }
+}
+
+
+
 export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTaskUpdate, onOpenTask }: TaskDetailDialogProps) {
   // Real-time: listen for task activity events
   const [events, setEvents] = useState<Array<{id:number; action:string; created_at:string; details:any; actor_user_id:number}>>([])
@@ -875,6 +896,11 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
   const handleDescriptionCancel = () => {
     setEditedDescription(task.description || "")
     setIsEditingDescription(false)
+  }
+
+  const handleDescriptionBlur = () => {
+    // Auto-save when clicking outside
+    handleDescriptionSave()
   }
 
   const handleDescriptionKeyDown = (e: React.KeyboardEvent) => {
@@ -1666,6 +1692,7 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                         )}
                       </div>
                     </div>
+                    <Separator />
 
                     {/* Dates */}
                     <div>
@@ -1893,6 +1920,7 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                         </div>
                       </div>
                     </div>
+                    <Separator />
 
                     {/* Priority */}
                     <div>
@@ -1952,12 +1980,23 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                         )}
                       </div>
                     </div>
+                    <Separator />
 
                     {/* Tags */}
                     <div>
-                      <div className="flex items-center gap-2 mb-2">
-                        <Tag className="h-4 w-4 text-muted-foreground" />
-                        <span className="text-sm font-medium">Tags</span>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <Tag className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm font-medium">Tags</span>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setIsAddingTag(true)}
+                          className="h-8 w-8 p-0"
+                        >
+                          <Plus className="h-3 w-3" />
+                        </Button>
                       </div>
                       <div className="space-y-2">
                         {/* Existing Tags */}
@@ -1980,12 +2019,17 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                         </div>
                         
                         {/* Add Tag Input */}
-                        {isAddingTag ? (
+                        {isAddingTag && (
                           <div className="flex items-center gap-2">
                             <Input
                               value={newTag}
                               onChange={(e) => setNewTag(e.target.value)}
                               onKeyDown={handleTagKeyDown}
+                              onBlur={() => {
+                                // Auto-cancel when clicking outside
+                                setNewTag("")
+                                setIsAddingTag(false)
+                              }}
                               placeholder="Enter tag name..."
                               className="flex-1 h-8 text-xs"
                               autoFocus
@@ -1998,31 +2042,11 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                             >
                               Add
                             </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                setNewTag("")
-                                setIsAddingTag(false)
-                              }}
-                              className="h-8 w-8 p-0"
-                            >
-                              ×
-                            </Button>
                           </div>
-                        ) : (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setIsAddingTag(true)}
-                            className="h-8 justify-start text-muted-foreground hover:text-foreground"
-                          >
-                            <Plus className="h-3 w-3 mr-1" />
-                            Add tag
-                          </Button>
                         )}
                       </div>
                     </div>
+                    <Separator />
 
                     {/* Relationships */}
                     <div>
@@ -2069,29 +2093,39 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                                     (t.title.toLowerCase().includes(relationshipSearch.toLowerCase()) ||
                                     t.id.toLowerCase().includes(relationshipSearch.toLowerCase()))
                                   )
-                                  .map((relatedTask) => (
-                                    <div key={relatedTask.id} className="space-y-1">
-                                      <div className="flex items-center justify-between p-2 rounded hover:bg-accent">
+                                  .map((relatedTask) => {
+                                    const isAssignedByCurrentUser = relatedTask.creator_id && currentUserId && Number(relatedTask.creator_id) === Number(currentUserId)
+                                    
+                                    return (
+                                      <div 
+                                        key={relatedTask.id} 
+                                        className="group relative p-2 rounded cursor-pointer hover:bg-accent transition-colors"
+                                        onClick={() => handleAddRelationship(relatedTask.id, "related_to")}
+                                        title="Click to add as 'Related to'"
+                                      >
                                         <div className="flex items-center gap-3">
-                                          <div className="w-3 h-3 rounded-full bg-blue-500" />
-                                          <div className="flex flex-col">
-                                            <span className="text-sm font-medium">{relatedTask.title}</span>
+                                          <div className="w-3 h-3 rounded-full bg-blue-500 flex-shrink-0" />
+                                          <div className="flex flex-col min-w-0 flex-1">
+                                            <div className="flex items-center gap-2">
+                                              <span className="text-sm font-medium truncate">{truncateNotificationMessage(relatedTask.title)}</span>
+                                              {!isAssignedByCurrentUser && (
+                                                <span className="text-[10px] bg-green-100 text-green-700 dark:bg-green-950/20 dark:text-green-400 px-1.5 py-0.5 rounded-full flex-shrink-0">
+                                                  assigned
+                                                </span>
+                                              )}
+                                            </div>
                                             <span className="text-xs text-muted-foreground">#{relatedTask.id}</span>
                                           </div>
                                         </div>
+                                        {/* Hover indicator */}
+                                        <div className="absolute right-2 top-1/2 transform -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                          <span className="text-xs text-muted-foreground bg-background/80 px-2 py-1 rounded border">
+                                            Related to
+                                          </span>
+                                        </div>
                                       </div>
-                                      <div className="flex gap-1 ml-8">
-                                        <Button
-                                          variant="ghost"
-                                          size="sm"
-                                          className="h-6 text-xs"
-                                          onClick={() => handleAddRelationship(relatedTask.id, "related_to")}
-                                        >
-                                          Related to
-                                        </Button>
-                                      </div>
-                                    </div>
-                                  ))}
+                                    )
+                                  })}
                               </div>
                             </ScrollArea>
                           </PopoverContent>
@@ -2190,30 +2224,17 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                       </div>
                       <div className="border rounded-md p-3 min-h-[100px]">
                         {isEditingDescription ? (
-                          <div className="space-y-2">
+                          <div>
                             <Textarea
                               value={editedDescription}
                               onChange={(e) => setEditedDescription(e.target.value)}
                               onKeyDown={handleDescriptionKeyDown}
+                              onBlur={handleDescriptionBlur}
                               placeholder="Enter task description..."
-                              className="min-h-[80px] resize-none"
+                              className="min-h-[80px] resize-none border-0 focus-visible:ring-0 focus-visible:ring-offset-0 p-0"
                               autoFocus
                             />
-                            <div className="flex justify-end gap-2">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={handleDescriptionCancel}
-                              >
-                                Cancel
-                              </Button>
-                              <Button
-                                size="sm"
-                                onClick={handleDescriptionSave}
-                              >
-                                Save
-                              </Button>
-                            </div>
+                            
                           </div>
                         ) : (
                           <div className="space-y-2">
@@ -2238,6 +2259,7 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                         )}
                       </div>
                     </div>
+                    <Separator />
 
                     {/* Details */}
                     <div>
@@ -2331,6 +2353,7 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                               </div>
                             </ScrollArea>
                           </div>
+                          <Separator />
                         </div>
 
                         {/* Attachments */}
@@ -2467,17 +2490,7 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                   <div>
                     <div className="flex items-center justify-between mb-4">
                       <h3 className="font-medium">Activity</h3>
-                      <div className="flex items-center gap-2">
-                        <Button variant="ghost" size="icon" className="h-6 w-6">
-                          <Search className="h-3 w-3" />
-                        </Button>
-                        <Button variant="ghost" size="icon" className="h-6 w-6">
-                          <Bell className="h-3 w-3" />
-                        </Button>
-                        <Button variant="ghost" size="icon" className="h-6 w-6">
-                          <Settings className="h-3 w-3" />
-                        </Button>
-                      </div>
+                      
                     </div>
 
                     {/* Activity content */}
@@ -2508,6 +2521,7 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                         )}
                           </div>
                     </ScrollArea>
+                    <Separator className="my-6" />
 
                     {/* Comments List */}
                     <div className="mt-6">

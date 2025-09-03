@@ -96,9 +96,9 @@ export default function TestActivityPage() {
               </div>
               <Button 
                 onClick={handleGlobalRefresh}
-                variant="outline" 
+                variant="ghost" 
                 size="sm"
-                className="flex items-center gap-2"
+                className="flex items-center gap-2 hover:!bg-transparent dark:hover:text-white hover:text-black "
               >
                 <RefreshCw className="w-4 h-4" />
                 Refresh All
@@ -290,18 +290,18 @@ export default function TestActivityPage() {
             {/* Weekly and Monthly Activity Tracking in Two Columns */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               {/* Weekly Activity Tracking */}
-              <div className="transform hover:scale-[1.02] transition-all duration-300">
+              <div>
                 <WeeklyActivityDisplay key={`weekly-${refreshKey}`} currentUser={currentUser} />
               </div>
 
               {/* Monthly Activity Tracking */}
-              <div className="transform hover:scale-[1.02] transition-all duration-300">
+              <div>
                 <MonthlyActivityDisplay key={`monthly-${refreshKey}`} currentUser={currentUser} />
               </div>
             </div>
 
             {/* Productivity Score Tracking */}
-            <div className="transform hover:scale-[1.02] transition-all duration-300">
+            <div>
               <ProductivityScoreDisplay key={`productivity-${refreshKey}`} currentUser={currentUser} />
             </div>
           </div>

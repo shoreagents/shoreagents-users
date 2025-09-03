@@ -47,8 +47,8 @@ export async function GET(request: NextRequest) {
         CASE 
           WHEN pause_time IS NOT NULL AND resume_time IS NULL THEN time_remaining_at_pause
           WHEN pause_time IS NOT NULL AND resume_time IS NOT NULL THEN 
-            EXTRACT(EPOCH FROM ((NOW() AT TIME ZONE 'Asia/Manila') - resume_time)) / 60
-          ELSE EXTRACT(EPOCH FROM ((NOW() AT TIME ZONE 'Asia/Manila') - start_time)) / 60
+            EXTRACT(EPOCH FROM ((NOW()) - resume_time)) / 60
+          ELSE EXTRACT(EPOCH FROM ((NOW()) - start_time)) / 60
         END as current_duration_minutes
       FROM break_sessions 
       WHERE agent_user_id = $1 AND end_time IS NULL
