@@ -58,7 +58,7 @@ interface AppHeaderProps {
 }
 
 // Function to truncate long notification messages
-function truncateNotificationMessage(message: string, maxLength: number = 60): string {
+function truncateNotificationMessage(message: string, maxLength: number =60): string {
   if (message.length <= maxLength) {
     return message
   }

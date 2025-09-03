@@ -30,8 +30,8 @@ export async function GET(request: NextRequest) {
       meetings: result
     }
 
-    // Cache the result in Redis
-    await redisCache.set(cacheKey, responseData, cacheTTL.meetings)
+    // Cache the result in Redis with shorter TTL for more responsive updates
+    await redisCache.set(cacheKey, responseData, 30)
     console.log('✅ Meetings cached in Redis')
 
     return NextResponse.json(responseData)
@@ -54,10 +54,11 @@ export async function POST(request: NextRequest) {
 
     // Use scheduled time if provided, otherwise use current time
     const startTime = scheduledTime ? new Date(scheduledTime).toISOString() : new Date().toISOString()
+    const isImmediateMeeting = !scheduledTime
 
     const query = `
-      INSERT INTO meetings (agent_user_id, title, description, start_time, end_time, duration_minutes, meeting_type, status)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      INSERT INTO meetings (agent_user_id, title, description, start_time, end_time, duration_minutes, meeting_type, status, is_in_meeting)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING *
     `
 
@@ -69,7 +70,8 @@ export async function POST(request: NextRequest) {
       null, // end_time is NULL for open-ended meetings
       0, // duration_minutes is 0 initially, will be calculated when meeting ends
       type,
-      'scheduled'
+      isImmediateMeeting ? 'in-progress' : 'scheduled',
+      isImmediateMeeting // is_in_meeting is true for immediate meetings
     ])
 
     // Invalidate Redis cache for this user's meetings

@@ -13,6 +13,7 @@ import { QueryProvider } from "@/providers/query-provider";
 import ElectronLogoutHandler from "@/components/electron-logout-handler";
 import DatabaseInitializer from "@/components/database-initializer";
 import { GlobalTimerDisplay } from "@/components/global-timer-display";
+import { GlobalMeetingIndicator } from "@/components/global-meeting-indicator";
 import { AuthMonitor } from "@/components/auth-monitor";
 import AuthNormalizer from "@/components/auth-normalizer";
 import { LogoutLoadingOverlay } from "@/components/logout-loading-overlay";
@@ -55,8 +56,8 @@ export default function RootLayout({
             <AuthMonitor>
               <BreakProvider>
                 <ActivityProvider>
-                  <MeetingProvider>
-                    <SocketProvider>
+                  <SocketProvider>
+                    <MeetingProvider>
                       <TeamStatusProvider>
                         <TimerProvider>
                           {/* Keep auth stores in sync as early as possible */}
@@ -65,11 +66,12 @@ export default function RootLayout({
                           <ElectronLogoutHandler />
                           {children}
                           <GlobalTimerDisplay />
+                          <GlobalMeetingIndicator />
                           <Toaster position="top-right" richColors />
                         </TimerProvider>
                       </TeamStatusProvider>
-                    </SocketProvider>
-                  </MeetingProvider>
+                    </MeetingProvider>
+                  </SocketProvider>
                 </ActivityProvider>
               </BreakProvider>
               <LogoutLoadingOverlay />

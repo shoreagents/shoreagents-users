@@ -82,19 +82,40 @@ export function useMeetingStatusContext() {
         } else if (data.type === 'meeting_ended') {
           setIsInMeeting(false)
           setCurrentMeeting(null)
-        } else if (data.type === 'meeting_updated') {
+        } else if (data.type === 'meeting_updated' || data.type === 'meeting-update') {
           setCurrentMeeting(data.meeting)
+          // Update isInMeeting status based on the meeting data
+          if (data.meeting && typeof data.meeting.is_in_meeting !== 'undefined') {
+            setIsInMeeting(data.meeting.is_in_meeting)
+          }
         }
       }
     }
 
     // Listen for meeting events
     socket.on('meeting-update', handleMeetingUpdate)
+    socket.on('meeting_started', handleMeetingUpdate)
+    socket.on('meeting_ended', handleMeetingUpdate)
+    
+    // Listen for agent status updates
+    const handleAgentStatusUpdate = (data: any) => {
+      if (data.email === email) {
+        console.log('Agent status update received:', data)
+        setIsInMeeting(data.isInMeeting || false)
+        if (!data.isInMeeting) {
+          setCurrentMeeting(null)
+        }
+      }
+    }
+    socket.on('agent-status-update', handleAgentStatusUpdate)
 
     // Clean up event listeners
     return () => {
       if (socket) {
         socket.off('meeting-update', handleMeetingUpdate)
+        socket.off('meeting_started', handleMeetingUpdate)
+        socket.off('meeting_ended', handleMeetingUpdate)
+        socket.off('agent-status-update', handleAgentStatusUpdate)
       }
     }
   }, [socket, isConnected])

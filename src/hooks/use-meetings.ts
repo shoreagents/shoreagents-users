@@ -192,9 +192,9 @@ export function useMeetings(days: number = 7) {
     queryKey: meetingKeys.list(currentUser?.id || 'loading', days),
     queryFn: () => fetchMeetings(currentUser.id, days),
     enabled: isClient && !!currentUser?.id,
-    staleTime: 2 * 60 * 1000, // 2 minutes (meetings are cached in Redis)
+    staleTime: 30 * 1000, // 30 seconds (reduced for more responsive updates)
     gcTime: 5 * 60 * 1000, // 5 minutes
-    refetchOnMount: false,
+    refetchOnMount: true, // Always refetch on mount to get fresh data
     refetchOnWindowFocus: false,
     retry: 2,
   })
@@ -216,9 +216,9 @@ export function useMeetingStatus(days: number = 7) {
     queryKey: meetingKeys.status(currentUser?.id || 'loading', days),
     queryFn: () => fetchMeetingStatus(currentUser.id, days),
     enabled: isClient && !!currentUser?.id,
-    staleTime: 2 * 60 * 1000, // 2 minutes (status is cached in Redis)
+    staleTime: 5 * 1000, // 5 seconds (very short for real-time updates)
     gcTime: 5 * 60 * 1000, // 5 minutes
-    refetchOnMount: false,
+    refetchOnMount: true, // Always refetch on mount to get fresh data
     refetchOnWindowFocus: false,
     retry: 2,
     // Removed refetchInterval - rely on socket updates and cache invalidation instead
@@ -431,9 +431,25 @@ export function useCancelMeeting() {
 // Utility hook to refresh meetings data
 export function useRefreshMeetings() {
   const queryClient = useQueryClient()
+  const [currentUser, setCurrentUser] = useState<any>(null)
+  const [isClient, setIsClient] = useState(false)
+  
+  useEffect(() => {
+    if (!isClient) {
+      setIsClient(true)
+      const user = getCurrentUser()
+      setCurrentUser(user)
+    }
+  }, [isClient])
   
   return () => {
+    if (!currentUser?.id) return
+    
+    // Force immediate refetch by invalidating and refetching
     queryClient.invalidateQueries({ queryKey: meetingKeys.lists() })
-    queryClient.invalidateQueries({ queryKey: meetingKeys.status('', 7) })
+    queryClient.invalidateQueries({ queryKey: meetingKeys.status(currentUser.id, 7) })
+    // Also refetch immediately to bypass stale time
+    queryClient.refetchQueries({ queryKey: meetingKeys.lists() })
+    queryClient.refetchQueries({ queryKey: meetingKeys.status(currentUser.id, 7) })
   }
 }

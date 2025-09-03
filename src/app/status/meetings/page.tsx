@@ -107,13 +107,41 @@ function MeetingCard({
             {meeting.status === 'in-progress' ? (
               <span className="font-medium text-green-600">
                 {(() => {
-                  // Calculate elapsed time for active meetings
-                  const startTime = new Date(meeting.actual_start_time || meeting.start_time)
-                  const now = new Date()
-                  const elapsedMs = now.getTime() - startTime.getTime()
-                  const elapsedMinutes = Math.floor(elapsedMs / 60000)
-                  const elapsedSeconds = Math.floor((elapsedMs % 60000) / 1000)
-                  return `Running: ${elapsedMinutes}m ${elapsedSeconds}s`
+                  // Calculate elapsed time for active meetings using the same logic as formatTime
+                  try {
+                    let startTime: Date
+                    
+                    // Use the same parsing logic as formatTime function
+                    if (meeting.start_time.includes('T')) {
+                      // ISO datetime format: "2025-08-06T06:27:01.264Z"
+                      startTime = new Date(meeting.start_time)
+                    } else if (meeting.start_time.includes(' ')) {
+                      // Database format: "2025-08-06 06:27:01.264 +0800"
+                      // Parse as Philippine timezone (remove +0800)
+                      startTime = new Date(meeting.start_time.replace(' +0800', ''))
+                    } else {
+                      // Fallback
+                      startTime = new Date(meeting.start_time)
+                    }
+                    
+                    const now = new Date()
+                    const elapsedMs = now.getTime() - startTime.getTime()
+                    
+                    // Handle negative elapsed time (future start time)
+                    if (elapsedMs < 0) {
+                      console.warn('Negative elapsed time detected - meeting has future start time. Start time:', meeting.start_time, 'Parsed:', startTime, 'Now:', now, 'Elapsed:', elapsedMs)
+                      // If the meeting is marked as in-progress but has a future start time,
+                      // this is a data inconsistency. Show a warning message instead of elapsed time.
+                      return 'Data inconsistency detected'
+                    }
+                    
+                    const elapsedMinutes = Math.floor(elapsedMs / 60000)
+                    const elapsedSeconds = Math.floor((elapsedMs % 60000) / 1000)
+                    return `Running: ${elapsedMinutes}m ${elapsedSeconds}s`
+                  } catch (error) {
+                    console.error('Error calculating elapsed time:', error, 'Start time:', meeting.start_time)
+                    return 'Running: 0m 0s'
+                  }
                 })()}
               </span>
             ) : (
@@ -150,15 +178,20 @@ function MeetingCard({
           )}
           
           {meeting.status === 'in-progress' && (
-            <Button 
-              size="sm" 
-              variant="destructive"
-              onClick={() => onEnd(meeting.id)}
-              className="flex-1"
-            >
-              <Square className="h-4 w-4 mr-1" />
-              End
-            </Button>
+            <>
+              <div className="flex-1 text-center text-sm text-green-600 py-2">
+                <span className="font-medium">Meeting Active</span>
+              </div>
+              <Button 
+                size="sm" 
+                variant="destructive"
+                onClick={() => onEnd(meeting.id)}
+                className="flex-1"
+              >
+                <Square className="h-4 w-4 mr-1" />
+                End
+              </Button>
+            </>
           )}
           
           {meeting.status === 'scheduled' && (
@@ -212,7 +245,13 @@ export default function MeetingsPage() {
       is_in_meeting: meeting.status === 'in-progress'
     }))
   }, [meetingsData?.meetings])
-  const loading = meetingsLoading || statusLoading
+  // Only show loading if we're actually loading and don't have any data yet
+  // This prevents the flash of loading state when there are no meetings
+  // Also check if we're still initializing (no currentUser yet) to prevent premature empty state
+  const loading = (meetingsLoading || statusLoading) && (!meetingsData && !statusData)
+  
+  // Check if we're still in the initial loading phase (queries not yet enabled)
+  const isInitializing = meetingsLoading === false && statusLoading === false && !meetingsData && !statusData
   const queryError = meetingsError || statusError
   
   const [currentTime, setCurrentTime] = useState(new Date())
@@ -234,6 +273,7 @@ export default function MeetingsPage() {
   const [canCreateNewMeeting, setCanCreateNewMeeting] = useState(true)
   const [createMeetingReason, setCreateMeetingReason] = useState<string | null>(null)
   const [dialogError, setDialogError] = useState<string | null>(null)
+  const [isImmediateMeeting, setIsImmediateMeeting] = useState(false)
   const [activeTab, setActiveTab] = useState('all')
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage] = useState(9)
@@ -279,6 +319,49 @@ export default function MeetingsPage() {
     
     initializeCanCreate()
   }, [])
+
+  // Listen for automatic meeting start events
+  useEffect(() => {
+    const handleMeetingStarted = (event: CustomEvent) => {
+      console.log('Meeting automatically started:', event.detail)
+      // Force immediate refresh of meeting data
+      refetchMeetings()
+      // Also force a refetch of the meetings query directly
+      setTimeout(() => {
+        refetchMeetings()
+      }, 100)
+    }
+
+    window.addEventListener('meeting-started', handleMeetingStarted as EventListener)
+    
+    return () => {
+      window.removeEventListener('meeting-started', handleMeetingStarted as EventListener)
+    }
+  }, [refetchMeetings])
+
+  // Periodic refresh for scheduled meetings to catch automatic starts
+  useEffect(() => {
+    const hasScheduledMeetings = meetings.some(meeting => meeting.status === 'scheduled')
+    
+    if (!hasScheduledMeetings) return
+
+    const interval = setInterval(() => {
+      // Check if any scheduled meetings should have started
+      const now = new Date()
+      const shouldRefresh = meetings.some(meeting => {
+        if (meeting.status !== 'scheduled') return false
+        const meetingStartTime = new Date(meeting.start_time)
+        return meetingStartTime <= now
+      })
+
+      if (shouldRefresh) {
+        console.log('Refreshing meetings to check for automatic starts...')
+        refetchMeetings()
+      }
+    }, 2000) // Check every 2 seconds for more responsive updates
+
+    return () => clearInterval(interval)
+  }, [meetings, refetchMeetings])
 
   const getStatusColor = (status: Meeting['status']) => {
     switch (status) {
@@ -391,18 +474,21 @@ export default function MeetingsPage() {
         return
       }
 
-      if (!selectedDate || !selectedTime) {
-        setDialogError('Please select a meeting date and time')
-        return
-      }
+      // Only require date/time for scheduled meetings
+      if (!isImmediateMeeting) {
+        if (!selectedDate || !selectedTime) {
+          setDialogError('Please select a meeting date and time')
+          return
+        }
 
-      // Validate that the scheduled time is not in the past
-      const timeStr = selectedTime.includes(':') ? selectedTime : `${selectedTime}:00`
-      const scheduledDateTime = new Date(`${selectedDate.toISOString().split('T')[0]}T${timeStr}`)
-      const now = new Date()
-      if (scheduledDateTime < now) {
-        setDialogError('Meeting time cannot be in the past')
-        return
+        // Validate that the scheduled time is not in the past
+        const timeStr = selectedTime.includes(':') ? selectedTime : `${selectedTime}:00`
+        const scheduledDateTime = new Date(`${selectedDate.toISOString().split('T')[0]}T${timeStr}`)
+        const now = new Date()
+        if (scheduledDateTime < now) {
+          setDialogError('Meeting time cannot be in the past')
+          return
+        }
       }
 
       // Validate custom title if selected
@@ -421,12 +507,16 @@ export default function MeetingsPage() {
       // Determine the actual title to use
       const actualTitle = newMeeting.title === 'custom' ? customTitle : newMeeting.title
 
+      // For immediate meetings, don't pass scheduledTime (let API use current time)
+      // For scheduled meetings, use the selected date/time
+      const scheduledTime = isImmediateMeeting ? undefined : newMeeting.scheduledTime
+
       // Create new meeting via react-query mutation
       await createMeetingMutation.mutateAsync({
         title: actualTitle,
         description: newMeeting.description,
         type: newMeeting.type,
-        scheduledTime: newMeeting.scheduledTime
+        scheduledTime: scheduledTime
       })
 
       // Update can-create status
@@ -444,6 +534,7 @@ export default function MeetingsPage() {
       setSelectedDate(new Date())
       setSelectedTime(new Date().toTimeString().slice(0, 5))
       setCustomTitle('')
+      setIsImmediateMeeting(false)
 
       // Close dialog
       setShowAddForm(false)
@@ -467,6 +558,7 @@ export default function MeetingsPage() {
     setSelectedTime(new Date().toTimeString().slice(0, 5))
     setCustomTitle('')
     setDialogError(null)
+    setIsImmediateMeeting(false)
   }
 
   // Helper functions to organize meetings with pagination
@@ -504,7 +596,7 @@ export default function MeetingsPage() {
     setCurrentPage(1)
   }, [activeTab])
 
-  if (loading) {
+  if (loading || isInitializing) {
     return (
       <SidebarProvider>
         <AppSidebar />
@@ -560,6 +652,11 @@ export default function MeetingsPage() {
                 <RefreshCw className="h-4 w-4" />
                 Refresh
               </Button>
+              {meetings.some(meeting => meeting.status === 'scheduled' && new Date(meeting.start_time) <= new Date()) && (
+                <div className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded">
+                  Auto-refreshing for scheduled meetings...
+                </div>
+              )}
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -584,30 +681,6 @@ export default function MeetingsPage() {
               </TooltipProvider>
             </div>
           </div>
-
-          {/* Current Time Display */}
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2">
-                <Clock className="h-5 w-5 text-gray-600" />
-                <span className="text-lg font-medium">
-                  {currentTime.toLocaleTimeString('en-US', { 
-                    hour: '2-digit', 
-                    minute: '2-digit',
-                    hour12: true 
-                  })}
-                </span>
-                <span className="text-gray-500">
-                  {currentTime.toLocaleDateString('en-US', { 
-                    weekday: 'long', 
-                    year: 'numeric', 
-                    month: 'long', 
-                    day: 'numeric' 
-                  })}
-                </span>
-              </div>
-            </CardContent>
-          </Card>
 
           {/* Meetings Tabs */}
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
@@ -761,8 +834,8 @@ export default function MeetingsPage() {
             </TabsContent>
           </Tabs>
 
-          {/* Empty State */}
-          {meetings.length === 0 && (
+          {/* Empty State - Only show when we have confirmed there are no meetings */}
+          {meetings.length === 0 && !loading && !isInitializing && (meetingsData || statusData) && (
             <Card>
               <CardContent className="p-8 text-center">
                 <MessageSquare className="h-12 w-12 text-gray-400 mx-auto mb-4" />
@@ -839,20 +912,53 @@ export default function MeetingsPage() {
                 />
               </div>
 
-              {/* Scheduled Time */}
+              {/* Meeting Timing */}
               <div className="space-y-2">
-                <Label htmlFor="scheduledTime">Meeting Time *</Label>
-                <Calendar24
-                  date={selectedDate}
-                  onDateChange={setSelectedDate}
-                  time={selectedTime}
-                  onTimeChange={setSelectedTime}
-                  minDate={new Date()}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Select when you want to schedule this meeting
-                </p>
+                <Label>Meeting Timing</Label>
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="radio"
+                    id="immediate"
+                    name="timing"
+                    checked={isImmediateMeeting}
+                    onChange={() => setIsImmediateMeeting(true)}
+                    className="h-4 w-4"
+                  />
+                  <Label htmlFor="immediate" className="text-sm font-normal">
+                    Start immediately
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="radio"
+                    id="scheduled"
+                    name="timing"
+                    checked={!isImmediateMeeting}
+                    onChange={() => setIsImmediateMeeting(false)}
+                    className="h-4 w-4"
+                  />
+                  <Label htmlFor="scheduled" className="text-sm font-normal">
+                    Schedule for later
+                  </Label>
+                </div>
               </div>
+
+              {/* Scheduled Time - Only show when not immediate */}
+              {!isImmediateMeeting && (
+                <div className="space-y-2">
+                  <Label htmlFor="scheduledTime">Meeting Time *</Label>
+                  <Calendar24
+                    date={selectedDate}
+                    onDateChange={setSelectedDate}
+                    time={selectedTime}
+                    onTimeChange={setSelectedTime}
+                    minDate={new Date()}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Select when you want to schedule this meeting
+                  </p>
+                </div>
+              )}
 
               {/* Type */}
               <div className="space-y-2">
