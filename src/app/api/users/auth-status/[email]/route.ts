@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { initializeDatabase, executeQuery } from '@/lib/database-server'
+import { redisCache, cacheKeys, cacheTTL } from '@/lib/redis-cache'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -26,6 +27,15 @@ export async function GET(
         { success: false, error: 'Email parameter is required' },
         { status: 400 }
       )
+    }
+
+    // Check Redis cache first
+    const cacheKey = cacheKeys.userAuthData(decodedEmail)
+    const cachedData = await redisCache.get(cacheKey)
+    
+    if (cachedData) {
+      console.log('✅ User auth data served from Redis cache')
+      return NextResponse.json(cachedData)
     }
     // Step 1: First try to find user in Supabase Auth
     let user = null
@@ -117,10 +127,16 @@ export async function GET(
       auth_source: authSource
     }
 
-    return NextResponse.json({
+    const responseData = {
       success: true,
       data: authData
-    })
+    }
+
+    // Cache the result in Redis
+    await redisCache.set(cacheKey, responseData, cacheTTL.userAuthData)
+    console.log('✅ User auth data cached in Redis')
+
+    return NextResponse.json(responseData)
 
   } catch (error) {
     console.error('Error in auth-status API:', error)

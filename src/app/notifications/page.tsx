@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { CheckCircle, AlertCircle, Info, Clock, Trash2, Bell, CheckSquare, FileText, Filter, X, Search } from "lucide-react"
+import { CheckCircle, AlertCircle, Info, Clock, Trash2, Bell, CheckSquare, FileText, Filter, X, Search, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -92,9 +92,27 @@ export default function NotificationsPage() {
         if (data?.success && Array.isArray(data.notifications)) {
           const mapped = data.notifications.map((n: any) => {
             const payload = n.payload || {}
-            const actionUrl = payload.action_url
-              || (n.category === 'ticket' && (payload.ticket_id || payload.ticket_row_id) ? `/forms/${payload.ticket_id || ''}` : undefined)
-              || (n.category === 'break' ? '/status/breaks' : undefined)
+            const actionUrl = (() => {
+              // First check if there's an explicit action_url in the payload
+              if (payload.action_url) {
+                return payload.action_url
+              }
+              // Otherwise generate based on category and payload data
+              if (n.category === 'ticket' && (payload.ticket_id || payload.ticket_row_id)) {
+                return `/forms/${payload.ticket_id || ''}`
+              }
+              if (n.category === 'break') {
+                return '/status/breaks'
+              }
+              if (n.category === 'task') {
+                // For task notifications, include the task_id if available
+                if (payload.task_id) {
+                  return `/productivity/task-activity?taskId=${payload.task_id}`
+                }
+                return '/productivity/task-activity'
+              }
+              return undefined
+            })()
             const icon = n.category === 'ticket' ? 'FileText' : n.category === 'break' ? 'Clock' : 'Bell'
             return {
               id: `db_${n.id}`,
@@ -111,7 +129,6 @@ export default function NotificationsPage() {
               eventType: 'system' as const,
             }
           })
-          console.log('Loaded notifications from DB:', mapped)
           saveNotifications(mapped)
           setNotifications(mapped)
           // Don't call setUnreadCount here - let the component handle it naturally
@@ -184,17 +201,33 @@ export default function NotificationsPage() {
     // Don't call setUnreadCount here - let the component handle it naturally
     // Persist delete to DB if possible
     try {
-      const auth = JSON.parse(localStorage.getItem('shoreagents-auth') || '{}')
-      const email = auth?.user?.email
-      if (email) {
-        await fetch('/api/notifications/delete', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ id, email })
-        })
+      const user = getCurrentUser()
+      if (user?.email) {
+        // Extract numeric ID from db_ prefix
+        let notificationId: number
+        if (id.startsWith('db_')) {
+          notificationId = parseInt(id.slice(3))
+        } else {
+          notificationId = parseInt(id)
+        }
+        
+        if (!isNaN(notificationId)) {
+          const response = await fetch('/api/notifications/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ id: notificationId, email: user.email })
+          })
+          
+          const data = await response.json()
+          if (!data.success) {
+            console.error('Failed to delete notification from database:', data.error)
+          }
+        }
       }
-    } catch {}
+    } catch (error) {
+      console.error('Error deleting notification:', error)
+    }
   }
 
   const handleMarkAllRead = async () => {
@@ -223,12 +256,10 @@ export default function NotificationsPage() {
       
       // Use socket context to mark all as read (this will update both DB and socket state)
       if (socketConnected) {
-        console.log('Using socket context to mark all as read')
         await markAllAsReadSocket(user.id, notificationIds)
         // Refresh notifications to get updated state
         await fetchSocketNotifications(user.id, 100, 0)
       } else {
-        console.log('Socket not connected, using direct API call')
         // Fallback to direct API call if socket is not connected
         const response = await fetch('/api/notifications/mark-read', {
           method: 'POST',
@@ -257,23 +288,40 @@ export default function NotificationsPage() {
 
   const handleClearAll = async () => {
     if (notifications.length === 0) return
-    const ids = notifications.map((n: any) => n.id)
+    
+    // Extract numeric IDs from db_ prefix
+    const numericIds = notifications.map((n: any) => {
+      const id = n.id.toString()
+      if (id.startsWith('db_')) {
+        return parseInt(id.slice(3))
+      }
+      return parseInt(id)
+    }).filter(id => !isNaN(id))
+    
     // Update in-memory
     clearAllNotifications()
     setNotifications([])
     setUnreadCount(0)
+    
     // Persist to DB
     try {
       const user = getCurrentUser()
-      if (user?.email) {
-        await fetch('/api/notifications/delete', {
+      if (user?.email && numericIds.length > 0) {
+        const response = await fetch('/api/notifications/delete', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify({ ids, email: user.email })
+          body: JSON.stringify({ ids: numericIds, email: user.email })
         })
+        
+        const data = await response.json()
+        if (!data.success) {
+          console.error('Failed to clear all notifications from database:', data.error)
+        }
       }
-    } catch {}
+    } catch (error) {
+      console.error('Error clearing all notifications:', error)
+    }
   }
 
   // Filter logic
@@ -343,14 +391,12 @@ export default function NotificationsPage() {
   // Calculate unread count from notifications
   useEffect(() => {
     const unreadCount = notifications.filter(n => !n.read).length
-    console.log('Calculating unread count:', unreadCount, 'from', notifications.length, 'notifications')
     setUnreadCount(unreadCount)
   }, [notifications])
 
   // Use socket unread count as fallback if local calculation is 0 but socket has unread
   useEffect(() => {
     if (unreadCount === 0 && socketUnreadCount > 0) {
-      console.log('Using socket unread count as fallback:', socketUnreadCount)
       setUnreadCount(socketUnreadCount)
     }
   }, [unreadCount, socketUnreadCount])
@@ -358,7 +404,6 @@ export default function NotificationsPage() {
   // Initialize socket context and sync with real-time notifications
   useEffect(() => {
     if (currentUser?.id && socketConnected) {
-      console.log('Initializing socket context for user:', currentUser.id)
       fetchSocketNotifications(currentUser.id, 100, 0)
     }
   }, [currentUser?.id, socketConnected, fetchSocketNotifications])
@@ -366,7 +411,6 @@ export default function NotificationsPage() {
   // Sync socket notifications with local state
   useEffect(() => {
     if (socketNotifications && socketNotifications.length > 0) {
-      console.log('Received socket notifications:', socketNotifications)
       // Map socket notifications to the format expected by the page
       const mappedNotifications = socketNotifications.map((n: any) => {
         const payload = n.payload || {}
@@ -391,24 +435,16 @@ export default function NotificationsPage() {
       })
       
       setNotifications(mappedNotifications)
-      console.log('Mapped and set notifications:', mappedNotifications)
     }
   }, [socketNotifications])
-
-  // Removed excessive refresh - socket context should handle updates automatically
-
-  // Removed debug logging to reduce console noise
 
   // Listen for custom events from app-header to refresh notifications
   useEffect(() => {
     const handleMarkAllRead = () => {
-      console.log('Notification page: Received mark-all-read event')
       // Don't need to refresh - socket context should handle updates automatically
     }
 
     const handleMarkRead = (event: Event) => {
-      const customEvent = event as CustomEvent
-      console.log('Notification page: Received mark-read event for notification:', customEvent.detail?.notificationId)
       // Don't need to refresh - socket context should handle updates automatically
     }
 
@@ -453,42 +489,46 @@ export default function NotificationsPage() {
 
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-8"
+                className="h-9 px-4 text-sm font-medium hover:bg-blue-50 dark:hover:bg-blue-950/20 hover:text-blue-700 dark:hover:text-blue-300"
                 onClick={handleMarkAllRead}
                 disabled={unreadCount === 0}
                 title="Mark all as read"
               >
+                <CheckCircle className="h-4 w-4 mr-2" />
                 Mark all read
               </Button>
-              {/* Debug button - remove this later */}
+              
               <Button
                 variant="outline"
                 size="sm"
-                className="h-8"
+                className="h-9 px-4 text-sm font-medium border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50"
                 onClick={async () => {
                   if (currentUser?.id) {
-                    console.log('Manual refresh of notifications')
                     await fetchSocketNotifications(currentUser.id, 100, 0)
                   }
                 }}
                 title="Refresh notifications"
               >
+                <RefreshCw className="h-4 w-4 mr-2" />
                 Refresh
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8"
-                onClick={handleClearAll}
-                disabled={notifications.length === 0}
-                title="Clear all notifications"
-              >
-                Clear all
-              </Button>
+              
+              {notifications.length > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9 px-4 text-sm font-medium border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-red-700 dark:hover:text-red-300"
+                  onClick={handleClearAll}
+                  title="Clear all notifications"
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Clear all
+                </Button>
+              )}
             </div>
           </div>
 
@@ -510,7 +550,7 @@ export default function NotificationsPage() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="absolute right-1 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
+                    className="absolute right-1 top-1/2 transform -translate-y-1/2 h-5 w-5 p-0"
                     onClick={() => {
                       setSearchQuery("")
                       setCurrentPage(1)
@@ -758,11 +798,9 @@ export default function NotificationsPage() {
                                                       if (!isNaN(notificationId)) {
                               // Use socket context if available, otherwise fallback to direct API
                               if (socketConnected && user.id) {
-                                console.log('Using socket context to mark as read:', notificationId)
                                 // Use socket context to mark as read
                                 markAsReadSocket(notificationId)
                               } else {
-                                console.log('Socket not connected, using direct API call')
                                 // Fallback to direct API call
                                 fetch('/api/notifications/mark-read', {
                                   method: 'POST',
@@ -785,8 +823,19 @@ export default function NotificationsPage() {
                     }
                     
                     // Navigate if actionUrl is provided
-                    if (notification.actionUrl) {
-                      router.push(notification.actionUrl)
+                    let actionUrl = notification.actionUrl || notification.actionData?.action_url
+                    
+                    // For task notifications, ensure taskId is included in the URL
+                    if (notification.category === 'task' && notification.actionData?.task_id && actionUrl) {
+                      // Check if taskId is already in the URL
+                      if (!actionUrl.includes('taskId=')) {
+                        const separator = actionUrl.includes('?') ? '&' : '?'
+                        actionUrl = `${actionUrl}${separator}taskId=${notification.actionData.task_id}`
+                      }
+                    }
+                    
+                    if (actionUrl) {
+                      router.push(actionUrl)
                       return
                     }
                     // Try to infer a path from actionData

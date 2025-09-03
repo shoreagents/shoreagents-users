@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
     // Insert new break session with Philippines timezone
     const insertQuery = `
       INSERT INTO break_sessions (agent_user_id, break_type, start_time, break_date)
-      VALUES ($1, $2::break_type_enum, NOW() AT TIME ZONE 'Asia/Manila', (NOW() AT TIME ZONE 'Asia/Manila')::date)
+      VALUES ($1, $2::break_type_enum, NOW(), (NOW() AT TIME ZONE 'Asia/Manila')::date)
       RETURNING id, agent_user_id, break_type, start_time, break_date, created_at
     `;
 

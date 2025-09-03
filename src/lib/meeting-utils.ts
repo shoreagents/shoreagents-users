@@ -63,8 +63,8 @@ export const getMeetings = async (days: number = 7): Promise<Meeting[]> => {
 export const createMeeting = async (meetingData: {
   title: string
   description?: string
-  duration: number
   type: 'video' | 'audio' | 'in-person'
+  scheduledTime?: string
 }): Promise<Meeting> => {
   const currentUser = getCurrentUserInfo()
   if (!currentUser?.id) {

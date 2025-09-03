@@ -1,10 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Pool } from 'pg'
+import { executeOptimizedQuery, optimizedTicketQueries } from '@/lib/database-optimized'
+import { redisCache, cacheKeys, cacheTTL } from '@/lib/redis-cache'
 
 // Database configuration
 const databaseConfig = {
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  max: 20, // Maximum number of clients in the pool
+  min: 5,  // Minimum number of clients in the pool
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
+  statement_timeout: 30000,
+  query_timeout: 30000,
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10000,
 }
 
 // Helper function to get user from request
@@ -167,26 +177,27 @@ export async function GET(request: NextRequest) {
     const client = await pool.connect()
 
     try {
-      // Get tickets for the user by user_id (using railway_id)
-      // OPTIMIZED: Only fetch columns that are actually displayed in the UI
-      const ticketsQuery = `
-        SELECT 
-          t.id,
-          t.ticket_id,
-          t.concern,
-          t.category_id,
-          t.status,
-          t.created_at,
-          t.position,
-          t.file_count,
-          tc.name as category_name
-        FROM tickets t
-        LEFT JOIN ticket_categories tc ON t.category_id = tc.id
-        WHERE t.user_id = $1
-        ORDER BY t.position ASC, t.created_at DESC
-      `
+      // Check if this is a real-time update request (bypass cache)
+      const url = new URL(request.url)
+      const bypassCache = url.searchParams.get('bypass_cache') === 'true'
+      
+      // Check Redis cache first (unless bypassing)
+      const cacheKey = cacheKeys.tickets(user.email)
+      let cachedData = null
+      
+      if (!bypassCache) {
+        cachedData = await redisCache.get(cacheKey)
+        if (cachedData) {
+          console.log('✅ Tickets served from Redis cache')
+          return NextResponse.json(cachedData)
+        }
+      } else {
+        console.log('🔄 Bypassing Redis cache for real-time update')
+      }
 
-      const result = await client.query(ticketsQuery, [user.id])
+      // Get tickets for the user using optimized query
+      const ticketsQuery = optimizedTicketQueries.getUserTickets(user.id, 100, 0)
+      const result = await client.query(ticketsQuery, [user.id, 100, 0])
 
       // Transform database results to match frontend interface
       // OPTIMIZED: Only transform columns that are actually displayed in the UI
@@ -219,11 +230,17 @@ export async function GET(request: NextRequest) {
         fileCount: row.file_count || 0
       }))
 
-      return NextResponse.json({
+      const responseData = {
         success: true,
         tickets,
         total: tickets.length
-      })
+      }
+
+      // Cache the result in Redis
+      await redisCache.set(cacheKey, responseData, cacheTTL.tickets)
+      console.log('✅ Tickets cached in Redis')
+
+      return NextResponse.json(responseData)
 
     } finally {
       client.release()
@@ -351,6 +368,11 @@ export async function POST(request: NextRequest) {
       const newTicket = ticketResult.rows[0]
 
       await client.query('COMMIT')
+
+      // Invalidate Redis cache for this user's tickets
+      const cacheKey = cacheKeys.tickets(user.email)
+      await redisCache.del(cacheKey)
+      console.log('✅ Tickets cache invalidated after ticket creation')
 
       // Return the created ticket
       return NextResponse.json({

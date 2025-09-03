@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import { AppSidebar } from "@/components/app-sidebar"
 import { AppHeader } from "@/components/app-header"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -43,38 +43,45 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@/components/ui/pagination"
+import { Calendar24 } from "@/components/ui/date-picker"
 import { canCreateMeeting, type Meeting } from "@/lib/meeting-utils"
 import { useMeeting } from "@/contexts/meeting-context"
+import { 
+  useMeetings, 
+  useMeetingStatus, 
+  useCreateMeeting, 
+  useStartMeeting, 
+  useEndMeeting, 
+  useCancelMeeting,
+  useRefreshMeetings,
+  type Meeting as MeetingType 
+} from "@/hooks/use-meetings"
 
 // MeetingCard Component
 interface MeetingCardProps {
   meeting: Meeting
-  meetingTimers: Record<number, { remaining: number; endTime: Date }>
   onStart: (id: number) => void
   onEnd: (id: number) => void
   onCancel: (id: number) => void
   formatTime: (time: string) => string
-  formatRemainingTime: (ms: number) => string
   getStatusColor: (status: Meeting['status']) => string
   getTypeIcon: (type: Meeting['meeting_type']) => any
-  isMeetingTimeValid: (meeting: Meeting) => boolean
 }
 
 function MeetingCard({ 
   meeting, 
-  meetingTimers, 
   onStart, 
   onEnd, 
   onCancel, 
   formatTime, 
-  formatRemainingTime, 
   getStatusColor, 
-  getTypeIcon, 
-  isMeetingTimeValid 
+  getTypeIcon
 }: MeetingCardProps) {
   const TypeIcon = getTypeIcon(meeting.meeting_type)
   const isActive = meeting.status === 'in-progress'
-  const canStart = meeting.status === 'scheduled' && isMeetingTimeValid(meeting)
+  const now = new Date()
+  const meetingStartTime = new Date(meeting.start_time)
+  const canStart = meeting.status === 'scheduled' && meetingStartTime <= now
 
   return (
     <Card className={`relative ${isActive ? 'ring-2 ring-green-500' : ''}`}>
@@ -97,40 +104,49 @@ function MeetingCard({
         <div className="flex items-center justify-between text-sm">
           <div className="flex items-center gap-1">
             <Clock className="h-4 w-4 text-gray-500" />
-            {meeting.status === 'in-progress' && meetingTimers[meeting.id] ? (
-              <span className={`font-medium ${
-                meetingTimers[meeting.id].remaining <= 30000 ? 'text-red-600' : 'text-green-600'
-              }`}>
-                {formatRemainingTime(meetingTimers[meeting.id].remaining)}
+            {meeting.status === 'in-progress' ? (
+              <span className="font-medium text-green-600">
+                {(() => {
+                  // Calculate elapsed time for active meetings
+                  const startTime = new Date(meeting.actual_start_time || meeting.start_time)
+                  const now = new Date()
+                  const elapsedMs = now.getTime() - startTime.getTime()
+                  const elapsedMinutes = Math.floor(elapsedMs / 60000)
+                  const elapsedSeconds = Math.floor((elapsedMs % 60000) / 1000)
+                  return `Running: ${elapsedMinutes}m ${elapsedSeconds}s`
+                })()}
               </span>
             ) : (
-              <span>{formatTime(meeting.start_time)} - {formatTime(meeting.end_time)}</span>
+              <span>
+                {meeting.end_time 
+                  ? `${formatTime(meeting.start_time)} - ${formatTime(meeting.end_time)}`
+                  : `Started: ${formatTime(meeting.start_time)}`
+                }
+              </span>
             )}
           </div>
           <span className="text-gray-500">
-            {meeting.status === 'in-progress' && meetingTimers[meeting.id] 
-              ? (() => {
-                  const remaining = meetingTimers[meeting.id].remaining
-                  const minutes = Math.floor(remaining / 60000)
-                  const seconds = Math.floor((remaining % 60000) / 1000)
-                  return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`
-                })()
-              : `${meeting.duration_minutes} min`
+            {meeting.status === 'completed' && meeting.duration_minutes > 0
+              ? `${meeting.duration_minutes} min`
+              : meeting.status === 'scheduled' 
+                ? 'Open-ended'
+                : meeting.status === 'in-progress'
+                  ? 'Active'
+                  : ''
             }
           </span>
         </div>
 
         {/* Action Buttons */}
         <div className="flex gap-2 pt-2">
-          {meeting.status === 'scheduled' && canStart && (
-            <Button 
-              size="sm" 
-              onClick={() => onStart(meeting.id)}
-              className="flex-1"
-            >
-              <Play className="h-4 w-4 mr-1" />
-              Start
-            </Button>
+          {meeting.status === 'scheduled' && (
+            <div className="flex-1 text-center text-sm text-gray-500 py-2">
+              {canStart ? (
+                <span className="text-green-600 font-medium">Starting automatically...</span>
+              ) : (
+                <span>Scheduled for {formatTime(meeting.start_time)}</span>
+              )}
+            </div>
           )}
           
           {meeting.status === 'in-progress' && (
@@ -163,27 +179,56 @@ function MeetingCard({
 }
 
 export default function MeetingsPage() {
-  // Use Meeting Context instead of local state
+  // Use react-query hooks for optimized data fetching
   const { 
-    meetings, 
-    isLoading: loading, 
+    data: meetingsData, 
+    isLoading: meetingsLoading, 
+    error: meetingsError,
+    refetch: refetchMeetings
+  } = useMeetings(7)
+  
+  const { 
+    data: statusData, 
+    isLoading: statusLoading,
+    error: statusError 
+  } = useMeetingStatus(7)
+  
+  // Mutation hooks
+  const createMeetingMutation = useCreateMeeting()
+  const startMeetingMutation = useStartMeeting()
+  const endMeetingMutation = useEndMeeting()
+  const cancelMeetingMutation = useCancelMeeting()
+  const refreshMeetings = useRefreshMeetings()
+  
+  // Legacy context for compatibility (can be removed later)
+  const { 
     startNewMeeting, 
-    refreshMeetings,
   } = useMeeting()
+  
+  // Extract data from react-query and ensure compatibility
+  const meetings = useMemo(() => {
+    return (meetingsData?.meetings || []).map(meeting => ({
+      ...meeting,
+      is_in_meeting: meeting.status === 'in-progress'
+    }))
+  }, [meetingsData?.meetings])
+  const loading = meetingsLoading || statusLoading
+  const queryError = meetingsError || statusError
   
   const [currentTime, setCurrentTime] = useState(new Date())
   const [showAddForm, setShowAddForm] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [meetingTimers, setMeetingTimers] = useState<Record<number, { remaining: number; endTime: Date }>>({})
-  const isProcessingAutoEnd = useRef(false)
+
   
   // Add meeting form state
   const [newMeeting, setNewMeeting] = useState({
     title: '',
     description: '',
-    duration: 30, // Default 30 minutes
-    type: 'video' as Meeting['meeting_type']
+    type: 'video' as 'video' | 'audio' | 'in-person',
+    scheduledTime: new Date().toISOString().slice(0, 16) // Default to current time
   })
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date())
+  const [selectedTime, setSelectedTime] = useState<string>(new Date().toTimeString().slice(0, 5))
   const [customTitle, setCustomTitle] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [canCreateNewMeeting, setCanCreateNewMeeting] = useState(true)
@@ -194,126 +239,31 @@ export default function MeetingsPage() {
   const [itemsPerPage] = useState(9)
   const [totalMeetings, setTotalMeetings] = useState(0)
 
-  // Update current time and meeting timers every second
+  // Update current time every second for elapsed time display
   useEffect(() => {
     const timer = setInterval(() => {
-      const now = new Date()
-      setCurrentTime(now)
-      
-                      // Update meeting timers and auto-end expired meetings
-         setMeetingTimers(prev => {
-           const updated = { ...prev }
-           const expiredMeetings: number[] = []
-           
-           Object.keys(updated).forEach(meetingId => {
-             const meetingIdNum = parseInt(meetingId)
-             const timer = updated[meetingIdNum]
-             if (timer) {
-               const remaining = timer.endTime.getTime() - now.getTime()
-               
-               if (remaining <= 0) {
-                 // Timer expired, mark for auto-end
-                 if (!expiredMeetings.includes(meetingIdNum)) {
-                   expiredMeetings.push(meetingIdNum)
-                 }
-                 delete updated[meetingIdNum]
-               } else {
-                 updated[meetingIdNum] = {
-                   remaining,
-                   endTime: timer.endTime
-                 }
-               }
-             }
-           })
-           
-           // Also check meetings that might have expired but aren't in timer state
-           meetings.forEach(meeting => {
-             if (meeting.status === 'in-progress' && !updated[meeting.id]) {
-               const remaining = calculateRemainingTime(meeting)
-               if (remaining !== null && remaining <= 0) {
-                 if (!expiredMeetings.includes(meeting.id)) {
-                   expiredMeetings.push(meeting.id)
-                 }
-               }
-             } else if (meeting.status !== 'in-progress' && updated[meeting.id]) {
-               // Remove from timer state if meeting is no longer in-progress
-               delete updated[meeting.id]
-             }
-           })
-           
-           // Auto-end expired meetings (handle async operations outside setState)
-           if (expiredMeetings.length > 0 && !isProcessingAutoEnd.current) {
-             isProcessingAutoEnd.current = true
-             // Use setTimeout to handle async operations after state update
-             setTimeout(async () => {
-                       // Get fresh meeting data to avoid race conditions
-        // Use meetings from context instead of making API call
-        const currentMeetings = meetings
-        const processedMeetings = new Set()
-               
-               for (const meetingId of expiredMeetings) {
-                 // Skip if we've already processed this meeting
-                 if (processedMeetings.has(meetingId)) {
-                   continue
-                 }
-                 
-                 processedMeetings.add(meetingId)
-                 try {
-                   // Check current meeting status before attempting to end
-                   const meeting = currentMeetings.find(m => m.id === meetingId)
-                   
-                   if (meeting && meeting.status === 'in-progress') {
-                     const { endMeeting } = await import('@/lib/meeting-utils')
-                     await endMeeting(meetingId)
-                   }
-                 } catch (error) {
-                   console.error(`Error auto-ending meeting ${meetingId}:`, error)
-                 }
-               }
-               
-                             // Refresh meetings list after auto-ending
-              setTimeout(async () => {
-                try {
-                  await refreshMeetings()
-                } catch (error) {
-                  console.error('Error refreshing meetings after auto-end:', error)
-                }
-                // Reset the processing flag
-                isProcessingAutoEnd.current = false
-              }, 1000)
-             }, 100)
-           }
-           
-           return updated
-         })
-    }, 1000) // Update every second for real-time countdown
+      setCurrentTime(new Date())
+    }, 1000)
     return () => clearInterval(timer)
   }, [])
 
-  // Calculate timers for active meetings (called when meetings data changes)
-  const updateMeetingTimers = () => {
-    const activeTimers: Record<number, { remaining: number; endTime: Date }> = {}
-    
-    meetings.forEach(meeting => {
-      if (meeting.status === 'in-progress') {
-        const remaining = calculateRemainingTime(meeting)
-        if (remaining && remaining > 0) {
-          activeTimers[meeting.id] = {
-            remaining,
-            endTime: new Date(meeting.end_time)
-          }
-        }
-      }
-    })
-    
-    setMeetingTimers(activeTimers)
-  }
 
-  // Update meeting timers when meetings data changes
+
+
+  // Update total meetings count when meetings data changes
   useEffect(() => {
-    updateMeetingTimers()
     setTotalMeetings(meetings.length)
   }, [meetings])
+
+  // Sync date and time with scheduledTime
+  useEffect(() => {
+    if (selectedDate && selectedTime) {
+      const dateStr = selectedDate.toISOString().split('T')[0]
+      // Ensure time is in HH:MM format
+      const timeStr = selectedTime.includes(':') ? selectedTime : `${selectedTime}:00`
+      setNewMeeting(prev => ({ ...prev, scheduledTime: `${dateStr}T${timeStr}` }))
+    }
+  }, [selectedDate, selectedTime])
 
   // Initialize can-create status
   useEffect(() => {
@@ -377,55 +327,16 @@ export default function MeetingsPage() {
     return `${displayHour}:${minutes} ${ampm}`
   }
 
-  const formatRemainingTime = (milliseconds: number) => {
-    const totalMinutes = Math.floor(milliseconds / 60000)
-    const hours = Math.floor(totalMinutes / 60)
-    const minutes = totalMinutes % 60
-    const seconds = Math.floor((milliseconds % 60000) / 1000)
-    
-    if (hours > 0) {
-      return `${hours}h ${minutes}m remaining`
-    } else if (minutes > 0) {
-      return `${minutes}m ${seconds}s remaining`
-    } else {
-      return `${seconds}s remaining`
-    }
-  }
 
-  // Calculate remaining time for a meeting based on actual_start_time
-  const calculateRemainingTime = (meeting: Meeting) => {
-    if (meeting.status !== 'in-progress' || !meeting.actual_start_time) {
-      return null
-    }
-    
-    const now = new Date()
-    const actualStartTime = new Date(meeting.actual_start_time)
-    const endTime = new Date(meeting.end_time)
-    const remaining = endTime.getTime() - now.getTime()
-    
-    return remaining > 0 ? remaining : 0
-  }
 
-  const isMeetingTimeValid = (meeting: Meeting) => {
-    const now = currentTime
-    const meetingStart = new Date(meeting.start_time)
-    const meetingEnd = new Date(meeting.end_time)
-    
-    // Allow meetings to start if we're within 5 minutes of the start time
-    const timeDiffMinutes = Math.abs(now.getTime() - meetingStart.getTime()) / 1000 / 60
-    const isWithinStartWindow = timeDiffMinutes <= 5
-    
-    return (now >= meetingStart && now <= meetingEnd) || isWithinStartWindow
-  }
+
+
+
 
   const handleStartMeeting = async (meetingId: number) => {
     try {
-      const { startMeeting } = await import('@/lib/meeting-utils')
-      await startMeeting(meetingId)
+      await startMeetingMutation.mutateAsync(meetingId)
       
-      // Context will auto-refresh via real-time updates
-      await refreshMeetings()
-
       // Update can-create status
       const canCreateResult = await canCreateMeeting()
       setCanCreateNewMeeting(canCreateResult.canCreate)
@@ -437,20 +348,11 @@ export default function MeetingsPage() {
     }
   }
 
-  const handleEndMeeting = async (meetingId: number) => {
+    const handleEndMeeting = async (meetingId: number) => {
     try {
-      const { endMeeting } = await import('@/lib/meeting-utils')
-      await endMeeting(meetingId)
+      await endMeetingMutation.mutateAsync(meetingId)
       
-      // Clear timer for this meeting
-      setMeetingTimers(prev => {
-        const updated = { ...prev }
-        delete updated[meetingId]
-        return updated
-      })
 
-      // Context will auto-refresh via real-time updates
-      await refreshMeetings()
 
       // Update can-create status
       const canCreateResult = await canCreateMeeting()
@@ -465,11 +367,7 @@ export default function MeetingsPage() {
 
   const handleCancelMeeting = async (meetingId: number) => {
     try {
-      const { cancelMeeting } = await import('@/lib/meeting-utils')
-      await cancelMeeting(meetingId)
-      
-      // Context will auto-refresh via real-time updates
-      await refreshMeetings()
+      await cancelMeetingMutation.mutateAsync(meetingId)
 
       // Update can-create status
       const canCreateResult = await canCreateMeeting()
@@ -488,8 +386,22 @@ export default function MeetingsPage() {
       setDialogError(null)
 
       // Validate form fields first
-      if (!newMeeting.title || newMeeting.duration <= 0) {
-        setDialogError('Please fill in all required fields')
+      if (!newMeeting.title) {
+        setDialogError('Please fill in the meeting title')
+        return
+      }
+
+      if (!selectedDate || !selectedTime) {
+        setDialogError('Please select a meeting date and time')
+        return
+      }
+
+      // Validate that the scheduled time is not in the past
+      const timeStr = selectedTime.includes(':') ? selectedTime : `${selectedTime}:00`
+      const scheduledDateTime = new Date(`${selectedDate.toISOString().split('T')[0]}T${timeStr}`)
+      const now = new Date()
+      if (scheduledDateTime < now) {
+        setDialogError('Meeting time cannot be in the past')
         return
       }
 
@@ -509,17 +421,13 @@ export default function MeetingsPage() {
       // Determine the actual title to use
       const actualTitle = newMeeting.title === 'custom' ? customTitle : newMeeting.title
 
-      // Create new meeting via context (which also handles refresh)
-      const result = await startNewMeeting(
-        actualTitle,
-        newMeeting.description,
-        newMeeting.duration
-      )
-
-      if (!result.success) {
-        setDialogError(result.message || 'Failed to create meeting')
-        return
-      }
+      // Create new meeting via react-query mutation
+      await createMeetingMutation.mutateAsync({
+        title: actualTitle,
+        description: newMeeting.description,
+        type: newMeeting.type,
+        scheduledTime: newMeeting.scheduledTime
+      })
 
       // Update can-create status
       const canCreateResult = await canCreateMeeting()
@@ -530,9 +438,11 @@ export default function MeetingsPage() {
       setNewMeeting({
         title: '',
         description: '',
-        duration: 30,
-        type: 'video'
+        type: 'video' as 'video' | 'audio' | 'in-person',
+        scheduledTime: new Date().toISOString().slice(0, 16)
       })
+      setSelectedDate(new Date())
+      setSelectedTime(new Date().toTimeString().slice(0, 5))
       setCustomTitle('')
 
       // Close dialog
@@ -550,9 +460,11 @@ export default function MeetingsPage() {
     setNewMeeting({
       title: '',
       description: '',
-      duration: 30,
-      type: 'video'
+      type: 'video' as 'video' | 'audio' | 'in-person',
+      scheduledTime: new Date().toISOString().slice(0, 16)
     })
+    setSelectedDate(new Date())
+    setSelectedTime(new Date().toTimeString().slice(0, 5))
     setCustomTitle('')
     setDialogError(null)
   }
@@ -713,15 +625,12 @@ export default function MeetingsPage() {
                   <MeetingCard 
                     key={meeting.id} 
                     meeting={meeting} 
-                    meetingTimers={meetingTimers}
                     onStart={handleStartMeeting}
                     onEnd={handleEndMeeting}
                     onCancel={handleCancelMeeting}
                     formatTime={formatTime}
-                    formatRemainingTime={formatRemainingTime}
                     getStatusColor={getStatusColor}
                     getTypeIcon={getTypeIcon}
-                    isMeetingTimeValid={isMeetingTimeValid}
                   />
                 ))}
               </div>
@@ -761,15 +670,12 @@ export default function MeetingsPage() {
                   <MeetingCard 
                     key={meeting.id} 
                     meeting={meeting} 
-                    meetingTimers={meetingTimers}
                     onStart={handleStartMeeting}
                     onEnd={handleEndMeeting}
                     onCancel={handleCancelMeeting}
                     formatTime={formatTime}
-                    formatRemainingTime={formatRemainingTime}
                     getStatusColor={getStatusColor}
                     getTypeIcon={getTypeIcon}
-                    isMeetingTimeValid={isMeetingTimeValid}
                   />
                 ))}
               </div>
@@ -809,15 +715,12 @@ export default function MeetingsPage() {
                   <MeetingCard 
                     key={meeting.id} 
                     meeting={meeting} 
-                    meetingTimers={meetingTimers}
                     onStart={handleStartMeeting}
                     onEnd={handleEndMeeting}
                     onCancel={handleCancelMeeting}
                     formatTime={formatTime}
-                    formatRemainingTime={formatRemainingTime}
                     getStatusColor={getStatusColor}
                     getTypeIcon={getTypeIcon}
-                    isMeetingTimeValid={isMeetingTimeValid}
                   />
                 ))}
               </div>
@@ -829,15 +732,12 @@ export default function MeetingsPage() {
                   <MeetingCard 
                     key={meeting.id} 
                     meeting={meeting} 
-                    meetingTimers={meetingTimers}
                     onStart={handleStartMeeting}
                     onEnd={handleEndMeeting}
                     onCancel={handleCancelMeeting}
                     formatTime={formatTime}
-                    formatRemainingTime={formatRemainingTime}
                     getStatusColor={getStatusColor}
                     getTypeIcon={getTypeIcon}
-                    isMeetingTimeValid={isMeetingTimeValid}
                   />
                 ))}
               </div>
@@ -849,15 +749,12 @@ export default function MeetingsPage() {
                   <MeetingCard 
                     key={meeting.id} 
                     meeting={meeting} 
-                    meetingTimers={meetingTimers}
                     onStart={handleStartMeeting}
                     onEnd={handleEndMeeting}
                     onCancel={handleCancelMeeting}
                     formatTime={formatTime}
-                    formatRemainingTime={formatRemainingTime}
                     getStatusColor={getStatusColor}
                     getTypeIcon={getTypeIcon}
-                    isMeetingTimeValid={isMeetingTimeValid}
                   />
                 ))}
               </div>
@@ -942,27 +839,18 @@ export default function MeetingsPage() {
                 />
               </div>
 
-              {/* Duration */}
+              {/* Scheduled Time */}
               <div className="space-y-2">
-                <Label htmlFor="duration">Duration (minutes) *</Label>
-                <Select
-                  value={newMeeting.duration.toString()}
-                  onValueChange={(value) => setNewMeeting(prev => ({ ...prev, duration: parseInt(value) }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select duration" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="1">15 minutes</SelectItem>
-                    <SelectItem value="30">30 minutes</SelectItem>
-                    <SelectItem value="45">45 minutes</SelectItem>
-                    <SelectItem value="60">1 hour</SelectItem>
-                    <SelectItem value="90">1.5 hours</SelectItem>
-                    <SelectItem value="120">2 hours</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Label htmlFor="scheduledTime">Meeting Time *</Label>
+                <Calendar24
+                  date={selectedDate}
+                  onDateChange={setSelectedDate}
+                  time={selectedTime}
+                  onTimeChange={setSelectedTime}
+                  minDate={new Date()}
+                />
                 <p className="text-xs text-muted-foreground">
-                  Meeting will start now and end after the selected duration
+                  Select when you want to schedule this meeting
                 </p>
               </div>
 

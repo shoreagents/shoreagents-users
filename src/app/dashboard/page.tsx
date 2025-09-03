@@ -1,11 +1,11 @@
 "use client"
 
-import { useMemo, useState, useEffect } from "react"
+import { useMemo } from "react"
 import { AppSidebar } from "@/components/app-sidebar"
 import { AppHeader } from "@/components/app-header"
 import { DashboardSkeleton } from "@/components/skeleton-loaders"
-import { ShiftResetTimer } from "@/components/shift-reset-timer"
 import { useActivityTracker } from "@/hooks/use-activity-tracker"
+import { useDashboardData } from "@/hooks/use-dashboard"
 import {
   SidebarInset,
   SidebarProvider,
@@ -83,86 +83,19 @@ type TaskStatistics = {
 }
 
 export default function DashboardPage() {
-  const [loading, setLoading] = useState(true)
-  const [recentTickets, setRecentTickets] = useState<Ticket[]>([])
-  const [allTickets, setAllTickets] = useState<Ticket[]>([])
-  const [breaks, setBreaks] = useState<BreakSession[]>([])
-  const [meetings, setMeetings] = useState<MeetingItem[]>([])
-  const [taskStats, setTaskStats] = useState<TaskStatistics | null>(null)
-  
   // Track user activity to prevent away status
   useActivityTracker()
 
-  useEffect(() => {
-    const loadDashboard = async () => {
-      try {
-        const currentUser = getCurrentUser()
-        const userId = currentUser?.id
-        
-        // Load all data in parallel
-        const [ticketsRes, breaksRes, meetingsRes, taskStatsRes] = await Promise.all([
-          fetch('/api/tickets', { credentials: 'include' }),
-          userId ? fetch(`/api/breaks/history?agent_user_id=${encodeURIComponent(userId)}&days=7&include_active=true`, { credentials: 'include' }) : Promise.resolve({ ok: false }),
-          userId ? fetch(`/api/meetings?agent_user_id=${encodeURIComponent(userId)}&days=7`, { credentials: 'include' }) : Promise.resolve({ ok: false }),
-          fetch('/api/task-statistics', { credentials: 'include' })
-        ])
-        
-
-        // Process tickets
-        if (ticketsRes.ok) {
-          const data = await ticketsRes.json()
-          const tickets = (data?.tickets || []) as Ticket[]
-          setAllTickets(tickets)
-          const sorted = [...tickets].sort((a, b) => {
-            const aTs = a.createdAt ? new Date(a.createdAt).getTime() : new Date(a.date).getTime()
-            const bTs = b.createdAt ? new Date(b.createdAt).getTime() : new Date(b.date).getTime()
-            return bTs - aTs
-          })
-          setRecentTickets(sorted.slice(0, 5))
-        }
-
-        // Process breaks
-        if (breaksRes.ok && 'json' in breaksRes) {
-          const data = await breaksRes.json()
-          setBreaks([...(data?.data?.completed_breaks || []), ...(data?.data?.active_breaks || [])])
-        }
-
-        // Process meetings
-        if (meetingsRes.ok && 'json' in meetingsRes) {
-          const data = await meetingsRes.json()
-          setMeetings(data?.meetings || [])
-        }
-
-              // Process task statistics
-        if (taskStatsRes.ok && 'json' in taskStatsRes) {
-          const data = await taskStatsRes.json()
-          setTaskStats(data?.statistics || null)
-        } else {
-          console.error('Task stats failed:', taskStatsRes.status, taskStatsRes.statusText)
-          // Set default empty stats with sample data for demo
-          const sampleData = {
-            groups: [
-              { id: 1, group_title: 'To Do', group_color: 'bg-gray-200', position: 0, task_count: '0', urgent_count: '0', high_count: '0', normal_count: '0', low_count: '0' },
-              { id: 2, group_title: 'In Progress', group_color: 'bg-blue-100', position: 1, task_count: '0', urgent_count: '0', high_count: '0', normal_count: '0', low_count: '0' },
-              { id: 3, group_title: 'Review', group_color: 'bg-yellow-100', position: 2, task_count: '0', urgent_count: '0', high_count: '0', normal_count: '0', low_count: '0' },
-              { id: 4, group_title: 'Done', group_color: 'bg-green-100', position: 3, task_count: '0', urgent_count: '0', high_count: '0', normal_count: '0', low_count: '0' }
-            ],
-            priorities: [],
-            overdue: { overdue_count: '0', very_overdue_count: '0' },
-            recentActivity: [],
-            totalTasks: 0
-          }
-          setTaskStats(sampleData)
-        }
-
-      } catch (err) {
-        console.error('Error loading dashboard:', err)
-      } finally {
-        setLoading(false)
-      }
-    }
-    loadDashboard()
-  }, [])
+  // Use React Query hooks for all dashboard data
+  const {
+    allTickets,
+    recentTickets,
+    breaks,
+    meetings,
+    taskStats,
+    isLoading,
+    hasError
+  } = useDashboardData()
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -300,7 +233,7 @@ export default function DashboardPage() {
     }))
   }, [taskStats])
 
-  if (loading) {
+  if (isLoading) {
     return (
       <SidebarProvider>
         <AppSidebar />

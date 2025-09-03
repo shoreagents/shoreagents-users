@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { redisCache, cacheKeys } from '@/lib/redis-cache'
 
 function getPool() {
   const { Pool } = require('pg')
@@ -122,6 +123,13 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
       return NextResponse.json({ error: 'Task not found' }, { status: 404 })
     }
 
+    // Invalidate cache after successful task deletion
+    if (email) {
+      const cacheKey = cacheKeys.taskActivity(email);
+      await redisCache.del(cacheKey);
+      console.log(`🗑️ Task activity cache invalidated for ${email} after task deletion`);
+    }
+    
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('Error deleting task:', error)

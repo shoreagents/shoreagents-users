@@ -291,9 +291,27 @@ export async function syncNotificationsWithDatabase(email: string): Promise<void
     if (data?.success && Array.isArray(data.notifications)) {
       const mapped: Notification[] = data.notifications.map((n: any) => {
         const payload = n.payload || {}
-        const actionUrl = payload.action_url
-          || (n.category === 'ticket' && (payload.ticket_id || payload.ticket_row_id) ? `/forms/${payload.ticket_id || ''}` : undefined)
-          || (n.category === 'break' ? '/status/breaks' : undefined)
+        const actionUrl = (() => {
+          // First check if there's an explicit action_url in the payload
+          if (payload.action_url) {
+            return payload.action_url
+          }
+          // Otherwise generate based on category and payload data
+          if (n.category === 'ticket' && (payload.ticket_id || payload.ticket_row_id)) {
+            return `/forms/${payload.ticket_id || ''}`
+          }
+          if (n.category === 'break') {
+            return '/status/breaks'
+          }
+          if (n.category === 'task') {
+            // For task notifications, include the task_id if available
+            if (payload.task_id) {
+              return `/productivity/task-activity?taskId=${payload.task_id}`
+            }
+            return '/productivity/task-activity'
+          }
+          return undefined
+        })()
         const icon = n.category === 'ticket' ? 'FileText' : n.category === 'break' ? 'Clock' : 'Bell'
         return {
           id: `db_${n.id}`,
@@ -552,4 +570,33 @@ export function removeUnreadTasksNotifications(): void {
     !(n.category === 'system' && n.title.includes('Unread Tasks'))
   )
   saveNotifications(updatedNotifications)
+}
+
+// Simple notification function for meeting scheduler
+export function showNotification(notification: {
+  title: string
+  message: string
+  type: 'success' | 'warning' | 'info' | 'error'
+  duration?: number
+}): void {
+  addNotification({
+    type: notification.type,
+    title: notification.title,
+    message: notification.message,
+    icon: 'Bell',
+    category: 'system'
+  })
+
+  // Also show system notification if available
+  if (typeof window !== 'undefined' && window.electronAPI?.systemNotifications) {
+    try {
+      window.electronAPI.systemNotifications.show({
+        title: notification.title,
+        message: notification.message,
+        id: `meeting_${Date.now()}`
+      })
+    } catch (error) {
+      console.error('Error showing system notification:', error)
+    }
+  }
 } 

@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ArrowLeft, Send, CheckCircle, FileText, Mail, Phone, Upload, X, AlertTriangle, MessageSquare } from "lucide-react"
 import Link from "next/link"
 import { getCurrentUser } from "@/lib/ticket-utils"
-import { addSmartNotification } from "@/lib/notification-service"
+import { useCreateTicket } from "@/hooks/use-tickets"
 
 // Interface for uploaded files
 interface UploadedFile {
@@ -28,7 +28,6 @@ interface UploadedFile {
 }
 
 export default function NewTicketPage() {
-  const [isSubmitting, setIsSubmitting] = useState(false)
   const [isSubmitted, setIsSubmitted] = useState(false)
   const [ticketId, setTicketId] = useState<string>('')
   const [files, setFiles] = useState<File[]>([])
@@ -39,6 +38,10 @@ export default function NewTicketPage() {
   const [categories, setCategories] = useState<Array<{id: number, name: string}>>([])
   const [categoriesLoading, setCategoriesLoading] = useState(true)
   const [uploadingFiles, setUploadingFiles] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  
+  // Use React Query for creating tickets
+  const createTicketMutation = useCreateTicket()
   
   // Maximum file size: 10MB
   const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB in bytes
@@ -82,8 +85,8 @@ export default function NewTicketPage() {
       setUploadedFiles([]) // Reset uploaded files state
       setFileError("")
       setDragActive(false)
-      setIsSubmitting(false)
       setUploadingFiles(false)
+      setIsSubmitting(false)
     }
     
     resetFormState()
@@ -134,7 +137,8 @@ export default function NewTicketPage() {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    setIsSubmitting(true)
+    
+    setIsSubmitting(true) // Set overall submission state
     
     // Capture files at the beginning to avoid state changes during async operations
     const filesToUpload = [...files]
@@ -154,34 +158,20 @@ export default function NewTicketPage() {
       
       // First, create the ticket to get the ticket ID
       const ticketData = {
-        name: fullName,
         concern: formData.get('concern') as string,
         category: formData.get('category') as string,
         details: formData.get('details') as string,
         files: [] // We'll update this after uploading files
       }
       
-      // Submit ticket to API first
-      const response = await fetch('/api/tickets', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        credentials: 'include',
-        body: JSON.stringify(ticketData)
-      })
-      
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to create ticket')
-      }
-      
-      const result = await response.json()
+      // Use React Query mutation to create ticket
+      const result = await createTicketMutation.mutateAsync(ticketData)
       const newTicketId = result.ticket.id
       
       // Now upload files to Supabase storage using server-side API
       if (filesToUpload.length > 0) {
         console.log('📤 Uploading files to Supabase storage...')
+        setUploadingFiles(true) // Set uploading state to true
         
         // Create FormData for file upload
         const uploadFormData = new FormData()
@@ -248,8 +238,8 @@ export default function NewTicketPage() {
       console.error('❌ Error creating ticket:', error)
       alert(`Error creating ticket: ${error instanceof Error ? error.message : 'Unknown error'}`)
     } finally {
-      setIsSubmitting(false)
       setUploadingFiles(false)
+      setIsSubmitting(false)
     }
   }
 
@@ -344,7 +334,6 @@ export default function NewTicketPage() {
                         setUploadedFiles([]) // Reset uploaded files when creating another ticket
                         setFileError("")
                         setDragActive(false)
-                        setIsSubmitting(false)
                         setUploadingFiles(false)
                       }}
                       className="w-full sm:w-auto bg-primary hover:bg-primary/90"
@@ -632,7 +621,7 @@ export default function NewTicketPage() {
                       {isSubmitting ? (
                         <>
                           <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                          {uploadingFiles ? 'Uploading Files...' : 'Submitting...'}
+                          Submitting...
                         </>
                       ) : (
                         <>

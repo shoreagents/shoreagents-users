@@ -102,8 +102,13 @@ export function useNotificationsSocketContext(email: string | null) {
   // Mark notification as read
   const markAsRead = useCallback(async (notificationId: number) => {
     try {
-      const response = await fetch(`/api/notifications/${notificationId}/read`, {
-        method: 'POST'
+      const response = await fetch(`/api/notifications/mark-read`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          id: notificationId,
+          email: email 
+        })
       })
       
       const data = await response.json()
@@ -177,8 +182,13 @@ export function useNotificationsSocketContext(email: string | null) {
   // Delete notification
   const deleteNotification = useCallback(async (notificationId: number) => {
     try {
-      const response = await fetch(`/api/notifications/${notificationId}`, {
-        method: 'DELETE'
+      const response = await fetch(`/api/notifications/delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          id: notificationId,
+          email: email 
+        })
       })
       
       const data = await response.json()

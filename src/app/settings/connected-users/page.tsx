@@ -13,33 +13,13 @@ import { Button } from '@/components/ui/button'
 import { Search, MoreVertical, Phone, Video, Users, Clock, Wifi, WifiOff } from 'lucide-react'
 // Team chat functionality removed - focusing on online/offline tracking only
 import { getCurrentUser } from '@/lib/auth-utils'
-
-interface TeamAgent {
-  id: number
-  email: string
-  name: string
-  avatar?: string
-  member_id: number
-  team_name: string
-}
+import { useTeamAgents, useTeamAuthData, TeamAgent, UserAuthData } from '@/hooks/use-team-agents'
 
 interface UserStatus {
   email: string
   status: 'online' | 'offline'
   loginTime?: string
   lastSeen?: string
-}
-
-interface UserAuthData {
-  id: string
-  email: string
-  last_sign_in_at: string | null
-  created_at: string
-  updated_at: string
-  email_confirmed_at: string | null
-  invited_at: string | null
-  confirmation_sent_at: string | null
-  is_authenticated: boolean
 }
 
 interface TeamInfo {
@@ -49,12 +29,7 @@ interface TeamInfo {
 }
 
 export default function ConnectedUsersPage() {
-  const [teamAgents, setTeamAgents] = useState<TeamAgent[]>([])
   const [userStatuses, setUserStatuses] = useState<Map<string, UserStatus>>(new Map())
-  const [userAuthData, setUserAuthData] = useState<Map<string, UserAuthData>>(new Map())
-  const [teamInfo, setTeamInfo] = useState<TeamInfo | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [lastUpdated, setLastUpdated] = useState<string>('')
   const [mounted, setMounted] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -63,6 +38,23 @@ export default function ConnectedUsersPage() {
   const [currentUserEmail, setCurrentUserEmail] = useState<string>('')
   const [isAutoSelecting, setIsAutoSelecting] = useState(false)
   const { socket, isConnected } = useSocket()
+
+  // Use React Query hooks
+  const { 
+    data: teamData, 
+    isLoading: teamLoading, 
+    error: teamError, 
+    triggerRealtimeUpdate 
+  } = useTeamAgents()
+  
+  const teamAgents = teamData?.agents || []
+  const teamInfo = teamData?.team || null
+  
+  // Get auth data for all team agents
+  const { 
+    data: userAuthDataMap = new Map(), 
+    isLoading: authLoading 
+  } = useTeamAuthData(teamAgents)
 
   // Fix hydration issue by only rendering time on client
   useEffect(() => {
@@ -102,59 +94,17 @@ export default function ConnectedUsersPage() {
     }
   }, [])
 
-  // Fetch team agents from API
-  const fetchTeamAgents = async () => {
-    try {
-      const response = await fetch('/api/agents/team')
-      const data = await response.json()
-      
-      if (data.success) {
-        setTeamAgents(data.agents || [])
-        setTeamInfo(data.team || null)
-        
-        // Fetch authentication data for each team member
-        await fetchUserAuthData(data.agents || [])
-      } else {
-        setError(data.error || 'Failed to load team agents')
-      }
-    } catch (err) {
-      console.error('Error fetching team agents:', err)
-      setError('Failed to fetch team agents')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // Fetch authentication data for team members
-  const fetchUserAuthData = async (agents: TeamAgent[]) => {
-    try {
-      const authDataMap = new Map<string, UserAuthData>()
-      
-      for (const agent of agents) {
-        try {
-          const response = await fetch(`/api/users/auth-status/${encodeURIComponent(agent.email)}`)
-          const data = await response.json()
-          
-          if (data.success && data.data) {
-            authDataMap.set(agent.email, data.data)
-          } else {
-            console.warn(`⚠️ Failed to fetch auth data for ${agent.email}:`, data.error)
-          }
-        } catch (error) {
-          console.warn(`⚠️ Error fetching auth data for ${agent.email}:`, error)
-        }
-      }
-      
-      setUserAuthData(authDataMap)
-    } catch (error) {
-      console.error('Error fetching user authentication data:', error)
-    }
-  }
-
-  // Load team agents on component mount
+  // Trigger real-time update when socket reconnects (with debouncing)
   useEffect(() => {
-    fetchTeamAgents()
-  }, [])
+    if (socket && isConnected) {
+      // Debounce the update to prevent spam
+      const timeoutId = setTimeout(() => {
+        triggerRealtimeUpdate()
+      }, 1000) // 1 second delay
+      
+      return () => clearTimeout(timeoutId)
+    }
+  }, [socket, isConnected, triggerRealtimeUpdate])
 
   // Auto-select current user when team agents are loaded
   useEffect(() => {
@@ -289,6 +239,10 @@ export default function ConnectedUsersPage() {
   const onlineAgents = filteredAgents.filter(agent => agent.status === 'online')
   const offlineAgents = filteredAgents.filter(agent => agent.status === 'offline')
 
+  // Combined loading state
+  const loading = teamLoading || authLoading
+  const error = teamError?.message || null
+
   if (loading) {
     return (
       <SidebarProvider>
@@ -328,7 +282,7 @@ export default function ConnectedUsersPage() {
                   <p className="text-lg font-medium text-red-600 dark:text-red-400">❌ Error loading team agents</p>
                   <p className="text-muted-foreground">{error}</p>
                   <Button 
-                    onClick={fetchTeamAgents}
+                    onClick={triggerRealtimeUpdate}
                     className="mt-4"
                   >
                     <Clock className="w-4 h-4 mr-2" />
@@ -386,7 +340,7 @@ export default function ConnectedUsersPage() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={fetchTeamAgents}
+                    onClick={triggerRealtimeUpdate}
                     className="h-8 px-3 text-xs"
                     disabled={loading}
                   >
@@ -623,10 +577,10 @@ export default function ConnectedUsersPage() {
                         </CardHeader>
                         <CardContent>
                           <div className="text-sm">
-                            {userAuthData.get(selectedUser.email)?.last_sign_in_at ? (
+                            {userAuthDataMap.get(selectedUser.email)?.last_sign_in_at ? (
                               <div className="space-y-1">
                                 <span className="text-gray-900 dark:text-white font-medium">
-                                  {formatRelativeTime(userAuthData.get(selectedUser.email)?.last_sign_in_at || '')}
+                                  {formatRelativeTime(userAuthDataMap.get(selectedUser.email)?.last_sign_in_at || '')}
                                 </span>
                               </div>
                             ) : userStatuses.get(selectedUser.email)?.loginTime ? (

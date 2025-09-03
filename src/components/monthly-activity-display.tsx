@@ -255,7 +255,7 @@ export default function MonthlyActivityDisplay({ currentUser }: MonthlyActivityD
                 size="sm" 
                 onClick={fetchAllMonthlyData}
                 disabled={loading}
-                className="h-8 px-2"
+                className="h-8 px-2 hover:!bg-transparent dark:hover:text-white hover:text-black "
                 title="Refresh monthly data"
               >
                 <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />

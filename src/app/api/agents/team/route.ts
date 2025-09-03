@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Pool } from 'pg'
+import { redisCache, cacheKeys, cacheTTL } from '@/lib/redis-cache'
 
 const databaseConfig = {
   connectionString: process.env.DATABASE_URL,
@@ -55,6 +56,27 @@ export async function GET(request: NextRequest) {
     const search = (url.searchParams.get('q') || '').trim()
     const limitParam = Number(url.searchParams.get('limit') || '50')
     const limit = Math.min(Math.max(limitParam, 1), 200)
+    const bypassCache = url.searchParams.get('bypass_cache') === 'true'
+    
+    // Check Redis cache first (unless bypassing)
+    const cacheKey = cacheKeys.teamAgents(user.email)
+    let cachedData = null
+    
+    if (!bypassCache) {
+      cachedData = await redisCache.get(cacheKey)
+      if (cachedData) {
+        // Only log cache hits occasionally to reduce spam
+        if (Math.random() < 0.1) { // 10% chance to log
+          console.log('✅ Team agents served from Redis cache')
+        }
+        return NextResponse.json(cachedData)
+      }
+    } else {
+      // Only log bypass occasionally to reduce spam
+      if (Math.random() < 0.2) { // 20% chance to log
+        console.log('🔄 Bypassing Redis cache for real-time update')
+      }
+    }
 
     pool = new Pool(databaseConfig)
     const client = await pool.connect()
@@ -121,7 +143,7 @@ export async function GET(request: NextRequest) {
       const teamResult = await client.query(teamQuery, [currentUserMemberId])
       const teamInfo = teamResult.rows[0] || {}
       
-      return NextResponse.json({ 
+      const responseData = { 
         success: true, 
         agents: res.rows,
         team: {
@@ -129,7 +151,16 @@ export async function GET(request: NextRequest) {
           company: teamInfo.company,
           badge_color: teamInfo.badge_color
         }
-      })
+      }
+
+      // Cache the result in Redis
+      await redisCache.set(cacheKey, responseData, cacheTTL.teamAgents)
+      // Only log cache writes occasionally to reduce spam
+      if (Math.random() < 0.3) { // 30% chance to log
+        console.log('✅ Team agents cached in Redis')
+      }
+
+      return NextResponse.json(responseData)
     } finally {
       client.release()
     }
