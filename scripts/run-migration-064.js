@@ -14,25 +14,25 @@ async function runMigration() {
   const client = await pool.connect()
   
   try {
-    console.log('🔄 Running migration 059: Drop actual_start_time column...')
+    console.log('🔄 Running migration 064: Fix meeting start time...')
     
     // Read the migration file
-    const migrationPath = path.join(__dirname, '..', 'migrations', '059_drop_actual_start_time.sql')
+    const migrationPath = path.join(__dirname, '..', 'migrations', '064_fix_meeting_start_time.sql')
     const migrationSQL = fs.readFileSync(migrationPath, 'utf8')
     
     // Execute the migration
     await client.query(migrationSQL)
     
-    console.log('✅ Migration 059 completed successfully!')
-    console.log('   - Updated start_meeting function')
-    console.log('   - Updated end_meeting function') 
-    console.log('   - Dropped actual_start_time column')
+    console.log('✅ Migration 064 completed successfully!')
+    console.log('   - Fixed start_meeting function to use actual start time')
+    console.log('   - Elapsed time calculation will now be accurate from the moment meeting starts')
     
   } catch (error) {
     console.error('❌ Migration failed:', error.message)
     throw error
   } finally {
     client.release()
+    await pool.end()
   }
 }
 
@@ -45,7 +45,4 @@ runMigration()
   .catch((error) => {
     console.error('💥 Migration failed:', error)
     process.exit(1)
-  })
-  .finally(() => {
-    pool.end()
   })

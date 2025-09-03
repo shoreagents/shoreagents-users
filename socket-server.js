@@ -5,8 +5,10 @@ const { createServer } = require('http');
 const { Server } = require('socket.io');
 const { Pool } = require('pg');
 const cors = require('cors');
+const redis = require('redis');
 const BreakReminderScheduler = require('./scripts/break-reminder-scheduler');
 const TaskNotificationScheduler = require('./scripts/task-notification-scheduler');
+const MeetingScheduler = require('./scripts/meeting-scheduler');
 
 const app = express();
 app.use(cors());
@@ -18,7 +20,8 @@ app.get('/status', (req, res) => {
     timestamp: new Date().toISOString(),
     schedulers: {
       breakReminder: breakReminderScheduler.getStatus(),
-      taskNotification: taskNotificationScheduler.getStatus()
+      taskNotification: taskNotificationScheduler.getStatus(),
+      meeting: meetingScheduler.getStatus()
     },
     uptime: process.uptime()
   });
@@ -38,6 +41,22 @@ const pool = new Pool({
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
 
+// Redis client for cache invalidation
+const redisClient = redis.createClient({
+  url: process.env.REDIS_URL || 'redis://localhost:6379'
+});
+
+redisClient.on('error', (err) => {
+  console.error('Redis Client Error:', err);
+});
+
+redisClient.on('connect', () => {
+  console.log('✅ Redis client connected');
+});
+
+// Connect to Redis
+redisClient.connect().catch(console.error);
+
 // Test database connection
 pool.query('SELECT NOW()', (err, result) => {
   if (err) {
@@ -50,12 +69,16 @@ pool.query('SELECT NOW()', (err, result) => {
 // Initialize schedulers
 const breakReminderScheduler = new BreakReminderScheduler();
 const taskNotificationScheduler = new TaskNotificationScheduler();
+const meetingScheduler = new MeetingScheduler();
 
 console.log('🔔 Initializing break reminder scheduler...');
 breakReminderScheduler.start();
 
 console.log('📋 Initializing task notification scheduler...');
 taskNotificationScheduler.start();
+
+console.log('📅 Initializing meeting scheduler...');
+meetingScheduler.start();
 
 // Initialize global notification listener
 let globalNotificationClient = null;
@@ -73,6 +96,8 @@ async function initializeGlobalNotificationListener() {
     await globalNotificationClient.query('LISTEN weekly_activity_change');
     await globalNotificationClient.query('LISTEN monthly_activity_change');
     await globalNotificationClient.query('LISTEN activity_data_change');
+    await globalNotificationClient.query('LISTEN meeting_status_change');
+    await globalNotificationClient.query('LISTEN "meeting-update"');
     
     console.log('📡 Global notification listener initialized');
     
@@ -247,6 +272,87 @@ async function initializeGlobalNotificationListener() {
               }
             } else {
               console.log(`⚠️ User ${payload.user_id} not found in connected users`);
+            }
+          }
+        } else if (msg.channel === 'meeting_status_change' || msg.channel === 'meeting-update') {
+          const payload = JSON.parse(msg.payload);
+          console.log(`📡 Meeting status change notification received:`, payload);
+          
+          // Find all sockets for this user and emit to all of them
+          if (payload.agent_user_id) {
+            let targetEmail = null;
+            console.log(`🔍 Looking for user ${payload.agent_user_id} in ${connectedUsers.size} connected users`);
+            console.log(`🔍 Connected users:`, Array.from(connectedUsers.entries()).map(([id, data]) => `${id}: ${data.email} (userId: ${data.userId})`));
+            
+            // Find the user by database ID in the connected users
+            for (const [socketId, userData] of connectedUsers.entries()) {
+              if (userData.userId === payload.agent_user_id) {
+                targetEmail = userData.email;
+                console.log(`✅ Found user ${payload.agent_user_id} with email ${targetEmail}`);
+                break;
+              }
+            }
+            
+            if (targetEmail) {
+              // Invalidate Redis cache for this user's meeting data
+              try {
+                const meetingsCacheKey = `meetings:${payload.agent_user_id}:7`;
+                const statusCacheKey = `meeting-status:${payload.agent_user_id}:7`;
+                await Promise.all([
+                  redisClient.del(meetingsCacheKey),
+                  redisClient.del(statusCacheKey)
+                ]);
+                console.log(`🗑️ Invalidated Redis cache for user ${payload.agent_user_id}`);
+              } catch (cacheError) {
+                console.error('❌ Error invalidating cache:', cacheError.message);
+              }
+
+              const userSockets = userConnections.get(targetEmail);
+              if (userSockets && userSockets.size > 0) {
+                console.log(`📤 Broadcasting meeting status update to ${userSockets.size} connections for user ${payload.agent_user_id} (${targetEmail})`);
+                
+                // Determine the event type based on the operation
+                let eventType = 'meeting-update';
+                if (payload.operation === 'meeting_ended') {
+                  eventType = 'meeting_ended';
+                } else if (payload.is_in_meeting === true) {
+                  eventType = 'meeting_started';
+                }
+                
+                userSockets.forEach(socketId => {
+                  io.to(socketId).emit(eventType, {
+                    email: targetEmail,
+                    type: eventType,
+                    meeting: {
+                      id: payload.meeting_id,
+                      title: payload.title,
+                      status: payload.status,
+                      is_in_meeting: payload.is_in_meeting,
+                      start_time: payload.start_time,
+                      end_time: payload.end_time
+                    },
+                    timestamp: payload.timestamp
+                  });
+                  console.log(`📤 Emitted ${eventType} to socket ${socketId}`);
+                });
+
+                // Also broadcast agent status update for meeting status changes
+                if (payload.is_in_meeting !== undefined) {
+                  userSockets.forEach(socketId => {
+                    io.to(socketId).emit('agent-status-update', {
+                      email: targetEmail,
+                      isInMeeting: payload.is_in_meeting,
+                      meetingId: payload.meeting_id,
+                      timestamp: payload.timestamp
+                    });
+                    console.log(`📤 Emitted agent-status-update to socket ${socketId}: isInMeeting=${payload.is_in_meeting}`);
+                  });
+                }
+              } else {
+                console.log(`⚠️ No active connections found for user ${payload.agent_user_id} (${targetEmail})`);
+              }
+            } else {
+              console.log(`⚠️ User ${payload.agent_user_id} not found in connected users`);
             }
           }
         }

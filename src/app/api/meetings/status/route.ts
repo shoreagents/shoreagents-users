@@ -41,8 +41,8 @@ export async function GET(request: NextRequest) {
       isInMeeting: inMeetingResult[0]?.is_user_in_meeting || false
     }
 
-    // Cache the result in Redis with shorter TTL for status (30 seconds)
-    await redisCache.set(cacheKey, responseData, 30)
+    // Cache the result in Redis with very short TTL for status (10 seconds)
+    await redisCache.set(cacheKey, responseData, 10)
     console.log('✅ Meeting status cached in Redis')
 
     return NextResponse.json(responseData)

@@ -24,7 +24,6 @@ export interface Meeting {
   meeting_type: 'video' | 'audio' | 'in-person'
   status: 'scheduled' | 'in-progress' | 'completed' | 'cancelled'
   is_in_meeting: boolean
-  actual_start_time?: string
   created_at: string
 }
 
@@ -104,11 +103,18 @@ export const startMeeting = async (meetingId: number): Promise<void> => {
 }
 
 // End a meeting
-export const endMeeting = async (meetingId: number): Promise<void> => {
+export const endMeeting = async (meetingId: number, agentUserId?: number): Promise<void> => {
+  // Get current user if agentUserId not provided
+  let userId = agentUserId
+  if (!userId) {
+    const currentUser = getCurrentUserInfo()
+    userId = currentUser?.id
+  }
+
   const response = await fetch('/api/meetings/end', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ meetingId })
+    body: JSON.stringify({ meetingId, agent_user_id: userId })
   })
   if (!response.ok) {
     const error = await response.json()

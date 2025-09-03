@@ -106,25 +106,38 @@ function calculateBreakTimes(shiftTime: string): { morning: { start: string; end
     // Morning: 2 hours after start (1 hour duration)
     // Lunch: 4 hours after start (3 hours duration) 
     // Afternoon: 7h45m after start (1 hour duration)
-    const morningStart = startHour + 2
-    const morningEnd = startHour + 3
-    const lunchStart = startHour + 4
-    const lunchEnd = startHour + 7
-    const afternoonStart = startHour + 7.75 // 7 hours 45 minutes
-    const afternoonEnd = startHour + 8.75   // 8 hours 45 minutes
+    
+    // Convert start time to total minutes for accurate calculation
+    const startTotalMinutes = startHour * 60 + startMinute
+    
+    const morningStartMinutes = startTotalMinutes + (2 * 60) // 2 hours after start
+    const morningEndMinutes = startTotalMinutes + (3 * 60)   // 3 hours after start (1 hour duration)
+    
+    const lunchStartMinutes = startTotalMinutes + (4 * 60)   // 4 hours after start
+    const lunchEndMinutes = startTotalMinutes + (7 * 60)     // 7 hours after start (3 hours duration)
+    
+    const afternoonStartMinutes = startTotalMinutes + (7 * 60 + 45) // 7 hours 45 minutes after start
+    const afternoonEndMinutes = startTotalMinutes + (8 * 60 + 45)   // 8 hours 45 minutes after start (1 hour duration)
+    
+    // Helper function to convert minutes back to HH:MM format (handles day rollover for night shifts)
+    const minutesToTime = (totalMinutes: number): string => {
+      const hours = Math.floor(totalMinutes / 60) % 24
+      const minutes = totalMinutes % 60
+      return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`
+    }
     
     return {
       morning: {
-        start: `${Math.floor(morningStart % 24).toString().padStart(2, '0')}:${Math.floor((morningStart % 1) * 60).toString().padStart(2, '0')}`,
-        end: `${Math.floor(morningEnd % 24).toString().padStart(2, '0')}:${Math.floor((morningEnd % 1) * 60).toString().padStart(2, '0')}`
+        start: minutesToTime(morningStartMinutes),
+        end: minutesToTime(morningEndMinutes)
       },
       lunch: {
-        start: `${Math.floor(lunchStart % 24).toString().padStart(2, '0')}:${Math.floor((lunchStart % 1) * 60).toString().padStart(2, '0')}`,
-        end: `${Math.floor(lunchEnd % 24).toString().padStart(2, '0')}:${Math.floor((lunchEnd % 1) * 60).toString().padStart(2, '0')}`
+        start: minutesToTime(lunchStartMinutes),
+        end: minutesToTime(lunchEndMinutes)
       },
       afternoon: {
-        start: `${Math.floor(afternoonStart % 24).toString().padStart(2, '0')}:${Math.floor((afternoonStart % 1) * 60).toString().padStart(2, '0')}`,
-        end: `${Math.floor(afternoonEnd % 24).toString().padStart(2, '0')}:${Math.floor((afternoonEnd % 1) * 60).toString().padStart(2, '0')}`
+        start: minutesToTime(afternoonStartMinutes),
+        end: minutesToTime(afternoonEndMinutes)
       }
     }
   } else {
@@ -133,27 +146,37 @@ function calculateBreakTimes(shiftTime: string): { morning: { start: string; end
     // Lunch: 4 hours after start (3 hours duration) 
     // Afternoon: 7.75 hours after start (1 hour duration)
     
-    const morningStart = startHour + 2
-    const morningEnd = startHour + 3
+    // Convert start time to total minutes for accurate calculation
+    const startTotalMinutes = startHour * 60 + startMinute
     
-    const lunchStart = startHour + 4
-    const lunchEnd = startHour + 7
+    const morningStartMinutes = startTotalMinutes + (2 * 60) // 2 hours after start
+    const morningEndMinutes = startTotalMinutes + (3 * 60)   // 3 hours after start (1 hour duration)
     
-    const afternoonStart = startHour + 7.75 // 7 hours 45 minutes
-    const afternoonEnd = startHour + 8.75   // 8 hours 45 minutes
+    const lunchStartMinutes = startTotalMinutes + (4 * 60)   // 4 hours after start
+    const lunchEndMinutes = startTotalMinutes + (7 * 60)     // 7 hours after start (3 hours duration)
+    
+    const afternoonStartMinutes = startTotalMinutes + (7 * 60 + 45) // 7 hours 45 minutes after start
+    const afternoonEndMinutes = startTotalMinutes + (8 * 60 + 45)   // 8 hours 45 minutes after start (1 hour duration)
+    
+    // Helper function to convert minutes back to HH:MM format
+    const minutesToTime = (totalMinutes: number): string => {
+      const hours = Math.floor(totalMinutes / 60) % 24
+      const minutes = totalMinutes % 60
+      return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`
+    }
     
     return {
       morning: {
-        start: `${Math.floor(morningStart).toString().padStart(2, '0')}:${((morningStart % 1) * 60).toString().padStart(2, '0')}`,
-        end: `${Math.floor(morningEnd).toString().padStart(2, '0')}:${((morningEnd % 1) * 60).toString().padStart(2, '0')}`
+        start: minutesToTime(morningStartMinutes),
+        end: minutesToTime(morningEndMinutes)
       },
       lunch: {
-        start: `${Math.floor(lunchStart).toString().padStart(2, '0')}:${((lunchStart % 1) * 60).toString().padStart(2, '0')}`,
-        end: `${Math.floor(lunchEnd).toString().padStart(2, '0')}:${((lunchEnd % 1) * 60).toString().padStart(2, '0')}`
+        start: minutesToTime(lunchStartMinutes),
+        end: minutesToTime(lunchEndMinutes)
       },
       afternoon: {
-        start: `${Math.floor(afternoonStart).toString().padStart(2, '0')}:${Math.floor((afternoonStart % 1) * 60).toString().padStart(2, '0')}`,
-        end: `${Math.floor(afternoonEnd).toString().padStart(2, '0')}:${Math.floor((afternoonEnd % 1) * 60).toString().padStart(2, '0')}`
+        start: minutesToTime(afternoonStartMinutes),
+        end: minutesToTime(afternoonEndMinutes)
       }
     }
   }
