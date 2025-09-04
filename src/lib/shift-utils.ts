@@ -259,3 +259,81 @@ export function formatShiftInfo(shiftInfo: ShiftInfo): string {
   
   return `${shiftInfo.period} (${start} - ${end})`;
 }
+
+/**
+ * Check if the current time is before shift start time
+ * Returns true if shift hasn't started yet
+ */
+export function isShiftNotStarted(shiftInfo: ShiftInfo | null, currentTime: Date = new Date()): boolean {
+  if (!shiftInfo) return false;
+
+  try {
+    // Get current Philippines time
+    const nowPH = new Date(currentTime.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+    
+    // Check if we have shift info from context
+    if (shiftInfo?.startTime) {
+      // Convert shift start time to Philippines timezone for accurate comparison
+      const shiftStartDate = new Date(shiftInfo.startTime);
+      const shiftStartDatePH = new Date(shiftStartDate.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+      return nowPH < shiftStartDatePH;
+    }
+
+    // Fallback: try to parse from shift time string if available
+    if (shiftInfo?.time) {
+      const parsed = parseShiftTime(shiftInfo.time, nowPH);
+      if (parsed?.startTime) {
+        return nowPH < parsed.startTime;
+      }
+    }
+
+    return false;
+  } catch (error) {
+    console.error('Error checking if shift not started:', error);
+    return false;
+  }
+}
+
+/**
+ * Check if the current time is after shift end time
+ * Returns true if shift has ended
+ */
+export function isShiftEnded(shiftInfo: ShiftInfo | null, currentTime: Date = new Date()): boolean {
+  if (!shiftInfo) return false;
+
+  try {
+    // Get current Philippines time
+    const nowPH = new Date(currentTime.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+    
+    // Check if we have shift info from context
+    if (shiftInfo?.endTime) {
+      // Convert shift end time to Philippines timezone for accurate comparison
+      const shiftEndDate = new Date(shiftInfo.endTime);
+      const shiftEndDatePH = new Date(shiftEndDate.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+      return nowPH > shiftEndDatePH;
+    }
+
+    // Fallback: try to parse from shift time string if available
+    if (shiftInfo?.time) {
+      const parsed = parseShiftTime(shiftInfo.time, nowPH);
+      if (parsed?.endTime) {
+        return nowPH > parsed.endTime;
+      }
+    }
+
+    return false;
+  } catch (error) {
+    console.error('Error checking if shift ended:', error);
+    return false;
+  }
+}
+
+/**
+ * Check if the current time is within shift hours
+ * Returns true if shift has started and not ended yet
+ */
+export function isWithinShiftHours(shiftInfo: ShiftInfo | null, currentTime: Date = new Date()): boolean {
+  if (!shiftInfo) return true; // Default to true if no shift info (allow activity tracking)
+
+  return !isShiftNotStarted(shiftInfo, currentTime) && !isShiftEnded(shiftInfo, currentTime);
+}

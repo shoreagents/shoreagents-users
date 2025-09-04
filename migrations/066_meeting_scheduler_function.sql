@@ -14,12 +14,12 @@ BEGIN
         FROM meetings
         WHERE status = 'scheduled'
         AND start_time <= NOW()
-        AND start_time > NOW() - INTERVAL '1 minute' -- Only start meetings within the last minute to avoid duplicates
+        AND start_time > NOW() - INTERVAL '24 hours' -- Only start meetings within the last 24 hours to avoid starting very old meetings
     LOOP
         -- Try to start the meeting using the existing start_meeting function
         BEGIN
-            -- Call the start_meeting function
-            PERFORM start_meeting(meeting_record.id, meeting_record.agent_user_id);
+            -- Call the start_meeting function with is_automatic = true
+            PERFORM start_meeting(meeting_record.id, meeting_record.agent_user_id, true);
             meetings_started := meetings_started + 1;
             
             -- Log the meeting start

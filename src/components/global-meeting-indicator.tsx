@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useMeeting } from '@/contexts/meeting-context'
+import { useMeetingStatus } from '@/hooks/use-meetings'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { 
@@ -20,45 +21,23 @@ interface GlobalMeetingIndicatorProps {
 }
 
 export function GlobalMeetingIndicator({ className }: GlobalMeetingIndicatorProps) {
-  const { isInMeeting, currentMeeting, endCurrentMeeting, isLoading } = useMeeting()
+  const { endCurrentMeeting } = useMeeting()
+  
+  // Use direct hook instead of context to prevent duplicate requests
+  const { 
+    data: statusData, 
+    isLoading: statusLoading 
+  } = useMeetingStatus(7)
+  
+  const isInMeeting = statusData?.isInMeeting || false
+  const currentMeeting = statusData?.activeMeeting || null
+  const isLoading = statusLoading
   const [isEnding, setIsEnding] = useState(false)
   const [currentTime, setCurrentTime] = useState(new Date())
   const [position, setPosition] = useState({ x: 24, y: 24 }) // Default top-right position
   const [isDragging, setIsDragging] = useState(false)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
   const containerRef = useRef<HTMLDivElement>(null)
-
-  // Load position from localStorage on component mount
-  useEffect(() => {
-    const savedPosition = localStorage.getItem('meeting-indicator-position')
-    if (savedPosition) {
-      try {
-        const parsedPosition = JSON.parse(savedPosition)
-        // Validate that the position is within reasonable bounds
-        const maxX = window.innerWidth - 288 // Component width
-        const maxY = window.innerHeight - 200 // Component height
-        
-        if (
-          parsedPosition.x >= 0 && 
-          parsedPosition.y >= 0 && 
-          parsedPosition.x <= maxX && 
-          parsedPosition.y <= maxY
-        ) {
-          setPosition(parsedPosition)
-        } else {
-          // Reset to default if saved position is out of bounds
-          console.log('Saved position is out of bounds, resetting to default')
-          setPosition({ x: 24, y: 24 })
-          savePosition({ x: 24, y: 24 })
-        }
-      } catch (error) {
-        console.warn('Failed to parse saved meeting indicator position:', error)
-        // Reset to default on parse error
-        setPosition({ x: 24, y: 24 })
-        savePosition({ x: 24, y: 24 })
-      }
-    }
-  }, [])
 
   // Save position to localStorage whenever it changes
   const savePosition = useCallback((newPosition: { x: number; y: number }) => {
@@ -69,6 +48,75 @@ export function GlobalMeetingIndicator({ className }: GlobalMeetingIndicatorProp
     }
   }, [])
 
+  // Load position from localStorage on component mount with improved validation
+  useEffect(() => {
+    const savedPosition = localStorage.getItem('meeting-indicator-position')
+    if (savedPosition) {
+      try {
+        const parsedPosition = JSON.parse(savedPosition)
+        
+        // More accurate bounds validation
+        const componentWidth = 288 // w-72 = 288px
+        const componentHeight = 200 // Estimated height
+        const padding = 8 // Same padding as drag logic
+        
+        const maxX = window.innerWidth - componentWidth - padding
+        const maxY = window.innerHeight - componentHeight - padding
+        
+        if (
+          parsedPosition.x >= padding && 
+          parsedPosition.y >= padding && 
+          parsedPosition.x <= maxX && 
+          parsedPosition.y <= maxY &&
+          typeof parsedPosition.x === 'number' &&
+          typeof parsedPosition.y === 'number' &&
+          !isNaN(parsedPosition.x) &&
+          !isNaN(parsedPosition.y)
+        ) {
+          setPosition(parsedPosition)
+        } else {
+          // Reset to default if saved position is out of bounds or invalid
+          console.log('Saved position is out of bounds or invalid, resetting to default')
+          const defaultPosition = { x: 24, y: 24 }
+          setPosition(defaultPosition)
+          savePosition(defaultPosition)
+        }
+      } catch (error) {
+        console.warn('Failed to parse saved meeting indicator position:', error)
+        // Reset to default on parse error
+        const defaultPosition = { x: 24, y: 24 }
+        setPosition(defaultPosition)
+        savePosition(defaultPosition)
+      }
+    }
+  }, [savePosition])
+
+  // Handle window resize to keep position within bounds
+  useEffect(() => {
+    const handleResize = () => {
+      const componentWidth = 288
+      const componentHeight = containerRef.current?.offsetHeight || 200
+      const padding = 8
+      
+      const maxX = window.innerWidth - componentWidth - padding
+      const maxY = window.innerHeight - componentHeight - padding
+      
+      // Adjust position if it's now out of bounds
+      const newPosition = {
+        x: Math.max(padding, Math.min(position.x, maxX)),
+        y: Math.max(padding, Math.min(position.y, maxY))
+      }
+      
+      if (newPosition.x !== position.x || newPosition.y !== position.y) {
+        setPosition(newPosition)
+        savePosition(newPosition)
+      }
+    }
+
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [position, savePosition])
+
   // Update time every second for real-time duration
   useEffect(() => {
     const interval = setInterval(() => {
@@ -78,7 +126,7 @@ export function GlobalMeetingIndicator({ className }: GlobalMeetingIndicatorProp
     return () => clearInterval(interval)
   }, [])
 
-  // Drag functionality
+  // Drag functionality with improved accuracy
   const handleMouseDown = (e: React.MouseEvent) => {
     if (e.target instanceof HTMLElement && e.target.closest('[data-draggable="false"]')) {
       return // Don't drag if clicking on non-draggable elements
@@ -87,59 +135,91 @@ export function GlobalMeetingIndicator({ className }: GlobalMeetingIndicatorProp
     setIsDragging(true)
     const rect = containerRef.current?.getBoundingClientRect()
     if (rect) {
+      // More precise offset calculation
       setDragOffset({
         x: e.clientX - rect.left,
         y: e.clientY - rect.top
       })
     }
+    
+    // Prevent text selection during drag
+    e.preventDefault()
   }
 
   const handleMouseMove = (e: MouseEvent) => {
     if (!isDragging) return
 
+    // Calculate new position with sub-pixel accuracy
     const newX = e.clientX - dragOffset.x
     const newY = e.clientY - dragOffset.y
 
-    // Keep within viewport bounds
-    const maxX = window.innerWidth - 288 // Component width (w-72 = 288px)
-    const maxY = window.innerHeight - 200 // Component height
+    // Get actual component dimensions for more accurate bounds checking
+    const componentWidth = 288 // w-72 = 288px
+    const componentHeight = containerRef.current?.offsetHeight || 200
+    
+    // Keep within viewport bounds with padding for better UX
+    const padding = 8 // 8px padding from edges
+    const maxX = window.innerWidth - componentWidth - padding
+    const maxY = window.innerHeight - componentHeight - padding
 
     const newPosition = {
-      x: Math.max(0, Math.min(newX, maxX)),
-      y: Math.max(0, Math.min(newY, maxY))
+      x: Math.max(padding, Math.min(newX, maxX)),
+      y: Math.max(padding, Math.min(newY, maxY))
     }
 
     setPosition(newPosition)
   }
 
-  const handleMouseUp = () => {
+  const handleMouseUp = useCallback(() => {
     if (isDragging) {
-      // Save position when dragging ends
+      // Save position when dragging ends with debouncing
       savePosition(position)
     }
     setIsDragging(false)
-  }
+  }, [isDragging, position, savePosition])
 
+  // Improved event handling with better cleanup
   useEffect(() => {
     if (isDragging) {
-      document.addEventListener('mousemove', handleMouseMove)
-      document.addEventListener('mouseup', handleMouseUp)
+      // Use passive: false to allow preventDefault
+      document.addEventListener('mousemove', handleMouseMove, { passive: false })
+      document.addEventListener('mouseup', handleMouseUp, { passive: true })
+      document.addEventListener('mouseleave', handleMouseUp, { passive: true }) // Handle mouse leaving window
+      
+      // Prevent text selection and improve cursor
       document.body.style.cursor = 'grabbing'
       document.body.style.userSelect = 'none'
+      document.body.style.pointerEvents = 'none' // Prevent other elements from interfering
+      
+      // Add visual feedback
+      if (containerRef.current) {
+        containerRef.current.style.transition = 'none' // Disable transitions during drag
+      }
     } else {
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
+      document.removeEventListener('mouseleave', handleMouseUp)
+      
+      // Restore normal behavior
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
+      document.body.style.pointerEvents = ''
+      
+      // Re-enable transitions
+      if (containerRef.current) {
+        containerRef.current.style.transition = ''
+      }
     }
 
     return () => {
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
+      document.removeEventListener('mouseleave', handleMouseUp)
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
+      document.body.style.pointerEvents = ''
     }
-  }, [isDragging, dragOffset])
+  }, [isDragging, handleMouseMove, handleMouseUp])
 
   // Don't render if not in a meeting or if we're still loading and there's no indication of an active meeting
   // Only show loading state if we have some indication there might be an active meeting
@@ -153,14 +233,31 @@ export function GlobalMeetingIndicator({ className }: GlobalMeetingIndicatorProp
     if (isEnding) return
     
     setIsEnding(true)
+    
+    // Set a timeout to prevent the button from being stuck in loading state
+    const timeoutId = setTimeout(() => {
+      console.warn('Meeting end operation timed out')
+      setIsEnding(false)
+    }, 10000) // 10 second timeout
+    
     try {
-      const result = await endCurrentMeeting()
+      // Start the end meeting process
+      const endPromise = endCurrentMeeting(currentMeeting?.id)
+      
+      // Show immediate feedback that the process has started
+      console.log('Ending meeting...')
+      
+      const result = await endPromise
+      clearTimeout(timeoutId) // Clear timeout if operation completes
+      
       if (!result.success) {
         console.error('Failed to end meeting:', result.message)
-        // You could add a toast notification here
         alert(`Failed to end meeting: ${result.message}`)
+      } else {
+        console.log('Meeting ended successfully')
       }
     } catch (error) {
+      clearTimeout(timeoutId) // Clear timeout if operation fails
       console.error('Error ending meeting:', error)
       alert('An unexpected error occurred while ending the meeting')
     } finally {
@@ -184,13 +281,13 @@ export function GlobalMeetingIndicator({ className }: GlobalMeetingIndicatorProp
   const getMeetingTypeColor = (meetingType: string) => {
     switch (meetingType?.toLowerCase()) {
       case 'video':
-        return 'bg-gradient-to-br from-blue-500 to-blue-600'
+        return 'bg-gradient-to-br from-primary to-secondary'
       case 'phone':
-        return 'bg-gradient-to-br from-emerald-500 to-emerald-600'
+        return 'bg-gradient-to-br from-secondary to-accent'
       case 'in-person':
-        return 'bg-gradient-to-br from-purple-500 to-purple-600'
+        return 'bg-gradient-to-br from-accent to-primary'
       default:
-        return 'bg-gradient-to-br from-blue-500 to-blue-600'
+        return 'bg-gradient-to-br from-primary to-secondary'
     }
   }
 
@@ -227,8 +324,8 @@ export function GlobalMeetingIndicator({ className }: GlobalMeetingIndicatorProp
       }}
       onMouseDown={handleMouseDown}
     >
-      {/* Header with gradient background */}
-      <div className="relative bg-gradient-to-r from-blue-500 to-blue-600 dark:from-blue-600 dark:to-blue-700 rounded-t-xl p-3">
+      {/* Header with brand gradient background */}
+      <div className="relative bg-gradient-to-r from-primary to-secondary dark:from-primary dark:to-secondary rounded-t-xl p-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className={cn(
@@ -242,18 +339,10 @@ export function GlobalMeetingIndicator({ className }: GlobalMeetingIndicatorProp
               <h3 className="font-bold text-white text-sm">
                 In Meeting
               </h3>
-              <p className="text-blue-100 text-xs font-medium">
+              <p className="text-white/80 text-xs font-medium">
                 {currentMeeting.meeting_type || 'video'} call
               </p>
             </div>
-          </div>
-          
-          {/* Live indicator with enhanced styling */}
-          <div className="flex items-center gap-1.5 bg-red-500/20 backdrop-blur-sm rounded-full px-2 py-1 border border-red-400/30">
-            <div className="w-1.5 h-1.5 bg-red-400 rounded-full animate-pulse shadow-md shadow-red-400/50"></div>
-            <span className="text-red-100 text-xs font-bold tracking-wide">
-              LIVE
-            </span>
           </div>
         </div>
         

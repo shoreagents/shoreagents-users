@@ -33,6 +33,7 @@ import {
   useDeleteTask, 
   useReorderGroups 
 } from "@/hooks/use-task-activity"
+import { TaskActivitySkeleton } from "@/components/skeleton-loaders"
 
 // Utility function to generate unique IDs
 const generateUniqueId = (prefix: string = 'temp') => {
@@ -152,7 +153,6 @@ export default function TaskActivityPage() {
         const targetTask = allTasks.find(task => task.id === taskId)
         if (targetTask) {
           // Open the task detail dialog
-          console.log('Opening task from notification:', targetTask.title)
           // We'll need to trigger the task click handler
           setTimeout(() => {
             const taskClickEvent = new CustomEvent('openTask', { detail: targetTask })
@@ -197,7 +197,6 @@ export default function TaskActivityPage() {
         
         const targetTask = allTasks.find(task => task.id === taskId)
         if (targetTask) {
-          console.log('Opening task from URL change:', targetTask.title)
           setTimeout(() => {
             const taskClickEvent = new CustomEvent('openTask', { detail: targetTask })
             window.dispatchEvent(taskClickEvent)
@@ -254,7 +253,6 @@ export default function TaskActivityPage() {
         
         const targetTask = allTasks.find(task => task.id === taskId)
         if (targetTask) {
-          console.log('Opening task from notification click (already on page):', targetTask.title)
           setTimeout(() => {
             const taskClickEvent = new CustomEvent('openTask', { detail: targetTask })
             window.dispatchEvent(taskClickEvent)
@@ -376,7 +374,6 @@ export default function TaskActivityPage() {
       if (!t && msg.table === 'tasks') {
         if (msg.action === 'DELETE' && msg.old?.id) {
           const delId = Number(msg.old.id)
-          console.log('Deleting task with ID:', delId)
           updateCacheOptimistically(prev => {
             if (!prev) return []
             return prev.map(g => ({
@@ -686,7 +683,6 @@ export default function TaskActivityPage() {
 
     // Listen for groups reordered events
     s.on('groupsReordered', ({ groupPositions }: { groupPositions: Array<{ id: number; position: number }> }) => {
-      console.log('Received groupsReordered event:', groupPositions)
       updateCacheOptimistically(prevGroups => {
         if (!prevGroups) return []
         const updatedGroups = [...prevGroups]
@@ -701,7 +697,6 @@ export default function TaskActivityPage() {
     })
 
     return () => {
-      console.log('Cleaning up task activity socket event listeners')
       s.off('taskMoved')
       s.off('taskCreated')
       s.off('groupCreated')
@@ -1038,10 +1033,7 @@ export default function TaskActivityPage() {
               </CardHeader>
               <CardContent className="flex-1 p-0 overflow-y-auto overflow-x-hidden">
                   {isLoading ? (
-                    <div className="flex items-center justify-center h-64">
-                      <Loader2 className="h-8 w-8 animate-spin" />
-                      <span className="ml-2">Loading tasks...</span>
-                    </div>
+                    <TaskActivitySkeleton />
                   ) : (
                   <KanbanBoard 
                       zoom={zoomLevel}

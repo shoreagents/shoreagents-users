@@ -22,11 +22,16 @@ export async function POST(request: NextRequest) {
 
     // Invalidate Redis cache for meetings and status
     if (agent_user_id) {
+      // Invalidate all paginated cache entries for this user
+      const meetingsCachePattern = `meetings:${agent_user_id}:7:*`
       const meetingsCacheKey = `meetings:${agent_user_id}:7`
       const statusCacheKey = `meeting-status:${agent_user_id}:7`
+      const countsCacheKey = `meeting-counts:${agent_user_id}:7`
       await Promise.all([
+        redisCache.invalidatePattern(meetingsCachePattern),
         redisCache.del(meetingsCacheKey),
-        redisCache.del(statusCacheKey)
+        redisCache.del(statusCacheKey),
+        redisCache.del(countsCacheKey)
       ])
       console.log('✅ Meeting cancelled and cache invalidated')
     }

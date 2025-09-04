@@ -33,8 +33,9 @@ export async function POST(req: NextRequest) {
     }
 
     const deleted = await executeQuery<{ id: number }>(
-      `DELETE FROM notifications n
-       USING users u
+      `UPDATE notifications n
+       SET clear = true
+       FROM users u
        WHERE n.user_id = u.id
          AND u.email = $1
          AND n.id = ANY($2::int[])

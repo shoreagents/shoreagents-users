@@ -43,12 +43,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@/components/ui/pagination"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Calendar24 } from "@/components/ui/date-picker"
 import { canCreateMeeting, type Meeting } from "@/lib/meeting-utils"
 import { useMeeting } from "@/contexts/meeting-context"
 import { 
   useMeetings, 
   useMeetingStatus, 
+  useMeetingCounts,
   useCreateMeeting, 
   useStartMeeting, 
   useEndMeeting, 
@@ -81,130 +83,164 @@ function MeetingCard({
   const isActive = meeting.status === 'in-progress'
   const now = new Date()
   const meetingStartTime = new Date(meeting.start_time)
-  const canStart = meeting.status === 'scheduled' && meetingStartTime <= now
+  // Add 10-minute grace period to match the database function logic
+  const gracePeriodMs = 10 * 60 * 1000 // 10 minutes in milliseconds
+  const canStart = meeting.status === 'scheduled' && 
+    meetingStartTime <= now && 
+    (now.getTime() - meetingStartTime.getTime()) <= gracePeriodMs
 
   return (
-    <Card className={`relative ${isActive ? 'ring-2 ring-green-500' : ''}`}>
-      <CardHeader className="pb-3">
+    <Card className={`relative transition-all duration-200 ${isActive ? 'ring-2 ring-green-500 shadow-md' : 'hover:shadow-sm'}`}>
+  <CardHeader className="pb-4">
+    <div className="flex items-start justify-between">
+      {/* Title & Icon */}
+      <div className="flex items-center gap-2">
+        <TypeIcon className="h-5 w-5 text-gray-500" />
+        <CardTitle className="text-lg font-semibold leading-tight">
+          {meeting.title}
+        </CardTitle>
+      </div>
+
+      {/* Status Badge */}
+      <Badge className={`${getStatusColor(meeting.status)} capitalize`}>
+        {meeting.status.replace('-', ' ')}
+      </Badge>
+    </div>
+
+    {/* Description */}
+    {meeting.description && (
+      <CardDescription className="mt-2 text-sm text-gray-600">
+        {meeting.description}
+      </CardDescription>
+    )}
+  </CardHeader>
+
+  <CardContent className="space-y-5">
+    {/* Time Info */}
+    <div className="flex items-center justify-between text-sm text-gray-600">
+      <div className="flex items-center gap-2">
+        <Clock className="h-4 w-4 text-gray-400" />
+        {meeting.status === 'in-progress' ? (
+          <span className="font-medium text-green-600">
+            {(() => {
+              try {
+                let startTime: Date
+
+                if (meeting.start_time.includes('T')) {
+                  startTime = new Date(meeting.start_time)
+                } else if (meeting.start_time.includes(' ')) {
+                  startTime = new Date(meeting.start_time.replace(' +0800', ''))
+                } else {
+                  startTime = new Date(meeting.start_time)
+                }
+
+                const now = new Date()
+                const elapsedMs = now.getTime() - startTime.getTime()
+
+                if (elapsedMs < 0) return 'Pending start...'
+
+                const elapsedMinutes = Math.floor(elapsedMs / 60000)
+                const elapsedSeconds = Math.floor((elapsedMs % 60000) / 1000)
+                return `Running: ${elapsedMinutes}m ${elapsedSeconds}s`
+              } catch {
+                return 'Running: 0m 0s'
+              }
+            })()}
+          </span>
+        ) : (
+          <span>
+            {meeting.end_time
+              ? `${formatTime(meeting.start_time)} - ${formatTime(meeting.end_time)}`
+              : `Started: ${formatTime(meeting.start_time)}`}
+          </span>
+        )}
+      </div>
+
+      {/* Duration / Status Note */}
+      <span className="text-xs text-gray-500">
+        {meeting.status === 'completed' && meeting.duration_minutes > 0
+          ? `${meeting.duration_minutes} min`
+          : meeting.status === 'scheduled'
+            ? 'Scheduled'
+            : meeting.status === 'in-progress'
+              ? ''
+              : ''}
+      </span>
+    </div>
+
+    {/* Action Buttons */}
+    <div className="flex gap-3 pt-1">
+      {meeting.status === 'scheduled' && (
+        <div className="flex items-center justify-center flex-1 text-sm rounded-lg dark:bg-gray-50 bg-gray-200 text-black">
+          {canStart ? (
+            <span className="text-green-600 font-medium">Starting automatically...</span>
+          ) : meetingStartTime <= now ? (
+            <span className="text-red-600 font-medium">Start time passed</span>
+          ) : (
+            <span>Scheduled for {formatTime(meeting.start_time)}</span>
+          )}
+        </div>
+      )}
+
+      {meeting.status === 'in-progress' && (
+        <>
+          <div className="flex flex-1 items-center justify-center text-sm rounded-lg bg-green-50 text-green-700 font-medium">
+            Meeting Active
+          </div>
+          <Button
+            size="sm"
+            variant="destructive"
+            onClick={() => onEnd(meeting.id)}
+            className="flex-1 flex items-center justify-center gap-1"
+          >
+            <Square className="h-4 w-4" />
+            End
+          </Button>
+        </>
+      )}
+
+      {meeting.status === 'scheduled' && (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => onCancel(meeting.id)}
+          className="flex-1 flex items-center justify-center gap-1"
+        >
+          <X className="h-4 w-4" />
+          Cancel
+        </Button>
+      )}
+    </div>
+  </CardContent>
+</Card>
+
+  )
+}
+
+// Skeleton component for loading state
+function MeetingCardSkeleton() {
+  return (
+    <Card className="relative">
+      <CardHeader className="pb-4">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-2">
-            <TypeIcon className="h-5 w-5 text-gray-600" />
-            <CardTitle className="text-lg">{meeting.title}</CardTitle>
+            <Skeleton className="h-5 w-5" />
+            <Skeleton className="h-6 w-32" />
           </div>
-          <Badge className={getStatusColor(meeting.status)}>
-            {meeting.status.replace('-', ' ')}
-          </Badge>
+          <Skeleton className="h-6 w-20 rounded-full" />
         </div>
-        <CardDescription className="text-sm">
-          {meeting.description}
-        </CardDescription>
+        <Skeleton className="h-4 w-48 mt-2" />
       </CardHeader>
-      <CardContent className="space-y-4">
-        {/* Time Info */}
-        <div className="flex items-center justify-between text-sm">
-          <div className="flex items-center gap-1">
-            <Clock className="h-4 w-4 text-gray-500" />
-            {meeting.status === 'in-progress' ? (
-              <span className="font-medium text-green-600">
-                {(() => {
-                  // Calculate elapsed time for active meetings using the same logic as formatTime
-                  try {
-                    let startTime: Date
-                    
-                    // Use the same parsing logic as formatTime function
-                    if (meeting.start_time.includes('T')) {
-                      // ISO datetime format: "2025-08-06T06:27:01.264Z"
-                      startTime = new Date(meeting.start_time)
-                    } else if (meeting.start_time.includes(' ')) {
-                      // Database format: "2025-08-06 06:27:01.264 +0800"
-                      // Parse as Philippine timezone (remove +0800)
-                      startTime = new Date(meeting.start_time.replace(' +0800', ''))
-                    } else {
-                      // Fallback
-                      startTime = new Date(meeting.start_time)
-                    }
-                    
-                    const now = new Date()
-                    const elapsedMs = now.getTime() - startTime.getTime()
-                    
-                    // Handle negative elapsed time (future start time)
-                    if (elapsedMs < 0) {
-                      console.warn('Negative elapsed time detected - meeting has future start time. Start time:', meeting.start_time, 'Parsed:', startTime, 'Now:', now, 'Elapsed:', elapsedMs)
-                      // If the meeting is marked as in-progress but has a future start time,
-                      // this is a data inconsistency. Show a warning message instead of elapsed time.
-                      return 'Data inconsistency detected'
-                    }
-                    
-                    const elapsedMinutes = Math.floor(elapsedMs / 60000)
-                    const elapsedSeconds = Math.floor((elapsedMs % 60000) / 1000)
-                    return `Running: ${elapsedMinutes}m ${elapsedSeconds}s`
-                  } catch (error) {
-                    console.error('Error calculating elapsed time:', error, 'Start time:', meeting.start_time)
-                    return 'Running: 0m 0s'
-                  }
-                })()}
-              </span>
-            ) : (
-              <span>
-                {meeting.end_time 
-                  ? `${formatTime(meeting.start_time)} - ${formatTime(meeting.end_time)}`
-                  : `Started: ${formatTime(meeting.start_time)}`
-                }
-              </span>
-            )}
+      <CardContent className="space-y-5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-4 w-4" />
+            <Skeleton className="h-4 w-24" />
           </div>
-          <span className="text-gray-500">
-            {meeting.status === 'completed' && meeting.duration_minutes > 0
-              ? `${meeting.duration_minutes} min`
-              : meeting.status === 'scheduled' 
-                ? 'Open-ended'
-                : meeting.status === 'in-progress'
-                  ? 'Active'
-                  : ''
-            }
-          </span>
+          <Skeleton className="h-4 w-16" />
         </div>
-
-        {/* Action Buttons */}
-        <div className="flex gap-2 pt-2">
-          {meeting.status === 'scheduled' && (
-            <div className="flex-1 text-center text-sm text-gray-500 py-2">
-              {canStart ? (
-                <span className="text-green-600 font-medium">Starting automatically...</span>
-              ) : (
-                <span>Scheduled for {formatTime(meeting.start_time)}</span>
-              )}
-            </div>
-          )}
-          
-          {meeting.status === 'in-progress' && (
-            <>
-              <div className="flex-1 text-center text-sm text-green-600 py-2">
-                <span className="font-medium">Meeting Active</span>
-              </div>
-              <Button 
-                size="sm" 
-                variant="destructive"
-                onClick={() => onEnd(meeting.id)}
-                className="flex-1"
-              >
-                <Square className="h-4 w-4 mr-1" />
-                End
-              </Button>
-            </>
-          )}
-          
-          {meeting.status === 'scheduled' && (
-            <Button 
-              size="sm" 
-              variant="outline"
-              onClick={() => onCancel(meeting.id)}
-              className="flex-1"
-            >
-              <X className="h-4 w-4 mr-1" />
-              Cancel
-            </Button>
-          )}
+        <div className="flex gap-3 pt-1">
+          <Skeleton className="h-8 flex-1" />
         </div>
       </CardContent>
     </Card>
@@ -212,19 +248,48 @@ function MeetingCard({
 }
 
 export default function MeetingsPage() {
-  // Use react-query hooks for optimized data fetching
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage, setItemsPerPage] = useState(9)
+  const [isPaginationLoading, setIsPaginationLoading] = useState(false)
+  
+  // Calculate offset for pagination
+  const offset = (currentPage - 1) * itemsPerPage
+
+  // Initial mount state to prevent empty display flash
+  const [isInitialMount, setIsInitialMount] = useState(true)
+
+  // Use meeting context as primary source to prevent duplicate API calls
+  const { 
+    meetings: contextMeetings, 
+    isInMeeting: contextIsInMeeting,
+    currentMeeting: contextCurrentMeeting,
+    isLoading: contextLoading,
+    refreshMeetings: contextRefreshMeetings
+  } = useMeeting()
+  
+  // Only use direct hooks for pagination-specific data
   const { 
     data: meetingsData, 
     isLoading: meetingsLoading, 
     error: meetingsError,
     refetch: refetchMeetings
-  } = useMeetings(7)
+  } = useMeetings(7, itemsPerPage, offset)
   
+  // Use context for status data to prevent duplicate calls
+  const statusData = {
+    isInMeeting: contextIsInMeeting,
+    activeMeeting: contextCurrentMeeting
+  }
+  const statusLoading = contextLoading
+  const statusError = null
+
+  // Get meeting counts for tabs
   const { 
-    data: statusData, 
-    isLoading: statusLoading,
-    error: statusError 
-  } = useMeetingStatus(7)
+    data: countsData, 
+    isLoading: countsLoading, 
+    error: countsError 
+  } = useMeetingCounts(7)
   
   // Mutation hooks
   const createMeetingMutation = useCreateMeeting()
@@ -233,10 +298,8 @@ export default function MeetingsPage() {
   const cancelMeetingMutation = useCancelMeeting()
   const refreshMeetings = useRefreshMeetings()
   
-  // Legacy context for compatibility (can be removed later)
-  const { 
-    startNewMeeting, 
-  } = useMeeting()
+  // Removed legacy context usage to prevent duplicate requests
+  // All data fetching is now handled by direct hooks above
   
   // Extract data from react-query and ensure compatibility
   const meetings = useMemo(() => {
@@ -245,14 +308,26 @@ export default function MeetingsPage() {
       is_in_meeting: meeting.status === 'in-progress'
     }))
   }, [meetingsData?.meetings])
-  // Only show loading if we're actually loading and don't have any data yet
-  // This prevents the flash of loading state when there are no meetings
-  // Also check if we're still initializing (no currentUser yet) to prevent premature empty state
-  const loading = (meetingsLoading || statusLoading) && (!meetingsData && !statusData)
+
+  // Extract pagination info
+  const pagination = meetingsData?.pagination || {
+    total: 0,
+    limit: itemsPerPage,
+    offset: 0,
+    hasMore: false,
+    totalPages: 0,
+    currentPage: 1
+  }
+  // Show loading if we're loading meetings, status, or counts, or if we don't have any data yet
+  // This prevents the empty state from flashing before data loads
+  const loading = isInitialMount || meetingsLoading || statusLoading || countsLoading || (!meetingsData && !statusData)
+  
+  // Show loading state when pagination is changing (meetingsLoading is true but we have data)
+  const paginationLoading = isPaginationLoading || (meetingsLoading && meetingsData)
   
   // Check if we're still in the initial loading phase (queries not yet enabled)
-  const isInitializing = meetingsLoading === false && statusLoading === false && !meetingsData && !statusData
-  const queryError = meetingsError || statusError
+  const isInitializing = meetingsLoading === false && statusLoading === false && countsLoading === false && !meetingsData && !statusData
+  const queryError = meetingsError || statusError || countsError
   
   const [currentTime, setCurrentTime] = useState(new Date())
   const [showAddForm, setShowAddForm] = useState(false)
@@ -270,14 +345,85 @@ export default function MeetingsPage() {
   const [selectedTime, setSelectedTime] = useState<string>(new Date().toTimeString().slice(0, 5))
   const [customTitle, setCustomTitle] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [canCreateNewMeeting, setCanCreateNewMeeting] = useState(true)
   const [createMeetingReason, setCreateMeetingReason] = useState<string | null>(null)
   const [dialogError, setDialogError] = useState<string | null>(null)
   const [isImmediateMeeting, setIsImmediateMeeting] = useState(false)
   const [activeTab, setActiveTab] = useState('all')
-  const [currentPage, setCurrentPage] = useState(1)
-  const [itemsPerPage] = useState(9)
-  const [totalMeetings, setTotalMeetings] = useState(0)
+  const [filteredCurrentPage, setFilteredCurrentPage] = useState(1)
+
+  // Filter meetings based on active tab
+  const filteredMeetings = useMemo(() => {
+    switch (activeTab) {
+      case 'today':
+        return meetings.filter(meeting => {
+          const now = new Date()
+          const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+          
+          const meetingStartTime = new Date(meeting.start_time)
+          const meetingDate = new Date(meetingStartTime.getFullYear(), meetingStartTime.getMonth(), meetingStartTime.getDate())
+          
+          return meetingDate.getTime() === today.getTime()
+        })
+      case 'scheduled':
+        return meetings.filter(meeting => meeting.status === 'scheduled')
+      case 'in-progress':
+        return meetings.filter(meeting => meeting.status === 'in-progress')
+      case 'completed':
+        return meetings.filter(meeting => meeting.status === 'completed')
+      default:
+        return meetings
+    }
+  }, [meetings, activeTab])
+
+  // Calculate pagination for filtered results
+  const filteredPagination = useMemo(() => {
+    const totalFiltered = filteredMeetings.length
+    const itemsPerPage = 9 // Based on the grid layout (3x3)
+    const totalPages = Math.ceil(totalFiltered / itemsPerPage)
+    
+    return {
+      total: totalFiltered,
+      totalPages: totalPages,
+      currentPage: filteredCurrentPage,
+      hasMore: totalPages > 1
+    }
+  }, [filteredMeetings, filteredCurrentPage])
+
+  // Get paginated meetings for display
+  const paginatedMeetings = useMemo(() => {
+    const itemsPerPage = 9
+    const startIndex = (filteredCurrentPage - 1) * itemsPerPage
+    const endIndex = startIndex + itemsPerPage
+    return filteredMeetings.slice(startIndex, endIndex)
+  }, [filteredMeetings, filteredCurrentPage])
+
+  // Dynamically check if user can create new meeting based on ALL existing meetings
+  const canCreateNewMeeting = useMemo(() => {
+    // Use contextMeetings which contains all meetings, not just the current page
+    const allMeetings = contextMeetings || []
+    
+    // Check if there are any scheduled or in-progress meetings across ALL pages
+    const hasScheduled = allMeetings.some(meeting => meeting.status === 'scheduled')
+    const hasInProgress = allMeetings.some(meeting => meeting.status === 'in-progress')
+    
+    if (hasScheduled) {
+      setCreateMeetingReason('You have a scheduled meeting that hasn\'t started yet. Please start or cancel it before creating a new one.')
+      return false
+    } else if (hasInProgress) {
+      setCreateMeetingReason('You have an ongoing meeting. Please end it before creating a new one.')
+      return false
+    } else {
+      setCreateMeetingReason(null)
+      return true
+    }
+  }, [contextMeetings])
+
+  // Handle initial mount state
+  useEffect(() => {
+    if (meetingsData || statusData || meetingsLoading || statusLoading) {
+      setIsInitialMount(false)
+    }
+  }, [meetingsData, statusData, meetingsLoading, statusLoading])
 
   // Update current time every second for elapsed time display
   useEffect(() => {
@@ -287,38 +433,25 @@ export default function MeetingsPage() {
     return () => clearInterval(timer)
   }, [])
 
-
-
-
-  // Update total meetings count when meetings data changes
-  useEffect(() => {
-    setTotalMeetings(meetings.length)
-  }, [meetings])
-
   // Sync date and time with scheduledTime
   useEffect(() => {
     if (selectedDate && selectedTime) {
-      const dateStr = selectedDate.toISOString().split('T')[0]
+      // Use local date formatting to avoid timezone issues
+      const year = selectedDate.getFullYear()
+      const month = String(selectedDate.getMonth() + 1).padStart(2, '0')
+      const day = String(selectedDate.getDate()).padStart(2, '0')
+      const dateStr = `${year}-${month}-${day}`
       // Ensure time is in HH:MM format
       const timeStr = selectedTime.includes(':') ? selectedTime : `${selectedTime}:00`
-      setNewMeeting(prev => ({ ...prev, scheduledTime: `${dateStr}T${timeStr}` }))
+      
+      // Create a proper Date object in local timezone and convert to ISO string
+      // This ensures the timezone is properly handled
+      const localDateTime = new Date(`${dateStr}T${timeStr}`)
+      setNewMeeting(prev => ({ ...prev, scheduledTime: localDateTime.toISOString() }))
     }
   }, [selectedDate, selectedTime])
 
-  // Initialize can-create status
-  useEffect(() => {
-    const initializeCanCreate = async () => {
-      try {
-        const canCreate = await canCreateMeeting()
-        setCanCreateNewMeeting(canCreate.canCreate)
-        setCreateMeetingReason(canCreate.reason || null)
-      } catch (error) {
-        console.error('Error checking can create meeting:', error)
-      }
-    }
-    
-    initializeCanCreate()
-  }, [])
+  // Note: canCreateNewMeeting is now computed dynamically based on meetings data
 
   // Listen for automatic meeting start events
   useEffect(() => {
@@ -359,6 +492,33 @@ export default function MeetingsPage() {
         refetchMeetings()
       }
     }, 2000) // Check every 2 seconds for more responsive updates
+
+    return () => clearInterval(interval)
+  }, [meetings, refetchMeetings])
+
+  // Periodic sync check to ensure UI consistency
+  useEffect(() => {
+    const hasActiveMeetings = meetings.some(meeting => meeting.status === 'in-progress')
+    
+    if (!hasActiveMeetings) return
+
+    const interval = setInterval(() => {
+      // Check if any in-progress meetings should be completed
+      // This is a fallback to catch any missed status updates
+      const now = new Date()
+      const shouldSync = meetings.some(meeting => {
+        if (meeting.status !== 'in-progress') return false
+        const meetingStartTime = new Date(meeting.start_time)
+        const elapsedHours = (now.getTime() - meetingStartTime.getTime()) / (1000 * 60 * 60)
+        // If meeting has been running for more than 8 hours, it's likely stale
+        return elapsedHours > 8
+      })
+
+      if (shouldSync) {
+        console.log('Detected potentially stale meeting data, refreshing...')
+        refetchMeetings()
+      }
+    }, 30000) // Check every 30 seconds for stale data
 
     return () => clearInterval(interval)
   }, [meetings, refetchMeetings])
@@ -411,19 +571,12 @@ export default function MeetingsPage() {
   }
 
 
-
-
-
-
-
   const handleStartMeeting = async (meetingId: number) => {
     try {
       await startMeetingMutation.mutateAsync(meetingId)
       
-      // Update can-create status
-      const canCreateResult = await canCreateMeeting()
-      setCanCreateNewMeeting(canCreateResult.canCreate)
-      setCreateMeetingReason(canCreateResult.reason || null)
+      // Update can-create status with a small delay to ensure database is updated
+      // Note: canCreateNewMeeting is now computed dynamically
 
     } catch (error) {
       console.error('Error starting meeting:', error)
@@ -435,12 +588,8 @@ export default function MeetingsPage() {
     try {
       await endMeetingMutation.mutateAsync(meetingId)
       
-
-
-      // Update can-create status
-      const canCreateResult = await canCreateMeeting()
-      setCanCreateNewMeeting(canCreateResult.canCreate)
-      setCreateMeetingReason(canCreateResult.reason || null)
+      // Update can-create status with a small delay to ensure database is updated
+      // Note: canCreateNewMeeting is now computed dynamically
 
     } catch (error) {
       console.error('Error ending meeting:', error)
@@ -452,10 +601,8 @@ export default function MeetingsPage() {
     try {
       await cancelMeetingMutation.mutateAsync(meetingId)
 
-      // Update can-create status
-      const canCreateResult = await canCreateMeeting()
-      setCanCreateNewMeeting(canCreateResult.canCreate)
-      setCreateMeetingReason(canCreateResult.reason || null)
+      // Update can-create status with a small delay to ensure database is updated
+      // Note: canCreateNewMeeting is now computed dynamically
 
     } catch (error) {
       console.error('Error cancelling meeting:', error)
@@ -483,10 +630,16 @@ export default function MeetingsPage() {
 
         // Validate that the scheduled time is not in the past
         const timeStr = selectedTime.includes(':') ? selectedTime : `${selectedTime}:00`
-        const scheduledDateTime = new Date(`${selectedDate.toISOString().split('T')[0]}T${timeStr}`)
+        // Create date in local timezone to avoid UTC conversion issues
+        const scheduledDateTime = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 
+          parseInt(timeStr.split(':')[0]), parseInt(timeStr.split(':')[1]), parseInt(timeStr.split(':')[2] || '0'))
         const now = new Date()
-        if (scheduledDateTime < now) {
-          setDialogError('Meeting time cannot be in the past')
+        
+        // Add a 5-minute buffer to allow scheduling meetings that are just slightly in the past
+        const bufferTime = new Date(now.getTime() - 5 * 60 * 1000) // 5 minutes in the past
+        
+        if (scheduledDateTime < bufferTime) {
+          setDialogError('Meeting time cannot be more than 5 minutes in the past')
           return
         }
       }
@@ -519,10 +672,7 @@ export default function MeetingsPage() {
         scheduledTime: scheduledTime
       })
 
-      // Update can-create status
-      const canCreateResult = await canCreateMeeting()
-      setCanCreateNewMeeting(canCreateResult.canCreate)
-      setCreateMeetingReason(canCreateResult.reason || null)
+      // Note: canCreateNewMeeting is now computed dynamically
 
       // Reset form
       setNewMeeting({
@@ -566,34 +716,45 @@ export default function MeetingsPage() {
     return meetings.filter(meeting => meeting.status === status)
   }
 
-  const getRecentMeetings = (limit: number = 10) => {
-    return meetings
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-      .slice(0, limit)
+  // Get counts from the API
+  const counts = countsData || {
+    total: 0,
+    today: 0,
+    scheduled: 0,
+    inProgress: 0,
+    completed: 0
   }
 
-  const getTodayMeetings = () => {
-    const today = new Date().toDateString()
-    return meetings.filter(meeting => {
-      const meetingDate = new Date(meeting.created_at).toDateString()
-      return meetingDate === today
-    })
-  }
-
-  // Pagination helper
-  const getPaginatedMeetings = (meetingsList: Meeting[]) => {
-    const startIndex = (currentPage - 1) * itemsPerPage
-    const endIndex = startIndex + itemsPerPage
-    return meetingsList.slice(startIndex, endIndex)
-  }
-
-  const getTotalPages = (meetingsList: Meeting[]) => {
-    return Math.ceil(meetingsList.length / itemsPerPage)
-  }
+  // Server-side pagination - no need for client-side pagination helpers
 
   // Reset page when tab changes
   useEffect(() => {
     setCurrentPage(1)
+  }, [activeTab])
+
+  // Handle pagination loading state
+  useEffect(() => {
+    if (meetingsLoading && meetingsData) {
+      setIsPaginationLoading(true)
+    } else {
+      setIsPaginationLoading(false)
+    }
+  }, [meetingsLoading, meetingsData])
+
+  // Handle page change with immediate loading state
+  const handlePageChange = (newPage: number) => {
+    setIsPaginationLoading(true)
+    setCurrentPage(newPage)
+  }
+
+  // Handle filtered page changes
+  const handleFilteredPageChange = (page: number) => {
+    setFilteredCurrentPage(page)
+  }
+
+  // Reset filtered page when tab changes
+  useEffect(() => {
+    setFilteredCurrentPage(1)
   }, [activeTab])
 
   if (loading || isInitializing) {
@@ -602,10 +763,31 @@ export default function MeetingsPage() {
         <AppSidebar />
         <SidebarInset>
           <AppHeader />
-          <div className="flex items-center justify-center h-screen">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto"></div>
-              <p className="mt-2 text-gray-600">Loading meetings...</p>
+          <div className="p-6 space-y-6">
+            {/* Header Skeleton */}
+            <div className="flex items-center justify-between">
+              <div>
+                <Skeleton className="h-8 w-64 mb-2" />
+                <Skeleton className="h-4 w-80" />
+              </div>
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-9 w-20" />
+                <Skeleton className="h-9 w-28" />
+              </div>
+            </div>
+
+            {/* Tabs Skeleton */}
+            <div className="grid w-full grid-cols-5 gap-1 p-1 bg-muted rounded-lg">
+              {Array.from({ length: 5 }, (_, i) => (
+                <Skeleton key={i} className="h-9 w-full" />
+              ))}
+            </div>
+
+            {/* Meeting Cards Skeleton */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {Array.from({ length: 6 }, (_, i) => (
+                <MeetingCardSkeleton key={i} />
+              ))}
             </div>
           </div>
         </SidebarInset>
@@ -636,6 +818,19 @@ export default function MeetingsPage() {
       <SidebarInset>
         <AppHeader />
         <div className="p-6 space-y-6">
+          {/* Pagination Loading Overlay */}
+          {paginationLoading && (
+            <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-6 max-w-4xl w-full mx-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {Array.from({ length: 6 }, (_, i) => (
+                    <MeetingCardSkeleton key={i} />
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+          
           {/* Header */}
           <div className="flex items-center justify-between">
             <div>
@@ -673,7 +868,7 @@ export default function MeetingsPage() {
                     </div>
                   </TooltipTrigger>
                   {!canCreateNewMeeting && createMeetingReason && (
-                    <TooltipContent className="bg-white border border-gray-200 text-gray-700">
+                    <TooltipContent >
                       <p>{createMeetingReason}</p>
                     </TooltipContent>
                   )}
@@ -685,16 +880,16 @@ export default function MeetingsPage() {
           {/* Meetings Tabs */}
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
             <TabsList className="grid w-full grid-cols-5">
-              <TabsTrigger value="all">All ({meetings.length})</TabsTrigger>
-              <TabsTrigger value="today">Today ({getTodayMeetings().length})</TabsTrigger>
-              <TabsTrigger value="scheduled">Scheduled ({getMeetingsByStatus('scheduled').length})</TabsTrigger>
-              <TabsTrigger value="in-progress">Active ({getMeetingsByStatus('in-progress').length})</TabsTrigger>
-              <TabsTrigger value="completed">Completed ({getMeetingsByStatus('completed').length})</TabsTrigger>
+              <TabsTrigger value="all">All ({counts.total})</TabsTrigger>
+              <TabsTrigger value="today">Today ({counts.today})</TabsTrigger>
+              <TabsTrigger value="scheduled">Scheduled ({counts.scheduled})</TabsTrigger>
+              <TabsTrigger value="in-progress">Active ({counts.inProgress})</TabsTrigger>
+              <TabsTrigger value="completed">Completed ({counts.completed})</TabsTrigger>
             </TabsList>
 
             <TabsContent value="all" className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {getPaginatedMeetings(getRecentMeetings(50)).map((meeting) => (
+                {meetings.map((meeting) => (
                   <MeetingCard 
                     key={meeting.id} 
                     meeting={meeting} 
@@ -707,20 +902,21 @@ export default function MeetingsPage() {
                   />
                 ))}
               </div>
-              {getTotalPages(getRecentMeetings(50)) > 1 && (
+              {pagination.totalPages > 1 && meetings.length > 0 && (
                 <Pagination>
                   <PaginationContent>
                     <PaginationItem>
                       <PaginationPrevious 
-                        onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                        onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
                         className={currentPage === 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
                       />
                     </PaginationItem>
-                    {Array.from({ length: getTotalPages(getRecentMeetings(50)) }, (_, i) => i + 1).map((page) => (
+                    {Array.from({ length: pagination.totalPages }, (_, i) => i + 1).map((page) => (
                       <PaginationItem key={page}>
                         <PaginationLink
-                          onClick={() => setCurrentPage(page)}
+                          onClick={() => handlePageChange(page)}
                           isActive={currentPage === page}
+                          className="cursor-pointer"
                         >
                           {page}
                         </PaginationLink>
@@ -728,8 +924,8 @@ export default function MeetingsPage() {
                     ))}
                     <PaginationItem>
                       <PaginationNext 
-                        onClick={() => setCurrentPage(prev => Math.min(getTotalPages(getRecentMeetings(50)), prev + 1))}
-                        className={currentPage === getTotalPages(getRecentMeetings(50)) ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                        onClick={() => handlePageChange(Math.min(pagination.totalPages, currentPage + 1))}
+                        className={currentPage === pagination.totalPages ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
                       />
                     </PaginationItem>
                   </PaginationContent>
@@ -739,7 +935,7 @@ export default function MeetingsPage() {
 
             <TabsContent value="today" className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {getPaginatedMeetings(getTodayMeetings()).map((meeting) => (
+                {paginatedMeetings.map((meeting) => (
                   <MeetingCard 
                     key={meeting.id} 
                     meeting={meeting} 
@@ -752,20 +948,21 @@ export default function MeetingsPage() {
                   />
                 ))}
               </div>
-              {getTotalPages(getTodayMeetings()) > 1 && (
+              {filteredPagination.totalPages > 1 && paginatedMeetings.length > 0 && (
                 <Pagination>
                   <PaginationContent>
                     <PaginationItem>
                       <PaginationPrevious 
-                        onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                        className={currentPage === 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                        onClick={() => handleFilteredPageChange(Math.max(1, filteredPagination.currentPage - 1))}
+                        className={filteredPagination.currentPage === 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
                       />
                     </PaginationItem>
-                    {Array.from({ length: getTotalPages(getTodayMeetings()) }, (_, i) => i + 1).map((page) => (
+                    {Array.from({ length: filteredPagination.totalPages }, (_, i) => i + 1).map((page) => (
                       <PaginationItem key={page}>
                         <PaginationLink
-                          onClick={() => setCurrentPage(page)}
-                          isActive={currentPage === page}
+                          onClick={() => handleFilteredPageChange(page)}
+                          isActive={filteredPagination.currentPage === page}
+                          className="cursor-pointer"
                         >
                           {page}
                         </PaginationLink>
@@ -773,8 +970,8 @@ export default function MeetingsPage() {
                     ))}
                     <PaginationItem>
                       <PaginationNext 
-                        onClick={() => setCurrentPage(prev => Math.min(getTotalPages(getTodayMeetings()), prev + 1))}
-                        className={currentPage === getTotalPages(getTodayMeetings()) ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                        onClick={() => handleFilteredPageChange(Math.min(filteredPagination.totalPages, filteredPagination.currentPage + 1))}
+                        className={filteredPagination.currentPage === filteredPagination.totalPages ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
                       />
                     </PaginationItem>
                   </PaginationContent>
@@ -784,7 +981,7 @@ export default function MeetingsPage() {
 
             <TabsContent value="scheduled" className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {getMeetingsByStatus('scheduled').map((meeting) => (
+                {paginatedMeetings.map((meeting) => (
                   <MeetingCard 
                     key={meeting.id} 
                     meeting={meeting} 
@@ -797,11 +994,40 @@ export default function MeetingsPage() {
                   />
                 ))}
               </div>
+              {filteredPagination.totalPages > 1 && paginatedMeetings.length > 0 && (
+                <Pagination>
+                  <PaginationContent>
+                    <PaginationItem>
+                      <PaginationPrevious 
+                        onClick={() => handleFilteredPageChange(Math.max(1, filteredPagination.currentPage - 1))}
+                        className={filteredPagination.currentPage === 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                      />
+                    </PaginationItem>
+                    {Array.from({ length: filteredPagination.totalPages }, (_, i) => i + 1).map((page) => (
+                      <PaginationItem key={page}>
+                        <PaginationLink
+                          onClick={() => handleFilteredPageChange(page)}
+                          isActive={filteredPagination.currentPage === page}
+                          className="cursor-pointer"
+                        >
+                          {page}
+                        </PaginationLink>
+                      </PaginationItem>
+                    ))}
+                    <PaginationItem>
+                      <PaginationNext 
+                        onClick={() => handleFilteredPageChange(Math.min(filteredPagination.totalPages, filteredPagination.currentPage + 1))}
+                        className={filteredPagination.currentPage === filteredPagination.totalPages ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                      />
+                    </PaginationItem>
+                  </PaginationContent>
+                </Pagination>
+              )}
             </TabsContent>
 
             <TabsContent value="in-progress" className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {getMeetingsByStatus('in-progress').map((meeting) => (
+                {paginatedMeetings.map((meeting) => (
                   <MeetingCard 
                     key={meeting.id} 
                     meeting={meeting} 
@@ -814,11 +1040,40 @@ export default function MeetingsPage() {
                   />
                 ))}
               </div>
+              {filteredPagination.totalPages > 1 && paginatedMeetings.length > 0 && (
+                <Pagination>
+                  <PaginationContent>
+                    <PaginationItem>
+                      <PaginationPrevious 
+                        onClick={() => handleFilteredPageChange(Math.max(1, filteredPagination.currentPage - 1))}
+                        className={filteredPagination.currentPage === 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                      />
+                    </PaginationItem>
+                    {Array.from({ length: filteredPagination.totalPages }, (_, i) => i + 1).map((page) => (
+                      <PaginationItem key={page}>
+                        <PaginationLink
+                          onClick={() => handleFilteredPageChange(page)}
+                          isActive={filteredPagination.currentPage === page}
+                          className="cursor-pointer"
+                        >
+                          {page}
+                        </PaginationLink>
+                      </PaginationItem>
+                    ))}
+                    <PaginationItem>
+                      <PaginationNext 
+                        onClick={() => handleFilteredPageChange(Math.min(filteredPagination.totalPages, filteredPagination.currentPage + 1))}
+                        className={filteredPagination.currentPage === filteredPagination.totalPages ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                      />
+                    </PaginationItem>
+                  </PaginationContent>
+                </Pagination>
+              )}
             </TabsContent>
 
             <TabsContent value="completed" className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {getMeetingsByStatus('completed').map((meeting) => (
+                {paginatedMeetings.map((meeting) => (
                   <MeetingCard 
                     key={meeting.id} 
                     meeting={meeting} 
@@ -831,20 +1086,66 @@ export default function MeetingsPage() {
                   />
                 ))}
               </div>
+              {filteredPagination.totalPages > 1 && paginatedMeetings.length > 0 && (
+                <Pagination>
+                  <PaginationContent>
+                    <PaginationItem>
+                      <PaginationPrevious 
+                        onClick={() => handleFilteredPageChange(Math.max(1, filteredPagination.currentPage - 1))}
+                        className={filteredPagination.currentPage === 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                      />
+                    </PaginationItem>
+                    {Array.from({ length: filteredPagination.totalPages }, (_, i) => i + 1).map((page) => (
+                      <PaginationItem key={page}>
+                        <PaginationLink
+                          onClick={() => handleFilteredPageChange(page)}
+                          isActive={filteredPagination.currentPage === page}
+                          className="cursor-pointer"
+                        >
+                          {page}
+                        </PaginationLink>
+                      </PaginationItem>
+                    ))}
+                    <PaginationItem>
+                      <PaginationNext 
+                        onClick={() => handleFilteredPageChange(Math.min(filteredPagination.totalPages, filteredPagination.currentPage + 1))}
+                        className={filteredPagination.currentPage === filteredPagination.totalPages ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                      />
+                    </PaginationItem>
+                  </PaginationContent>
+                </Pagination>
+              )}
             </TabsContent>
           </Tabs>
 
           {/* Empty State - Only show when we have confirmed there are no meetings */}
-          {meetings.length === 0 && !loading && !isInitializing && (meetingsData || statusData) && (
+          {filteredMeetings.length === 0 && !loading && !isInitializing && !paginationLoading && meetingsData && !meetingsLoading && 
+           (currentPage === 1 || pagination.total === 0) && (
             <Card>
               <CardContent className="p-8 text-center">
                 <MessageSquare className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">No meetings scheduled</h3>
-                <p className="text-gray-600 mb-4">Get started by creating your first meeting</p>
-                <Button onClick={() => setShowAddForm(true)}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Meeting
-                </Button>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">
+                  {activeTab === 'all' ? 'No meetings scheduled' : 
+                   activeTab === 'today' ? 'No meetings today' :
+                   activeTab === 'scheduled' ? 'No scheduled meetings' :
+                   activeTab === 'in-progress' ? 'No active meetings' :
+                   activeTab === 'completed' ? 'No completed meetings' :
+                   'No meetings found'}
+                </h3>
+                <p className="text-gray-600 mb-4">
+                  {activeTab === 'all' ? 'Get started by creating your first meeting' :
+                   activeTab === 'today' ? 'No meetings scheduled for today' :
+                   activeTab === 'scheduled' ? 'No meetings are currently scheduled' :
+                   activeTab === 'in-progress' ? 'No meetings are currently in progress' :
+                   activeTab === 'completed' ? 'No meetings have been completed yet' :
+                   'Try switching to a different tab or create a new meeting'}
+                </p>
+                {activeTab === 'all' && (
+                  <Button onClick={() => setShowAddForm(true)}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add Meeting
+                  </Button>
+                )}
               </CardContent>
             </Card>
           )}

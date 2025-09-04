@@ -65,18 +65,9 @@ export async function GET(request: NextRequest) {
     if (!bypassCache) {
       cachedData = await redisCache.get(cacheKey)
       if (cachedData) {
-        // Only log cache hits occasionally to reduce spam
-        if (Math.random() < 0.1) { // 10% chance to log
-          console.log('✅ Team agents served from Redis cache')
-        }
         return NextResponse.json(cachedData)
       }
-    } else {
-      // Only log bypass occasionally to reduce spam
-      if (Math.random() < 0.2) { // 20% chance to log
-        console.log('🔄 Bypassing Redis cache for real-time update')
-      }
-    }
+    } 
 
     pool = new Pool(databaseConfig)
     const client = await pool.connect()
@@ -155,10 +146,7 @@ export async function GET(request: NextRequest) {
 
       // Cache the result in Redis
       await redisCache.set(cacheKey, responseData, cacheTTL.teamAgents)
-      // Only log cache writes occasionally to reduce spam
-      if (Math.random() < 0.3) { // 30% chance to log
-        console.log('✅ Team agents cached in Redis')
-      }
+      
 
       return NextResponse.json(responseData)
     } finally {

@@ -7,6 +7,8 @@ import { InactivityDialog } from '@/components/inactivity-dialog'
 // import { initializeUserActivity, markUserAsLoggedOut, markUserAsAppClosed, pauseActivityForBreak, resumeActivityFromBreak, cleanupDuplicateSessions, forceSaveAndReload } from '@/lib/activity-storage'
 import { useRouter } from 'next/navigation'
 import { useBreak } from './break-context'
+import { useMeeting } from './meeting-context'
+import { isWithinShiftHours, parseShiftTime } from '@/lib/shift-utils'
 
 
 interface ActivityContextType {
@@ -31,8 +33,8 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
   const notificationTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const notificationUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const { isBreakActive } = useBreak()
-  // Removed useMeeting dependency to fix circular dependency
-  // Meeting status will be handled by individual components that need it
+  const { isInMeeting } = useMeeting()
+  const [shiftInfo, setShiftInfo] = useState<any>(null)
   const {
     isTracking,
     showInactivityDialog,
@@ -78,14 +80,43 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
     return () => clearTimeout(timeoutId)
   }, [])
 
-  // Start tracking only when user has logged in and no break is active
+  // Fetch shift information when user logs in
   useEffect(() => {
-    if (hasLoggedIn && !isTracking && !isBreakActive && window.location.pathname !== '/') {
+    const fetchShiftInfo = async () => {
+      if (!hasLoggedIn) {
+        setShiftInfo(null)
+        return
+      }
+
+      try {
+        const currentUser = getCurrentUser()
+        if (!currentUser?.email) return
+
+        // Fetch timer data to get shift information
+        const response = await fetch(`/api/timer/status?email=${encodeURIComponent(currentUser.email)}`)
+        const data = await response.json()
+        
+        if (data.success && data.timerData?.shiftInfo) {
+          setShiftInfo(data.timerData.shiftInfo)
+        }
+      } catch (error) {
+        console.error('Failed to fetch shift info:', error)
+        setShiftInfo(null)
+      }
+    }
+
+    fetchShiftInfo()
+  }, [hasLoggedIn])
+
+  // Start tracking only when user has logged in, no break is active, not in a meeting, and within shift hours
+  useEffect(() => {
+    const isWithinShift = isWithinShiftHours(shiftInfo)
+    if (hasLoggedIn && !isTracking && !isBreakActive && !isInMeeting && isWithinShift && window.location.pathname !== '/') {
       // Set inactivity threshold to 30 seconds (30000ms)
       setInactivityThreshold(30000)
       startTracking()
     }
-  }, [hasLoggedIn, isTracking, isBreakActive, startTracking, setInactivityThreshold])
+  }, [hasLoggedIn, isTracking, isBreakActive, isInMeeting, shiftInfo, startTracking, setInactivityThreshold])
 
   // Pause tracking when break becomes active, resume when break ends
   useEffect(() => {
@@ -106,6 +137,47 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
       }
     }
   }, [isBreakActive, hasLoggedIn, pauseTracking, resumeTracking])
+
+  // Pause tracking when meeting starts, resume when meeting ends
+  useEffect(() => {
+    if (hasLoggedIn) {
+      const currentUser = getCurrentUser()
+      if (currentUser?.email) {
+        if (isInMeeting) {
+          // Pause activity tracking when meeting starts
+          // TODO: Replace with database-driven activity pausing
+          // pauseActivityForMeeting(currentUser.email)
+          pauseTracking()
+        } else {
+          // Resume activity tracking when meeting ends
+          // TODO: Replace with database-driven activity resuming
+          // resumeActivityFromMeeting(currentUser.email)
+          resumeTracking()
+        }
+      }
+    }
+  }, [isInMeeting, hasLoggedIn, pauseTracking, resumeTracking])
+
+  // Pause tracking when outside shift hours, resume when within shift hours
+  useEffect(() => {
+    if (hasLoggedIn) {
+      const currentUser = getCurrentUser()
+      if (currentUser?.email) {
+        const isWithinShift = isWithinShiftHours(shiftInfo)
+        if (!isWithinShift) {
+          // Pause activity tracking when outside shift hours
+          // TODO: Replace with database-driven activity pausing
+          // pauseActivityForShift(currentUser.email)
+          pauseTracking()
+        } else {
+          // Resume activity tracking when within shift hours
+          // TODO: Replace with database-driven activity resuming
+          // resumeActivityFromShift(currentUser.email)
+          resumeTracking()
+        }
+      }
+    }
+  }, [shiftInfo, hasLoggedIn, pauseTracking, resumeTracking])
 
   // Meeting status will be handled by individual components that need it
   // This prevents circular dependency with MeetingProvider
@@ -240,9 +312,10 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
     }
   }, [hasLoggedIn])
 
-  // Show system notification when inactivity dialog appears
+  // Show system notification when inactivity dialog appears (but not during meetings or outside shift hours)
   useEffect(() => {
-    if (showInactivityDialog && !notificationShown && inactivityData) {
+    const isWithinShift = isWithinShiftHours(shiftInfo)
+    if (showInactivityDialog && !notificationShown && inactivityData && !isInMeeting && isWithinShift) {
       // Show system notification
       if (window.electronAPI?.inactivityNotifications) {
         window.electronAPI.inactivityNotifications.show({
@@ -403,7 +476,7 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
     <ActivityContext.Provider value={value}>
       {children}
       <InactivityDialog
-        open={showInactivityDialog}
+        open={showInactivityDialog && !isInMeeting && isWithinShiftHours(shiftInfo)}
         onClose={handleCloseDialog}
         onReset={handleResetActivity}
         onAutoLogout={handleInactivityTimeout}

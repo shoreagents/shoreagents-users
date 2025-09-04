@@ -1,6 +1,5 @@
 "use client"
 
-import { useState, useEffect } from "react"
 import { AppSidebar } from "@/components/app-sidebar"
 import { AppHeader } from "@/components/app-header"
 import {
@@ -32,58 +31,10 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { ProfileSkeleton } from "@/components/skeleton-loaders"
-import { getCurrentUser } from "@/lib/ticket-utils";
-
-// Define the UserProfile interface to match what we expect from the API
-interface UserProfile {
-  number: string
-  id_number: string
-  last_name: string
-  first_name: string
-  middle_name: string
-  gender: string
-  phone: string
-  email: string
-  date_of_birth: string
-  position: string
-  company: string
-  department: string
-  start_date: string
-  status: string
-  nickname?: string
-  profile_picture?: string
-  city?: string
-  address?: string
-  user_type?: string
-  // Job information from job_info table
-  employee_id?: string
-  job_title?: string
-  shift_period?: string
-  shift_schedule?: string
-  shift_time?: string
-  work_setup?: string
-  employment_status?: string
-  hire_type?: string
-  staff_source?: string
-  exit_date?: string
-  // Company information from members table
-  company_address?: string
-  company_phone?: string
-  company_logo?: string
-  service?: string
-  member_status?: string
-  badge_color?: string
-  country?: string
-  website?: string
-  // Additional fields
-  department_id?: number | null
-  exp_points?: number
-}
+import { useProfile, UserProfile } from "@/hooks/use-profile"
 
 export default function ProfilePage() {
-  const [loading, setLoading] = useState(true)
-  const [profile, setProfile] = useState<UserProfile | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const { profile, isLoading, error, isCached } = useProfile()
   
   const getInitials = (first?: string, last?: string, email?: string) => {
     const firstTrim = (first || '').trim()
@@ -104,48 +55,8 @@ export default function ProfilePage() {
     }
     return 'SA'
   }
-  
-  useEffect(() => {
-    const loadProfile = async () => {
-      try {
-        setLoading(true)
-        setError(null)
 
-        // Call the profile API
-        // Get current user for email parameter (works in both browser and Electron)
-        const currentUser = getCurrentUser();
-        const userEmail = currentUser?.email;
-        const apiUrl = userEmail 
-          ? `http://localhost:3000/api/profile/?email=${encodeURIComponent(userEmail)}`
-          : 'http://localhost:3000/api/profile/';
-          
-        const response = await fetch(apiUrl, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include', // Include authentication cookies for Electron
-        })
-      
-        const data = await response.json()
-
-        if (data.success && data.profile) {
-          setProfile(data.profile)
-        } else {
-          setError(data.error || 'Failed to load profile')
-        }
-      } catch (error) {
-        console.error('Profile loading error:', error)
-        setError('Network error. Please check your connection and try again.')
-      } finally {
-      setLoading(false)
-      }
-    }
-
-    loadProfile()
-  }, [])
-
-  if (loading) {
+  if (isLoading) {
     return (
       <SidebarProvider>
         <AppSidebar />
@@ -195,7 +106,14 @@ export default function ProfilePage() {
             <div className="flex items-center gap-4">
               <div>
                 <h1 className="text-3xl font-bold text-foreground">Profile Settings</h1>
-                <p className="text-muted-foreground">Manage your personal information and account details</p>
+                <p className="text-muted-foreground">
+                  Manage your personal information and account details
+                  {isCached && (
+                    <span className="ml-2 text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full">
+                      Cached
+                    </span>
+                  )}
+                </p>
               </div>
             </div>
           </div>

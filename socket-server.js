@@ -38,29 +38,81 @@ const io = new Server(server, {
 // Database connection - use the same Railway database as Next.js app
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL || 'postgresql://postgres:poEVEBPjHAzsGZwjIkBBEaRScUwhguoX@maglev.proxy.rlwy.net:41493/railway',
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  // Add connection resilience settings
+  max: 20, // Maximum number of clients in the pool
+  idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
+  connectionTimeoutMillis: 2000, // Return an error after 2 seconds if connection could not be established
+  maxUses: 7500, // Close (and replace) a connection after it has been used 7500 times
+});
+
+// Add error handling for the pool
+pool.on('error', (err, client) => {
+  console.error('Unexpected error on idle client', err);
+  // Don't exit the process, just log the error
+});
+
+// Add error handling for individual client errors
+pool.on('connect', (client) => {
+  client.on('error', (err) => {
+    console.error('PostgreSQL client error:', err);
+    // Don't exit the process, just log the error
+  });
 });
 
 // Redis client for cache invalidation
 const redisClient = redis.createClient({
-  url: process.env.REDIS_URL || 'redis://localhost:6379'
+  url: process.env.REDIS_URL || 'redis://localhost:6379',
+  // Add retry settings for better resilience
+  socket: {
+    reconnectStrategy: (retries) => {
+      if (retries > 10) {
+        console.log('Redis: Max retries reached, giving up');
+        return new Error('Max retries reached');
+      }
+      const delay = Math.min(retries * 50, 500);
+      console.log(`Redis: Retrying connection in ${delay}ms (attempt ${retries})`);
+      return delay;
+    }
+  }
 });
 
 redisClient.on('error', (err) => {
   console.error('Redis Client Error:', err);
+  // Don't exit the process, just log the error
 });
 
 redisClient.on('connect', () => {
   console.log('✅ Redis client connected');
 });
 
+redisClient.on('reconnecting', () => {
+  console.log('🔄 Redis client reconnecting...');
+});
+
+redisClient.on('end', () => {
+  console.log('🔌 Redis client disconnected');
+});
+
+// Add process-level error handling to prevent crashes
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  // Don't exit the process, just log the error
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  // Don't exit the process, just log the error
+});
+
 // Connect to Redis
 redisClient.connect().catch(console.error);
 
-// Test database connection
+// Test database connection with better error handling
 pool.query('SELECT NOW()', (err, result) => {
   if (err) {
     console.error('Database connection failed:', err.message);
+    // Don't exit the process, just log the error
   } else {
     console.log('✅ Database connected successfully');
   }
@@ -186,7 +238,6 @@ async function initializeGlobalNotificationListener() {
           if (payload.user_id) {
             let targetEmail = null;
             console.log(`🔍 Looking for user ${payload.user_id} in ${connectedUsers.size} connected users`);
-            console.log(`🔍 Connected users:`, Array.from(connectedUsers.entries()).map(([id, data]) => `${id}: ${data.email} (userId: ${data.userId})`));
             
             // Find the user by database ID in the connected users
             for (const [socketId, userData] of connectedUsers.entries()) {

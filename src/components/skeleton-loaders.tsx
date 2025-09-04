@@ -755,3 +755,143 @@ export function BellNotificationsSkeleton({ rows = 6 }: { rows?: number }) {
     </div>
   )
 }
+
+export function TaskActivitySkeleton() {
+  return (
+    <div className="flex gap-4 p-4 h-full min-h-[400px]">
+      {/* Column Skeletons */}
+      {Array.from({ length: 5 }).map((_, columnIndex) => (
+        <div key={columnIndex} className="flex-shrink-0 w-80">
+          <Card className="h-full">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Skeleton className="h-4 w-4 rounded" />
+                  <Skeleton className="h-5 w-24" />
+                </div>
+                <Skeleton className="h-5 w-8" />
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {/* Task Card Skeletons */}
+              {Array.from({ length: 3 }).map((_, taskIndex) => (
+                <div key={taskIndex} className="p-3 border rounded-lg bg-card">
+                  <div className="space-y-2">
+                    <div className="flex items-start justify-between">
+                      <Skeleton className="h-4 w-3/4" />
+                      <Skeleton className="h-4 w-4" />
+                    </div>
+                    <Skeleton className="h-3 w-full" />
+                    <Skeleton className="h-3 w-2/3" />
+                    
+                    {/* Task metadata skeleton */}
+                    <div className="flex items-center justify-between pt-2">
+                      <div className="flex items-center gap-2">
+                        <Skeleton className="h-4 w-4" />
+                        <Skeleton className="h-3 w-16" />
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Skeleton className="h-4 w-4 rounded-full" />
+                        <Skeleton className="h-4 w-4 rounded-full" />
+                      </div>
+                    </div>
+                    
+                    {/* Tags skeleton */}
+                    <div className="flex gap-1 pt-1">
+                      <Skeleton className="h-5 w-12 rounded-full" />
+                      <Skeleton className="h-5 w-16 rounded-full" />
+                    </div>
+                  </div>
+                </div>
+              ))}
+              
+              {/* Add Task Button Skeleton */}
+              <div className="pt-2">
+                <Skeleton className="h-8 w-full" />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export function ConnectedUsersSkeleton() {
+  return (
+    <div className="flex-1 h-screen bg-gray-50 dark:bg-gray-900">
+      {/* Header Skeleton */}
+      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-2">
+              <Skeleton className="h-6 w-6" />
+              <Skeleton className="h-8 w-32" />
+            </div>
+            <Skeleton className="h-6 w-20 rounded-full" />
+          </div>
+        </div>
+      </div>
+      
+      <div className="flex h-full">
+        {/* Left Sidebar Skeleton */}
+        <div className="w-80 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
+          {/* Search and Refresh Bar Skeleton */}
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700 space-y-3">
+            <div className="relative">
+              <Skeleton className="h-10 w-full" />
+            </div>
+            
+            <div className="flex items-center justify-between">
+              <Skeleton className="h-4 w-32" />
+              <Skeleton className="h-8 w-20" />
+            </div>
+          </div>
+
+          {/* Online Users Section Skeleton */}
+          <div className="flex-1 overflow-y-auto">
+            <div className="p-4">
+              <div className="flex items-center space-x-2 mb-3">
+                <Skeleton className="h-2 w-2 rounded-full" />
+                <Skeleton className="h-4 w-20" />
+                <Skeleton className="h-5 w-6 rounded-full ml-auto" />
+              </div>
+              
+              <div className="space-y-2">
+                {Array.from({ length: 6 }).map((_, index) => (
+                  <div key={index} className="flex items-center space-x-3 p-3 rounded-lg">
+                    <div className="relative">
+                      <Skeleton className="h-10 w-10 rounded-full" />
+                      <Skeleton className="absolute -bottom-1 -right-1 h-4 w-4 rounded-full" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center space-x-2">
+                        <Skeleton className="h-4 w-24" />
+                        <Skeleton className="h-4 w-8 rounded-full" />
+                      </div>
+                      <div className="flex items-center space-x-2 mt-1">
+                        <Skeleton className="h-3 w-16" />
+                        <Skeleton className="h-3 w-12" />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Right Content Area Skeleton */}
+        <div className="flex-1 bg-gray-50 dark:bg-gray-900">
+          <div className="h-full flex items-center justify-center">
+            <div className="text-center space-y-4">
+              <Skeleton className="h-16 w-16 rounded-full mx-auto" />
+              <Skeleton className="h-6 w-48 mx-auto" />
+              <Skeleton className="h-4 w-64 mx-auto" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
