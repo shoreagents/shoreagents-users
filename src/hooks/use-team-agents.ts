@@ -88,13 +88,11 @@ export function useTeamAgents() {
     
     // Prevent updates more frequent than every 2 seconds
     if (timeSinceLastUpdate < 2000) {
-      console.log('⏳ Team agents update throttled (too frequent)')
       return
     }
     
     // Check if we're already fetching to prevent spam
     if (query.isFetching) {
-      console.log('⏳ Team agents update already in progress, skipping...')
       return
     }
     
@@ -111,7 +109,6 @@ export function useTeamAgents() {
         
         // Update the cache with fresh data (no loading state)
         queryClient.setQueryData(['team-agents', currentUser.email], freshData)
-        console.log('✅ Team agents cache updated successfully')
       }
     } catch (error) {
       console.error('Error fetching fresh team agents data:', error)
@@ -149,8 +146,8 @@ export function useUserAuthData(email: string) {
       return data.data
     },
     enabled: isClient && !!email,
-    staleTime: 10 * 60 * 1000, // 10 minutes - auth data changes less frequently
-    gcTime: 30 * 60 * 1000, // 30 minutes - keep in cache for 30 min
+    staleTime: 30 * 1000, // 30 seconds - auth data changes frequently on login
+    gcTime: 5 * 60 * 1000, // 5 minutes - keep in cache for 5 min
     refetchOnMount: false,
     refetchOnWindowFocus: false,
     retry: 1,
@@ -192,8 +189,8 @@ export function useTeamAuthData(agents: TeamAgent[]) {
       return authDataMap
     },
     enabled: isClient && agents.length > 0,
-    staleTime: 10 * 60 * 1000, // 10 minutes
-    gcTime: 30 * 60 * 1000, // 30 minutes
+    staleTime: 30 * 1000, // 30 seconds - auth data changes frequently on login
+    gcTime: 5 * 60 * 1000, // 5 minutes - keep in cache for 5 min
     refetchOnMount: false,
     refetchOnWindowFocus: false,
     retry: 1,

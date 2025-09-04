@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'no valid ids' }, { status: 400 })
     }
 
-    // Update only notifications owned by the email's user
+    // Update only notifications owned by the email's user and not cleared
     const updated = await executeQuery<{ id: number }>(
       `UPDATE notifications n
        SET is_read = true
@@ -41,6 +41,7 @@ export async function POST(req: NextRequest) {
        WHERE n.user_id = u.id
          AND u.email = $1
          AND n.id = ANY($2::int[])
+         AND (n.clear IS NULL OR n.clear = false)
        RETURNING n.id`,
       [email, ids]
     )

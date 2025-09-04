@@ -260,7 +260,7 @@ export function GlobalTimerDisplay() {
             </div>
           )}
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold">Global Activity Timer</h3>
+            <h3 className="text-sm font-semibold">Activity Timer</h3>
             <div className="flex items-center gap-2">
               <span className={`w-2 h-2 rounded-full ${getConnectionStatusColor()}`}></span>
               <span className="text-xs text-muted-foreground">{getConnectionStatusText()}</span>
@@ -294,7 +294,7 @@ export function GlobalTimerDisplay() {
                       : shiftNotStarted
                       ? 'bg-blue-100 text-blue-800 dark:bg-blue-950/20 dark:text-blue-300'
                       : isInMeeting
-                      ? 'bg-purple-100 text-purple-800 dark:bg-purple-950/20 dark:text-purple-300'
+                      ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-950/20 dark:text-yellow-300'
                       : isBreakActive && breakStatus?.is_paused
                       ? 'bg-green-100 text-green-800 dark:bg-green-950/20 dark:text-green-300'
                       : isBreakActive
@@ -350,8 +350,8 @@ export function GlobalTimerDisplay() {
                       </div>
                     )}
                     {isInMeeting && (
-                      <div className="text-xs text-purple-600 dark:text-purple-400 flex items-center gap-1">
-                        <Pause className="w-3 h-3" />
+                      <div className="text-xs text-yellow-600 dark:text-yellow-400 flex items-center gap-1">
+                        <span className="w-1 h-1 bg-yellow-500 rounded-full animate-pulse"></span>
                         In Meeting
                       </div>
                     )}
@@ -388,10 +388,10 @@ export function GlobalTimerDisplay() {
                       </div>
                     )}
                     {isInMeeting && (
-                      <div className="text-xs text-purple-600 dark:text-purple-400 flex items-center gap-1">
-                        <Pause className="w-3 h-3" />
-                        In Meeting
-                      </div>
+                      <div className="text-xs text-yellow-600 dark:text-yellow-400 flex items-center gap-1">
+                      <span className="w-1 h-1 bg-yellow-500 rounded-full animate-pulse"></span>
+                      In Meeting
+                    </div>
                     )}
                  </div>
                </div>

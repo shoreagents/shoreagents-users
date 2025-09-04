@@ -2,9 +2,10 @@
 
 import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react'
 import { getCurrentUser } from '@/lib/ticket-utils'
-import { getMeetingStatus, createMeeting, type Meeting } from '@/lib/meeting-utils'
-import { useMeetings, useMeetingStatus, useRefreshMeetings } from '@/hooks/use-meetings'
+import { getMeetingStatus, createMeeting, endMeeting, type Meeting } from '@/lib/meeting-utils'
+import { useMeetings, useMeetingStatus, useRefreshMeetings, meetingKeys } from '@/hooks/use-meetings'
 import { useSocket } from '@/contexts/socket-context'
+import { useQueryClient } from '@tanstack/react-query'
 
 
 interface MeetingContextType {
@@ -17,7 +18,7 @@ interface MeetingContextType {
   
   // Meeting actions
   startNewMeeting: (title: string, description?: string, scheduledTime?: string) => Promise<{ success: boolean; message?: string }>
-  endCurrentMeeting: () => Promise<{ success: boolean; message?: string }>
+  endCurrentMeeting: (meetingId?: number) => Promise<{ success: boolean; message?: string }>
   refreshMeetings: () => Promise<void>
   
   // Real-time updates
@@ -36,33 +37,23 @@ export function MeetingProvider({ children }: MeetingProviderProps) {
   // Use shared socket context
   const { socket, isConnected } = useSocket()
   
-  // Use React-Query hooks for data fetching
-  const { 
-    data: meetingsData, 
-    isLoading: meetingsLoading, 
-    error: meetingsError,
-    refetch: refetchMeetings
-  } = useMeetings(7)
+  // Get query client for cache invalidation
+  const queryClient = useQueryClient()
   
-  const { 
-    data: statusData, 
-    isLoading: statusLoading,
-    error: statusError 
-  } = useMeetingStatus(7)
   
   // Use the proper refresh hook that invalidates cache
   const refreshMeetings = useRefreshMeetings()
   
-  // Extract data from react-query and ensure compatibility
-  const meetings = (meetingsData?.meetings || []).map(meeting => ({
-    ...meeting,
-    is_in_meeting: meeting.status === 'in-progress'
-  }))
+  // Get actual meeting status data for the context
+  // Use longer stale time to reduce redundant API calls
+  const { data: statusData, isLoading: statusLoading } = useMeetingStatus(7)
+  const { data: meetingsData, isLoading: meetingsLoading } = useMeetings(7, 10, 0)
+  
+  // Provide actual data instead of hardcoded empty values
+  const meetings: Meeting[] = meetingsData?.meetings || []
   const isInMeeting = statusData?.isInMeeting || false
   const currentMeeting = statusData?.activeMeeting || null
-  // Only show loading if we're actually loading and don't have any data yet
-  // This prevents unnecessary loading states when there are no meetings
-  const isLoading = (meetingsLoading || statusLoading) && !meetingsData && !statusData
+  const isLoading = statusLoading || meetingsLoading
   
   const refreshTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
@@ -74,7 +65,6 @@ export function MeetingProvider({ children }: MeetingProviderProps) {
     const email = currentUser?.email
     
     if (!email) {
-      console.log('No user email available for Meeting Socket.IO connection')
       return
     }
 
@@ -83,44 +73,43 @@ export function MeetingProvider({ children }: MeetingProviderProps) {
       (window as any).meetingSocket = socket
     }
 
+    // Debounced refresh function to prevent multiple rapid API calls
+    const debouncedRefresh = () => {
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current)
+      }
+      refreshTimeoutRef.current = setTimeout(() => {
+        refreshMeetings()
+        setLastUpdated(new Date())
+      }, 200) // Increased debounce time to 200ms
+    }
+
     // Listen for meeting status updates from Socket.IO server
     const handleMeetingStatusUpdate = (data: { isInMeeting: boolean; activeMeeting?: Meeting }) => {
-      console.log('Meeting status update received:', data)
-      setLastUpdated(new Date())
-      refreshMeetings() // Use proper cache invalidation
+      debouncedRefresh()
     }
 
     // Listen for meeting data updates
     const handleMeetingsUpdated = () => {
-      console.log('Meetings updated event received')
-      setLastUpdated(new Date())
-      refreshMeetings() // Use proper cache invalidation
+      debouncedRefresh()
     }
 
     // Listen for real-time meeting status changes
     const handleMeetingStarted = (data: any) => {
-      console.log('Meeting started event received:', data)
-      setLastUpdated(new Date())
-      refreshMeetings() // Use proper cache invalidation
+      debouncedRefresh()
     }
 
     const handleMeetingEnded = (data: any) => {
-      console.log('Meeting ended event received:', data)
-      setLastUpdated(new Date())
-      refreshMeetings() // Use proper cache invalidation
+      debouncedRefresh()
     }
 
     const handleMeetingUpdate = (data: any) => {
-      console.log('Meeting update event received:', data)
-      setLastUpdated(new Date())
-      refreshMeetings() // Use proper cache invalidation
+      debouncedRefresh()
     }
 
     // Listen for agent status updates
     const handleAgentStatusUpdate = (data: any) => {
-      console.log('Agent status update received:', data)
-      setLastUpdated(new Date())
-      refreshMeetings() // Use proper cache invalidation
+      debouncedRefresh()
     }
 
     // Add event listeners
@@ -132,6 +121,11 @@ export function MeetingProvider({ children }: MeetingProviderProps) {
     socket.on('agent-status-update', handleAgentStatusUpdate)
 
     return () => {
+      // Clear any pending refresh timeout
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current)
+      }
+      
       // Remove event listeners
       socket.off('meeting-status-update', handleMeetingStatusUpdate)
       socket.off('meetings-updated', handleMeetingsUpdated)
@@ -140,7 +134,7 @@ export function MeetingProvider({ children }: MeetingProviderProps) {
       socket.off('meeting-update', handleMeetingUpdate)
       socket.off('agent-status-update', handleAgentStatusUpdate)
     }
-  }, [socket, isConnected, refetchMeetings])
+  }, [socket, isConnected, refreshMeetings])
 
   const startNewMeeting = async (title: string, description?: string, scheduledTime?: string) => {
     try {
@@ -151,8 +145,11 @@ export function MeetingProvider({ children }: MeetingProviderProps) {
         scheduledTime
       })
       
-      // Refresh meetings after creating a new one
-      refetchMeetings()
+      // Invalidate all meeting-related queries to ensure UI updates
+      await queryClient.invalidateQueries({ queryKey: meetingKeys.all })
+      
+      // Also refresh the current context's meetings
+      refreshMeetings()
       
       return { success: true, message: 'Meeting created successfully' }
     } catch (error) {
@@ -161,18 +158,22 @@ export function MeetingProvider({ children }: MeetingProviderProps) {
     }
   }
 
-  const endCurrentMeeting = async () => {
+  const endCurrentMeeting = async (meetingId?: number) => {
     try {
-      if (!currentMeeting) {
-        return { success: false, message: 'No active meeting to end' }
+      if (!meetingId) {
+        return { success: false, message: 'No meeting ID provided' }
       }
 
-      const { endMeeting } = await import('@/lib/meeting-utils')
       const currentUser = getCurrentUser()
-      await endMeeting(currentMeeting.id, currentUser?.id)
+      await endMeeting(meetingId, currentUser?.id)
       
-      // Refresh meetings after ending one
-      refetchMeetings()
+      // Invalidate meeting-related queries to ensure UI updates
+      // Use more targeted invalidation to prevent spam
+      queryClient.invalidateQueries({ 
+        queryKey: meetingKeys.all,
+        exact: false,
+        refetchType: 'active' // Only refetch active queries, not background ones
+      })
       
       return { success: true, message: 'Meeting ended successfully' }
     } catch (error) {

@@ -2,37 +2,61 @@ import { NextRequest, NextResponse } from 'next/server'
 import { executeQuery } from '@/lib/database-server'
 import { redisCache, cacheKeys, cacheTTL } from '@/lib/redis-cache'
 
-// GET /api/meetings - Get user's meetings
+// GET /api/meetings - Get user's meetings with pagination
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const agent_user_id = searchParams.get('agent_user_id')
     const days = parseInt(searchParams.get('days') || '7')
+    const limit = parseInt(searchParams.get('limit') || '10')
+    const offset = parseInt(searchParams.get('offset') || '0')
 
     if (!agent_user_id) {
       return NextResponse.json({ error: 'agent_user_id is required' }, { status: 400 })
     }
 
-    // Check Redis cache first
-    const cacheKey = cacheKeys.meetings(agent_user_id, days)
+    // Validate pagination parameters
+    if (limit < 1 || limit > 1000) {
+      return NextResponse.json({ error: 'limit must be between 1 and 1000' }, { status: 400 })
+    }
+    if (offset < 0) {
+      return NextResponse.json({ error: 'offset must be non-negative' }, { status: 400 })
+    }
+
+    // Check Redis cache first (include pagination in cache key)
+    const cacheKey = cacheKeys.meetings(agent_user_id, days, limit, offset)
     const cachedData = await redisCache.get(cacheKey)
     
     if (cachedData) {
-      console.log('✅ Meetings served from Redis cache')
+      // console.log('✅ Meetings served from Redis cache') // Reduced logging
       return NextResponse.json(cachedData)
     }
 
-    const query = `SELECT * FROM get_user_meetings($1, $2)`
-    const result = await executeQuery(query, [agent_user_id, days])
+    // Get paginated meetings
+    const query = `SELECT * FROM get_user_meetings($1, $2, $3, $4)`
+    const result = await executeQuery(query, [agent_user_id, days, limit, offset])
+
+    // Get total count for pagination info
+    const countQuery = `SELECT get_user_meetings_count($1, $2) as total_count`
+    const countResult = await executeQuery(countQuery, [agent_user_id, days])
+    const totalCount = countResult[0]?.total_count || 0
 
     const responseData = {
       success: true,
-      meetings: result
+      meetings: result,
+      pagination: {
+        total: totalCount,
+        limit,
+        offset,
+        hasMore: offset + limit < totalCount,
+        totalPages: Math.ceil(totalCount / limit),
+        currentPage: Math.floor(offset / limit) + 1
+      }
     }
 
     // Cache the result in Redis with shorter TTL for more responsive updates
     await redisCache.set(cacheKey, responseData, 30)
-    console.log('✅ Meetings cached in Redis')
+    // console.log('✅ Meetings cached in Redis') // Reduced logging
 
     return NextResponse.json(responseData)
   } catch (error) {
@@ -75,12 +99,21 @@ export async function POST(request: NextRequest) {
     ])
 
     // Invalidate Redis cache for this user's meetings
+    // Invalidate all paginated cache entries for this user
+    const meetingsCachePattern = `meetings:${agent_user_id}:7:*`
+    await redisCache.invalidatePattern(meetingsCachePattern)
+    
+    // Also invalidate the base cache key
     const cacheKey = cacheKeys.meetings(agent_user_id, 7)
     await redisCache.del(cacheKey)
     
     // Also invalidate status cache
     const statusCacheKey = `meeting-status:${agent_user_id}:7`
     await redisCache.del(statusCacheKey)
+    
+    // Also invalidate counts cache
+    const countsCacheKey = `meeting-counts:${agent_user_id}:7`
+    await redisCache.del(countsCacheKey)
     
     console.log('✅ Meeting created and cache invalidated')
 

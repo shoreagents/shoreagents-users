@@ -140,7 +140,8 @@ export const cacheKeys = {
   user: (email: string) => `user:${email}`,
   notifications: (email: string) => `notifications:${email}`,
   breaksHistory: (userId: string, days: number, includeActive: boolean) => `breaks-history:${userId}:${days}:${includeActive}`,
-  meetings: (userId: string, days: number) => `meetings:${userId}:${days}`,
+  meetings: (userId: string, days: number, limit?: number, offset?: number) => 
+    `meetings:${userId}:${days}${limit !== undefined ? `:${limit}:${offset || 0}` : ''}`,
   taskStats: () => 'task-statistics',
   weeklyActivity: (email: string, weeksToKeep: number) => `weekly-activity:${email}:${weeksToKeep}`,
   monthlyActivity: (email: string, monthsToKeep: number) => `monthly-activity:${email}:${monthsToKeep}`,
@@ -155,6 +156,9 @@ export const cacheKeys = {
   // Team agents cache keys
   teamAgents: (userEmail: string) => `team-agents:${userEmail}`,
   userAuthData: (email: string) => `user-auth-data:${email}`,
+  // Profile cache keys
+  profile: (userEmail: string) => `profile:${userEmail}`,
+  profileById: (userId: number) => `profile:${userId}`,
 }
 
 /**
@@ -182,5 +186,7 @@ export const cacheTTL = {
   globalSearch: 180, // 3 minutes (search results can change frequently)
   // Team agents cache TTL
   teamAgents: 300, // 5 minutes (team data changes less frequently)
-  userAuthData: 600, // 10 minutes (auth data changes less frequently)
+  userAuthData: 60, // 1 minute (auth data changes frequently on login)
+  // Profile cache TTL
+  profile: 600, // 10 minutes (profile data changes infrequently)
 }

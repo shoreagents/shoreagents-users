@@ -37,14 +37,38 @@ export interface CreateMeetingData {
 export const meetingKeys = {
   all: ['meetings'] as const,
   lists: () => [...meetingKeys.all, 'list'] as const,
-  list: (userId: string, days: number) => [...meetingKeys.lists(), userId, days] as const,
+  list: (userId: string, days: number, limit?: number, offset?: number) => 
+    [...meetingKeys.lists(), userId, days, limit, offset] as const,
   status: (userId: string, days: number) => [...meetingKeys.all, 'status', userId, days] as const,
+  counts: (userId: string, days: number) => [...meetingKeys.all, 'counts', userId, days] as const,
   detail: (id: number) => [...meetingKeys.all, 'detail', id] as const,
 }
 
 // API Functions
-const fetchMeetings = async (userId: string, days: number = 7): Promise<{ meetings: Meeting[] }> => {
-  const response = await fetch(`/api/meetings?agent_user_id=${encodeURIComponent(userId)}&days=${days}`, {
+const fetchMeetings = async (
+  userId: string, 
+  days: number = 7, 
+  limit: number = 10, 
+  offset: number = 0
+): Promise<{ 
+  meetings: Meeting[], 
+  pagination: {
+    total: number,
+    limit: number,
+    offset: number,
+    hasMore: boolean,
+    totalPages: number,
+    currentPage: number
+  }
+}> => {
+  const params = new URLSearchParams({
+    agent_user_id: userId,
+    days: days.toString(),
+    limit: limit.toString(),
+    offset: offset.toString()
+  })
+  
+  const response = await fetch(`/api/meetings?${params}`, {
     credentials: 'include',
   })
   
@@ -69,6 +93,24 @@ const fetchMeetingStatus = async (userId: string, days: number = 7): Promise<Mee
     isInMeeting: data.isInMeeting || false,
     activeMeeting: data.activeMeeting || null
   }
+}
+
+const fetchMeetingCounts = async (userId: string, days: number = 7): Promise<{
+  total: number
+  today: number
+  scheduled: number
+  inProgress: number
+  completed: number
+}> => {
+  const response = await fetch(`/api/meetings/counts?agent_user_id=${encodeURIComponent(userId)}&days=${days}`, {
+    credentials: 'include',
+  })
+  
+  if (!response.ok) {
+    throw new Error(`Failed to fetch meeting counts: ${response.statusText}`)
+  }
+  
+  return response.json()
 }
 
 const createMeeting = async (meetingData: CreateMeetingData): Promise<{ meeting: Meeting }> => {
@@ -176,7 +218,11 @@ const cancelMeeting = async (meetingId: number): Promise<{ success: boolean }> =
 }
 
 // Hooks
-export function useMeetings(days: number = 7) {
+export function useMeetings(
+  days: number = 7, 
+  limit: number = 10, 
+  offset: number = 0
+) {
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [isClient, setIsClient] = useState(false)
   
@@ -189,14 +235,15 @@ export function useMeetings(days: number = 7) {
   }, [isClient])
 
   return useQuery({
-    queryKey: meetingKeys.list(currentUser?.id || 'loading', days),
-    queryFn: () => fetchMeetings(currentUser.id, days),
+    queryKey: meetingKeys.list(currentUser?.id || 'loading', days, limit, offset),
+    queryFn: () => fetchMeetings(currentUser.id, days, limit, offset),
     enabled: isClient && !!currentUser?.id,
-    staleTime: 30 * 1000, // 30 seconds (reduced for more responsive updates)
+    staleTime: 30 * 1000, // 30 seconds (increased to reduce spam)
     gcTime: 5 * 60 * 1000, // 5 minutes
-    refetchOnMount: true, // Always refetch on mount to get fresh data
+    refetchOnMount: false, // Don't always refetch on mount to reduce spam
     refetchOnWindowFocus: false,
-    retry: 2,
+    retry: 1, // Reduced retries to prevent spam
+    refetchInterval: false, // Disable automatic refetching
   })
 }
 
@@ -216,12 +263,37 @@ export function useMeetingStatus(days: number = 7) {
     queryKey: meetingKeys.status(currentUser?.id || 'loading', days),
     queryFn: () => fetchMeetingStatus(currentUser.id, days),
     enabled: isClient && !!currentUser?.id,
-    staleTime: 5 * 1000, // 5 seconds (very short for real-time updates)
+    staleTime: 15 * 1000, // 15 seconds (increased to reduce spam)
     gcTime: 5 * 60 * 1000, // 5 minutes
-    refetchOnMount: true, // Always refetch on mount to get fresh data
+    refetchOnMount: false, // Don't always refetch on mount to reduce spam
     refetchOnWindowFocus: false,
-    retry: 2,
-    // Removed refetchInterval - rely on socket updates and cache invalidation instead
+    retry: 1, // Reduced retries to prevent spam
+    refetchInterval: false, // Disable automatic refetching
+  })
+}
+
+export function useMeetingCounts(days: number = 7) {
+  const [currentUser, setCurrentUser] = useState<any>(null)
+  const [isClient, setIsClient] = useState(false)
+  
+  useEffect(() => {
+    if (!isClient) {
+      setIsClient(true)
+      const user = getCurrentUser()
+      setCurrentUser(user)
+    }
+  }, [isClient])
+
+  return useQuery({
+    queryKey: meetingKeys.counts(currentUser?.id || 'loading', days),
+    queryFn: () => fetchMeetingCounts(currentUser.id, days),
+    enabled: isClient && !!currentUser?.id,
+    staleTime: 30 * 1000, // 30 seconds
+    gcTime: 5 * 60 * 1000, // 5 minutes
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    retry: 1,
+    refetchInterval: false,
   })
 }
 
@@ -241,12 +313,9 @@ export function useCreateMeeting() {
   return useMutation({
     mutationFn: createMeeting,
     onSuccess: (data) => {
-      // Invalidate and refetch meetings
+      // Invalidate all meeting-related queries to ensure UI updates
       queryClient.invalidateQueries({ 
-        queryKey: meetingKeys.lists() 
-      })
-      queryClient.invalidateQueries({ 
-        queryKey: meetingKeys.status(currentUser?.id || '', 7) 
+        queryKey: meetingKeys.all 
       })
       
       toast.success('Meeting created successfully!')
@@ -274,12 +343,13 @@ export function useStartMeeting() {
     mutationFn: startMeeting,
     onMutate: async (meetingId) => {
       // Cancel any outgoing refetches
-      await queryClient.cancelQueries({ queryKey: meetingKeys.lists() })
+      await queryClient.cancelQueries({ queryKey: meetingKeys.all })
       
-      // Snapshot the previous value
+      // Snapshot the previous values
       const previousMeetings = queryClient.getQueriesData({ queryKey: meetingKeys.lists() })
+      const previousStatus = queryClient.getQueriesData({ queryKey: meetingKeys.status('', 7) })
       
-      // Optimistically update to the new value
+      // Optimistically update meetings data
       queryClient.setQueriesData({ queryKey: meetingKeys.lists() }, (old: any) => {
         if (!old) return old
         return {
@@ -292,19 +362,39 @@ export function useStartMeeting() {
         }
       })
       
-      return { previousMeetings }
+      // Optimistically update meeting status data
+      queryClient.setQueriesData({ queryKey: meetingKeys.status('', 7) }, (old: any) => {
+        if (!old) return old
+        const meeting = old.meetings?.find((m: Meeting) => m.id === meetingId)
+        return {
+          ...old,
+          isInMeeting: true,
+          activeMeeting: meeting ? { ...meeting, status: 'in-progress' as const } : null
+        }
+      })
+      
+      return { previousMeetings, previousStatus }
     },
     onSuccess: () => {
-      // Invalidate and refetch
-      queryClient.invalidateQueries({ queryKey: meetingKeys.lists() })
-      queryClient.invalidateQueries({ queryKey: meetingKeys.status(currentUser?.id || '', 7) })
+      // Invalidate meeting-related queries with more targeted approach
+      queryClient.invalidateQueries({ 
+        queryKey: meetingKeys.all,
+        exact: false,
+        refetchType: 'active' // Only refetch active queries
+      })
       
       toast.success('Meeting started!')
     },
     onError: (error: Error, meetingId, context) => {
-      // Rollback optimistic update
+      // Rollback optimistic updates
       if (context?.previousMeetings) {
         context.previousMeetings.forEach(([queryKey, data]) => {
+          queryClient.setQueryData(queryKey, data)
+        })
+      }
+      
+      if (context?.previousStatus) {
+        context.previousStatus.forEach(([queryKey, data]) => {
           queryClient.setQueryData(queryKey, data)
         })
       }
@@ -331,12 +421,13 @@ export function useEndMeeting() {
     mutationFn: endMeeting,
     onMutate: async (meetingId) => {
       // Cancel any outgoing refetches
-      await queryClient.cancelQueries({ queryKey: meetingKeys.lists() })
+      await queryClient.cancelQueries({ queryKey: meetingKeys.all })
       
-      // Snapshot the previous value
+      // Snapshot the previous values
       const previousMeetings = queryClient.getQueriesData({ queryKey: meetingKeys.lists() })
+      const previousStatus = queryClient.getQueriesData({ queryKey: meetingKeys.status('', 7) })
       
-      // Optimistically update to the new value
+      // Optimistically update meetings data
       queryClient.setQueriesData({ queryKey: meetingKeys.lists() }, (old: any) => {
         if (!old) return old
         return {
@@ -349,19 +440,41 @@ export function useEndMeeting() {
         }
       })
       
-      return { previousMeetings }
+      // Optimistically update meeting status data
+      queryClient.setQueriesData({ queryKey: meetingKeys.status('', 7) }, (old: any) => {
+        if (!old) return old
+        return {
+          ...old,
+          isInMeeting: false,
+          activeMeeting: null
+        }
+      })
+      
+      return { previousMeetings, previousStatus }
     },
     onSuccess: () => {
-      // Invalidate and refetch
-      queryClient.invalidateQueries({ queryKey: meetingKeys.lists() })
-      queryClient.invalidateQueries({ queryKey: meetingKeys.status(currentUser?.id || '', 7) })
+      // Add a small delay before invalidating to ensure database is fully updated
+      setTimeout(() => {
+        // Invalidate meeting-related queries with more targeted approach
+        queryClient.invalidateQueries({ 
+          queryKey: meetingKeys.all,
+          exact: false,
+          refetchType: 'active' // Only refetch active queries
+        })
+      }, 100) // Small delay to ensure database consistency
       
       toast.success('Meeting ended!')
     },
     onError: (error: Error, meetingId, context) => {
-      // Rollback optimistic update
+      // Rollback optimistic updates
       if (context?.previousMeetings) {
         context.previousMeetings.forEach(([queryKey, data]) => {
+          queryClient.setQueryData(queryKey, data)
+        })
+      }
+      
+      if (context?.previousStatus) {
+        context.previousStatus.forEach(([queryKey, data]) => {
           queryClient.setQueryData(queryKey, data)
         })
       }
@@ -409,9 +522,8 @@ export function useCancelMeeting() {
       return { previousMeetings }
     },
     onSuccess: () => {
-      // Invalidate and refetch
-      queryClient.invalidateQueries({ queryKey: meetingKeys.lists() })
-      queryClient.invalidateQueries({ queryKey: meetingKeys.status(currentUser?.id || '', 7) })
+      // Invalidate all meeting-related queries to ensure UI updates
+      queryClient.invalidateQueries({ queryKey: meetingKeys.all })
       
       toast.success('Meeting cancelled!')
     },
@@ -445,11 +557,12 @@ export function useRefreshMeetings() {
   return () => {
     if (!currentUser?.id) return
     
-    // Force immediate refetch by invalidating and refetching
-    queryClient.invalidateQueries({ queryKey: meetingKeys.lists() })
-    queryClient.invalidateQueries({ queryKey: meetingKeys.status(currentUser.id, 7) })
-    // Also refetch immediately to bypass stale time
-    queryClient.refetchQueries({ queryKey: meetingKeys.lists() })
-    queryClient.refetchQueries({ queryKey: meetingKeys.status(currentUser.id, 7) })
+    // Only invalidate queries - let React Query handle refetching when needed
+    // This prevents multiple simultaneous API calls
+    queryClient.invalidateQueries({ 
+      queryKey: meetingKeys.all,
+      exact: false,
+      refetchType: 'active' // Only refetch active queries, not background ones
+    })
   }
 }

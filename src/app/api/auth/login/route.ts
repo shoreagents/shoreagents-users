@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { initializeDatabase, executeQuery } from '@/lib/database-server'
+import { redisCache, cacheKeys } from '@/lib/redis-cache'
 import * as bcrypt from 'bcryptjs'
 
 interface LoginRequest {
@@ -150,6 +151,14 @@ export async function POST(request: NextRequest) {
         usingFallback: true,
       }
 
+      // Invalidate user auth data cache to ensure real-time updates
+      try {
+        await redisCache.del(cacheKeys.userAuthData(email))
+        console.log('✅ Invalidated user auth data cache for:', email)
+      } catch (cacheError) {
+        console.warn('⚠️ Failed to invalidate user auth data cache:', cacheError)
+      }
+
       const resFallback = NextResponse.json({
         success: true,
         user: userData,
@@ -285,6 +294,14 @@ export async function POST(request: NextRequest) {
       },
       timestamp: new Date().toISOString(),
       hybrid: true,
+    }
+
+    // Invalidate user auth data cache to ensure real-time updates
+    try {
+      await redisCache.del(cacheKeys.userAuthData(email))
+      console.log('✅ Invalidated user auth data cache for:', email)
+    } catch (cacheError) {
+      console.warn('⚠️ Failed to invalidate user auth data cache:', cacheError)
     }
 
     const resHybrid = NextResponse.json({

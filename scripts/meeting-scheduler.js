@@ -91,10 +91,10 @@ class MeetingScheduler {
       this.checkMeetingReminders();
     }, this.reminderInterval);
 
-    // Set up interval for meeting notifications (check every 1 minute)
+    // Set up interval for meeting notifications (check every 30 seconds for faster response)
     this.notificationIntervalId = setInterval(() => {
       this.checkMeetingNotifications();
-    }, 1 * 60 * 1000); // 1 minute
+    }, 30 * 1000); // 30 seconds
   }
 
   stop() {
@@ -240,5 +240,5 @@ if (require.main === module) {
   console.log('📅 This scheduler handles:');
   console.log('   • Automatically starting scheduled meetings');
   console.log('   • Sending meeting reminders (1 hour before)');
-  console.log('   • Checking every 30 seconds for starts, 60 seconds for reminders');
+  console.log('   • Checking every 2 seconds for starts, 60 seconds for reminders, 30 seconds for notifications');
 }

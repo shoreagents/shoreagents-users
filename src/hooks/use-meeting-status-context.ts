@@ -74,7 +74,6 @@ export function useMeetingStatusContext() {
     // Listen for meeting status updates
     const handleMeetingUpdate = (data: any) => {
       if (data.email === email) {
-        console.log('Meeting update received:', data)
         
         if (data.type === 'meeting_started') {
           setIsInMeeting(true)
@@ -100,7 +99,6 @@ export function useMeetingStatusContext() {
     // Listen for agent status updates
     const handleAgentStatusUpdate = (data: any) => {
       if (data.email === email) {
-        console.log('Agent status update received:', data)
         setIsInMeeting(data.isInMeeting || false)
         if (!data.isInMeeting) {
           setCurrentMeeting(null)

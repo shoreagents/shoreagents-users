@@ -38,8 +38,10 @@ const TimerContext = createContext<TimerContextType | undefined>(undefined)
 
 export function TimerProvider({ children }: { children: React.ReactNode }) {
   const [currentUser, setCurrentUser] = useState<any>(null)
+  
   const [liveActiveSeconds, setLiveActiveSeconds] = useState(0)
   const [liveInactiveSeconds, setLiveInactiveSeconds] = useState(0)
+  
   const [isInitialized, setIsInitialized] = useState(false)
   const [lastActivityState, setLastActivityState] = useState<boolean | null>(null)
   const [isBreakActive, setIsBreakActive] = useState(false)
@@ -76,6 +78,39 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     setCurrentUser(user)
   }, [currentUser?.email])
 
+  // Fetch timer data immediately when user is available to prevent 0s flash
+  useEffect(() => {
+    const fetchInitialTimerData = async () => {
+      if (!currentUser?.email || isInitialized) return
+
+      try {
+        const response = await fetch(`/api/timer/status?email=${encodeURIComponent(currentUser.email)}`)
+        const data = await response.json()
+        
+        if (data.success && data.timerData) {
+          setLiveActiveSeconds(data.timerData.activeSeconds || 0)
+          setLiveInactiveSeconds(data.timerData.inactiveSeconds || 0)
+          setLastActivityState(data.timerData.isActive)
+          
+          // Extract shift information
+          if (data.timerData.shiftInfo) {
+            setShiftInfo(data.timerData.shiftInfo)
+            setTimeUntilReset(data.timerData.shiftInfo.timeUntilReset || 0)
+            setFormattedTimeUntilReset(data.timerData.shiftInfo.formattedTimeUntilReset || '')
+          }
+          
+          setIsInitialized(true)
+        }
+      } catch (error) {
+        console.error('❌ Failed to fetch initial timer data:', error)
+        // Still initialize to prevent blocking
+        setIsInitialized(true)
+      }
+    }
+
+    fetchInitialTimerData()
+  }, [currentUser?.email, isInitialized])
+
   // Reset timer state when user is null (logout)
   useEffect(() => {
     if (!currentUser?.email) {
@@ -84,7 +119,6 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       setIsInitialized(false)
       setLastActivityState(null)
       setIsBreakActive(false)
-      console.log('User logged out, resetting timer state')
     }
   }, [currentUser?.email])
 
@@ -128,11 +162,6 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     if (currentUser?.email && typeof window !== 'undefined' && 'Notification' in window) {
       if (Notification.permission === 'default') {
         Notification.requestPermission().then(permission => {
-          if (permission === 'granted') {
-            console.log('✅ Notification permission granted for break auto-ending alerts')
-          } else {
-            console.log('❌ Notification permission denied for break auto-ending alerts')
-          }
         })
       }
     }
@@ -166,7 +195,6 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         // Only auto-end paused breaks that are outside their valid time window
         // Active breaks should continue running even if outside the time window
         if (currentBreak.is_paused && !isBreakTimeValid(breakInfo, userProfile, new Date())) {
-          console.log(`⏰ Background auto-ending paused ${breakInfo.name} - outside valid time window (${breakInfo.startTime} - ${breakInfo.endTime})`)
           
           try {
             // End the break automatically via API
@@ -181,7 +209,6 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
             const result = await response.json()
             
             if (result.success) {
-              console.log(`✅ Background auto-ended paused ${breakInfo.name} successfully`)
               
               // Update local state
               setIsBreakActive(false)
@@ -211,9 +238,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
               
               // Refresh break status to ensure consistency
               await refreshBreakStatus()
-            } else {
-              console.log(`⚠️ Background auto-end failed for ${breakInfo.name}:`, result.error)
-            }
+            } 
           } catch (error) {
             console.error(`❌ Error in background auto-ending ${breakInfo.name}:`, error)
           }
@@ -228,7 +253,6 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
 
     // Set up interval to check every 10 seconds for more responsive background auto-ending
     const interval = setInterval(() => {
-      console.log(`🔍 Background checking break validity for ${breakStatus.active_break.break_type}...`)
       checkAndEndInvalidBreaks()
     }, 10000)
 
@@ -287,7 +311,6 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         // Handle different types of updates
         if (update.action === 'INSERT') {
           // New row created (e.g., new day, new shift) - fetch fresh data
-          console.log('🆕 New activity row created, fetching fresh data...')
           refreshRealtimeData()
         } else if (update.action === 'UPDATE') {
           // Existing row updated - update live counters with real-time data
@@ -307,7 +330,6 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       
       socket.on('activity-data-updated', handleActivityDataUpdate)
       socket.on('connect', () => {
-        console.log('🔌 Socket connected, listening for activity data updates')
         setIsRealtimeConnected(true)
       })
       socket.on('disconnect', () => {
@@ -329,7 +351,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     }
   }, [currentUser?.id, isAuthenticated])
 
-  // Update live counters when timer data changes
+  // Update live counters when timer data changes from socket
   useEffect(() => {
     // Validate that timer data is for the current user
     if (timerData && timerData.email && currentUser?.email && timerData.email !== currentUser.email) {
@@ -337,6 +359,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       return
     }
     
+    // Only process socket timer data if we haven't already initialized from direct API fetch
     if (timerData && !isInitialized) {
       // Initialize with server data (now includes proper database hydration)
       setLiveActiveSeconds(timerData.activeSeconds || 0)
@@ -368,8 +391,6 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       
       // Always update activity state
       setLastActivityState(timerData.isActive)
-      
-      // Activity state changed
       
       // Update shift information if it changes
       if (timerData.shiftInfo) {
@@ -595,7 +616,6 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         // Only dispatch the reset event ONCE when we first reach zero
         if (!hasDispatchedReset) {
           hasDispatchedReset = true
-          console.log('🔄 Countdown reached zero - dispatching reset event')
           window.dispatchEvent(new CustomEvent('shiftResetCountdownZero'))
         }
       } else {
@@ -982,11 +1002,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     // Test emitting a test event
     socket.emit('test-event', { message: 'Testing socket connection' })
     
-    // Check socket connection status
-    console.log('🔌 Socket status:', {
-      connected: socket.connected,
-      id: socket.id
-    })
+    
   }, [socket])
 
   // Expose test function for debugging

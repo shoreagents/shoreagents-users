@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { initializeDatabase, executeQuery } from '@/lib/database-server'
+import { redisCache, cacheKeys, cacheTTL } from '@/lib/redis-cache'
 
 interface ProfileRequest {
   userId?: number
@@ -31,6 +32,21 @@ export async function GET(request: NextRequest) {
         { success: false, error: 'User ID or email is required' },
         { status: 400 }
       )
+    }
+
+    // Check Redis cache first
+    const cacheKey = userIdParam 
+      ? cacheKeys.profileById(parseInt(userIdParam))
+      : cacheKeys.profile(currentUserEmail!)
+    
+    const cachedProfile = await redisCache.get(cacheKey)
+    if (cachedProfile) {
+      console.log('✅ Profile served from Redis cache')
+      return NextResponse.json({
+        success: true,
+        profile: cachedProfile,
+        cached: true
+      })
     }
 
     // Initialize database connection
@@ -173,6 +189,9 @@ export async function GET(request: NextRequest) {
       address: userRecord.address || '',
       user_type: userRecord.user_type
     }
+
+    // Cache the profile data
+    await redisCache.set(cacheKey, profileData, cacheTTL.profile)
 
     return NextResponse.json({
       success: true,

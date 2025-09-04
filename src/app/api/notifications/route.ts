@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
       `SELECT n.id, n.user_id, n.category, n.type, n.title, n.message, n.payload, n.is_read, n.created_at
        FROM notifications n
        JOIN users u ON u.id = n.user_id
-       WHERE u.email = $1
+       WHERE u.email = $1 AND (n.clear IS NULL OR n.clear = false)
        ORDER BY n.created_at DESC
        LIMIT $2`,
       [email, limit]

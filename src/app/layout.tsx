@@ -55,11 +55,11 @@ export default function RootLayout({
           <LogoutProvider>
             <AuthMonitor>
               <BreakProvider>
-                <ActivityProvider>
-                  <SocketProvider>
-                    <MeetingProvider>
-                      <TeamStatusProvider>
-                        <TimerProvider>
+                <SocketProvider>
+                  <MeetingProvider>
+                    <ActivityProvider>
+                      <TimerProvider>
+                        <TeamStatusProvider>
                           {/* Keep auth stores in sync as early as possible */}
                           <AuthNormalizer />
                           <DatabaseInitializer />
@@ -68,11 +68,11 @@ export default function RootLayout({
                           <GlobalTimerDisplay />
                           <GlobalMeetingIndicator />
                           <Toaster position="top-right" richColors />
-                        </TimerProvider>
-                      </TeamStatusProvider>
-                    </MeetingProvider>
-                  </SocketProvider>
-                </ActivityProvider>
+                        </TeamStatusProvider>
+                      </TimerProvider>
+                    </ActivityProvider>
+                  </MeetingProvider>
+                </SocketProvider>
               </BreakProvider>
               <LogoutLoadingOverlay />
             </AuthMonitor>

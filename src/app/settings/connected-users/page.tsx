@@ -14,6 +14,7 @@ import { Search, MoreVertical, Phone, Video, Users, Clock, Wifi, WifiOff } from 
 // Team chat functionality removed - focusing on online/offline tracking only
 import { getCurrentUser } from '@/lib/auth-utils'
 import { useTeamAgents, useTeamAuthData, TeamAgent, UserAuthData } from '@/hooks/use-team-agents'
+import { ConnectedUsersSkeleton } from '@/components/skeleton-loaders'
 
 interface UserStatus {
   email: string
@@ -119,7 +120,6 @@ export default function ConnectedUsersPage() {
       
       if (currentUserAgent) {
         setSelectedUser(currentUserAgent)
-        console.log('✅ Auto-selected current user:', currentUserAgent.name || currentUserAgent.email)
       } else {
         console.warn('⚠️ Could not find current user in team agents list')
       }
@@ -249,18 +249,7 @@ export default function ConnectedUsersPage() {
         <AppSidebar />
         <SidebarInset>
           <AppHeader />
-          <div className="flex-1 space-y-4 p-4 md:p-8 pt-6">
-            <Card>
-              <CardContent className="flex items-center justify-center py-8">
-                <div className="text-center space-y-4">
-                  <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/20 rounded-full flex items-center justify-center mx-auto animate-pulse">
-                    <Users className="w-8 h-8 text-blue-600" />
-                  </div>
-                  <p className="text-lg font-medium text-gray-900 dark:text-white">Loading Team Status...</p>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+          <ConnectedUsersSkeleton />
         </SidebarInset>
       </SidebarProvider>
     )

@@ -1,0 +1,150 @@
+"use client"
+
+import { useQuery } from '@tanstack/react-query'
+import { useState, useEffect } from 'react'
+import { getCurrentUser } from '@/lib/ticket-utils'
+
+// Define the UserProfile interface to match what we expect from the API
+export interface UserProfile {
+  number: string
+  id_number: string
+  last_name: string
+  first_name: string
+  middle_name: string
+  gender: string
+  phone: string
+  email: string
+  date_of_birth: string
+  position: string
+  company: string
+  department: string
+  start_date: string
+  status: string
+  nickname?: string
+  profile_picture?: string
+  city?: string
+  address?: string
+  user_type?: string
+  // Job information from job_info table
+  employee_id?: string
+  job_title?: string
+  shift_period?: string
+  shift_schedule?: string
+  shift_time?: string
+  work_setup?: string
+  employment_status?: string
+  hire_type?: string
+  staff_source?: string
+  exit_date?: string
+  // Company information from members table
+  company_address?: string
+  company_phone?: string
+  company_logo?: string
+  service?: string
+  member_status?: string
+  badge_color?: string
+  country?: string
+  website?: string
+  // Additional fields
+  department_id?: number | null
+  exp_points?: number
+}
+
+export interface ProfileResponse {
+  success: boolean
+  profile: UserProfile
+  cached?: boolean
+  error?: string
+}
+
+export function useProfile() {
+  const [currentUser, setCurrentUser] = useState<any>(null)
+  const [isClient, setIsClient] = useState(false)
+  
+  // Only get user on client side to avoid hydration issues
+  useEffect(() => {
+    if (!isClient) {
+      setIsClient(true)
+      const user = getCurrentUser()
+      setCurrentUser(user)
+    }
+  }, [isClient])
+
+  const profileQuery = useQuery({
+    queryKey: ['profile', currentUser?.email || 'loading'],
+    queryFn: async (): Promise<ProfileResponse> => {
+      if (!currentUser?.email) {
+        throw new Error('No user email available')
+      }
+      
+      const apiUrl = `http://localhost:3000/api/profile/?email=${encodeURIComponent(currentUser.email)}`
+      
+      const response = await fetch(apiUrl, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include', // Include authentication cookies for Electron
+      })
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch profile: ${response.statusText}`)
+      }
+      
+      return response.json()
+    },
+    enabled: isClient && !!currentUser?.email,
+    staleTime: 5 * 60 * 1000, // 5 minutes - data is fresh for 5 min
+    gcTime: 10 * 60 * 1000, // 10 minutes - keep in cache for 10 min
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    retry: 2,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
+  })
+
+  // Show loading state when client is not ready or user is not loaded yet
+  return {
+    ...profileQuery,
+    isLoading: profileQuery.isLoading || !isClient || !currentUser?.email,
+    profile: profileQuery.data?.profile || null,
+    isCached: profileQuery.data?.cached || false,
+    error: profileQuery.error?.message || profileQuery.data?.error || null,
+  }
+}
+
+// Hook for getting profile by user ID (for admin/team views)
+export function useProfileById(userId: number) {
+  const profileQuery = useQuery({
+    queryKey: ['profile', 'by-id', userId],
+    queryFn: async (): Promise<ProfileResponse> => {
+      const apiUrl = `http://localhost:3000/api/profile/?userId=${userId}`
+      
+      const response = await fetch(apiUrl, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+      })
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch profile: ${response.statusText}`)
+      }
+      
+      return response.json()
+    },
+    enabled: !!userId,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    gcTime: 10 * 60 * 1000, // 10 minutes
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    retry: 2,
+  })
+
+  return {
+    ...profileQuery,
+    profile: profileQuery.data?.profile || null,
+    isCached: profileQuery.data?.cached || false,
+    error: profileQuery.error?.message || profileQuery.data?.error || null,
+  }
+}

@@ -17,8 +17,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Use the database function to start the meeting with proper validation
-    const query = `SELECT start_meeting($1, $2)`
-    const result = await executeQuery(query, [meetingId, agent_user_id])
+    // Pass false for is_automatic to indicate this is a manual start (no notifications)
+    const query = `SELECT start_meeting($1, $2, $3)`
+    const result = await executeQuery(query, [meetingId, agent_user_id, false])
 
     if (!result[0]?.start_meeting) {
       return NextResponse.json({ error: 'Failed to start meeting. Meeting may not exist or is not in scheduled status.' }, { status: 400 })
@@ -47,11 +48,16 @@ export async function POST(request: NextRequest) {
 
     // Invalidate Redis cache for meetings and status
     if (agent_user_id) {
+      // Invalidate all paginated cache entries for this user
+      const meetingsCachePattern = `meetings:${agent_user_id}:7:*`
       const meetingsCacheKey = `meetings:${agent_user_id}:7`
       const statusCacheKey = `meeting-status:${agent_user_id}:7`
+      const countsCacheKey = `meeting-counts:${agent_user_id}:7`
       await Promise.all([
+        redisCache.invalidatePattern(meetingsCachePattern),
         redisCache.del(meetingsCacheKey),
-        redisCache.del(statusCacheKey)
+        redisCache.del(statusCacheKey),
+        redisCache.del(countsCacheKey)
       ])
       console.log('✅ Meeting started and cache invalidated')
     }
