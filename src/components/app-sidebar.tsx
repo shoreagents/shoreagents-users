@@ -34,10 +34,10 @@ import {
 } from "@/components/ui/sidebar"
 import { ScrollArea } from "@/components/ui/scroll-area"
 
-export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+export const AppSidebar = React.memo(function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
   const { state } = useSidebar()
-  const { isActive: isActivityActive, isLoading } = useActivityStatus()
+  const { isActive: isActivityActive, isLoading, isShiftEnded } = useActivityStatus()
   const { isInMeeting } = useMeeting()
   const [notStartedTaskCount, setNotStartedTaskCount] = React.useState(0)
 
@@ -48,20 +48,24 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         className={`w-2 h-2 rounded-full ${
           isLoading 
             ? 'bg-gray-400 animate-pulse' 
-            : isInMeeting 
-              ? 'bg-yellow-500 animate-pulse' 
-              : isActivityActive 
-                ? 'bg-green-500' 
-                : 'bg-red-500'
+            : isShiftEnded
+              ? 'bg-red-500'
+              : isInMeeting 
+                ? 'bg-yellow-500 animate-pulse' 
+                : isActivityActive 
+                  ? 'bg-green-500' 
+                  : 'bg-red-500'
         }`}
         title={
           isLoading 
             ? 'Loading...' 
-            : isInMeeting 
-              ? 'In Meeting' 
-              : isActivityActive 
-                ? 'Active' 
-                : 'Inactive'
+            : isShiftEnded
+              ? 'Shift Ended'
+              : isInMeeting 
+                ? 'In Meeting' 
+                : isActivityActive 
+                  ? 'Active' 
+                  : 'Inactive'
         }
       />
     </div>
@@ -295,6 +299,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       <SidebarRail />
     </Sidebar>
   )
-}
+})
 
 

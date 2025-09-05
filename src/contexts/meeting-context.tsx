@@ -81,7 +81,7 @@ export function MeetingProvider({ children }: MeetingProviderProps) {
       refreshTimeoutRef.current = setTimeout(() => {
         refreshMeetings()
         setLastUpdated(new Date())
-      }, 200) // Increased debounce time to 200ms
+      }, 500) // OPTIMIZED: Increased debounce time to 500ms to reduce API calls
     }
 
     // Listen for meeting status updates from Socket.IO server

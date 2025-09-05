@@ -184,7 +184,7 @@ function MeetingCard({
 
       {meeting.status === 'in-progress' && (
         <>
-          <div className="flex flex-1 items-center justify-center text-sm rounded-lg bg-green-50 text-green-700 font-medium">
+          <div className="flex flex-1 items-center justify-center text-center text-sm rounded-lg bg-green-50 text-green-700 font-medium">
             Meeting Active
           </div>
           <Button

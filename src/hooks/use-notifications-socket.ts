@@ -47,12 +47,14 @@ export function useNotificationsSocket(email: string | null) {
           }
           return '/productivity/task-activity'
         }
+        if (n.category === 'health_check') return '/health'
         return undefined
       })()
       const icon = (() => {
         if (n.category === 'ticket') return 'FileText' as const
         if (n.category === 'break') return 'Clock' as const
         if (n.category === 'task') return 'CheckSquare' as const
+        if (n.category === 'health_check') return 'Heart' as const
         return 'Bell' as const
       })()
       const mapped = {

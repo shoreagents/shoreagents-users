@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import React, { useState, useEffect, useMemo } from "react"
 import { usePathname } from "next/navigation"
 import { HeaderUser } from "@/components/header-user"
 import {
@@ -14,7 +14,7 @@ import {
 import { Separator } from "@/components/ui/separator"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { getCurrentUser } from "@/lib/ticket-utils"
-import { Bell, CheckCircle, AlertCircle, Info, Clock, ArrowRight, CheckSquare, FileText, Sun, Moon, Users } from "lucide-react"
+import { Bell, CheckCircle, AlertCircle, Info, Clock, ArrowRight, CheckSquare, FileText, Sun, Moon, Users, Heart } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -76,7 +76,7 @@ function truncateNotificationMessage(message: string, maxLength: number =60): st
   }
 }
 
-export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
+export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
   const pathname = usePathname()
   const router = useRouter()
   const [user, setUser] = useState<{
@@ -108,7 +108,8 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
     isConnected: socketConnected,
     fetchNotifications,
     markAllAsRead,
-    markAsRead
+    markAsRead,
+    clearAll: clearAllSocket
   } = useNotificationsSocketContext(user?.email || null)
 
   // Initialize socket context notifications when user is available
@@ -127,7 +128,8 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
         const actionUrl = payload.action_url
           || (n.category === 'ticket' && (payload.ticket_id || payload.ticket_row_id) ? `/forms/${payload.ticket_id || ''}` : undefined)
           || (n.category === 'break' ? '/status/breaks' : undefined)
-        const icon = n.category === 'ticket' ? 'FileText' : n.category === 'break' ? 'Clock' : 'Bell'
+          || (n.category === 'health_check' ? '/health' : undefined)
+        const icon = n.category === 'ticket' ? 'FileText' : n.category === 'break' ? 'Clock' : n.category === 'health_check' ? 'Heart' : 'Bell'
         return {
           id: `db_${n.id}`,
           type: n.type,
@@ -198,9 +200,9 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
     }
   }, [])
 
-  // Refresh the "time ago" labels every 30 seconds and when tab regains focus
+  // Refresh the "time ago" labels every 30 seconds and when tab regains focus - OPTIMIZED: Reduced frequency
   useEffect(() => {
-    const interval = setInterval(() => setNowTick(Date.now()), 30000)
+    const interval = setInterval(() => setNowTick(Date.now()), 60000) // OPTIMIZED: Changed from 30s to 60s
     const onVisibility = () => setNowTick(Date.now())
     document.addEventListener('visibilitychange', onVisibility)
     window.addEventListener('focus', onVisibility)
@@ -247,10 +249,29 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
 
     window.addEventListener('notifications-updated', handleNotificationUpdate);
     
+    // Listen for notifications cleared event
+    const handleNotificationsCleared = () => {
+      // Force refresh notifications from socket context
+      if (user?.email && socketConnected) {
+        fetchNotifications(0, 50, 0);
+      }
+      
+      // Also force update the notification service count
+      // This ensures the badge count updates immediately
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('notifications-updated', {
+          detail: { unreadCount: 0 }
+        }));
+      }
+    };
+    
+    window.addEventListener('notifications-cleared', handleNotificationsCleared);
+    
     return () => {
       window.removeEventListener('notifications-updated', handleNotificationUpdate);
+      window.removeEventListener('notifications-cleared', handleNotificationsCleared);
     };
-  }, []);
+  }, [user?.email, socketConnected, fetchNotifications]);
 
   // Removed periodic notification checking - socket context handles real-time updates
 
@@ -468,7 +489,12 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
     // Calculate from current notifications state
     const unreadCountFromState = notifications.filter(n => !n.read).length
     
-    // If we have a valid service count, use it as the base
+    // If service count is 0, prioritize it (notifications were cleared)
+    if (serviceUnreadCount === 0) {
+      return 0
+    }
+    
+    // If we have a valid service count > 0, use it as the base
     if (serviceUnreadCount > 0) {
       return serviceUnreadCount
     }
@@ -494,6 +520,26 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
       }
     }
   }, [currentUnreadCount, unreadCount])
+
+  // Force refresh badge count when notifications are cleared
+  useEffect(() => {
+    const handleForceRefresh = () => {
+      // Force a re-calculation of the badge count
+      const serviceUnreadCount = getUnreadCount()
+      if (serviceUnreadCount === 0) {
+        setUnreadCount(0)
+        if (window.electronAPI?.send) {
+          window.electronAPI.send('notification-count-changed', { count: 0 });
+        }
+      }
+    }
+
+    window.addEventListener('notifications-cleared', handleForceRefresh)
+    
+    return () => {
+      window.removeEventListener('notifications-cleared', handleForceRefresh)
+    }
+  }, [])
 
   // Get team status for the badge
   const { isLoading: teamStatusLoading, onlineTeamCount, totalTeamCount } = useTeamStatus()
@@ -677,6 +723,7 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
                             case 'Clock': return Clock
                             case 'CheckSquare': return CheckSquare
                             case 'FileText': return FileText
+                            case 'Heart': return Heart
                             default: return Bell
                           }
                         }
@@ -819,4 +866,4 @@ export function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
       )}
     </header>
   )
-} 
+}) 

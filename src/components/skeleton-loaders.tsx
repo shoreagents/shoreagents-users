@@ -716,20 +716,33 @@ export function ProfileSkeleton() {
 
 export function NotificationsSkeleton({ rows = 6 }: { rows?: number }) {
   return (
-    <div className="space-y-2">
+    <div className="space-y-0">
       {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="rounded-lg border bg-card">
-          <div className="p-3 flex items-start gap-3">
-            <Skeleton className="h-4 w-4 rounded-full" />
-            <div className="flex-1 space-y-2">
-              <Skeleton className="h-4 w-48" />
-              <Skeleton className="h-3 w-72" />
-              <div className="flex items-center gap-2">
-                <Skeleton className="h-3 w-16" />
-                <Skeleton className="h-3 w-10" />
+        <div key={i}>
+          {i > 0 && (
+            <div className="h-px bg-border/30 mx-4" />
+          )}
+          <div className="rounded-lg bg-card/50 py-2">
+            <div className="p-2 flex items-center gap-2">
+              <Skeleton className="h-3.5 w-3.5 rounded-full flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <Skeleton className="h-3.5 w-40" />
+                      <Skeleton className="h-4 w-12 rounded-full flex-shrink-0" />
+                    </div>
+                    <Skeleton className="h-3 w-64 mb-0.5" />
+                    <div className="flex items-center gap-1.5">
+                      <Skeleton className="h-2.5 w-16" />
+                      <Skeleton className="h-2.5 w-1" />
+                      <Skeleton className="h-2.5 w-12" />
+                    </div>
+                  </div>
+                  <Skeleton className="h-6 w-6 flex-shrink-0" />
+                </div>
               </div>
             </div>
-            <Skeleton className="h-4 w-4" />
           </div>
         </div>
       ))}
@@ -739,15 +752,32 @@ export function NotificationsSkeleton({ rows = 6 }: { rows?: number }) {
 
 export function BellNotificationsSkeleton({ rows = 6 }: { rows?: number }) {
   return (
-    <div className="p-2 space-y-2">
+    <div className="p-2 space-y-0">
       {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="rounded-md border bg-card">
-          <div className="p-3 flex items-start gap-2">
-            <Skeleton className="h-3.5 w-3.5 rounded-full" />
-            <div className="flex-1 space-y-1.5">
-              <Skeleton className="h-3.5 w-40" />
-              <Skeleton className="h-3 w-64" />
-              <Skeleton className="h-3 w-24" />
+        <div key={i}>
+          {i > 0 && (
+            <div className="h-px bg-border/30 mx-2" />
+          )}
+          <div className="rounded-md bg-card/50 py-2">
+            <div className="p-2 flex items-center gap-2">
+              <Skeleton className="h-3.5 w-3.5 rounded-full flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <Skeleton className="h-3.5 w-32" />
+                      <Skeleton className="h-4 w-12 rounded-full flex-shrink-0" />
+                    </div>
+                    <Skeleton className="h-3 w-48 mb-0.5" />
+                    <div className="flex items-center gap-1.5">
+                      <Skeleton className="h-2.5 w-12" />
+                      <Skeleton className="h-2.5 w-1" />
+                      <Skeleton className="h-2.5 w-8" />
+                    </div>
+                  </div>
+                  <Skeleton className="h-6 w-6 flex-shrink-0" />
+                </div>
+              </div>
             </div>
           </div>
         </div>

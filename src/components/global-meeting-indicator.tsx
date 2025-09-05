@@ -20,7 +20,7 @@ interface GlobalMeetingIndicatorProps {
   className?: string
 }
 
-export function GlobalMeetingIndicator({ className }: GlobalMeetingIndicatorProps) {
+export const GlobalMeetingIndicator = React.memo(function GlobalMeetingIndicator({ className }: GlobalMeetingIndicatorProps) {
   const { endCurrentMeeting } = useMeeting()
   
   // Use direct hook instead of context to prevent duplicate requests
@@ -431,4 +431,4 @@ export function GlobalMeetingIndicator({ className }: GlobalMeetingIndicatorProp
       <div className="h-0.5 bg-gradient-to-r from-blue-500 to-blue-600 dark:from-blue-600 dark:to-blue-700 rounded-b-xl"></div>
     </div>
   )
-}
+})
