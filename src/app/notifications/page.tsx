@@ -1,11 +1,10 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { CheckCircle, AlertCircle, Info, Clock, Trash2, Bell, CheckSquare, FileText, Filter, X, Search, RefreshCw } from "lucide-react"
+import { CheckCircle, AlertCircle, Info, Clock, Trash2, Bell, CheckSquare, FileText, Filter, X, Search, RefreshCw, Check, Heart, Square, SquareCheck } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Separator } from "@/components/ui/separator"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -38,6 +37,8 @@ import {
 import { getCurrentUser } from "@/lib/ticket-utils"
 import { useRouter } from "next/navigation"
 import { useNotificationsSocketContext } from "@/hooks/use-notifications-socket-context"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Separator } from "@radix-ui/react-separator"
 
 interface Notification {
   id: number
@@ -58,6 +59,10 @@ export default function NotificationsPage() {
   // Trigger periodic re-render so formatTimeAgo updates (e.g., "Just now" -> "1 minute ago")
   const [nowTick, setNowTick] = useState<number>(() => Date.now())
   
+  // Multi-select state
+  const [selectedNotifications, setSelectedNotifications] = useState<Set<string>>(new Set())
+  const [isSelectMode, setIsSelectMode] = useState(false)
+  
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1)
   const notificationsPerPage = 10
@@ -77,7 +82,8 @@ export default function NotificationsPage() {
     isConnected: socketConnected,
     fetchNotifications: fetchSocketNotifications,
     markAllAsRead: markAllAsReadSocket,
-    markAsRead: markAsReadSocket
+    markAsRead: markAsReadSocket,
+    clearAll: clearAllSocket
   } = useNotificationsSocketContext(currentUser?.email || null)
 
   // Load notifications (hydrate from DB once, then keep in-memory updates)
@@ -111,9 +117,12 @@ export default function NotificationsPage() {
                 }
                 return '/productivity/task-activity'
               }
+              if (n.category === 'health_check') {
+                return '/health'
+              }
               return undefined
             })()
-            const icon = n.category === 'ticket' ? 'FileText' : n.category === 'break' ? 'Clock' : 'Bell'
+            const icon = n.category === 'ticket' ? 'FileText' : n.category === 'break' ? 'Clock' : n.category === 'health_check' ? 'Heart' : 'Bell'
             return {
               id: `db_${n.id}`,
               type: n.type,
@@ -193,12 +202,22 @@ export default function NotificationsPage() {
     }
   }, [])
 
+
   const handleDeleteNotification = async (id: string) => {
     // Update in-memory first
     deleteNotification(id)
     const realNotifications = getNotifications()
     setNotifications(realNotifications)
-    // Don't call setUnreadCount here - let the component handle it naturally
+    
+    // Calculate current unread count
+    const currentUnreadCount = realNotifications.filter(n => !n.read).length
+    
+    // Dispatch events to update app-header
+    window.dispatchEvent(new CustomEvent('notifications-updated'))
+    window.dispatchEvent(new CustomEvent('notifications-cleared', {
+      detail: { unreadCount: currentUnreadCount }
+    }))
+    
     // Persist delete to DB if possible
     try {
       const user = getCurrentUser()
@@ -276,9 +295,18 @@ export default function NotificationsPage() {
           setNotifications(prev => prev.map(n => ({ ...n, read: true })))
           // Update unread count
           setUnreadCount(0)
+
+          
+          
+          // Dispatch event to update app-header
+          window.dispatchEvent(new CustomEvent('notifications-updated'))
         }
       }
       
+      // Dispatch custom event to notify app header of the change
+      window.dispatchEvent(new CustomEvent('notifications-cleared', {
+        detail: { unreadCount: 0 }
+        }))
       // Also update the old notification service to keep it in sync
       markAllNotificationsAsRead()
     } catch (error) {
@@ -298,31 +326,234 @@ export default function NotificationsPage() {
       return parseInt(id)
     }).filter(id => !isNaN(id))
     
-    // Update in-memory
+    // Use socket context to clear all notifications FIRST (this will update both DB and socket state)
+    if (socketConnected && clearAllSocket) {
+      await clearAllSocket(numericIds)
+    } else {
+      // Fallback to direct API call if socket is not connected
+      try {
+        const user = getCurrentUser()
+        if (user?.email && numericIds.length > 0) {
+          const response = await fetch('/api/notifications/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ ids: numericIds, email: user.email })
+          })
+          
+          const data = await response.json()
+          if (!data.success) {
+            console.error('Failed to clear all notifications from database:', data.error)
+          }
+        }
+      } catch (error) {
+        console.error('Error clearing all notifications:', error)
+      }
+    }
+    
+    // Update in-memory AFTER socket context is updated
     clearAllNotifications()
     setNotifications([])
     setUnreadCount(0)
+    setSelectedNotifications(new Set())
+    setIsSelectMode(false)
     
-    // Persist to DB
-    try {
-      const user = getCurrentUser()
-      if (user?.email && numericIds.length > 0) {
-        const response = await fetch('/api/notifications/delete', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ ids: numericIds, email: user.email })
-        })
-        
-        const data = await response.json()
-        if (!data.success) {
-          console.error('Failed to clear all notifications from database:', data.error)
-        }
-      }
-    } catch (error) {
-      console.error('Error clearing all notifications:', error)
+    // Dispatch custom event to notify app header of the change
+    window.dispatchEvent(new CustomEvent('notifications-cleared', {
+      detail: { unreadCount: 0 }
+    }))
+    
+    // Also dispatch the general update event
+    window.dispatchEvent(new CustomEvent('notifications-updated'))
+  }
+
+  // Multi-select functions
+  const toggleSelectMode = () => {
+    setIsSelectMode(!isSelectMode)
+    if (isSelectMode) {
+      setSelectedNotifications(new Set())
     }
   }
+
+  const toggleSelectAll = () => {
+    if (selectedNotifications.size === currentNotifications.length) {
+      setSelectedNotifications(new Set())
+    } else {
+      setSelectedNotifications(new Set(currentNotifications.map(n => n.id)))
+    }
+  }
+
+  const toggleSelectNotification = (notificationId: string) => {
+    const newSelected = new Set(selectedNotifications)
+    if (newSelected.has(notificationId)) {
+      newSelected.delete(notificationId)
+    } else {
+      newSelected.add(notificationId)
+    }
+    setSelectedNotifications(newSelected)
+  }
+
+  const handleBulkMarkAsRead = async () => {
+    if (selectedNotifications.size === 0) return
+    
+    const selectedIds = Array.from(selectedNotifications)
+    
+    // Extract numeric IDs from db_ prefix
+    const numericIds = selectedIds.map((id: string) => {
+      if (id.startsWith('db_')) {
+        return parseInt(id.slice(3))
+      }
+      return parseInt(id)
+    }).filter(id => !isNaN(id))
+    
+    if (numericIds.length === 0) return
+    
+    try {
+      const user = getCurrentUser()
+      if (user?.email) {
+        // Use socket context if available, otherwise fallback to direct API
+        if (socketConnected && markAllAsReadSocket) {
+          await markAllAsReadSocket(user.id, numericIds)
+        } else {
+          const response = await fetch('/api/notifications/mark-read', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ ids: numericIds, email: user.email })
+          })
+          
+          const data = await response.json()
+          if (!data.success) {
+            console.error('Failed to mark selected notifications as read:', data.error)
+          }
+        }
+      }
+      
+      // Update local state - only mark the selected notifications as read
+      setNotifications(prev => 
+        prev.map(n => 
+          selectedNotifications.has(n.id) ? { ...n, read: true } : n
+        )
+      )
+      
+      // Also update the old notification service to keep it in sync
+      selectedIds.forEach(id => markNotificationAsRead(id))
+      
+      setSelectedNotifications(new Set())
+      setIsSelectMode(false)
+      
+      // Calculate current unread count from updated state
+      const updatedNotifications = getNotifications()
+      const currentUnreadCount = updatedNotifications.filter(n => !n.read).length
+      
+      // Dispatch events to update app-header
+      window.dispatchEvent(new CustomEvent('notifications-updated'))
+      window.dispatchEvent(new CustomEvent('notifications-cleared', {
+        detail: { unreadCount: currentUnreadCount }
+      }))
+      
+      // Refresh notifications from socket context to ensure UI is in sync
+      if (currentUser?.id && socketConnected) {
+        await fetchSocketNotifications(currentUser.id, 100, 0)
+      }
+      
+    } catch (error) {
+      console.error('Error marking selected notifications as read:', error)
+    }
+  }
+
+  const handleBulkDelete = async () => {
+    if (selectedNotifications.size === 0) return
+    
+    const selectedIds = Array.from(selectedNotifications)
+    
+    // Extract numeric IDs from db_ prefix
+    const numericIds = selectedIds.map((id: string) => {
+      if (id.startsWith('db_')) {
+        return parseInt(id.slice(3))
+      }
+      return parseInt(id)
+    }).filter(id => !isNaN(id))
+    
+    if (numericIds.length === 0) return
+    
+    try {
+      const user = getCurrentUser()
+      if (user?.email) {
+        // Use socket context if available, otherwise fallback to direct API
+        if (socketConnected && clearAllSocket) {
+          await clearAllSocket(numericIds)
+        } else {
+          const response = await fetch('/api/notifications/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ ids: numericIds, email: user.email })
+          })
+          
+          const data = await response.json()
+          if (!data.success) {
+            console.error('Failed to delete selected notifications from database:', data.error)
+          }
+        }
+      }
+      
+      // Update local state
+      selectedIds.forEach(id => deleteNotification(id))
+      const realNotifications = getNotifications()
+      setNotifications(realNotifications)
+      setSelectedNotifications(new Set())
+      setIsSelectMode(false)
+      
+      // Calculate current unread count
+      const currentUnreadCount = realNotifications.filter(n => !n.read).length
+      
+      // Dispatch events to update app-header
+      window.dispatchEvent(new CustomEvent('notifications-updated'))
+      window.dispatchEvent(new CustomEvent('notifications-cleared', {
+        detail: { unreadCount: currentUnreadCount }
+      }))
+      
+      // Refresh notifications from socket context to ensure UI is in sync
+      if (currentUser?.id && socketConnected) {
+        await fetchSocketNotifications(currentUser.id, 100, 0)
+      }
+      
+    } catch (error) {
+      console.error('Error deleting selected notifications:', error)
+    }
+  }
+
+  // Handle keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // ESC key to cancel select mode
+      if (event.key === 'Escape' && isSelectMode) {
+        setIsSelectMode(false)
+        setSelectedNotifications(new Set())
+        return
+      }
+      
+      // Ctrl/Cmd + A to select all when in select mode
+      if ((event.ctrlKey || event.metaKey) && event.key === 'a' && isSelectMode) {
+        event.preventDefault()
+        toggleSelectAll()
+        return
+      }
+      
+      // Delete key to delete selected notifications when in select mode
+      if (event.key === 'Delete' && isSelectMode && selectedNotifications.size > 0) {
+        event.preventDefault()
+        handleBulkDelete()
+        return
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isSelectMode, selectedNotifications.size, toggleSelectAll, handleBulkDelete])
 
   // Filter logic
   const filteredNotifications = notifications.filter(notification => {
@@ -417,7 +648,8 @@ export default function NotificationsPage() {
         const actionUrl = payload.action_url
           || (n.category === 'ticket' && (payload.ticket_id || payload.ticket_row_id) ? `/forms/${payload.ticket_id || ''}` : undefined)
           || (n.category === 'break' ? '/status/breaks' : undefined)
-        const icon = n.category === 'ticket' ? 'FileText' : n.category === 'break' ? 'Clock' : 'Bell'
+          || (n.category === 'health_check' ? '/health' : undefined)
+        const icon = n.category === 'ticket' ? 'FileText' : n.category === 'break' ? 'Clock' : n.category === 'health_check' ? 'Heart' : 'Bell'
         return {
           id: `db_${n.id}`,
           type: n.type,
@@ -440,12 +672,73 @@ export default function NotificationsPage() {
 
   // Listen for custom events from app-header to refresh notifications
   useEffect(() => {
-    const handleMarkAllRead = () => {
-      // Don't need to refresh - socket context should handle updates automatically
+    const handleMarkAllRead = async () => {
+      // Refresh notifications from socket context when app header marks all as read
+      if (currentUser?.id && socketConnected) {
+        await fetchSocketNotifications(currentUser.id, 100, 0)
+      }
+      
+      // Also refresh from database as a fallback
+      try {
+        const user = getCurrentUser()
+        if (user?.email) {
+          const res = await fetch(`/api/notifications/?email=${encodeURIComponent(user.email)}&limit=100`, { credentials: 'include' })
+          if (res.ok) {
+            const data = await res.json()
+            if (data?.success && Array.isArray(data.notifications)) {
+              const mapped = data.notifications.map((n: any) => {
+                const payload = n.payload || {}
+                const actionUrl = (() => {
+                  if (payload.action_url) {
+                    return payload.action_url
+                  }
+                  if (n.category === 'ticket' && (payload.ticket_id || payload.ticket_row_id)) {
+                    return `/forms/${payload.ticket_id || ''}`
+                  }
+                  if (n.category === 'break') {
+                    return '/status/breaks'
+                  }
+                  if (n.category === 'task') {
+                    if (payload.task_id) {
+                      return `/productivity/task-activity?taskId=${payload.task_id}`
+                    }
+                    return '/productivity/task-activity'
+                  }
+                  if (n.category === 'health_check') {
+                    return '/health'
+                  }
+                  return undefined
+                })()
+                const icon = n.category === 'ticket' ? 'FileText' : n.category === 'break' ? 'Clock' : n.category === 'health_check' ? 'Heart' : 'Bell'
+                return {
+                  id: `db_${n.id}`,
+                  type: n.type,
+                  title: n.title,
+                  message: n.message,
+                  time: (require('@/lib/notification-service') as any).parseDbTimestampToMs(n.created_at, n.category),
+                  read: !!n.is_read,
+                  icon,
+                  actionUrl,
+                  actionData: payload,
+                  category: n.category,
+                  priority: 'medium' as const,
+                  eventType: 'system' as const,
+                }
+              })
+              setNotifications(mapped)
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error refreshing notifications from database:', error)
+      }
     }
 
-    const handleMarkRead = (event: Event) => {
-      // Don't need to refresh - socket context should handle updates automatically
+    const handleMarkRead = async (event: Event) => {
+      // Refresh notifications from socket context when app header marks one as read
+      if (currentUser?.id && socketConnected) {
+        await fetchSocketNotifications(currentUser.id, 100, 0)
+      }
     }
 
     window.addEventListener('notifications-marked-all-read', handleMarkAllRead)
@@ -455,7 +748,7 @@ export default function NotificationsPage() {
       window.removeEventListener('notifications-marked-all-read', handleMarkAllRead)
       window.removeEventListener('notification-marked-read', handleMarkRead)
     }
-  }, [])
+  }, [currentUser?.id, socketConnected, fetchSocketNotifications])
 
   const getTypeColor = (type: string) => {
     switch (type) {
@@ -490,45 +783,6 @@ export default function NotificationsPage() {
               </p>
             </div>
             <div className="flex items-center gap-3">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-9 px-4 text-sm font-medium hover:bg-blue-50 dark:hover:bg-blue-950/20 hover:text-blue-700 dark:hover:text-blue-300"
-                onClick={handleMarkAllRead}
-                disabled={unreadCount === 0}
-                title="Mark all as read"
-              >
-                <CheckCircle className="h-4 w-4 mr-2" />
-                Mark all read
-              </Button>
-              
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-9 px-4 text-sm font-medium border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50"
-                onClick={async () => {
-                  if (currentUser?.id) {
-                    await fetchSocketNotifications(currentUser.id, 100, 0)
-                  }
-                }}
-                title="Refresh notifications"
-              >
-                <RefreshCw className="h-4 w-4 mr-2" />
-                Refresh
-              </Button>
-              
-              {notifications.length > 0 && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-9 px-4 text-sm font-medium border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-red-700 dark:hover:text-red-300"
-                  onClick={handleClearAll}
-                  title="Clear all notifications"
-                >
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Clear all
-                </Button>
-              )}
             </div>
           </div>
 
@@ -563,7 +817,7 @@ export default function NotificationsPage() {
               
               <Popover open={showFilters} onOpenChange={setShowFilters}>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm" className="h-10">
+                  <Button variant="outline" size="sm" className="h-9">
                     <Filter className="h-4 w-4 mr-2" />
                     Filters
                     {activeFilterCount > 0 && (
@@ -726,7 +980,185 @@ export default function NotificationsPage() {
             )}
           </div>
 
-          <div className="space-y-2">
+          {/* Select Controls - Gmail style */}
+          {notifications.length > 0 && (
+            <div className="flex items-center justify-between py-2 px-1 border-b border-border/20">
+              <div className="flex items-center gap-3">
+                {!isSelectMode ? (
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-3 hover:!bg-transparent dark:hover:text-white hover:text-black"
+                      onClick={toggleSelectMode}
+                      title="Select notifications"
+                    >
+                      <Square className="h-4 w-4 mr-2" />
+                      Select
+                    </Button>
+                    <Separator className=" bg-gray-500 h-4 w-px"/>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-3 text-sm font-medium hover:!bg-transparent dark:hover:text-white hover:text-black"
+                      onClick={async () => {
+                        if (currentUser?.id) {
+                          await fetchSocketNotifications(currentUser.id, 100, 0)
+                        }
+                      }}
+                      title="Refresh notifications"
+                    >
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                    </Button>
+                      <Separator className=" bg-gray-500 h-4 w-px"/>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-3 hover:!bg-transparent dark:hover:text-white hover:text-black disabled:opacity-50 disabled:cursor-not-allowed"
+                      onClick={() => {
+                        if (!isSelectMode) {
+                          toggleSelectMode()
+                        }
+                      }}
+                      disabled={notifications.length === 0}
+                      title="Click to select notifications, then mark as read"
+                    >
+                      <CheckCircle className="h-4 w-4 mr-2" />
+                    </Button>
+                    <Separator className=" bg-gray-500 h-4 w-px"/>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-3 hover:!bg-transparent dark:hover:text-white hover:text-black disabled:opacity-50 disabled:cursor-not-allowed"
+                      onClick={() => {
+                        if (!isSelectMode) {
+                          toggleSelectMode()
+                        }
+                      }}
+                      disabled={notifications.length === 0}
+                      title="Click to select notifications, then delete"
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" />
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 p-0 hover:!bg-transparent dark:hover:text-white hover:text-black"
+                      onClick={toggleSelectAll}
+                      title={selectedNotifications.size === currentNotifications.length ? "Deselect all" : "Select all"}
+                    >
+                      {selectedNotifications.size === currentNotifications.length ? (
+                        <SquareCheck className="h-4 w-4" />
+                      ) : (
+                        <Square className="h-4 w-4" />
+                      )}
+                    </Button>
+                    
+                    <div className="h-4 w-px bg-gray-300 dark:bg-gray-600" />
+                    
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-3 hover:!bg-transparent dark:hover:text-white hover:text-black disabled:opacity-50 disabled:cursor-not-allowed"
+                      onClick={isSelectMode ? handleBulkMarkAsRead : handleMarkAllRead}
+                      disabled={(() => {
+                        if (selectedNotifications.size === 0) return true
+                        
+                        // Check if all selected notifications are already read
+                        const selectedNotificationObjects = currentNotifications.filter(n => selectedNotifications.has(n.id))
+                        const allSelectedAreRead = selectedNotificationObjects.every(n => n.read)
+                        
+                        return allSelectedAreRead
+                      })()}
+                      title={(() => {
+                        if (selectedNotifications.size === 0) return "Select notifications to mark as read"
+                        
+                        const selectedNotificationObjects = currentNotifications.filter(n => selectedNotifications.has(n.id))
+                        const allSelectedAreRead = selectedNotificationObjects.every(n => n.read)
+                        
+                        if (allSelectedAreRead) return "All selected notifications are already read"
+                        
+                        return selectedNotifications.size < currentNotifications.length ? 
+                          `Mark ${selectedNotifications.size} selected notification${selectedNotifications.size !== 1 ? 's' : ''} as read` : 
+                          "Mark all notifications as read"
+                      })()}
+                    >
+                      <CheckCircle className="h-4 w-4 mr-2" />
+                      {(() => {
+                        if (selectedNotifications.size === 0) {
+                          return "Mark as Read"
+                        }
+                        
+                        // Check if all selected notifications are already read
+                        const selectedNotificationObjects = currentNotifications.filter(n => selectedNotifications.has(n.id))
+                        const allSelectedAreRead = selectedNotificationObjects.every(n => n.read)
+                        
+                        if (allSelectedAreRead) {
+                          return "Mark as Read"
+                        }
+                        
+                        // Always show count of unread selected items
+                        const unreadSelectedCount = selectedNotificationObjects.filter(n => !n.read).length
+                        return `Mark as Read (${unreadSelectedCount})`
+                      })()}
+                    </Button>
+                    <Separator className=" bg-gray-500 h-4 w-px"/>
+                    
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-3 hover:!bg-transparent dark:hover:text-white hover:text-black disabled:opacity-50 disabled:cursor-not-allowed"
+                      onClick={handleBulkDelete}
+                      disabled={selectedNotifications.size === 0}
+                      title={`Delete ${selectedNotifications.size} selected notification${selectedNotifications.size !== 1 ? 's' : ''}`}
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      {(() => {
+                        if (selectedNotifications.size === 0) {
+                          return "Delete"
+                        }
+                        
+                        if (selectedNotifications.size < currentNotifications.length) {
+                          // Partial selection - show count of selected items
+                          return `Delete (${selectedNotifications.size})`
+                        }
+                        
+                        // Select all - show total count
+                        return `Delete (${currentNotifications.length})`
+                      })()}
+                    </Button>
+                    <Separator className=" bg-gray-500 h-4 w-px"/>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 p-0 hover:!bg-transparent dark:hover:text-white hover:text-black"
+                      onClick={toggleSelectMode}
+                      title="Cancel selection (Esc)"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </>
+                )}
+              </div>
+              
+              {isSelectMode && selectedNotifications.size > 0 && (
+                <div className="text-sm text-muted-foreground">
+                  {selectedNotifications.size} of {currentNotifications.length} selected
+                </div>
+              )}
+              
+              {isSelectMode && (
+                <div className="text-xs text-muted-foreground">
+                  Press <kbd className="px-1 py-0.5 text-xs bg-muted rounded">Esc</kbd> to cancel
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="space-y-0">
             {loading ? (
               <NotificationsSkeleton rows={6} />
             ) : currentNotifications.length === 0 ? (
@@ -740,7 +1172,7 @@ export default function NotificationsPage() {
                 </CardContent>
               </Card>
             ) : (
-                          currentNotifications.map((notification) => {
+                          currentNotifications.map((notification, index) => {
               // Map icon string to component
               const getIconComponent = (iconName: string) => {
                 switch (iconName) {
@@ -750,6 +1182,7 @@ export default function NotificationsPage() {
                   case 'Clock': return Clock
                   case 'CheckSquare': return CheckSquare
                   case 'FileText': return FileText
+                  case 'Heart': return Heart
                   default: return Bell
                 }
               }
@@ -757,19 +1190,32 @@ export default function NotificationsPage() {
               const IconComponent = getIconComponent(notification.icon)
               
               return (
-                <Card 
-                  key={notification.id} 
-                  id={`notification-${notification.id}`}
-                  className={`transition-all duration-200 cursor-pointer hover:bg-accent/30 ${
-                    !notification.read 
-                      ? 'border-blue-200 bg-blue-50/50 dark:bg-blue-950/10' 
-                      : ''
-                  } ${
-                    highlightedNotificationId === notification.id
-                      ? 'ring-2 ring-blue-500 bg-blue-100/50 dark:bg-blue-950/20 animate-pulse'
-                      : ''
-                  }`}
+                <div key={notification.id}>
+                  {index > 0 && (
+                    <div className="h-px bg-border/30 mx-4" />
+                  )}
+                  <Card 
+                    id={`notification-${notification.id}`}
+                    className={`transition-all duration-200 ${isSelectMode ? 'cursor-default' : 'cursor-pointer'} hover:bg-accent/30 py-2 border-0 shadow-none ${
+                      !notification.read 
+                        ? 'bg-blue-50/30 dark:bg-blue-950/5' 
+                        : 'bg-card/50'
+                    } ${
+                      highlightedNotificationId === notification.id
+                        ? 'ring-2 ring-blue-500 bg-blue-100/50 dark:bg-blue-950/20 animate-pulse'
+                        : ''
+                    } ${
+                      selectedNotifications.has(notification.id)
+                        ? 'ring-2 ring-blue-500 bg-blue-50/50 dark:bg-blue-950/10'
+                        : ''
+                    }`}
                   onClick={() => {
+                    if (isSelectMode) {
+                      // In select mode, toggle selection
+                      toggleSelectNotification(notification.id)
+                      return
+                    }
+                    
                     // Mark as read when clicking the card
                     if (!notification.read) {
                       // Update local state first
@@ -781,6 +1227,9 @@ export default function NotificationsPage() {
                       
                       // Update the old notification service
                       markNotificationAsRead(notification.id)
+                      
+                      // Dispatch event to update app-header
+                      window.dispatchEvent(new CustomEvent('notifications-updated'))
                       
                       // Persist to database
                       try {
@@ -845,50 +1294,58 @@ export default function NotificationsPage() {
                     }
                   }}
                 >
-                    <CardContent className="p-3">
-                      <div className="flex items-start gap-3">
-                        <div className={`p-1.5 rounded-full ${getTypeColor(notification.type)}`}>
-                          <IconComponent className="h-4 w-4" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2">
-                                <h3 className={`text-sm font-semibold ${
-                                  !notification.read ? 'text-foreground' : 'text-muted-foreground'
-                                }`}>
-                                  {notification.title}
-                                </h3>
-                                {!notification.read && (
-                                  <Badge variant="secondary" className="text-[10px] h-5">
-                                    New
-                                  </Badge>
-                                )}
-                              </div>
-                              <p className="text-xs text-muted-foreground line-clamp-1">
-                                {notification.message}
-                              </p>
-                              <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                                <span key={nowTick}>{formatTimeAgo(notification.time)}</span>
-                                <span>•</span>
-                                <span className="capitalize">{notification.type}</span>
-                              </div>
+                  <CardContent className="p-2">
+                    <div className="flex items-center gap-2">
+                      {isSelectMode && (
+                        <Checkbox
+                          checked={selectedNotifications.has(notification.id)}
+                          onCheckedChange={() => toggleSelectNotification(notification.id)}
+                          className="flex-shrink-0"
+                        />
+                      )}
+                      <div className={`p-1 rounded-full ${getTypeColor(notification.type)} flex-shrink-0`}>
+                        <IconComponent className="h-3.5 w-3.5" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-0.5">
+                              <h3 className={`text-sm font-medium truncate ${
+                                !notification.read ? 'text-foreground' : 'text-muted-foreground'
+                              }`}>
+                                {notification.title}
+                              </h3>
+                              {!notification.read && (
+                                <Badge variant="secondary" className="text-[9px] h-4 px-1.5 flex-shrink-0">
+                                  New
+                                </Badge>
+                              )}
                             </div>
-                            <div className="flex items-center gap-1">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleDeleteNotification(notification.id) }}
-                                className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </Button>
+                            <p className="text-xs text-muted-foreground line-clamp-1 mb-0.5">
+                              {notification.message}
+                            </p>
+                            <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                              <span key={nowTick}>{formatTimeAgo(notification.time)}</span>
+                              <span>•</span>
+                              <span className="capitalize">{notification.type}</span>
                             </div>
                           </div>
+                          {!isSelectMode && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleDeleteNotification(notification.id) }}
+                              className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive flex-shrink-0"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          )}
                         </div>
                       </div>
-                    </CardContent>
+                    </div>
+                  </CardContent>
                   </Card>
+                </div>
                 )
               })
             )}

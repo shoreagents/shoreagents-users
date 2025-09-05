@@ -78,6 +78,9 @@ export function useHealthCheckSocketContext(email: string | null) {
   const [records, setRecords] = useState<HealthCheckRecord[]>([])
   const [notifications, setNotifications] = useState<HealthCheckNotification[]>([])
   const [availability, setAvailability] = useState<NurseAvailability[]>([])
+  const [isLoadingAvailability, setIsLoadingAvailability] = useState(true) // Start as true to show loading initially
+  const [userRequests, setUserRequests] = useState<HealthCheckRequest[]>([])
+  const [isLoadingRequests, setIsLoadingRequests] = useState(false)
 
   // Set up socket event listeners when socket is available
   useEffect(() => {
@@ -114,6 +117,25 @@ export function useHealthCheckSocketContext(email: string | null) {
               return [...prev, data.notification]
             }
           })
+        } else if (data.type === 'request_status_changed') {
+          // Handle health check request status changes
+          const updatedRequest = data.request
+          setRequests(prev => {
+            const existing = prev.find(r => r.id === updatedRequest.id)
+            if (existing) {
+              return prev.map(r => r.id === updatedRequest.id ? updatedRequest : r)
+            } else {
+              return [...prev, updatedRequest]
+            }
+          })
+          setUserRequests(prev => {
+            const existing = prev.find(r => r.id === updatedRequest.id)
+            if (existing) {
+              return prev.map(r => r.id === updatedRequest.id ? updatedRequest : r)
+            } else {
+              return [...prev, updatedRequest]
+            }
+          })
         } else if (data.type === 'availability_update') {
           setAvailability(prev => {
             const existing = prev.find(a => a.id === data.availability.id)
@@ -129,10 +151,89 @@ export function useHealthCheckSocketContext(email: string | null) {
 
     // Listen for health check events
     socket.on('health-check-update', handleHealthCheckUpdate)
+    socket.on('health_check_event', (data: any) => {
+      console.log('🔔 Health check event received:', data)
+      
+      if (data.event === 'request_status_changed') {
+        console.log('📝 Processing request status change:', {
+          request_id: data.request_id,
+          user_id: data.user_id,
+          new_status: data.new_status,
+          updated_at: data.updated_at
+        })
+        
+        // Handle request status change
+        const updatedRequest = {
+          id: data.request_id,
+          user_id: data.user_id,
+          nurse_id: data.nurse_id,
+          status: data.new_status,
+          priority: 'normal', // Default, will be updated from database
+          complaint: '', // Will be updated from database
+          request_time: new Date().toISOString(),
+          approved_time: data.new_status === 'approved' ? new Date().toISOString() : null,
+          completed_time: data.new_status === 'completed' ? new Date().toISOString() : null,
+          created_at: new Date().toISOString(),
+          updated_at: data.updated_at || new Date().toISOString()
+        }
+        
+        setRequests(prev => {
+          const updated = prev.map(req => 
+            req.id === data.request_id 
+              ? { ...req, status: data.new_status, updated_at: data.updated_at }
+              : req
+          )
+          console.log('📋 Updated requests:', updated.map(r => ({ id: r.id, status: r.status, user_id: r.user_id })))
+          return updated
+        })
+        setUserRequests(prev => {
+          const updated = prev.map(req => 
+            req.id === data.request_id 
+              ? { ...req, status: data.new_status, updated_at: data.updated_at }
+              : req
+          )
+          console.log('👤 Updated userRequests:', updated.map(r => ({ id: r.id, status: r.status, user_id: r.user_id })))
+          console.log('🔍 After update - hasPending check:', {
+            userId: data.user_id,
+            hasPending: updated.some(request => 
+              request.user_id === data.user_id && 
+              (request.status === 'pending' || request.status === 'approved')
+            )
+          })
+          return updated
+        })
+        
+        // Show notification based on status
+        let notificationTitle = 'Health Check Request Updated'
+        let notificationMessage = `Your health check request status has changed to: ${data.new_status}`
+        
+        if (data.new_status === 'approved') {
+          notificationTitle = 'Health Check Request Approved'
+          notificationMessage = 'Your health check request has been approved! Please proceed to the clinic.'
+        } else if (data.new_status === 'rejected') {
+          notificationTitle = 'Health Check Request Rejected'
+          notificationMessage = 'Your health check request has been rejected. Please contact the nurse for more information.'
+        } else if (data.new_status === 'completed') {
+          notificationTitle = 'Health Check Completed'
+          notificationMessage = 'Your health check has been completed. Check your records for details.'
+        }
+        
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('health-check-notification', {
+            detail: {
+              type: data.new_status === 'approved' ? 'success' : data.new_status === 'rejected' ? 'error' : 'info',
+              title: notificationTitle,
+              message: notificationMessage
+            }
+          }))
+        }
+      }
+    })
 
     // Clean up event listeners
     return () => {
       socket.off('health-check-update', handleHealthCheckUpdate)
+      socket.off('health_check_event')
     }
   }, [socket, email])
 
@@ -152,6 +253,7 @@ export function useHealthCheckSocketContext(email: string | null) {
 
   // Fetch availability from API
   const fetchAvailability = useCallback(async (nurseId: number) => {
+    setIsLoadingAvailability(true)
     try {
       const response = await fetch(`/api/health-check/availability?nurse_id=${nurseId}`)
       const data = await response.json()
@@ -161,6 +263,26 @@ export function useHealthCheckSocketContext(email: string | null) {
       }
     } catch (error) {
       console.error('Error fetching nurse availability:', error)
+    } finally {
+      setIsLoadingAvailability(false)
+    }
+  }, [])
+
+  // Fetch user's health check requests
+  const fetchUserRequests = useCallback(async (userId: number) => {
+    setIsLoadingRequests(true)
+    try {
+      const response = await fetch(`/api/health-check/requests?user_id=${userId}&limit=50&offset=0`)
+      const data = await response.json()
+      
+      if (data.success) {
+        console.log('📥 Fetched user requests:', data.requests?.map((r: HealthCheckRequest) => ({ id: r.id, status: r.status, user_id: r.user_id })))
+        setUserRequests(data.requests || [])
+      }
+    } catch (error) {
+      console.error('Error fetching user requests:', error)
+    } finally {
+      setIsLoadingRequests(false)
     }
   }, [])
 
@@ -183,6 +305,7 @@ export function useHealthCheckSocketContext(email: string | null) {
       if (data.success) {
         // Add new request to local state
         setRequests(prev => [...prev, data.request])
+        setUserRequests(prev => [...prev, data.request])
         
         // Emit to socket server if connected
         if (socket && isConnected) {
@@ -202,11 +325,17 @@ export function useHealthCheckSocketContext(email: string | null) {
     }
   }, [socket, isConnected, email])
 
-  // Check if nurse is on duty
+  // Check if nurse is on duty - FIXED: Proper timezone handling
   const isNurseOnDuty = useCallback((nurseId: number) => {
-    const now = new Date()
-    const currentDayOfWeek = now.getDay()
-    const currentTime = now.toTimeString().slice(0, 5) // HH:MM format
+    // Don't check duty status if still loading or no availability data
+    if (isLoadingAvailability || availability.length === 0) {
+      return null // Return null to indicate loading/unknown status
+    }
+    
+    // Get current time in Philippines timezone (Asia/Manila)
+    const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
+    const currentDayOfWeek = nowPH.getDay()
+    const currentTime = nowPH.toTimeString().slice(0, 5) // HH:MM format in PH timezone
     
     // Find availability for the current day of week
     const nurseAvailability = availability.find(avail => 
@@ -217,11 +346,24 @@ export function useHealthCheckSocketContext(email: string | null) {
       return null
     }
     
-    const isInShift = currentTime >= nurseAvailability.shift_start && currentTime <= nurseAvailability.shift_end
+    // Convert database time strings to comparable format
+    const formatTimeForComparison = (timeStr: string) => {
+      // Ensure time is in HH:MM format for comparison
+      return timeStr.length === 8 ? timeStr.slice(0, 5) : timeStr
+    }
+    
+    const shiftStart = formatTimeForComparison(nurseAvailability.shift_start)
+    const shiftEnd = formatTimeForComparison(nurseAvailability.shift_end)
+    
+    const isInShift = currentTime >= shiftStart && currentTime <= shiftEnd
     
     // Check if current time is during break
-    const isOnBreak = nurseAvailability.break_start && nurseAvailability.break_end && 
-                     currentTime >= nurseAvailability.break_start && currentTime <= nurseAvailability.break_end
+    let isOnBreak = false
+    if (nurseAvailability.break_start && nurseAvailability.break_end) {
+      const breakStart = formatTimeForComparison(nurseAvailability.break_start)
+      const breakEnd = formatTimeForComparison(nurseAvailability.break_end)
+      isOnBreak = currentTime >= breakStart && currentTime <= breakEnd
+    }
     
     const result = {
       onDuty: isInShift && !isOnBreak,
@@ -230,7 +372,23 @@ export function useHealthCheckSocketContext(email: string | null) {
     }
     
     return result
-  }, [availability])
+  }, [availability, isLoadingAvailability])
+
+  // Check if user has a pending or approved request (both should block new requests)
+  // Note: 'completed' requests should NOT block new requests
+  const hasPendingRequest = useCallback((userId: number) => {
+    const hasPending = userRequests.some(request => 
+      request.user_id === userId && 
+      (request.status === 'pending' || request.status === 'approved')
+    )
+    console.log('🔍 hasPendingRequest check:', { 
+      userId, 
+      userRequests: userRequests.map(r => ({ id: r.id, status: r.status, user_id: r.user_id })),
+      hasPending,
+      blockingStatuses: userRequests.filter(r => r.user_id === userId && (r.status === 'pending' || r.status === 'approved'))
+    })
+    return hasPending
+  }, [userRequests])
 
   return {
     isConnected,
@@ -238,9 +396,14 @@ export function useHealthCheckSocketContext(email: string | null) {
     records,
     notifications,
     availability,
+    isLoadingAvailability,
+    userRequests,
+    isLoadingRequests,
     fetchRecords,
     fetchAvailability,
+    fetchUserRequests,
     createRequest,
-    isNurseOnDuty
+    isNurseOnDuty,
+    hasPendingRequest
   }
 }

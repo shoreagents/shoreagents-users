@@ -8,6 +8,8 @@ import { InactivityDialog } from '@/components/inactivity-dialog'
 import { useRouter } from 'next/navigation'
 import { useBreak } from './break-context'
 import { useMeeting } from './meeting-context'
+import { useTimer } from './timer-context'
+import { useAuth } from './auth-context'
 import { isWithinShiftHours, parseShiftTime } from '@/lib/shift-utils'
 
 
@@ -28,13 +30,13 @@ const ActivityContext = createContext<ActivityContextType | undefined>(undefined
 
 export function ActivityProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter()
-  const [hasLoggedIn, setHasLoggedIn] = useState(false)
   const [notificationShown, setNotificationShown] = useState(false)
   const notificationTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const notificationUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const { isBreakActive } = useBreak()
   const { isInMeeting } = useMeeting()
-  const [shiftInfo, setShiftInfo] = useState<any>(null)
+  const { shiftInfo } = useTimer()
+  const { hasLoggedIn, setUserLoggedIn, setUserLoggedOut } = useAuth()
   const {
     isTracking,
     showInactivityDialog,
@@ -48,9 +50,45 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
     setShowInactivityDialog
   } = useActivityTracking()
 
-  // Check for existing login on mount - but don't auto-start tracking
+  // Helper function to check if shift has ended
+  const checkIfShiftEnded = useCallback((shiftInfo: any) => {
+    try {
+      if (!shiftInfo?.time) return false
+      
+      const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
+      const parsed = parseShiftTime(shiftInfo.time, nowPH)
+      
+      if (parsed?.endTime) {
+        return nowPH > parsed.endTime
+      }
+      
+      return false
+    } catch (error) {
+      return false
+    }
+  }, [])
+
+  // Helper function to check if shift has not started
+  const checkIfShiftNotStarted = useCallback((shiftInfo: any) => {
+    try {
+      if (!shiftInfo?.time) return false
+      
+      const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
+      const parsed = parseShiftTime(shiftInfo.time, nowPH)
+      
+      if (parsed?.startTime) {
+        return nowPH < parsed.startTime
+      }
+      
+      return false
+    } catch (error) {
+      return false
+    }
+  }, [])
+
+  // Initialize user activity data when logged in
   useEffect(() => {
-    const checkInitialAuth = async () => {
+    if (hasLoggedIn) {
       const currentUser = getCurrentUser()
       if (currentUser) {
         // Initialize user activity data
@@ -60,58 +98,23 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
         } catch (error) {
           console.error('Failed to initialize user activity:', error)
         }
-        
-        // Only set hasLoggedIn if we're not on the login page or root page
-        if (window.location.pathname !== '/' && window.location.pathname !== '/login') {
-          setHasLoggedIn(true)
-        }
-      } else {
-        // No user logged in, ensure tracking is stopped
-        setHasLoggedIn(false)
-        if (isTracking) {
-          stopTracking()
-        }
+      }
+    } else {
+      // No user logged in, ensure tracking is stopped
+      if (isTracking) {
+        stopTracking()
       }
     }
-    
-    // Add a small delay to ensure all contexts are properly initialized
-    const timeoutId = setTimeout(checkInitialAuth, 200)
-    
-    return () => clearTimeout(timeoutId)
-  }, [])
-
-  // Fetch shift information when user logs in
-  useEffect(() => {
-    const fetchShiftInfo = async () => {
-      if (!hasLoggedIn) {
-        setShiftInfo(null)
-        return
-      }
-
-      try {
-        const currentUser = getCurrentUser()
-        if (!currentUser?.email) return
-
-        // Fetch timer data to get shift information
-        const response = await fetch(`/api/timer/status?email=${encodeURIComponent(currentUser.email)}`)
-        const data = await response.json()
-        
-        if (data.success && data.timerData?.shiftInfo) {
-          setShiftInfo(data.timerData.shiftInfo)
-        }
-      } catch (error) {
-        console.error('Failed to fetch shift info:', error)
-        setShiftInfo(null)
-      }
-    }
-
-    fetchShiftInfo()
-  }, [hasLoggedIn])
+  }, [hasLoggedIn, isTracking, stopTracking])
 
   // Start tracking only when user has logged in, no break is active, not in a meeting, and within shift hours
   useEffect(() => {
     const isWithinShift = isWithinShiftHours(shiftInfo)
-    if (hasLoggedIn && !isTracking && !isBreakActive && !isInMeeting && isWithinShift && window.location.pathname !== '/') {
+    const isShiftEnded = checkIfShiftEnded(shiftInfo)
+    const isShiftNotStarted = checkIfShiftNotStarted(shiftInfo)
+    
+    // Only start tracking if shift is active (not ended and not started)
+    if (hasLoggedIn && !isTracking && !isBreakActive && !isInMeeting && isWithinShift && !isShiftEnded && !isShiftNotStarted && window.location.pathname !== '/') {
       // Set inactivity threshold to 30 seconds (30000ms)
       setInactivityThreshold(30000)
       startTracking()
@@ -164,98 +167,79 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
       const currentUser = getCurrentUser()
       if (currentUser?.email) {
         const isWithinShift = isWithinShiftHours(shiftInfo)
-        if (!isWithinShift) {
-          // Pause activity tracking when outside shift hours
+        const isShiftEnded = checkIfShiftEnded(shiftInfo)
+        const isShiftNotStarted = checkIfShiftNotStarted(shiftInfo)
+        
+        // Pause tracking if outside shift hours, shift has ended, or shift hasn't started
+        if (!isWithinShift || isShiftEnded || isShiftNotStarted) {
+          // Pause activity tracking when outside shift hours or shift is not active
           // TODO: Replace with database-driven activity pausing
           // pauseActivityForShift(currentUser.email)
           pauseTracking()
         } else {
-          // Resume activity tracking when within shift hours
+          // Resume activity tracking when within shift hours and shift is active
           // TODO: Replace with database-driven activity resuming
           // resumeActivityFromShift(currentUser.email)
           resumeTracking()
         }
       }
     }
-  }, [shiftInfo, hasLoggedIn, pauseTracking, resumeTracking])
+  }, [shiftInfo, hasLoggedIn, pauseTracking, resumeTracking, checkIfShiftEnded, checkIfShiftNotStarted])
 
   // Meeting status will be handled by individual components that need it
   // This prevents circular dependency with MeetingProvider
 
-    // Monitor authentication state continuously with enhanced stopping
+  // Monitor authentication state changes and stop tracking when logged out
   useEffect(() => {
-    const checkAuthStatus = async () => {
-      const currentUser = getCurrentUser()
-      const isOnLoginPage = window.location.pathname === '/' || window.location.pathname === '/login'
+    if (!hasLoggedIn && isTracking) {
+      // User logged out - IMMEDIATELY stop all tracking
+      try {
+        stopTracking()
+        stopTracking() // Double stop
+        stopTracking() // Triple stop for safety
+      } catch (error) {
+        console.error('Error in aggressive stop:', error)
+      }
       
-      if (!currentUser) {
-        // User is not logged in - IMMEDIATELY stop all tracking
-        if (hasLoggedIn || isTracking) {
-          setHasLoggedIn(false)
-          
-          // Aggressive immediate stop
-          try {
-            await stopTracking()
-            await stopTracking() // Double stop
-            await stopTracking() // Triple stop for safety
-          } catch (error) {
-            console.error('Error in aggressive stop:', error)
-          }
-          
-          // Mark any active session as ended due to logout
-          const authData = localStorage.getItem("shoreagents-auth")
-          if (!authData) {
-            // No auth data means user logged out, find last known user and end their session
-            const allKeys = Object.keys(localStorage)
-            const activityKeys = allKeys.filter(key => key.startsWith('shoreagents-activity-'))
-            
-            activityKeys.forEach(key => {
-              const userData = localStorage.getItem(key)
-              if (userData) {
-                try {
-                  const parsed = JSON.parse(userData)
-                  if (parsed.isCurrentlyActive && parsed.currentSessionStart) {
-                    const now = Date.now()
-                    const activeDuration = now - parsed.currentSessionStart
-                    parsed.totalActiveTime += activeDuration
-                    
-                    // End the session
-                    if (parsed.activitySessions && parsed.activitySessions.length > 0) {
-                      const lastSession = parsed.activitySessions[parsed.activitySessions.length - 1]
-                      if (lastSession && lastSession.type === 'active' && !lastSession.endTime) {
-                        lastSession.endTime = now
-                        lastSession.duration = activeDuration
-                        lastSession.endReason = 'logout'
-                      }
-                    }
-                    
-                    parsed.isCurrentlyActive = false
-                    parsed.currentSessionStart = 0
-                    parsed.lastActivityTime = now
-                    localStorage.setItem(key, JSON.stringify(parsed))
+      // Mark any active session as ended due to logout
+      const authData = localStorage.getItem("shoreagents-auth")
+      if (!authData) {
+        // No auth data means user logged out, find last known user and end their session
+        const allKeys = Object.keys(localStorage)
+        const activityKeys = allKeys.filter(key => key.startsWith('shoreagents-activity-'))
+        
+        activityKeys.forEach(key => {
+          const userData = localStorage.getItem(key)
+          if (userData) {
+            try {
+              const parsed = JSON.parse(userData)
+              if (parsed.isCurrentlyActive && parsed.currentSessionStart) {
+                const now = Date.now()
+                const activeDuration = now - parsed.currentSessionStart
+                parsed.totalActiveTime += activeDuration
+                
+                // End the session
+                if (parsed.activitySessions && parsed.activitySessions.length > 0) {
+                  const lastSession = parsed.activitySessions[parsed.activitySessions.length - 1]
+                  if (lastSession && lastSession.type === 'active' && !lastSession.endTime) {
+                    lastSession.endTime = now
+                    lastSession.duration = activeDuration
+                    lastSession.endReason = 'logout'
                   }
-                } catch (error) {
-                  console.error('Error cleaning up activity data:', error)
                 }
+                
+                parsed.isCurrentlyActive = false
+                parsed.currentSessionStart = 0
+                parsed.lastActivityTime = now
+                localStorage.setItem(key, JSON.stringify(parsed))
               }
-            })
+            } catch (error) {
+              console.error('Error cleaning up activity data:', error)
+            }
           }
-        }
-      } else {
-        // User is logged in
-        if (!hasLoggedIn && !isOnLoginPage) {
-          setHasLoggedIn(true)
-        }
+        })
       }
     }
-
-    // Check auth status immediately
-    checkAuthStatus()
-
-    // Set up an interval to check auth status more frequently
-    const authCheckInterval = setInterval(checkAuthStatus, 1000) // Check every 1 second
-
-    return () => clearInterval(authCheckInterval)
   }, [hasLoggedIn, isTracking, stopTracking])
 
   // Listen for app closing event
@@ -266,7 +250,6 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
         // Mark user session as ended due to app closing
         // TODO: Replace with database-driven app closing
         // markUserAsAppClosed(currentUser.email)
-        setHasLoggedIn(false)
         stopTracking()
       }
     }
@@ -296,16 +279,16 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
     }
   }, [stopTracking])
 
-  // Periodic cleanup of duplicate sessions
+  // Periodic cleanup of duplicate sessions - OPTIMIZED: Reduced frequency
   useEffect(() => {
     if (hasLoggedIn) {
       const currentUser = getCurrentUser()
       if (currentUser?.email) {
-        // Clean up duplicate sessions every 30onds
+        // Clean up duplicate sessions every 2 minutes - OPTIMIZED: Reduced frequency
         const cleanupInterval = setInterval(() => {
           // TODO: Replace with database-driven cleanup
           // cleanupDuplicateSessions(currentUser.email)
-        }, 30000) // 30 seconds
+        }, 120000) // OPTIMIZED: 2 minutes instead of 30 seconds
         
         return () => clearInterval(cleanupInterval)
       }
@@ -315,7 +298,10 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
   // Show system notification when inactivity dialog appears (but not during meetings or outside shift hours)
   useEffect(() => {
     const isWithinShift = isWithinShiftHours(shiftInfo)
-    if (showInactivityDialog && !notificationShown && inactivityData && !isInMeeting && isWithinShift) {
+    const isShiftEnded = checkIfShiftEnded(shiftInfo)
+    const isShiftNotStarted = checkIfShiftNotStarted(shiftInfo)
+    
+    if (showInactivityDialog && !notificationShown && inactivityData && !isInMeeting && isWithinShift && !isShiftEnded && !isShiftNotStarted) {
       // Show system notification
       if (window.electronAPI?.inactivityNotifications) {
         window.electronAPI.inactivityNotifications.show({
@@ -408,32 +394,13 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
     }
   }, [setShowInactivityDialog])
 
-  const setUserLoggedIn = useCallback(() => {
-    console.log('User logging in - will start activity tracking')
-    
-    // Clear any stale session data when logging in
-    const currentUser = getCurrentUser()
-    if (currentUser?.email) {
-      // Initialize fresh activity data to prevent timing overlaps
-      // TODO: Replace with database-driven activity initialization
-      // initializeUserActivity(currentUser.email)
-    }
-    
-    setHasLoggedIn(true)
-    
-    // Add a small delay to ensure authentication data is stored, then reload the page
-    // This ensures the timer initializes properly after login
-    setTimeout(() => {
-      if (window.location.pathname !== '/login' && window.location.pathname !== '/') {
-        console.log('🔄 Reloading page after login to ensure timer initialization')
-        window.location.reload()
-      }
-    }, 1000) // 1 second delay to ensure all data is stored
-  }, [])
+  // These functions are now handled by the auth context
+  // We keep them here for backward compatibility but they delegate to the auth context
+  const handleUserLoggedIn = useCallback(() => {
+    setUserLoggedIn()
+  }, [setUserLoggedIn])
 
-  const setUserLoggedOut = useCallback(async () => {
-    console.log('🔄 User logging out - stopping activity tracking')
-    
+  const handleUserLoggedOut = useCallback(async () => {
     // FIRST: Stop activity tracking immediately to prevent any more activity updates
     try {
       await stopTracking()
@@ -454,10 +421,10 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
       }
     })
     
-    // THIRD: Set logged out state
-    setHasLoggedIn(false)
+    // THIRD: Set logged out state via auth context
+    setUserLoggedOut()
     console.log('✅ User logged out successfully')
-  }, [stopTracking])
+  }, [stopTracking, setUserLoggedOut])
 
   const value = {
     isTracking,
@@ -468,15 +435,15 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
     resumeTracking,
     setInactivityThreshold,
     getActivityStatus,
-    setUserLoggedIn,
-    setUserLoggedOut
+    setUserLoggedIn: handleUserLoggedIn,
+    setUserLoggedOut: handleUserLoggedOut
   }
 
   return (
     <ActivityContext.Provider value={value}>
       {children}
       <InactivityDialog
-        open={showInactivityDialog && !isInMeeting && isWithinShiftHours(shiftInfo)}
+        open={showInactivityDialog && !isInMeeting && isWithinShiftHours(shiftInfo) && !checkIfShiftEnded(shiftInfo) && !checkIfShiftNotStarted(shiftInfo)}
         onClose={handleCloseDialog}
         onReset={handleResetActivity}
         onAutoLogout={handleInactivityTimeout}

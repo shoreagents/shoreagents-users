@@ -215,6 +215,53 @@ export function useNotificationsSocketContext(email: string | null) {
     }
   }, [socket, isConnected, email, notifications])
 
+  // Clear all notifications
+  const clearAll = useCallback(async (notificationIds: number[]) => {
+    try {
+      // Always clear the state first for immediate UI update
+      setNotifications([])
+      setUnreadCount(0)
+      
+      if (notificationIds.length === 0) {
+        // If no IDs provided, just clear state
+        return
+      }
+
+      const response = await fetch(`/api/notifications/delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          ids: notificationIds,
+          email: email 
+        })
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        // Emit to socket server if connected
+        if (socket && isConnected) {
+          socket.emit('notifications-cleared', {
+            email,
+            user_id: notificationIds.length > 0 ? notificationIds[0] : null // Use first ID as user reference
+          })
+        }
+        
+        // Dispatch custom event to notify other components
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('notifications-updated', {
+            detail: { unreadCount: 0 }
+          }))
+        }
+      } else {
+        // If API call failed, we might want to restore the state
+        console.error('Failed to clear notifications from database:', data.error)
+      }
+    } catch (error) {
+      console.error('Error clearing all notifications:', error)
+    }
+  }, [socket, isConnected, email])
+
   return {
     isConnected,
     notifications,
@@ -222,6 +269,7 @@ export function useNotificationsSocketContext(email: string | null) {
     fetchNotifications,
     markAsRead,
     markAllAsRead,
-    deleteNotification
+    deleteNotification,
+    clearAll
   }
 }

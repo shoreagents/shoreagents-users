@@ -22,12 +22,25 @@ export async function POST(request: NextRequest) {
     const pool = getPool()
     
     try {
-      // Create health check request
+      // Find an available nurse (user_id 1 is the nurse)
+      let nurse_id = null
+      try {
+        const nurseResult = await pool.query(
+          `SELECT id FROM users WHERE id = 1 AND role = 'Internal' LIMIT 1`
+        )
+        nurse_id = nurseResult.rows.length > 0 ? nurseResult.rows[0].id : 1 // Default to 1 if not found
+        console.log('Nurse assignment:', { nurse_id, nurseResult: nurseResult.rows })
+      } catch (nurseError) {
+        console.error('Error finding nurse:', nurseError)
+        nurse_id = 1 // Default to user_id 1 as nurse
+      }
+      
+      // Create health check request with nurse assignment
       const result = await pool.query(
-        `INSERT INTO health_check_requests (user_id, complaint, symptoms, priority, status)
-         VALUES ($1, $2, $3, $4, 'pending')
+        `INSERT INTO health_check_requests (user_id, nurse_id, complaint, symptoms, priority, status)
+         VALUES ($1, $2, $3, $4, $5, 'pending')
          RETURNING *`,
-        [user_id, complaint, symptoms, priority]
+        [user_id, nurse_id, complaint, symptoms, priority]
       )
 
       const newRequest = result.rows[0]
@@ -39,6 +52,7 @@ export async function POST(request: NextRequest) {
           event: 'request_created',
           request_id: newRequest.id,
           user_id: newRequest.user_id,
+          nurse_id: newRequest.nurse_id,
           status: newRequest.status,
           priority: newRequest.priority,
           complaint: newRequest.complaint,

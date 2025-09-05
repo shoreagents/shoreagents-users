@@ -210,4 +210,78 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
   }
+}
+
+export async function PUT(request: NextRequest) {
+  try {
+    const body = await request.json()
+    const { userId, email, updates } = body
+
+    if (!userId && !email) {
+      return NextResponse.json(
+        { success: false, error: 'User ID or email is required' },
+        { status: 400 }
+      )
+    }
+
+    // Initialize database connection
+    await initializeDatabase()
+
+    // Update profile in database
+    let updateQuery = ''
+    let params: any[] = []
+
+    if (userId) {
+      // Update by user ID
+      const updateFields = Object.keys(updates).map((key, index) => `${key} = $${index + 2}`).join(', ')
+      updateQuery = `UPDATE personal_info SET ${updateFields} WHERE user_id = $1`
+      params = [userId, ...Object.values(updates)]
+    } else {
+      // Update by email
+      const updateFields = Object.keys(updates).map((key, index) => `${key} = $${index + 2}`).join(', ')
+      updateQuery = `
+        UPDATE personal_info 
+        SET ${updateFields} 
+        WHERE user_id = (SELECT id FROM users WHERE email = $1)
+      `
+      params = [email, ...Object.values(updates)]
+    }
+
+    await executeQuery(updateQuery, params)
+
+    // Invalidate Redis cache
+    const cacheKey = userId 
+      ? cacheKeys.profileById(parseInt(userId))
+      : cacheKeys.profile(email)
+    
+    await redisCache.del(cacheKey)
+
+    // Also invalidate by email if we have userId
+    if (userId) {
+      // Get email for this user to invalidate email-based cache too
+      const emailQuery = 'SELECT email FROM users WHERE id = $1'
+      const emailResult = await executeQuery(emailQuery, [userId])
+      if (emailResult.length > 0) {
+        const userEmail = emailResult[0].email
+        await redisCache.del(cacheKeys.profile(userEmail))
+      }
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: 'Profile updated successfully'
+    })
+
+  } catch (error) {
+    console.error('Profile update error:', error)
+    
+    return NextResponse.json(
+      { 
+        success: false, 
+        error: 'Internal server error',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      },
+      { status: 500 }
+    )
+  }
 } 

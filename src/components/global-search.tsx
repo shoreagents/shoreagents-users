@@ -23,6 +23,24 @@ interface GlobalSearchProps {
   className?: string
 }
 
+function truncateNotificationMessage(message: string, maxLength: number = 30): string {
+  if (message.length <= maxLength) {
+    return message
+  }
+  
+  // Find the last space before the max length to avoid cutting words
+  const truncated = message.substring(0, maxLength)
+  const lastSpaceIndex = truncated.lastIndexOf(' ')
+  
+  if (lastSpaceIndex > maxLength * 0.7) {
+    // If we found a space in a reasonable position, cut there
+    return message.substring(0, lastSpaceIndex) + '...'
+  } else {
+    // Otherwise, just cut at max length and add ellipsis
+    return truncated + '...'
+  }
+}
+
 export function GlobalSearch({ className }: GlobalSearchProps) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
@@ -257,7 +275,7 @@ export function GlobalSearch({ className }: GlobalSearchProps) {
                           <Icon className="h-4 w-4 text-muted-foreground/60 flex-shrink-0 transition-colors duration-200 hover:text-muted-foreground/80" />
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1">
-                              <span className="font-medium text-foreground truncate transition-colors duration-200 hover:text-foreground/90">{result.title}</span>
+                              <span className="font-medium text-foreground truncate transition-colors duration-200 hover:text-foreground/90">{truncateNotificationMessage(result.title)}</span>
                               {result.metadata?.status && (
                                 <Badge 
                                   variant="secondary" 
@@ -284,9 +302,7 @@ export function GlobalSearch({ className }: GlobalSearchProps) {
                               {result.metadata?.category && (
                                 <span>{result.metadata.category}</span>
                               )}
-                              {result.metadata?.date && (
-                                <span>• {result.metadata.date}</span>
-                              )}
+                              
                             </div>
                           </div>
                         </div>

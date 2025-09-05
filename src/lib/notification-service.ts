@@ -310,9 +310,12 @@ export async function syncNotificationsWithDatabase(email: string): Promise<void
             }
             return '/productivity/task-activity'
           }
+          if (n.category === 'health_check') {
+            return '/health'
+          }
           return undefined
         })()
-        const icon = n.category === 'ticket' ? 'FileText' : n.category === 'break' ? 'Clock' : 'Bell'
+        const icon = n.category === 'ticket' ? 'FileText' : n.category === 'break' ? 'Clock' : n.category === 'health_check' ? 'Heart' : 'Bell'
         return {
           id: `db_${n.id}`,
           type: n.type,

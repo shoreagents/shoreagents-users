@@ -4,7 +4,7 @@ import React, { createContext, useContext, useEffect, useCallback, useState, use
 import { useSocketTimerContext } from '@/hooks/use-socket-timer-context'
 import { useSocket } from '@/contexts/socket-context'
 import { getCurrentUser } from '@/lib/ticket-utils'
-import { useActivity } from './activity-context'
+import { useAuth } from './auth-context'
 import { useMeeting } from '@/contexts/meeting-context'
 import { isBreakTimeValid, getBreaksForShift } from '@/lib/shift-break-utils'
 import { parseShiftTime } from '@/lib/shift-utils'
@@ -61,7 +61,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
   const [lastRealtimeUpdate, setLastRealtimeUpdate] = useState<Date | null>(null)
   const [isRealtimeConnected, setIsRealtimeConnected] = useState(false)
   
-  const { hasLoggedIn } = useActivity()
+  const { hasLoggedIn } = useAuth()
   const { isInMeeting } = useMeeting()
 
   // Get current user
@@ -77,39 +77,6 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     }
     setCurrentUser(user)
   }, [currentUser?.email])
-
-  // Fetch timer data immediately when user is available to prevent 0s flash
-  useEffect(() => {
-    const fetchInitialTimerData = async () => {
-      if (!currentUser?.email || isInitialized) return
-
-      try {
-        const response = await fetch(`/api/timer/status?email=${encodeURIComponent(currentUser.email)}`)
-        const data = await response.json()
-        
-        if (data.success && data.timerData) {
-          setLiveActiveSeconds(data.timerData.activeSeconds || 0)
-          setLiveInactiveSeconds(data.timerData.inactiveSeconds || 0)
-          setLastActivityState(data.timerData.isActive)
-          
-          // Extract shift information
-          if (data.timerData.shiftInfo) {
-            setShiftInfo(data.timerData.shiftInfo)
-            setTimeUntilReset(data.timerData.shiftInfo.timeUntilReset || 0)
-            setFormattedTimeUntilReset(data.timerData.shiftInfo.formattedTimeUntilReset || '')
-          }
-          
-          setIsInitialized(true)
-        }
-      } catch (error) {
-        console.error('❌ Failed to fetch initial timer data:', error)
-        // Still initialize to prevent blocking
-        setIsInitialized(true)
-      }
-    }
-
-    fetchInitialTimerData()
-  }, [currentUser?.email, isInitialized])
 
   // Reset timer state when user is null (logout)
   useEffect(() => {
@@ -419,7 +386,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!isAuthenticated || !hasLoggedIn) return
 
-    // Start real-time counting immediately
+    // Start real-time counting immediately - Changed back to 1s intervals for real-time updates
     const interval = setInterval(() => {
       // Guard: do not count before shift start or after shift end (Philippines time)
       try {
@@ -498,6 +465,8 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         
         // Stop counting after shift end
         if (shiftEndDate && nowPH > shiftEndDate) {
+          // Automatically set user to inactive when shift ends
+          // This will be handled by the activity state determination below
           return // Skip counting after shift end
         }
         
@@ -548,11 +517,35 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       
       // Activity state determined - no logging needed
       
-      // Update counters based on determined activity state
+      // Check if shift has ended and automatically set to inactive
+      try {
+        const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
+        let shiftEndDate: Date | null = null
+        
+        if (shiftInfo?.endTime) {
+          shiftEndDate = new Date(shiftInfo.endTime)
+        } else if (userProfile?.shift_time) {
+          const parsed = parseShiftTime(userProfile.shift_time, nowPH)
+          if (parsed?.endTime) {
+            shiftEndDate = parsed.endTime
+          }
+        }
+        
+        if (shiftEndDate && nowPH > shiftEndDate && isActive) {
+          console.log('🕐 Shift ended - automatically setting user to inactive');
+          setActivityState(false);
+          // Update database immediately when shift ends
+          updateTimerData(liveActiveSeconds, liveInactiveSeconds);
+          return // Skip counting after shift end
+        }
+      } catch (error) {
+        // Ignore errors in shift end check
+      }
+      
+      // Update counters based on determined activity state - Changed back to 1 second increments
       if (isActive) {
         setLiveActiveSeconds(prev => {
-          const newValue = prev + 1
-          // Log active counting every 60 seconds to avoid spam
+          const newValue = prev + 1 // Changed back to 1 second increments for real-time updates
           return newValue
         })
       } else {
@@ -562,16 +555,15 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         
         if (shouldCountInactive) {
           setLiveInactiveSeconds(prev => {
-            const newValue = prev + 1
-            // Log inactive counting every 60 seconds to avoid spam
+            const newValue = prev + 1 // Changed back to 1 second increments for real-time updates
             return newValue
           })
         } else {
           // If we can't validate inactive state, default to active to prevent false counting
-          setLiveActiveSeconds(prev => prev + 1)
+          setLiveActiveSeconds(prev => prev + 1) // Changed back to 1 second increments for real-time updates
         }
       }
-    }, 1000)
+    }, 1000) // Changed back to 1000ms (1 second) for real-time updates
 
     return () => clearInterval(interval)
   }, [timerData?.isActive, lastActivityState, isAuthenticated, hasLoggedIn, isBreakActive, breakStatus?.is_paused, isInMeeting, shiftInfo, userProfile])
@@ -827,7 +819,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     }
   }, [liveActiveSeconds, liveInactiveSeconds, timerData, updateTimerData, isAuthenticated, hasLoggedIn, shiftInfo, userProfile]);
 
-  // Force periodic sync to database every 10 seconds to ensure data is saved
+  // Force periodic sync to database every 30 seconds to ensure data is saved - OPTIMIZED: Reduced frequency
   useEffect(() => {
     if (!isAuthenticated || !hasLoggedIn || !timerData) return
 
@@ -874,7 +866,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
 
       // Force sync current timer values to database
       updateTimerData(liveActiveSeconds, liveInactiveSeconds);
-    }, 10000); // Every 10 seconds
+    }, 30000); // OPTIMIZED: Every 30 seconds instead of 10
 
     return () => clearInterval(periodicSync);
   }, [isAuthenticated, hasLoggedIn, timerData, liveActiveSeconds, liveInactiveSeconds, updateTimerData, shiftInfo, userProfile]);

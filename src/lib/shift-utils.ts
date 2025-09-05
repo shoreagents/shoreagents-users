@@ -35,8 +35,22 @@ export function parseShiftTime(shiftTimeString: string, referenceDate = new Date
     // If end time is before start time, it means shift crosses midnight
     const isNightShift = endTime <= startTime;
     if (isNightShift) {
-      // Add one day to end time for night shifts
-      endTime = new Date(endTime.getTime() + 24 * 60 * 60 * 1000);
+      // For night shifts, start time should be on the previous day
+      const startTimePrevDay = new Date(startTime);
+      startTimePrevDay.setDate(startTimePrevDay.getDate() - 1);
+      
+      // For night shifts, end time should be on the same day as the reference date
+      // (not the next day)
+      const endTimeSameDay = new Date(endTime);
+      
+      return {
+        period: "Night Shift",
+        schedule: "", // We don't parse schedule from time string
+        time: shiftTimeString,
+        startTime: startTimePrevDay,
+        endTime: endTimeSameDay,
+        isNightShift
+      };
     }
 
     return {
@@ -115,6 +129,7 @@ export function shouldResetForShift(
 function getShiftStartForDate(date: Date, shiftInfo: ShiftInfo): Date {
   const shiftDate = new Date(date);
   const shiftStartTime = new Date(shiftInfo.startTime);
+  const shiftEndTime = new Date(shiftInfo.endTime);
   
   // Set the date but keep the time from shift start
   shiftDate.setHours(
@@ -123,10 +138,37 @@ function getShiftStartForDate(date: Date, shiftInfo: ShiftInfo): Date {
     0, 0
   );
 
-  // For night shifts, if current time is before shift start time,
-  // the shift actually started the previous day
-  if (shiftInfo.isNightShift && date.getHours() < shiftStartTime.getHours()) {
-    shiftDate.setDate(shiftDate.getDate() - 1);
+  if (shiftInfo.isNightShift) {
+    // For night shifts, we need to determine which shift period we're in
+    // Create a temporary date with the shift start time for today
+    const todayShiftStart = new Date(shiftDate);
+    
+    // Create a temporary date with the shift end time for today
+    const todayShiftEnd = new Date(date);
+    todayShiftEnd.setHours(
+      shiftEndTime.getHours(),
+      shiftEndTime.getMinutes(),
+      0, 0
+    );
+    
+    // For night shifts, if end time is before start time, add one day to end time
+    if (todayShiftEnd <= todayShiftStart) {
+      todayShiftEnd.setDate(todayShiftEnd.getDate() + 1);
+    }
+    
+    // For night shifts, if we're before the shift start time today,
+    // we're still in the shift that started yesterday
+    if (date < todayShiftStart) {
+      // We're in the shift that started the previous day
+      shiftDate.setDate(shiftDate.getDate() - 1);
+      return shiftDate;
+    } else if (date <= todayShiftEnd) {
+      // We're between shift start and shift end on the same day
+      return shiftDate;
+    } else {
+      // We're after shift end, so we're in the shift that started today
+      return shiftDate;
+    }
   }
 
   return shiftDate;

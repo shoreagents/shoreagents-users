@@ -5,7 +5,15 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: true
   },
-  webpack: (config, { isServer }) => {
+  // PERFORMANCE OPTIMIZATIONS
+  experimental: {
+    optimizePackageImports: ['lucide-react', '@radix-ui/react-accordion', '@radix-ui/react-avatar'],
+  },
+  compiler: {
+    // Remove console.logs in production
+    removeConsole: process.env.NODE_ENV === 'production',
+  },
+  webpack: (config, { isServer, dev }) => {
     // Only include pg on the server side
     if (!isServer) {
       config.resolve.fallback = {
@@ -15,6 +23,27 @@ const nextConfig: NextConfig = {
         tls: false,
       };
     }
+    
+    // PERFORMANCE: Optimize bundle splitting
+    if (!dev) {
+      config.optimization.splitChunks = {
+        chunks: 'all',
+        cacheGroups: {
+          vendor: {
+            test: /[\\/]node_modules[\\/]/,
+            name: 'vendors',
+            chunks: 'all',
+          },
+          radix: {
+            test: /[\\/]node_modules[\\/]@radix-ui[\\/]/,
+            name: 'radix-ui',
+            chunks: 'all',
+            priority: 10,
+          },
+        },
+      };
+    }
+    
     return config;
   },
 };

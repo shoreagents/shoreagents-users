@@ -67,10 +67,15 @@ export default function HealthPage() {
     isConnected,
     records,
     availability,
+    isLoadingAvailability,
+    userRequests,
+    isLoadingRequests,
     fetchRecords,
     fetchAvailability,
+    fetchUserRequests,
     createRequest,
-    isNurseOnDuty
+    isNurseOnDuty,
+    hasPendingRequest
   } = useHealthCheckSocketContext(currentUser?.email || null)
 
   // Fetch data on mount
@@ -78,13 +83,46 @@ export default function HealthPage() {
     if (currentUser?.id) {
       fetchRecords(currentUser.id, 10, 0)
       fetchAvailability(1) // Fetch nurse_id 1 availability
+      fetchUserRequests(currentUser.id) // Fetch user's requests
     }
-  }, [currentUser?.id, fetchRecords, fetchAvailability])
+  }, [currentUser?.id, fetchRecords, fetchAvailability, fetchUserRequests])
+
+  // Periodic refresh of user requests to ensure data stays in sync
+  useEffect(() => {
+    if (!currentUser?.id) return
+
+    const interval = setInterval(() => {
+      console.log('🔄 Periodic refresh of user requests')
+      fetchUserRequests(currentUser.id)
+    }, 30000) // Refresh every 30 seconds
+
+    return () => clearInterval(interval)
+  }, [currentUser?.id, fetchUserRequests])
 
   // Check nurse status
   const nurseStatus = isNurseOnDuty(1) // nurse_id 1
   const nurseOnDuty = nurseStatus && typeof nurseStatus === 'object' ? nurseStatus.onDuty : false
   const nurseOnBreak = nurseStatus && typeof nurseStatus === 'object' ? nurseStatus.onBreak : false
+  const isNurseStatusLoading = nurseStatus === null // null means still loading
+
+  // Check if user has pending request
+  const userHasPendingRequest = currentUser?.id ? hasPendingRequest(currentUser.id) : false
+  
+  // Debug logging
+  console.log('🏥 Health page state:', {
+    currentUser: currentUser?.id,
+    userHasPendingRequest,
+    userRequests: userRequests.map(r => ({ id: r.id, status: r.status, user_id: r.user_id })),
+    requestSent
+  })
+
+  // Reset requestSent state when request is no longer pending
+  useEffect(() => {
+    if (requestSent && !userHasPendingRequest) {
+      console.log('🔄 Resetting requestSent state - no pending requests')
+      setRequestSent(false)
+    }
+  }, [requestSent, userHasPendingRequest])
 
   // Get current nurse availability
   const currentDayOfWeek = new Date().getDay()
@@ -120,6 +158,12 @@ export default function HealthPage() {
     } finally {
       setIsSubmitting(false)
     }
+  }
+
+  const handleStartNewRequest = () => {
+    // Clear any previous status when starting a new request
+    setRequestSent(false)
+    setShowRequestForm(true)
   }
 
   const formatTime = (timeStr: string) => {
@@ -432,9 +476,14 @@ export default function HealthPage() {
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-muted-foreground">Status:</span>
-                    <Badge variant={nurseOnDuty ? (nurseOnBreak ? "secondary" : "default") : "outline"}>
+                    <Badge variant={isLoadingAvailability || isNurseStatusLoading ? "secondary" : (nurseOnDuty ? (nurseOnBreak ? "secondary" : "default") : "outline")}>
                       <div className="flex items-center gap-1">
-                        {nurseOnDuty ? (
+                        {isLoadingAvailability || isNurseStatusLoading ? (
+                          <>
+                            <div className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin"></div>
+                            Checking...
+                          </>
+                        ) : nurseOnDuty ? (
                           nurseOnBreak ? (
                             <>
                               <Coffee className="h-3 w-3" />
@@ -459,7 +508,7 @@ export default function HealthPage() {
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-muted-foreground">Shift:</span>
                     <span className="text-sm font-medium">
-                      {todayAvailability ? `${formatTime(todayAvailability.shift_start)} - ${formatTime(todayAvailability.shift_end)}` : 'Not Available'}
+                      {isLoadingAvailability || isNurseStatusLoading ? 'Checking...' : (todayAvailability ? `${formatTime(todayAvailability.shift_start)} - ${formatTime(todayAvailability.shift_end)}` : 'Not Available')}
                     </span>
                   </div>
 
@@ -510,42 +559,82 @@ export default function HealthPage() {
                           <div className="flex items-center gap-2">
                             <Clock className="h-3 w-3" />
                             <span>
-                              Available: {todayAvailability ? `${formatTime(todayAvailability.shift_start)} - ${formatTime(todayAvailability.shift_end)}` : 'Not Available'}
+                              Available: {isLoadingAvailability || isNurseStatusLoading ? 'Checking...' : (todayAvailability ? `${formatTime(todayAvailability.shift_start)} - ${formatTime(todayAvailability.shift_end)}` : 'Not Available')}
                             </span>
                           </div>
                         </div>
                       </div>
 
-                      {!nurseOnDuty && (
+                      {isLoadingAvailability || isNurseStatusLoading ? (
+                         <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                           <div className="flex items-center gap-2">
+                             <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                             <p className="text-sm text-blue-800">
+                               Verifying if {todayAvailability ? `${todayAvailability.nurse_first_name || 'Nurse'} ${todayAvailability.nurse_last_name || ''}` : 'Nurse'} is on duty...
+                             </p>
+                           </div>
+                         </div>
+                       ) : !nurseOnDuty ? (
                         <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg">
                           <p className="text-sm text-orange-800">
-                            <strong>Notice:</strong> Nurse Ron is currently off duty. Health check requests can only be processed during shift hours (6:00 AM - 3:00 PM).
+                            <strong>Notice:</strong> {todayAvailability ? `${todayAvailability.nurse_first_name || 'Nurse'} ${todayAvailability.nurse_last_name || ''}` : 'Nurse'} is currently off duty. Health check requests can only be processed during shift hours (6:00 AM - 3:00 PM).
                           </p>
                         </div>
-                      )}
+                      ) : null}
 
-                      {nurseOnDuty && nurseOnBreak && (
-                        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                          <p className="text-sm text-blue-800">
-                            <strong>Notice:</strong> Nurse Ron is currently on break. Your request will be processed when he returns.
-                          </p>
-                        </div>
-                      )}
+                                             {nurseOnDuty && nurseOnBreak && (
+                         <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                           <p className="text-sm text-blue-800">
+                             <strong>Notice:</strong> {todayAvailability ? `${todayAvailability.nurse_first_name || 'Nurse'} ${todayAvailability.nurse_last_name || ''}` : 'Nurse'} is currently on break. Your request will be processed when he returns.
+                           </p>
+                         </div>
+                       )}
+
+                       {userHasPendingRequest && (
+                         <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                           <p className="text-sm text-yellow-800">
+                             <strong>Notice:</strong> You already have a pending health check request. Please wait for it to be processed before submitting a new one.
+                           </p>
+                         </div>
+                       )}
                     </div>
 
-                    <Button 
-                      onClick={() => setShowRequestForm(true)}
-                      disabled={!nurseOnDuty || requestSent}
-                      className="w-full"
-                      size="lg"
-                    >
-                      <Bell className="mr-2 h-4 w-4" />
-                      {requestSent ? "Request Sent" : "Request Health Check"}
-                    </Button>
+                                         <Button 
+                       onClick={handleStartNewRequest}
+                       disabled={isLoadingAvailability || isNurseStatusLoading || !nurseOnDuty || userHasPendingRequest}
+                       className="w-full"
+                       size="lg"
+                     >
+                       <Bell className="mr-2 h-4 w-4" />
+                       {isLoadingAvailability || isNurseStatusLoading ? "Checking Availability..." : 
+                        userHasPendingRequest ? (() => {
+                          const latestRequest = userRequests.find(req => req.user_id === currentUser?.id)
+                          if (latestRequest?.status === 'approved') {
+                            return "Request Approved"
+                          }
+                          return "Request Pending"
+                        })() : 
+                        "Request Health Check"}
+                     </Button>
 
-                    {requestSent && (
+                    {(requestSent || userHasPendingRequest) && (
                       <p className="text-sm text-center text-muted-foreground">
-                        Your health check request has been submitted. Please wait for approval.
+                        {(() => {
+                          // Get the latest request status
+                          const latestRequest = userRequests.find(req => req.user_id === currentUser?.id)
+                          if (latestRequest?.status === 'pending') {
+                            return "Your health check request has been submitted. Please wait for approval."
+                          } else if (latestRequest?.status === 'approved') {
+                            return "Your health check request has been approved! Please proceed to the clinic."
+                          } else if (latestRequest?.status === 'rejected') {
+                            return "Your health check request has been rejected. Please contact the nurse for more information."
+                          } else if (latestRequest?.status === 'completed') {
+                            return "Your health check has been completed. Check your records for details."
+                          } else if (latestRequest?.status === 'cancelled') {
+                            return "Your health check request has been cancelled."
+                          }
+                          return "Your health check request has been submitted. Please wait for approval."
+                        })()}
                       </p>
                     )}
                   </>

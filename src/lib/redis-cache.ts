@@ -188,5 +188,5 @@ export const cacheTTL = {
   teamAgents: 300, // 5 minutes (team data changes less frequently)
   userAuthData: 60, // 1 minute (auth data changes frequently on login)
   // Profile cache TTL
-  profile: 600, // 10 minutes (profile data changes infrequently)
+  profile: 60, // 1 minute (reduced for faster updates)
 }

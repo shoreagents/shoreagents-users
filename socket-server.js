@@ -150,6 +150,7 @@ async function initializeGlobalNotificationListener() {
     await globalNotificationClient.query('LISTEN activity_data_change');
     await globalNotificationClient.query('LISTEN meeting_status_change');
     await globalNotificationClient.query('LISTEN "meeting-update"');
+    await globalNotificationClient.query('LISTEN health_check_events');
     
     console.log('📡 Global notification listener initialized');
     
@@ -230,6 +231,32 @@ async function initializeGlobalNotificationListener() {
           } catch (error) {
             console.error('❌ Error getting ticket owner:', error);
           }
+        } else if (msg.channel === 'health_check_events') {
+          const payload = JSON.parse(msg.payload);
+          console.log(`📡 Health check event received:`, payload);
+          
+          // Find the user's email by looking through all connected users
+          let targetEmail = null;
+          for (const [socketId, userData] of connectedUsers.entries()) {
+            if (userData.userId === payload.user_id) {
+              targetEmail = userData.email;
+              break;
+            }
+          }
+          
+          if (targetEmail) {
+            const userSockets = userConnections.get(targetEmail);
+            if (userSockets && userSockets.size > 0) {
+              console.log(`📤 Broadcasting health check event to ${userSockets.size} connections for user ${payload.user_id} (${targetEmail})`);
+              userSockets.forEach(socketId => {
+                io.to(socketId).emit('health_check_event', payload);
+              });
+            } else {
+              console.log(`⚠️ No active connections found for user ${payload.user_id} (${targetEmail})`);
+            }
+          } else {
+            console.log(`⚠️ User ${payload.user_id} not found in connected users`);
+          }
         } else if (msg.channel === 'weekly_activity_change') {
           const payload = JSON.parse(msg.payload);
           console.log(`📡 Weekly activity change notification received:`, payload);
@@ -293,7 +320,6 @@ async function initializeGlobalNotificationListener() {
           }
         } else if (msg.channel === 'monthly_activity_change') {
           const payload = JSON.parse(msg.payload);
-          console.log(`📡 Monthly activity change notification received:`, payload);
           
           // Find all sockets for this user and emit to all of them
           if (payload.user_id) {
@@ -520,8 +546,22 @@ function parseShiftTime(shiftTimeString, referenceDate = new Date()) {
     // If end time is before start time, it means shift crosses midnight
     const isNightShift = endTime <= startTime;
     if (isNightShift) {
-      // Add one day to end time for night shifts
-      endTime = new Date(endTime.getTime() + 24 * 60 * 60 * 1000);
+      // For night shifts, start time should be on the previous day
+      const startTimePrevDay = new Date(startTime);
+      startTimePrevDay.setDate(startTimePrevDay.getDate() - 1);
+      
+      // For night shifts, end time should be on the same day as the reference date
+      // (not the next day)
+      const endTimeSameDay = new Date(endTime);
+      
+      return {
+        period: "Night Shift",
+        schedule: "", 
+        time: shiftTimeString,
+        startTime: startTimePrevDay,
+        endTime: endTimeSameDay,
+        isNightShift
+      };
     }
 
     return {
@@ -711,7 +751,8 @@ async function getUserShiftInfo(userId) {
     
     if (result.rows.length > 0) {
       const shiftData = result.rows[0];
-      const shiftInfo = parseShiftTime(shiftData.shift_time);
+      const currentTime = new Date();
+      const shiftInfo = parseShiftTime(shiftData.shift_time, currentTime);
       
       if (shiftInfo) {
         shiftInfo.period = shiftData.shift_period || shiftInfo.period;
@@ -1103,6 +1144,7 @@ function getShiftStartForDate(date, shiftInfo) {
   try {
     const shiftDate = new Date(date);
     const shiftStartTime = new Date(shiftInfo.startTime);
+    const shiftEndTime = new Date(shiftInfo.endTime);
     
     // Set the date but keep the time from shift start
     shiftDate.setHours(
@@ -1111,10 +1153,37 @@ function getShiftStartForDate(date, shiftInfo) {
       0, 0
     );
 
-    // For night shifts, if current time is before shift start time,
-    // the shift actually started the previous day
-    if (shiftInfo.isNightShift && date.getHours() < shiftStartTime.getHours()) {
-      shiftDate.setDate(shiftDate.getDate() - 1);
+    if (shiftInfo.isNightShift) {
+      // For night shifts, we need to determine which shift period we're in
+      // Create a temporary date with the shift start time for today
+      const todayShiftStart = new Date(shiftDate);
+      
+      // Create a temporary date with the shift end time for today
+      const todayShiftEnd = new Date(date);
+      todayShiftEnd.setHours(
+        shiftEndTime.getHours(),
+        shiftEndTime.getMinutes(),
+        0, 0
+      );
+      
+      // For night shifts, if end time is before start time, add one day to end time
+      if (todayShiftEnd <= todayShiftStart) {
+        todayShiftEnd.setDate(todayShiftEnd.getDate() + 1);
+      }
+      
+      // For night shifts, if we're before the shift start time today,
+      // we're still in the shift that started yesterday
+      if (date < todayShiftStart) {
+        // We're in the shift that started the previous day
+        shiftDate.setDate(shiftDate.getDate() - 1);
+        return shiftDate;
+      } else if (date <= todayShiftEnd) {
+        // We're between shift start and shift end on the same day
+        return shiftDate;
+      } else {
+        // We're after shift end, so we're in the shift that started today
+        return shiftDate;
+      }
     }
 
     return shiftDate;
@@ -1191,54 +1260,8 @@ function formatTimeUntilReset(milliseconds) {
 
 io.on('connection', (socket) => {
 
-  // Helper: precreate next-day row if shift already ended (Manila)
-  async function precreateNextDayRowIfEnded(userId) {
-    try {
-      const res = await pool.query(
-        `SELECT ji.shift_time FROM job_info ji WHERE ji.agent_user_id = $1 LIMIT 1`,
-        [userId]
-      );
-      const shiftText = (res.rows[0]?.shift_time || '').toString();
-      const both = shiftText.match(/(\d{1,2}:\d{2}\s*(?:AM|PM))\s*-\s*(\d{1,2}:\d{2}\s*(?:AM|PM))/i);
-      if (!both) return; // no shift configured
-
-      const parseToMinutes = (token) => {
-        const [hhmm, ampm] = token.trim().toUpperCase().split(/\s+/);
-        const [hhStr, mmStr] = hhmm.split(':');
-        let hh = parseInt(hhStr, 10);
-        const mm = parseInt(mmStr, 10);
-        if (ampm === 'AM') { if (hh === 12) hh = 0; } else { if (hh !== 12) hh += 12; }
-        return (hh * 60) + mm;
-      };
-      const startMinutes = parseToMinutes(both[1]);
-      const endMinutes = parseToMinutes(both[2]);
-      const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
-      const nowMinutes = nowPH.getHours() * 60 + nowPH.getMinutes();
-      const isDayShift = endMinutes > startMinutes;
-
-      // Determine if shift has ended relative to "today"
-      let ended = false;
-      if (isDayShift) {
-        ended = nowMinutes >= endMinutes;
-      } else {
-        // night shift, end in morning
-        ended = nowMinutes >= endMinutes && nowMinutes < startMinutes;
-      }
-      if (!ended) return;
-
-      // Compute next Manila date string YYYY-MM-DD
-      const next = new Date(nowPH); next.setDate(next.getDate() + 1);
-      const y = next.getFullYear(); const m = String(next.getMonth()+1).padStart(2,'0'); const d = String(next.getDate()).padStart(2,'0');
-      const nextDate = `${y}-${m}-${d}`;
-
-      await pool.query(
-        `INSERT INTO activity_data (user_id, is_currently_active, last_session_start, today_date, today_active_seconds, today_inactive_seconds, updated_at)
-         VALUES ($1, FALSE, NULL, $2, 0, 0, NOW())
-         ON CONFLICT (user_id, today_date) DO NOTHING`,
-        [userId, nextDate]
-      );
-    } catch (_) {}
-  }
+  // Note: Removed precreateNextDayRowIfEnded function as it was causing incorrect row creation for night shifts
+  // The proper shift end detection is now handled in the main timer logic
 
       // Handle user authentication
    socket.on('authenticate', async (data) => {
@@ -1955,8 +1978,7 @@ io.on('connection', (socket) => {
         console.error(`❌ Room joining failed for: ${emailString}`, roomError.message);
       }
 
-      // Pre-create next-day activity row if needed (shift already ended)
-      try { await precreateNextDayRowIfEnded(userInfo.userId); } catch {}
+      // Note: Removed precreateNextDayRowIfEnded as it was causing incorrect row creation for night shifts
 
       // FIXED: Simple hydration - use the existing data that was already loaded from the database
       try {
@@ -2501,8 +2523,8 @@ io.on('connection', (socket) => {
       const userInfo = userDataEntry.userInfo;
       const userId = userInfo.userId;
       const shiftInfo = userShiftInfo.get(email) || null;
-            const currentDate = new Date(currentTime.getTime() + (8 * 60 * 60 * 1000)).toISOString().split('T')[0]; // Use Manila date for consistency
-      const currentShiftId = shiftInfo ? getCurrentShiftId(new Date(), shiftInfo) : currentDate;
+      const currentShiftId = shiftInfo ? getCurrentShiftId(new Date(), shiftInfo) : new Date(currentTime.getTime() + (8 * 60 * 60 * 1000)).toISOString().split('T')[0];
+      const currentDate = currentShiftId; // Use shift ID as the date for database records
 
       // Debounce on server side too
       if (userInfo.lastResetAt && (Date.now() - userInfo.lastResetAt) < 120000) {
@@ -2769,6 +2791,24 @@ io.on('connection', (socket) => {
           console.log(`✅ Database updated successfully for ${userData.email}`);
         } else if (!withinShift) {
           console.log(`⏸️ Skipping database update for ${userData.email} - outside shift window (date: ${currentDate})`);
+          // Outside shift window: automatically set user to inactive if they were active
+          if (userInfo.isActive) {
+            console.log(`🕐 Shift ended - automatically setting ${userData.email} to inactive`);
+            userInfo.isActive = false;
+            // Update database to set inactive state
+            try {
+              await pool.query(
+                `UPDATE activity_data 
+                 SET is_currently_active = false, 
+                     updated_at = NOW() 
+                 WHERE user_id = $1 AND today_date = $2`,
+                [userId, currentDate]
+              );
+              console.log(`✅ Set ${userData.email} to inactive in database`);
+            } catch (dbError) {
+              console.error(`❌ Failed to set ${userData.email} to inactive:`, dbError.message);
+            }
+          }
           // Outside shift window: do not increment or create rows
         } else if (!shouldUpdateDb) {
           // Silent skip for throttled updates - no logging to reduce spam

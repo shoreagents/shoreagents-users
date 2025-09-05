@@ -4,17 +4,50 @@ import { useState, useEffect, useCallback } from 'react'
 import { getCurrentUser } from '@/lib/ticket-utils'
 import { useTimer } from '@/contexts/timer-context'
 import { useMeetingStatusContext } from '@/hooks/use-meeting-status-context'
+import { parseShiftTime } from '@/lib/shift-utils'
 
 export function useActivityStatus() {
   const [isActive, setIsActive] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
-  const { isInitialized, isBreakActive, timerData, lastActivityState, breakStatus } = useTimer()
+  const { isInitialized, isBreakActive, timerData, lastActivityState, breakStatus, shiftInfo } = useTimer()
   const { isInMeeting } = useMeetingStatusContext()
+
+  // Check if shift has ended
+  const isShiftEnded = useCallback(() => {
+    try {
+      const currentUser = getCurrentUser()
+      if (!currentUser) return false
+
+      // Get current Philippines time
+      const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
+      
+      // Parse shift time to get dynamic start/end times
+      if (shiftInfo?.time) {
+        const parsed = parseShiftTime(shiftInfo.time, nowPH)
+        if (parsed?.endTime) {
+          return nowPH > parsed.endTime
+        }
+      }
+
+      // If no shift time available, return false (don't assume shift has ended)
+      return false
+    } catch (error) {
+      return false
+    }
+  }, [shiftInfo?.time])
 
   const checkActivityStatus = useCallback(() => {
     try {
       const currentUser = getCurrentUser()
       if (currentUser?.email && isInitialized) {
+        // Check if shift has ended first - this overrides everything
+        const shiftEnded = isShiftEnded()
+        if (shiftEnded) {
+          setIsActive(false)
+          setIsLoading(false)
+          return
+        }
+
         // IMPROVED ACTIVITY STATUS DETERMINATION
         // Use database-driven activity status from timer context with better validation
         
@@ -81,7 +114,7 @@ export function useActivityStatus() {
     } finally {
       setIsLoading(false)
     }
-  }, [isInitialized, isBreakActive, isInMeeting, timerData?.isActive, breakStatus?.is_paused, lastActivityState])
+  }, [isInitialized, isBreakActive, isInMeeting, timerData?.isActive, breakStatus?.is_paused, lastActivityState, isShiftEnded])
 
   // Helper function to validate inactive state
   const validateInactiveState = useCallback((
@@ -174,5 +207,5 @@ export function useActivityStatus() {
     }
   }, [checkActivityStatus])
 
-  return { isActive, isLoading }
+  return { isActive, isLoading, isShiftEnded: isShiftEnded() }
 } 

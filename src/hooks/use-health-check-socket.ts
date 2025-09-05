@@ -79,6 +79,7 @@ export function useHealthCheckSocket(email: string | null) {
   const [records, setRecords] = useState<HealthCheckRecord[]>([])
   const [notifications, setNotifications] = useState<HealthCheckNotification[]>([])
   const [availability, setAvailability] = useState<NurseAvailability[]>([])
+  const [isLoadingAvailability, setIsLoadingAvailability] = useState(true) // Start as true to show loading initially
 
   // Connect to socket server
   useEffect(() => {
@@ -219,6 +220,7 @@ export function useHealthCheckSocket(email: string | null) {
 
   // Fetch nurse availability
   const fetchAvailability = useCallback(async (nurseId?: number, dayOfWeek?: number) => {
+    setIsLoadingAvailability(true)
     try {
       const params = new URLSearchParams()
       if (nurseId) params.append('nurse_id', nurseId.toString())
@@ -233,6 +235,8 @@ export function useHealthCheckSocket(email: string | null) {
       }
     } catch (error) {
       console.error('Error fetching nurse availability:', error)
+    } finally {
+      setIsLoadingAvailability(false)
     }
   }, [])
 
@@ -264,11 +268,25 @@ export function useHealthCheckSocket(email: string | null) {
     }
   }, [])
 
-  // Check if nurse is currently on duty
+  // Check if nurse is currently on duty - FIXED: Proper timezone handling
   const isNurseOnDuty = useCallback((nurseId: number = 1) => {
-    const now = new Date()
-    const dayOfWeek = now.getDay()
-    const currentTime = now.toTimeString().slice(0, 5) // HH:MM format
+    // Don't check duty status if still loading or no availability data
+    if (isLoadingAvailability || availability.length === 0) {
+      return null // Return null to indicate loading/unknown status
+    }
+    
+    // Get current time in Philippines timezone (Asia/Manila)
+    const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
+    const dayOfWeek = nowPH.getDay()
+    const currentTime = nowPH.toTimeString().slice(0, 5) // HH:MM format in PH timezone
+    
+    // Debug logging to help troubleshoot
+    console.log('🕐 Health Check Time Debug:', {
+      currentTime,
+      dayOfWeek,
+      nurseId,
+      nowPH: nowPH.toISOString()
+    })
     
     const nurseSchedule = availability.find(avail => 
       avail.nurse_id === nurseId && avail.day_of_week === dayOfWeek
@@ -278,19 +296,39 @@ export function useHealthCheckSocket(email: string | null) {
     
     const { shift_start, shift_end, break_start, break_end } = nurseSchedule
     
+    // Convert database time strings to comparable format
+    const formatTimeForComparison = (timeStr: string) => {
+      // Ensure time is in HH:MM format for comparison
+      return timeStr.length === 8 ? timeStr.slice(0, 5) : timeStr
+    }
+    
+    const shiftStart = formatTimeForComparison(shift_start)
+    const shiftEnd = formatTimeForComparison(shift_end)
+    
     // Check if current time is within shift hours
-    const isWithinShift = currentTime >= shift_start && currentTime <= shift_end
+    const isWithinShift = currentTime >= shiftStart && currentTime <= shiftEnd
+    
+    // Debug logging for shift comparison
+    console.log('🕐 Shift Comparison Debug:', {
+      currentTime,
+      shiftStart,
+      shiftEnd,
+      isWithinShift,
+      comparison: `${currentTime} >= ${shiftStart} && ${currentTime} <= ${shiftEnd}`
+    })
     
     if (!isWithinShift) return false
     
     // Check if nurse is on break
     if (break_start && break_end) {
-      const isOnBreak = currentTime >= break_start && currentTime <= break_end
+      const breakStart = formatTimeForComparison(break_start)
+      const breakEnd = formatTimeForComparison(break_end)
+      const isOnBreak = currentTime >= breakStart && currentTime <= breakEnd
       if (isOnBreak) return { onDuty: true, onBreak: true }
     }
     
     return { onDuty: true, onBreak: false }
-  }, [availability])
+  }, [availability, isLoadingAvailability])
 
   return {
     socket: socketRef.current,
@@ -299,6 +337,7 @@ export function useHealthCheckSocket(email: string | null) {
     records,
     notifications,
     availability,
+    isLoadingAvailability,
     fetchRequests,
     fetchRecords,
     fetchAvailability,

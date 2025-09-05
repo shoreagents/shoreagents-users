@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from 'react'
+import React, { useEffect, useState, useMemo, useCallback } from 'react'
 import { useTimer } from '@/contexts/timer-context'
 import { Button } from '@/components/ui/button'
 import { ChevronUp, ChevronDown, Pause, Clock, RotateCcw } from 'lucide-react'
@@ -10,7 +10,7 @@ import { useMeeting } from '@/contexts/meeting-context'
 import { useShiftResetTimer } from '@/hooks/use-shift-reset-timer'
 import { parseShiftTime } from '@/lib/shift-utils'
 
-export function GlobalTimerDisplay() {
+export const GlobalTimerDisplay = React.memo(function GlobalTimerDisplay() {
   const [isVisible, setIsVisible] = useState(true)
   const pathname = usePathname()
   const { 
@@ -48,8 +48,8 @@ export function GlobalTimerDisplay() {
     } catch {}
   }, [isVisible])
 
-  // Utility function to format seconds into readable time
-  const formatTime = (seconds: number) => {
+  // Utility function to format seconds into readable time - OPTIMIZED: Memoized
+  const formatTime = useCallback((seconds: number) => {
     const hours = Math.floor(seconds / 3600)
     const minutes = Math.floor((seconds % 3600) / 60)
     const remainingSeconds = seconds % 60
@@ -61,7 +61,7 @@ export function GlobalTimerDisplay() {
     } else {
       return `${remainingSeconds}s`
     }
-  }
+  }, [])
 
   const getConnectionStatusColor = () => {
     switch (connectionStatus) {
@@ -76,8 +76,8 @@ export function GlobalTimerDisplay() {
     }
   }
 
-  // Check if shift has ended
-  const isShiftEnded = () => {
+  // Check if shift has ended - OPTIMIZED: Memoized expensive calculations
+  const shiftEnded = useMemo(() => {
     try {
       const currentUser = getCurrentUser()
       if (!currentUser) return false
@@ -85,15 +85,7 @@ export function GlobalTimerDisplay() {
       // Get current Philippines time
       const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
       
-      // Check if we have shift info from timer context
-      if (shiftInfo?.endTime) {
-        // Convert shift end time to Philippines timezone for accurate comparison
-        const shiftEndDate = new Date(shiftInfo.endTime)
-        const shiftEndDatePH = new Date(shiftEndDate.toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
-        return nowPH > shiftEndDatePH
-      }
-
-      // Fallback: try to parse from shift time string if available
+      // Parse shift time to get dynamic start/end times
       if (shiftInfo?.time) {
         const parsed = parseShiftTime(shiftInfo.time, nowPH)
         if (parsed?.endTime) {
@@ -101,33 +93,15 @@ export function GlobalTimerDisplay() {
         }
       }
 
-      // Additional check: if timer shows 0s and we're past typical shift end time, consider shift ended
-      if (liveActiveSeconds === 0 && liveInactiveSeconds === 0) {
-        const currentHour = nowPH.getHours()
-        
-        // For night shift users (10 PM - 7 AM), shift ends at 7 AM, not 4 PM
-        // Check if we're past 7 AM (hour 7) and timers are 0
-        if (currentHour >= 7) {
-          return true
-        }
-        
-        // For day shift users (6 AM - 7 PM), shift ends at 7 PM (hour 19), not 4 PM
-        // Check if we're past 7 PM and timers are 0
-        if (currentHour >= 19) {
-          return true
-        }
-      }
-
+      // If no shift time available, return false (don't assume shift has ended)
       return false
     } catch (error) {
       return false
     }
-  }
-
-  const shiftEnded = isShiftEnded()
+  }, [shiftInfo?.time])
   
-  // Check if shift hasn't started yet
-  const isShiftNotStarted = () => {
+  // Check if shift hasn't started yet - OPTIMIZED: Memoized expensive calculations
+  const shiftNotStarted = useMemo(() => {
     try {
       const currentUser = getCurrentUser()
       if (!currentUser) return false
@@ -135,15 +109,7 @@ export function GlobalTimerDisplay() {
       // Get current Philippines time
       const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
       
-      // Check if we have shift info from timer context
-      if (shiftInfo?.startTime) {
-        // Convert shift start time to Philippines timezone for accurate comparison
-        const shiftStartDate = new Date(shiftInfo.startTime)
-        const shiftStartDatePH = new Date(shiftStartDate.toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
-        return nowPH < shiftStartDatePH
-      }
-
-      // Fallback: try to parse from shift time string if available
+      // Parse shift time to get dynamic start/end times
       if (shiftInfo?.time) {
         const parsed = parseShiftTime(shiftInfo.time, nowPH)
         if (parsed?.startTime) {
@@ -151,31 +117,12 @@ export function GlobalTimerDisplay() {
         }
       }
 
-      // Additional check: if we're before typical shift start time, consider shift not started
-      const currentHour = nowPH.getHours()
-      
-      // For night shift users (10 PM - 7 AM), shift starts at 10 PM (hour 22)
-      // Check if we're before 10 PM
-      if (currentHour < 22) {
-        // But only if it's not early morning (before 7 AM when night shift is still active)
-        if (currentHour >= 7) {
-          return true
-        }
-      }
-      
-      // For day shift users (6 AM - 7 PM), shift starts at 6 AM (hour 6)
-      // Check if we're before 6 AM
-      if (currentHour < 6) {
-        return true
-      }
-
+      // If no shift time available, return false (don't assume shift hasn't started)
       return false
     } catch (error) {
       return false
     }
-  }
-
-  const shiftNotStarted = isShiftNotStarted()
+  }, [shiftInfo?.time])
   
   // Debug logging for shift end state
   useEffect(() => {
@@ -435,5 +382,5 @@ export function GlobalTimerDisplay() {
       )}
     </>
   )
-} 
+}) 
 

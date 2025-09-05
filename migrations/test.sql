@@ -3661,12 +3661,13 @@ AS $function$
           
           IF is_night_shift THEN
               -- NIGHT SHIFT LOGIC: Activity date is the day the shift starts
-              -- For night shifts, if we're before midnight, the shift started the previous day
-              IF current_time_only < shift_start_time THEN
-                  -- We're before midnight, so the shift started the previous day
+              -- For night shifts, if we're between shift start and end times, 
+              -- we're in the shift that started the previous day
+              IF current_time_only >= shift_start_time OR current_time_only < shift_end_time THEN
+                  -- We're within the shift period, so the shift started the previous day
                   activity_date := current_time_manila::DATE - INTERVAL '1 day';
               ELSE
-                  -- We're after midnight, so the shift started today
+                  -- We're outside the shift period, so we're in today's shift
                   activity_date := current_time_manila::DATE;
               END IF;
           ELSE
