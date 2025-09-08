@@ -10,6 +10,7 @@ import { useBreak } from './break-context'
 import { useMeeting } from './meeting-context'
 import { useTimer } from './timer-context'
 import { useAuth } from './auth-context'
+import { useEventsContext } from './events-context'
 import { isWithinShiftHours, parseShiftTime } from '@/lib/shift-utils'
 
 
@@ -37,6 +38,7 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
   const { isInMeeting } = useMeeting()
   const { shiftInfo } = useTimer()
   const { hasLoggedIn, setUserLoggedIn, setUserLoggedOut } = useAuth()
+  const { isInEvent } = useEventsContext()
   const {
     isTracking,
     showInactivityDialog,
@@ -114,12 +116,12 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
     const isShiftNotStarted = checkIfShiftNotStarted(shiftInfo)
     
     // Only start tracking if shift is active (not ended and not started)
-    if (hasLoggedIn && !isTracking && !isBreakActive && !isInMeeting && isWithinShift && !isShiftEnded && !isShiftNotStarted && window.location.pathname !== '/') {
+    if (hasLoggedIn && !isTracking && !isBreakActive && !isInMeeting && !isInEvent && isWithinShift && !isShiftEnded && !isShiftNotStarted && window.location.pathname !== '/') {
       // Set inactivity threshold to 30 seconds (30000ms)
       setInactivityThreshold(30000)
       startTracking()
     }
-  }, [hasLoggedIn, isTracking, isBreakActive, isInMeeting, shiftInfo, startTracking, setInactivityThreshold])
+  }, [hasLoggedIn, isTracking, isBreakActive, isInMeeting, isInEvent, shiftInfo, startTracking, setInactivityThreshold])
 
   // Pause tracking when break becomes active, resume when break ends
   useEffect(() => {
@@ -160,6 +162,26 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
       }
     }
   }, [isInMeeting, hasLoggedIn, pauseTracking, resumeTracking])
+
+  // Pause tracking when in event, resume when event ends
+  useEffect(() => {
+    if (hasLoggedIn) {
+      const currentUser = getCurrentUser()
+      if (currentUser) {
+        if (isInEvent) {
+          // Pause activity tracking when in event
+          // TODO: Replace with database-driven activity pausing
+          // pauseActivityForEvent(currentUser.email)
+          pauseTracking()
+        } else {
+          // Resume activity tracking when event ends
+          // TODO: Replace with database-driven activity resuming
+          // resumeActivityFromEvent(currentUser.email)
+          resumeTracking()
+        }
+      }
+    }
+  }, [isInEvent, hasLoggedIn, pauseTracking, resumeTracking])
 
   // Pause tracking when outside shift hours, resume when within shift hours
   useEffect(() => {
@@ -301,7 +323,7 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
     const isShiftEnded = checkIfShiftEnded(shiftInfo)
     const isShiftNotStarted = checkIfShiftNotStarted(shiftInfo)
     
-    if (showInactivityDialog && !notificationShown && inactivityData && !isInMeeting && isWithinShift && !isShiftEnded && !isShiftNotStarted) {
+    if (showInactivityDialog && !notificationShown && inactivityData && !isInMeeting && !isInEvent && isWithinShift && !isShiftEnded && !isShiftNotStarted) {
       // Show system notification
       if (window.electronAPI?.inactivityNotifications) {
         window.electronAPI.inactivityNotifications.show({
@@ -443,7 +465,7 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
     <ActivityContext.Provider value={value}>
       {children}
       <InactivityDialog
-        open={showInactivityDialog && !isInMeeting && isWithinShiftHours(shiftInfo) && !checkIfShiftEnded(shiftInfo) && !checkIfShiftNotStarted(shiftInfo)}
+        open={showInactivityDialog && !isInMeeting && !isInEvent && isWithinShiftHours(shiftInfo) && !checkIfShiftEnded(shiftInfo) && !checkIfShiftNotStarted(shiftInfo)}
         onClose={handleCloseDialog}
         onReset={handleResetActivity}
         onAutoLogout={handleInactivityTimeout}

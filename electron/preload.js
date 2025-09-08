@@ -65,6 +65,7 @@ try {
     getCount: () => ipcRenderer.invoke('get-notification-count')
   },
 
+
   // Logout and quit methods
   app: {
     confirmLogoutAndQuit: () => ipcRenderer.invoke('confirm-logout-and-quit'),

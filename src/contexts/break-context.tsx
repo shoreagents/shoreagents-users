@@ -1,12 +1,15 @@
 "use client"
 
 import React, { createContext, useContext, useState, useCallback } from 'react'
+import { useEventsContext } from './events-context'
 
 interface BreakContextType {
   isBreakActive: boolean
   activeBreakId: string | null
   setBreakActive: (active: boolean, breakId?: string) => void
   isInitialized: boolean
+  canStartBreak: boolean
+  breakBlockedReason: string | null
 }
 
 const BreakContext = createContext<BreakContextType | undefined>(undefined)
@@ -15,17 +18,31 @@ export function BreakProvider({ children }: { children: React.ReactNode }) {
   const [isBreakActive, setIsBreakActive] = useState(false)
   const [activeBreakId, setActiveBreakId] = useState<string | null>(null)
   const isInitialized = true
+  
+  // Check if user is in an event
+  const { isInEvent, currentEvent } = useEventsContext()
 
   const setBreakActive = useCallback((active: boolean, breakId?: string) => {
+    // Prevent starting a break if user is in an event
+    if (active && isInEvent) {
+      throw new Error(`Cannot start break while in event: ${currentEvent?.title || 'Unknown Event'}. Please leave the event first.`)
+    }
+    
     setIsBreakActive(active)
     setActiveBreakId(active ? breakId || null : null)
-  }, [])
+  }, [isInEvent, currentEvent])
+
+  // Determine if break can be started
+  const canStartBreak = !isInEvent
+  const breakBlockedReason = isInEvent ? `Cannot start break while in event: ${currentEvent?.title || 'Unknown Event'}` : null
 
   const value = {
     isBreakActive,
     activeBreakId,
     setBreakActive,
-    isInitialized
+    isInitialized,
+    canStartBreak,
+    breakBlockedReason
   }
 
   return (

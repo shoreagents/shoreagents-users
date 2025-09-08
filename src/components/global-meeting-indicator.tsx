@@ -26,7 +26,8 @@ export const GlobalMeetingIndicator = React.memo(function GlobalMeetingIndicator
   // Use direct hook instead of context to prevent duplicate requests
   const { 
     data: statusData, 
-    isLoading: statusLoading 
+    isLoading: statusLoading,
+    refetch: refetchMeetingStatus
   } = useMeetingStatus(7)
   
   const isInMeeting = statusData?.isInMeeting || false
@@ -125,6 +126,24 @@ export const GlobalMeetingIndicator = React.memo(function GlobalMeetingIndicator
 
     return () => clearInterval(interval)
   }, [])
+
+  // Listen for event-left events to refresh meeting status
+  useEffect(() => {
+    const handleEventLeft = () => {
+      console.log('Event left, refreshing meeting status for global indicator')
+      // Multiple refreshes to ensure we catch the meeting start quickly
+      refetchMeetingStatus()
+      setTimeout(() => refetchMeetingStatus(), 200)
+      setTimeout(() => refetchMeetingStatus(), 500)
+      setTimeout(() => refetchMeetingStatus(), 1000)
+    }
+
+    window.addEventListener('event-left', handleEventLeft)
+    
+    return () => {
+      window.removeEventListener('event-left', handleEventLeft)
+    }
+  }, [refetchMeetingStatus])
 
   // Drag functionality with improved accuracy
   const handleMouseDown = (e: React.MouseEvent) => {

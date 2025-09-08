@@ -178,9 +178,28 @@ export const hasScheduledMeeting = async (): Promise<boolean> => {
   }
 }
 
-// Check if user can create a new meeting (no ongoing or scheduled meetings)
+// Check if user can create a new meeting (no ongoing or scheduled meetings, and not in an event)
 export const canCreateMeeting = async (): Promise<{ canCreate: boolean; reason?: string }> => {
   try {
+    const currentUser = getCurrentUserInfo()
+    if (!currentUser?.id) {
+      return { canCreate: false, reason: 'User not authenticated' }
+    }
+
+    // Check if user is in an event via API
+    const eventCheckResponse = await fetch('/api/events/check-status', {
+      method: 'GET',
+      credentials: 'include'
+    })
+    
+    if (eventCheckResponse.ok) {
+      const eventData = await eventCheckResponse.json()
+      if (eventData.success && eventData.isInEvent && eventData.currentEvent) {
+        return { canCreate: false, reason: `Cannot create meeting while in event: ${eventData.currentEvent.title}. Please leave the event first.` }
+      }
+    }
+
+    // Check for existing meetings
     const ongoingMeeting = await hasOngoingMeeting()
     const scheduledMeeting = await hasScheduledMeeting()
     

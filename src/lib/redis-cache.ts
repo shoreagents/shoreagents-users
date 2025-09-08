@@ -159,6 +159,10 @@ export const cacheKeys = {
   // Profile cache keys
   profile: (userEmail: string) => `profile:${userEmail}`,
   profileById: (userId: number) => `profile:${userId}`,
+  // Events cache keys
+  events: (userEmail: string) => `events:${userEmail}`,
+  event: (eventId: number) => `event:${eventId}`,
+  eventAttendance: (eventId: number, userEmail: string) => `event-attendance:${eventId}:${userEmail}`,
 }
 
 /**
@@ -189,4 +193,8 @@ export const cacheTTL = {
   userAuthData: 60, // 1 minute (auth data changes frequently on login)
   // Profile cache TTL
   profile: 60, // 1 minute (reduced for faster updates)
+  // Events cache TTL
+  events: 120, // 2 minutes (events change frequently due to attendance updates)
+  event: 300, // 5 minutes (individual event data)
+  eventAttendance: 60, // 1 minute (attendance changes very frequently)
 }
