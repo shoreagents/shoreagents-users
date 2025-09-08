@@ -1110,36 +1110,41 @@ function playCustomNotificationSound(type = 'main') {
 function createBadgeImage(count) {
   try {
     const { createCanvas } = require('canvas');
-    const canvas = createCanvas(32, 32);
+    // Make the badge smaller - 24x24 instead of 32x32
+    const canvas = createCanvas(24, 24);
     const ctx = canvas.getContext('2d');
     
     // Clear canvas
-    ctx.clearRect(0, 0, 32, 32);
+    ctx.clearRect(0, 0, 24, 24);
     
-    // Draw red circle background
-    ctx.fillStyle = '#ef4444'; // Red color
+    // Draw bright red circle background
+    ctx.fillStyle = '#dc2626'; // Brighter red color
     ctx.beginPath();
-    ctx.arc(16, 16, 14, 0, 2 * Math.PI);
+    ctx.arc(12, 12, 10, 0, 2 * Math.PI);
     ctx.fill();
     
-    // Remove white border - no stroke needed
+    // Add a subtle white border for better visibility
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1;
+    ctx.stroke();
     
-    // Draw count text with better font settings
+    // Draw count text with smaller font
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 14px Arial, sans-serif'; // Increased font size and added fallback
+    ctx.font = 'bold 11px Arial, sans-serif'; // Smaller font size
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     
     // Add text shadow for better readability
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
     ctx.shadowBlur = 1;
     ctx.shadowOffsetX = 0;
     ctx.shadowOffsetY = 1;
     
     const countText = count > 99 ? '99+' : count.toString();
-    ctx.fillText(countText, 16, 16);
+    ctx.fillText(countText, 12, 12);
     
-    return canvas.toBuffer('image/png');
+    const buffer = canvas.toBuffer('image/png');
+    return buffer;
   } catch (error) {
     console.error('Canvas not available, using fallback:', error);
     return null;
@@ -1174,17 +1179,22 @@ function saveBadgeImage(count) {
 function getSimpleBadgePath() {
   try {
     const { createCanvas } = require('canvas');
-    const canvas = createCanvas(16, 16); // Smaller size for dot
+    const canvas = createCanvas(20, 20); // Slightly larger for better visibility
     const ctx = canvas.getContext('2d');
     
     // Clear canvas
-    ctx.clearRect(0, 0, 16, 16);
+    ctx.clearRect(0, 0, 20, 20);
     
-    // Draw red circle background (no border)
-    ctx.fillStyle = '#ef4444'; // Red color
+    // Draw bright red circle background
+    ctx.fillStyle = '#dc2626'; // Brighter red color to match main badge
     ctx.beginPath();
-    ctx.arc(8, 8, 6, 0, 2 * Math.PI);
+    ctx.arc(10, 10, 8, 0, 2 * Math.PI);
     ctx.fill();
+    
+    // Add white border for better visibility
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1;
+    ctx.stroke();
     
     const badgePath = path.join(__dirname, '../temp/red-dot.png');
     
@@ -1226,9 +1236,9 @@ function createNotificationWithSound(title, body, icon, type = 'main') {
 
 // Function to update badge count on app icon and tray
 async function updateBadgeCount(count) {
-  // Get the actual notification count from the app
-  const actualCount = await getActualNotificationCount();
-  const finalCount = actualCount > 0 ? actualCount : count;
+  // Use the count passed from the renderer process directly
+  // This is more reliable than trying to get it from the browser context
+  const finalCount = count || 0;
   
   notificationBadgeCount = finalCount;
   
@@ -1236,37 +1246,59 @@ async function updateBadgeCount(count) {
   if (mainWindow && process.platform === 'win32') {
     if (finalCount > 0) {
       try {
-        // Create and use red badge with count
+        // Force create and use our custom red badge
         const badgePath = saveBadgeImage(finalCount);
-        if (badgePath) {
+        
+        if (badgePath && fs.existsSync(badgePath)) {
+          // Use our custom red badge image
           mainWindow.setOverlayIcon(badgePath, `${finalCount} notifications`);
         } else {
-          // Fallback to simple red dot
+          // If custom badge creation fails, try simple red dot
           const simpleBadgePath = getSimpleBadgePath();
-          if (simpleBadgePath) {
+          
+          if (simpleBadgePath && fs.existsSync(simpleBadgePath)) {
             mainWindow.setOverlayIcon(simpleBadgePath, `${finalCount} notifications`);
-          } else {
-            // Final fallback to favicon
-            const overlayIconPath = path.join(__dirname, '../src/app/favicon.ico');
-            mainWindow.setOverlayIcon(overlayIconPath, `${finalCount} notifications`);
-          }
+          } 
         }
+        
+        // Also try the built-in badge count (this might be overriding our custom icon)
+        // Comment this out to prevent Windows from using its default black badge
+        // app.setBadgeCount(finalCount);
+        
+        // Set window title as backup
+        try {
+          const originalTitle = mainWindow.getTitle();
+          if (!originalTitle.includes(`(${finalCount})`)) {
+            mainWindow.setTitle(`${originalTitle} (${finalCount})`);
+          }
+        } catch (titleError) {
+          // Failed to update window title
+        }
+        
       } catch (error) {
-        console.error('Error setting overlay icon:', error);
-        // Fallback to favicon
-        const overlayIconPath = path.join(__dirname, '../src/app/favicon.ico');
-        mainWindow.setOverlayIcon(overlayIconPath, `${finalCount} notifications`);
-      }
-      
-      // Also set the dock badge count (macOS) and taskbar badge (Windows)
-      if (process.platform === 'darwin') {
-        app.setBadgeCount(finalCount);
+        console.error('Error setting Windows badge:', error);
       }
     } else {
-      mainWindow.setOverlayIcon(null, '');
-      if (process.platform === 'darwin') {
-        app.setBadgeCount(0);
+      try {
+        // Clear the overlay icon completely
+        mainWindow.setOverlayIcon(null, '');
+        // Don't use app.setBadgeCount(0) as it might interfere
+        // app.setBadgeCount(0);
+        
+        // Reset window title
+        const currentTitle = mainWindow.getTitle();
+        const cleanTitle = currentTitle.replace(/\s*\(\d+\)$/, '');
+        mainWindow.setTitle(cleanTitle);
+      } catch (error) {
+        console.error('Error clearing Windows badge:', error);
       }
+    }
+  } else if (process.platform === 'darwin') {
+    // macOS badge
+    try {
+      app.setBadgeCount(finalCount);
+    } catch (error) {
+      console.error('Error setting macOS badge:', error);
     }
   }
   
@@ -1280,7 +1312,6 @@ async function updateBadgeCount(count) {
 // Function to show system-wide notification
 function showSystemNotification(notificationData) {
   if (!Notification.isSupported()) {
-    console.log('System notifications not supported');
     return;
   }
   
@@ -1493,7 +1524,9 @@ ipcMain.handle('get-notification-count', async (event) => {
 ipcMain.on('notification-count-changed', async (event, data) => {
   try {
     const count = data.count || 0;
-  
+    
+    // Update the notification badge count immediately
+    notificationBadgeCount = count;
     
     // Update the system tray badge with the new count
     await updateTrayWithActualCount();
@@ -1504,6 +1537,7 @@ ipcMain.on('notification-count-changed', async (event, data) => {
     console.error('Error handling notification count change:', error);
   }
 });
+
 
 function createWindow() {
   // Create the browser window
@@ -1775,24 +1809,24 @@ async function getActualNotificationCount() {
       const result = await mainWindow.webContents.executeJavaScript(`
         (() => {
           try {
-            // Import the notification service functions
-            const { getUnreadCount } = require('./lib/notification-service');
-            return getUnreadCount();
-          } catch (error) {
-            // Fallback to localStorage check
-            try {
-              const user = JSON.parse(localStorage.getItem('shoreagents-auth'))?.user;
-              if (!user) return 0;
-              
-              const key = 'shoreagents-notifications-' + user.email;
-              const stored = localStorage.getItem(key);
-              if (!stored) return 0;
-              
-              const data = JSON.parse(stored);
-              return data.notifications ? data.notifications.filter(n => !n.read).length : 0;
-            } catch {
-              return 0;
+            // Check if we have the notification service available in the global scope
+            if (typeof window !== 'undefined' && window.getUnreadCount) {
+              return window.getUnreadCount();
             }
+            
+            // Fallback to localStorage check
+            const user = JSON.parse(localStorage.getItem('shoreagents-auth') || '{}')?.user;
+            if (!user) return 0;
+            
+            const key = 'shoreagents-notifications-' + user.email;
+            const stored = localStorage.getItem(key);
+            if (!stored) return 0;
+            
+            const data = JSON.parse(stored);
+            return data.notifications ? data.notifications.filter(n => !n.read).length : 0;
+          } catch (error) {
+            console.error('Error getting notification count from browser:', error);
+            return 0;
           }
         })()
       `);
@@ -1810,8 +1844,8 @@ async function updateTrayWithActualCount() {
   if (!tray) return;
   
   try {
-    // Get the actual notification count from the app
-    const actualCount = await getActualNotificationCount();
+    // Use the stored notification count instead of trying to get it from browser
+    const actualCount = notificationBadgeCount || 0;
     
     // Create tray icon with the actual count
     const trayIconPath = createTrayIconWithIndicator(actualCount);

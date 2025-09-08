@@ -2,15 +2,7 @@
 
 import { AppSidebar } from "@/components/app-sidebar"
 import { AppHeader } from "@/components/app-header"
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb"
-import { Separator } from "@/components/ui/separator"
+
 import {
   SidebarInset,
   SidebarProvider,
@@ -19,17 +11,18 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { 
   ArrowLeft, 
   User, 
   Calendar,
   Building,
   Shield,
-  CheckCircle
+  CheckCircle,
+  Mail,
+  MapPin,
+  Phone
 } from "lucide-react"
-import Link from "next/link"
 import { ProfileSkeleton } from "@/components/skeleton-loaders"
 import { useProfile, UserProfile } from "@/hooks/use-profile"
 
@@ -108,11 +101,6 @@ export default function ProfilePage() {
                 <h1 className="text-3xl font-bold text-foreground">Profile Settings</h1>
                 <p className="text-muted-foreground">
                   Manage your personal information and account details
-                  {isCached && (
-                    <span className="ml-2 text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full">
-                      Cached
-                    </span>
-                  )}
                 </p>
               </div>
             </div>
@@ -132,90 +120,87 @@ export default function ProfilePage() {
                     Your basic personal details and contact information
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="first_name">First Name</Label>
-                      <Input
-                        id="first_name"
-                        value={profile.first_name}
-                        disabled={true}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="last_name">Last Name</Label>
-                      <Input
-                        id="last_name"
-                        value={profile.last_name}
-                        disabled={true}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="middle_name">Middle Name</Label>
-                      <Input
-                        id="middle_name"
-                        value={profile.middle_name || ''}
-                        disabled={true}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="nickname">Nickname</Label>
-                      <Input
-                        id="nickname"
-                        value={profile.nickname || ''}
-                        disabled={true}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="gender">Gender</Label>
-                      <Input
-                        id="gender"
-                        value={profile.gender || ''}
-                        disabled={true}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="email">Email Address</Label>
-                      <Input
-                        id="email"
-                        type="email"
-                        value={profile.email}
-                        disabled={true}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="phone">Phone Number</Label>
-                      <Input
-                        id="phone"
-                        value={profile.phone || ''}
-                        disabled={true}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="date_of_birth">Date of Birth</Label>
-                      <Input
-                        id="date_of_birth"
-                        value={profile.date_of_birth || ''}
-                        disabled={true}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="city">City</Label>
-                      <Input
-                        id="city"
-                        value={profile.city || ''}
-                        disabled={true}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="address">Address</Label>
-                      <Input
-                        id="address"
-                        value={profile.address || ''}
-                        disabled={true}
-                      />
-                    </div>
-                  </div>
+                <CardContent>
+                  <Accordion type="single" collapsible className="w-full" defaultValue="basic-info">
+                    <AccordionItem value="basic-info">
+                      <AccordionTrigger className="text-left">
+                        <div className="flex items-center gap-2">
+                          <User className="h-4 w-4 text-muted-foreground" />
+                          <span>Basic Information</span>
+                        </div>
+                      </AccordionTrigger>
+                      <AccordionContent>
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium text-muted-foreground">First Name</p>
+                            <p className="text-sm font-semibold">{profile.first_name}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium text-muted-foreground">Last Name</p>
+                            <p className="text-sm font-semibold">{profile.last_name}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium text-muted-foreground">Middle Name</p>
+                            <p className="text-sm font-semibold">{profile.middle_name || 'Not provided'}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium text-muted-foreground">Nickname</p>
+                            <p className="text-sm font-semibold">{profile.nickname || 'Not provided'}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium text-muted-foreground">Gender</p>
+                            <p className="text-sm font-semibold">{profile.gender || 'Not specified'}</p>
+                          </div>
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                    
+                    <AccordionItem value="contact-info">
+                      <AccordionTrigger className="text-left">
+                        <div className="flex items-center gap-2">
+                          <Mail className="h-4 w-4 text-muted-foreground" />
+                          <span>Contact Information</span>
+                        </div>
+                      </AccordionTrigger>
+                      <AccordionContent>
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium text-muted-foreground">Email Address</p>
+                            <p className="text-sm font-semibold break-all">{profile.email}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium text-muted-foreground">Phone Number</p>
+                            <p className="text-sm font-semibold">{profile.phone || 'Not provided'}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium text-muted-foreground">Date of Birth</p>
+                            <p className="text-sm font-semibold">{profile.date_of_birth || 'Not provided'}</p>
+                          </div>
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                    
+                    <AccordionItem value="location-info">
+                      <AccordionTrigger className="text-left">
+                        <div className="flex items-center gap-2">
+                          <MapPin className="h-4 w-4 text-muted-foreground" />
+                          <span>Location Information</span>
+                        </div>
+                      </AccordionTrigger>
+                      <AccordionContent>
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium text-muted-foreground">City</p>
+                            <p className="text-sm font-semibold">{profile.city || 'Not provided'}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium text-muted-foreground">Address</p>
+                            <p className="text-sm font-semibold">{profile.address || 'Not provided'}</p>
+                          </div>
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  </Accordion>
                 </CardContent>
               </Card>
 
@@ -230,75 +215,68 @@ export default function ProfilePage() {
                     Your employment details and job information
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="employee_id">Employee ID</Label>
-                      <Input
-                        id="employee_id"
-                        value={profile.employee_id || profile.id_number}
-                        disabled={true}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="job_title">Job Title</Label>
-                      <Input
-                        id="job_title"
-                        value={profile.job_title || profile.position}
-                        disabled={true}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="user_type">User Type</Label>
-                      <Input
-                        id="user_type"
-                        value={profile.user_type || ''}
-                        disabled={true}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="employment_status">Employment Status</Label>
-                      <Input
-                        id="employment_status"
-                        value={profile.employment_status || profile.status}
-                        disabled={true}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="hire_type">Hire Type</Label>
-                      <Input
-                        id="hire_type"
-                        value={profile.hire_type || ''}
-                        disabled={true}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="staff_source">Staff Source</Label>
-                      <Input
-                        id="staff_source"
-                        value={profile.staff_source || ''}
-                        disabled={true}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="start_date">Start Date</Label>
-                      <Input
-                        id="start_date"
-                        value={profile.start_date}
-                        disabled={true}
-                      />
-                    </div>
-                    {profile.exit_date && (
-                      <div className="space-y-2">
-                        <Label htmlFor="exit_date">Exit Date</Label>
-                        <Input
-                          id="exit_date"
-                          value={profile.exit_date}
-                          disabled={true}
-                        />
-                      </div>
-                    )}
-                  </div>
+                <CardContent>
+                  <Accordion type="single" collapsible className="w-full" defaultValue="employment-details">
+                    <AccordionItem value="employment-details">
+                      <AccordionTrigger className="text-left">
+                        <div className="flex items-center gap-2">
+                          <Building className="h-4 w-4 text-muted-foreground" />
+                          <span>Employment Details</span>
+                        </div>
+                      </AccordionTrigger>
+                      <AccordionContent>
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium text-muted-foreground">Employee ID</p>
+                            <p className="text-sm font-semibold">{profile.employee_id || profile.id_number || 'Not assigned'}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium text-muted-foreground">Job Title</p>
+                            <p className="text-sm font-semibold">{profile.job_title || profile.position || 'Not specified'}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium text-muted-foreground">User Type</p>
+                            <p className="text-sm font-semibold">{profile.user_type || 'Not specified'}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium text-muted-foreground">Employment Status</p>
+                            <p className="text-sm font-semibold">{profile.employment_status || profile.status || 'Not specified'}</p>
+                          </div>
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                    
+                    <AccordionItem value="contract-details">
+                      <AccordionTrigger className="text-left">
+                        <div className="flex items-center gap-2">
+                          <Calendar className="h-4 w-4 text-muted-foreground" />
+                          <span>Contract Details</span>
+                        </div>
+                      </AccordionTrigger>
+                      <AccordionContent>
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium text-muted-foreground">Hire Type</p>
+                            <p className="text-sm font-semibold">{profile.hire_type || 'Not specified'}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium text-muted-foreground">Staff Source</p>
+                            <p className="text-sm font-semibold">{profile.staff_source || 'Not specified'}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium text-muted-foreground">Start Date</p>
+                            <p className="text-sm font-semibold">{profile.start_date || 'Not specified'}</p>
+                          </div>
+                          {profile.exit_date && (
+                            <div className="space-y-1">
+                              <p className="text-sm font-medium text-muted-foreground">Exit Date</p>
+                              <p className="text-sm font-semibold">{profile.exit_date}</p>
+                            </div>
+                          )}
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  </Accordion>
                 </CardContent>
               </Card>
 
@@ -313,41 +291,37 @@ export default function ProfilePage() {
                     Your work schedule and setup details
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="shift_period">Shift Period</Label>
-                      <Input
-                        id="shift_period"
-                        value={profile.shift_period || ''}
-                        disabled={true}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="shift_schedule">Shift Schedule</Label>
-                      <Input
-                        id="shift_schedule"
-                        value={profile.shift_schedule || ''}
-                        disabled={true}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="shift_time">Shift Time</Label>
-                      <Input
-                        id="shift_time"
-                        value={profile.shift_time || ''}
-                        disabled={true}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="work_setup">Work Setup</Label>
-                      <Input
-                        id="work_setup"
-                        value={profile.work_setup || ''}
-                        disabled={true}
-                      />
-                    </div>
-                  </div>
+                <CardContent>
+                  <Accordion type="single" collapsible className="w-full" defaultValue="work-schedule">
+                    <AccordionItem value="work-schedule">
+                      <AccordionTrigger className="text-left">
+                        <div className="flex items-center gap-2">
+                          <Calendar className="h-4 w-4 text-muted-foreground" />
+                          <span>Work Schedule</span>
+                        </div>
+                      </AccordionTrigger>
+                      <AccordionContent>
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium text-muted-foreground">Shift Period</p>
+                            <p className="text-sm font-semibold">{profile.shift_period || 'Not specified'}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium text-muted-foreground">Shift Schedule</p>
+                            <p className="text-sm font-semibold">{profile.shift_schedule || 'Not specified'}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium text-muted-foreground">Shift Time</p>
+                            <p className="text-sm font-semibold">{profile.shift_time || 'Not specified'}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium text-muted-foreground">Work Setup</p>
+                            <p className="text-sm font-semibold">{profile.work_setup || 'Not specified'}</p>
+                          </div>
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  </Accordion>
                 </CardContent>
               </Card>
 
@@ -362,67 +336,64 @@ export default function ProfilePage() {
                     Your company and member details
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="company">Company</Label>
-                      <Input
-                        id="company"
-                        value={profile.company}
-                        disabled={true}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="service">Service</Label>
-                      <Input
-                        id="service"
-                        value={profile.service || ''}
-                        disabled={true}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="country">Country</Label>
-                      <Input
-                        id="country"
-                        value={profile.country || ''}
-                        disabled={true}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="member_status">Member Status</Label>
-                      <Input
-                        id="member_status"
-                        value={profile.member_status || ''}
-                        disabled={true}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="company_phone">Company Phone</Label>
-                      <Input
-                        id="company_phone"
-                        value={profile.company_phone || ''}
-                        disabled={true}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="website">Website</Label>
-                      <Input
-                        id="website"
-                        value={profile.website ? profile.website.toString() : ''}
-                        disabled={true}
-                      />
-                    </div>
-                  </div>
-                  {profile.company_address && (
-                    <div className="space-y-2">
-                      <Label htmlFor="company_address">Company Address</Label>
-                      <Input
-                        id="company_address"
-                        value={profile.company_address}
-                        disabled={true}
-                      />
-                    </div>
-                  )}
+                <CardContent>
+                  <Accordion type="single" collapsible className="w-full" defaultValue="company-details">
+                    <AccordionItem value="company-details">
+                      <AccordionTrigger className="text-left">
+                        <div className="flex items-center gap-2">
+                          <Building className="h-4 w-4 text-muted-foreground" />
+                          <span>Company Details</span>
+                        </div>
+                      </AccordionTrigger>
+                      <AccordionContent>
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium text-muted-foreground">Company</p>
+                            <p className="text-sm font-semibold">{profile.company || 'Not specified'}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium text-muted-foreground">Service</p>
+                            <p className="text-sm font-semibold">{profile.service || 'Not specified'}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium text-muted-foreground">Country</p>
+                            <p className="text-sm font-semibold">{profile.country || 'Not specified'}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium text-muted-foreground">Member Status</p>
+                            <p className="text-sm font-semibold">{profile.member_status || 'Not specified'}</p>
+                          </div>
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                    
+                    <AccordionItem value="contact-details">
+                      <AccordionTrigger className="text-left">
+                        <div className="flex items-center gap-2">
+                          <Phone className="h-4 w-4 text-muted-foreground" />
+                          <span>Contact Details</span>
+                        </div>
+                      </AccordionTrigger>
+                      <AccordionContent>
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium text-muted-foreground">Company Phone</p>
+                            <p className="text-sm font-semibold">{profile.company_phone || 'Not provided'}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium text-muted-foreground">Website</p>
+                            <p className="text-sm font-semibold break-all">{profile.website ? profile.website.toString() : 'Not provided'}</p>
+                          </div>
+                          {profile.company_address && (
+                            <div className="space-y-1 md:col-span-2">
+                              <p className="text-sm font-medium text-muted-foreground">Company Address</p>
+                              <p className="text-sm font-semibold">{profile.company_address}</p>
+                            </div>
+                          )}
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  </Accordion>
                 </CardContent>
               </Card>
             </div>

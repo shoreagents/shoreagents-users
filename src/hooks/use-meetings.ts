@@ -238,7 +238,7 @@ export function useMeetings(
     queryKey: meetingKeys.list(currentUser?.id || 'loading', days, limit, offset),
     queryFn: () => fetchMeetings(currentUser.id, days, limit, offset),
     enabled: isClient && !!currentUser?.id,
-    staleTime: 30 * 1000, // 30 seconds (increased to reduce spam)
+    staleTime: 5 * 1000, // 5 seconds (reduced for faster updates)
     gcTime: 5 * 60 * 1000, // 5 minutes
     refetchOnMount: false, // Don't always refetch on mount to reduce spam
     refetchOnWindowFocus: false,
@@ -263,7 +263,7 @@ export function useMeetingStatus(days: number = 7) {
     queryKey: meetingKeys.status(currentUser?.id || 'loading', days),
     queryFn: () => fetchMeetingStatus(currentUser.id, days),
     enabled: isClient && !!currentUser?.id,
-    staleTime: 15 * 1000, // 15 seconds (increased to reduce spam)
+    staleTime: 5 * 1000, // 5 seconds (reduced for faster updates)
     gcTime: 5 * 60 * 1000, // 5 minutes
     refetchOnMount: false, // Don't always refetch on mount to reduce spam
     refetchOnWindowFocus: false,

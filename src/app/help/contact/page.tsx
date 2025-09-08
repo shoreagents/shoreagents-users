@@ -62,9 +62,7 @@ const supportChannels = [
 ]
 
 const supportHours = [
-  { day: "Monday - Friday", hours: "8:00 AM - 6:00 PM EST" },
-  { day: "Saturday", hours: "9:00 AM - 3:00 PM EST" },
-  { day: "Sunday", hours: "Emergency Support Only" }
+  { day: "Monday - Friday", hours: "6:00 AM - 3:00 PM" },
 ]
 
 export default function ContactSupportPage() {

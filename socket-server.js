@@ -9,6 +9,7 @@ const redis = require('redis');
 const BreakReminderScheduler = require('./scripts/break-reminder-scheduler');
 const TaskNotificationScheduler = require('./scripts/task-notification-scheduler');
 const MeetingScheduler = require('./scripts/meeting-scheduler');
+const EventReminderScheduler = require('./scripts/event-reminder-scheduler');
 
 const app = express();
 app.use(cors());
@@ -21,7 +22,8 @@ app.get('/status', (req, res) => {
     schedulers: {
       breakReminder: breakReminderScheduler.getStatus(),
       taskNotification: taskNotificationScheduler.getStatus(),
-      meeting: meetingScheduler.getStatus()
+      meeting: meetingScheduler.getStatus(),
+      eventReminder: eventReminderScheduler.getStatus()
     },
     uptime: process.uptime()
   });
@@ -122,6 +124,7 @@ pool.query('SELECT NOW()', (err, result) => {
 const breakReminderScheduler = new BreakReminderScheduler();
 const taskNotificationScheduler = new TaskNotificationScheduler();
 const meetingScheduler = new MeetingScheduler();
+const eventReminderScheduler = new EventReminderScheduler();
 
 console.log('🔔 Initializing break reminder scheduler...');
 breakReminderScheduler.start();
@@ -131,6 +134,9 @@ taskNotificationScheduler.start();
 
 console.log('📅 Initializing meeting scheduler...');
 meetingScheduler.start();
+
+console.log('🎉 Initializing event reminder scheduler...');
+eventReminderScheduler.start();
 
 // Initialize global notification listener
 let globalNotificationClient = null;
@@ -151,6 +157,8 @@ async function initializeGlobalNotificationListener() {
     await globalNotificationClient.query('LISTEN meeting_status_change');
     await globalNotificationClient.query('LISTEN "meeting-update"');
     await globalNotificationClient.query('LISTEN health_check_events');
+    await globalNotificationClient.query('LISTEN event_changes');
+    await globalNotificationClient.query('LISTEN event_attendance_changes');
     
     console.log('📡 Global notification listener initialized');
     
@@ -431,6 +439,88 @@ async function initializeGlobalNotificationListener() {
             } else {
               console.log(`⚠️ User ${payload.agent_user_id} not found in connected users`);
             }
+          }
+        } else if (msg.channel === 'event_changes') {
+          const payload = JSON.parse(msg.payload);
+          console.log(`📡 Event change notification received:`, payload.type, `Event ID: ${payload.event_id}`);
+          
+          // Broadcast to all connected users since events are visible to all
+          console.log(`📤 Broadcasting event change to all ${connectedUsers.size} connected users`);
+          
+          // Emit to all connected sockets
+          io.emit('event-change', {
+            type: payload.type,
+            eventId: payload.event_id,
+            eventTitle: payload.event_title,
+            eventDate: payload.event_date,
+            startTime: payload.start_time,
+            endTime: payload.end_time,
+            location: payload.location,
+            status: payload.status,
+            createdBy: payload.created_by,
+            data: payload.data,
+            timestamp: new Date().toISOString()
+          });
+          
+          // Invalidate Redis cache for events
+          try {
+            await redisClient.del('events:*');
+            console.log('🗑️ Cleared events cache after event change');
+          } catch (error) {
+            console.error('❌ Error clearing events cache:', error);
+          }
+          
+        } else if (msg.channel === 'event_attendance_changes') {
+          const payload = JSON.parse(msg.payload);
+          console.log(`📡 Event attendance change notification received:`, payload.type, `Event ID: ${payload.event_id}, User ID: ${payload.user_id}`);
+          
+          // Find the user's email by looking through all connected users
+          let targetEmail = null;
+          for (const [socketId, userData] of connectedUsers.entries()) {
+            if (userData.userId === payload.user_id) {
+              targetEmail = userData.email;
+              break;
+            }
+          }
+          
+          if (targetEmail) {
+            const userSockets = userConnections.get(targetEmail);
+            if (userSockets && userSockets.size > 0) {
+              console.log(`📤 Broadcasting event attendance change to ${userSockets.size} connections for user ${payload.user_id} (${targetEmail})`);
+              userSockets.forEach(socketId => {
+                io.to(socketId).emit('event-attendance-change', {
+                  type: payload.type,
+                  eventId: payload.event_id,
+                  userId: payload.user_id,
+                  isGoing: payload.is_going,
+                  isBack: payload.is_back,
+                  goingAt: payload.going_at,
+                  backAt: payload.back_at,
+                  eventData: payload.event_data,
+                  userData: payload.user_data,
+                  timestamp: new Date().toISOString()
+                });
+              });
+            } else {
+              console.log(`⚠️ No active connections found for user ${payload.user_id} (${targetEmail})`);
+            }
+          } else {
+            console.log(`⚠️ User ${payload.user_id} not found in connected users`);
+          }
+          
+          // Also broadcast to all users since event attendance affects event visibility
+          io.emit('event-updated', {
+            eventId: payload.event_id,
+            type: 'attendance_change',
+            timestamp: new Date().toISOString()
+          });
+          
+          // Invalidate Redis cache for events
+          try {
+            await redisClient.del('events:*');
+            console.log('🗑️ Cleared events cache after attendance change');
+          } catch (error) {
+            console.error('❌ Error clearing events cache:', error);
           }
         }
       } catch (error) {
@@ -3096,5 +3186,7 @@ server.listen(PORT, () => {
   console.log(`🚀 Socket.IO server running on port ${PORT}`);
   console.log(`⏰ Break reminder scheduler: ${breakReminderScheduler.getStatus().isRunning ? '✅ Running' : '❌ Stopped'} (${breakReminderScheduler.getStatus().interval}s interval)`);
   console.log(`📋 Task notification scheduler: ${taskNotificationScheduler.getStatus().isRunning ? '✅ Running' : '❌ Stopped'} (${taskNotificationScheduler.getStatus().interval}s interval)`);
-  console.log(`📡 Both schedulers are now active and monitoring for notifications`);
+  console.log(`📅 Meeting scheduler: ${meetingScheduler.getStatus().isRunning ? '✅ Running' : '❌ Stopped'} (${meetingScheduler.getStatus().interval}s interval)`);
+  console.log(`🎉 Event reminder scheduler: ${eventReminderScheduler.getStatus().isRunning ? '✅ Running' : '❌ Stopped'} (${eventReminderScheduler.getStatus().interval}s interval)`);
+  console.log(`📡 All schedulers are now active and monitoring for notifications`);
 });

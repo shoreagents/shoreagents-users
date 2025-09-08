@@ -79,7 +79,7 @@ export default function BreaksPage() {
   const [pendingBreakId, setPendingBreakId] = useState<BreakType | null>(null)
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
   const [availableBreaks, setAvailableBreaks] = useState<BreakInfo[]>([])
-  const { setBreakActive, isBreakActive, activeBreakId, isInitialized } = useBreak()
+  const { setBreakActive, isBreakActive, activeBreakId, isInitialized, canStartBreak, breakBlockedReason } = useBreak()
   const { isBreakActive: timerBreakActive, breakStatus: timerBreakStatus, refreshBreakStatus } = useTimer()
   const { isInMeeting, currentMeeting } = useMeeting()
 
@@ -403,6 +403,13 @@ export default function BreaksPage() {
       setBreakLoadingStates(prev => ({ ...prev, [breakId]: true }))
       setError(null)
 
+      // Check if break is blocked by event
+      if (!canStartBreak) {
+        setError(breakBlockedReason || 'Cannot start break at this time')
+        setBreakLoadingStates(prev => ({ ...prev, [breakId]: false }))
+        return
+      }
+
       // Check if agent is in a meeting before starting break
       if (isInMeeting && currentMeeting) {
         // Show dialog asking if they want to end the meeting first
@@ -417,7 +424,17 @@ export default function BreaksPage() {
       
       if (result.success && result.breakSession) {
         setActiveBreak(breakId)
-        setBreakActive(true, breakId.toLowerCase())
+        try {
+          setBreakActive(true, breakId.toLowerCase())
+        } catch (error) {
+          // Handle event blocking error
+          if (error instanceof Error && error.message.includes('Cannot start break while in event')) {
+            setError(error.message)
+            setBreakLoadingStates(prev => ({ ...prev, [breakId]: false }))
+            return
+          }
+          throw error // Re-throw if it's not an event blocking error
+        }
         
         // Start black screens on secondary monitors for break
         if (typeof window !== 'undefined' && window.electronAPI?.multiMonitor) {

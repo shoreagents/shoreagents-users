@@ -18,6 +18,7 @@ import {
 } from "lucide-react"
 import { useActivityStatus } from "@/hooks/use-activity-status"
 import { useMeeting } from "@/contexts/meeting-context"
+import { useEventsContext } from "@/contexts/events-context"
 // import { getNotStartedTaskCount } from "@/lib/task-utils"
 
 import { NavMain } from "@/components/nav-main"
@@ -39,6 +40,7 @@ export const AppSidebar = React.memo(function AppSidebar({ ...props }: React.Com
   const { state } = useSidebar()
   const { isActive: isActivityActive, isLoading, isShiftEnded } = useActivityStatus()
   const { isInMeeting } = useMeeting()
+  const { isInEvent, currentEvent } = useEventsContext()
   const [notStartedTaskCount, setNotStartedTaskCount] = React.useState(0)
 
   // Activity status indicator component
@@ -50,23 +52,41 @@ export const AppSidebar = React.memo(function AppSidebar({ ...props }: React.Com
             ? 'bg-gray-400 animate-pulse' 
             : isShiftEnded
               ? 'bg-red-500'
-              : isInMeeting 
-                ? 'bg-yellow-500 animate-pulse' 
-                : isActivityActive 
-                  ? 'bg-green-500' 
-                  : 'bg-red-500'
+              : isInEvent
+                ? 'bg-purple-500 animate-pulse'
+                : isInMeeting 
+                  ? 'bg-yellow-500 animate-pulse' 
+                  : isActivityActive 
+                    ? 'bg-green-500' 
+                    : 'bg-red-500'
         }`}
         title={
           isLoading 
             ? 'Loading...' 
             : isShiftEnded
               ? 'Shift Ended'
-              : isInMeeting 
-                ? 'In Meeting' 
-                : isActivityActive 
-                  ? 'Active' 
-                  : 'Inactive'
+              : isInEvent
+                ? `In Event: ${currentEvent?.title || 'Unknown Event'}`
+                : isInMeeting 
+                  ? 'In Meeting' 
+                  : isActivityActive 
+                    ? 'Active' 
+                    : 'Inactive'
         }
+      />
+    </div>
+  )
+
+  // Event status indicator component
+  const EventStatusIndicator = () => (
+    <div className="flex items-center">
+      <div 
+        className={`w-2 h-2 rounded-full ${
+          isInEvent 
+            ? 'bg-purple-500 animate-pulse' 
+            : 'bg-gray-300'
+        }`}
+        title={isInEvent ? `In Event: ${currentEvent?.title || 'Unknown Event'}` : 'No Active Event'}
       />
     </div>
   )
@@ -180,7 +200,7 @@ export const AppSidebar = React.memo(function AppSidebar({ ...props }: React.Com
         isActive: pathname.startsWith("/productivity"),
         items: [
           {
-            title: "Task Activity",
+            title: "Tasks",
             url: "/productivity/task-activity",
           },
         ],
@@ -189,7 +209,7 @@ export const AppSidebar = React.memo(function AppSidebar({ ...props }: React.Com
         title: "Set Your Status",
         icon: Smile,
         isActive: pathname.startsWith("/status"),
-        statusIndicator: isInMeeting ? <MeetingStatusIndicator /> : null,
+        statusIndicator: isInEvent ? <EventStatusIndicator /> : isInMeeting ? <MeetingStatusIndicator /> : null,
         items: [
           {
             title: "Breaks",
@@ -199,6 +219,11 @@ export const AppSidebar = React.memo(function AppSidebar({ ...props }: React.Com
             title: "Meetings",
             url: "/status/meetings",
             statusIndicator: <MeetingStatusIndicator />,
+          },
+          {
+            title: "Events & Activities",
+            url: "/status/events",
+            statusIndicator: isInEvent ? <EventStatusIndicator /> : null,
           },
         ],
       },

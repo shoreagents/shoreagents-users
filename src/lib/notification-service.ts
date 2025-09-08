@@ -10,7 +10,7 @@ export interface Notification {
   icon: string
   actionUrl?: string
   actionData?: any
-  category: 'task' | 'ticket' | 'activity' | 'system'
+  category: 'task' | 'ticket' | 'activity' | 'system' | 'event'
   priority: 'low' | 'medium' | 'high' // New priority field
   eventType: 'creation' | 'status_change' | 'completion' | 'assignment' | 'system' // New event type
 }
@@ -63,6 +63,17 @@ const NOTIFICATION_RULES = {
     assignment: true,      // Ticket assigned
     status_change: false,  // Don't notify for every status update
     minor_update: false    // Don't notify for comment updates
+  },
+  
+  // Event notifications
+  event: {
+    creation: true,        // New event created
+    status_change: true,   // Event status updated
+    deletion: true,        // Event deleted
+    reminder: true,        // Event reminder (15 min before)
+    started: true,         // Event started
+    cancelled: true,       // Event cancelled
+    minor_update: false    // Don't notify for minor updates
   },
   
   // System notifications
@@ -204,6 +215,10 @@ function shouldCreateNotification(category: string, eventType: string): boolean 
     return NOTIFICATION_RULES.ticket[eventType as keyof typeof NOTIFICATION_RULES.ticket] || false
   }
   
+  if (category === 'event') {
+    return NOTIFICATION_RULES.event[eventType as keyof typeof NOTIFICATION_RULES.event] || false
+  }
+  
   if (category === 'system') {
     return NOTIFICATION_RULES.system[eventType as keyof typeof NOTIFICATION_RULES.system] || false
   }
@@ -221,8 +236,12 @@ function getNotificationPriority(category: string, eventType: string): 'low' | '
     return 'medium'
   }
   
-  if (eventType === 'status_change') {
+  if (eventType === 'status_change' || eventType === 'deletion' || eventType === 'cancelled') {
     return 'low'
+  }
+  
+  if (eventType === 'reminder' || eventType === 'started') {
+    return 'high'
   }
   
   return 'medium'

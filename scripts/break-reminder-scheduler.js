@@ -10,7 +10,7 @@ class BreakReminderScheduler {
   constructor() {
     this.isRunning = false;
     this.intervalId = null;
-    this.checkInterval = 60 * 1000; // Check every 60 seconds (1 minute)
+    this.checkInterval = 30 * 1000; // Check every 30 seconds for faster response
   }
 
   async checkBreakReminders() {

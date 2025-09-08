@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useSearchParams } from "next/navigation"
 import { CheckCircle, AlertCircle, Info, Clock, Trash2, Bell, CheckSquare, FileText, Filter, X, Search, RefreshCw, Check, Heart, Square, SquareCheck } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -52,6 +53,7 @@ interface Notification {
 
 export default function NotificationsPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [notifications, setNotifications] = useState<any[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [highlightedNotificationId, setHighlightedNotificationId] = useState<string | null>(null)
@@ -85,6 +87,15 @@ export default function NotificationsPage() {
     markAsRead: markAsReadSocket,
     clearAll: clearAllSocket
   } = useNotificationsSocketContext(currentUser?.email || null)
+
+  // Auto-filter based on URL parameters
+  useEffect(() => {
+    const statusParam = searchParams.get('status')
+    if (statusParam === 'unread') {
+      setFilterStatus('unread')
+      // Don't open the filter dropdown automatically
+    }
+  }, [searchParams])
 
   // Load notifications (hydrate from DB once, then keep in-memory updates)
   useEffect(() => {

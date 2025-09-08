@@ -58,7 +58,7 @@ interface AppHeaderProps {
 }
 
 // Function to truncate long notification messages
-function truncateNotificationMessage(message: string, maxLength: number =60): string {
+function truncateNotificationMessage(message: string, maxLength: number =80): string {
   if (message.length <= maxLength) {
     return message
   }
@@ -160,6 +160,11 @@ export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser =
     const existingNotifications = getNotifications()
     if (existingNotifications.length === 0) {
       addSampleNotifications() // Add welcome notification only
+    }
+    
+    // Expose getUnreadCount globally for Electron to access
+    if (typeof window !== 'undefined') {
+      (window as any).getUnreadCount = getUnreadCount
     }
     
     // Listen for system notification clicks
@@ -476,18 +481,30 @@ export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser =
   const currentBreadcrumbs = generateBreadcrumbs()
 
   const handleViewAllNotifications = () => {
-    router.push('/notifications')
+    if (activeTab === 'unread') {
+      router.push('/notifications?status=unread')
+    } else {
+      router.push('/notifications')
+    }
   }
 
   // Update notification count and badge - FIXED to include database notifications
   // Use useMemo to calculate unread count instead of useEffect to prevent infinite loops
   // Prioritize actual database unread count, then socket updates for real-time changes
   const currentUnreadCount = useMemo(() => {
+    // Calculate the UI badge count (same logic as the UI badge display)
+    const uiBadgeCount = Math.max(socketUnreadCount, socketNotifications ? socketNotifications.filter(n => !n.is_read).length : 0)
+    
     // First, try to get the actual unread count from the notification service (includes all DB notifications)
     const serviceUnreadCount = getUnreadCount()
     
     // Calculate from current notifications state
     const unreadCountFromState = notifications.filter(n => !n.read).length
+    
+    // Use the UI badge count as the primary source since that's what's displayed
+    if (uiBadgeCount > 0) {
+      return uiBadgeCount
+    }
     
     // If service count is 0, prioritize it (notifications were cleared)
     if (serviceUnreadCount === 0) {
@@ -507,7 +524,7 @@ export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser =
     }
     
     return unreadCountFromState
-  }, [notifications, socketConnected, socketUnreadCount])
+  }, [notifications, socketConnected, socketUnreadCount, socketNotifications])
 
   // Update unread count when it changes
   useEffect(() => {
@@ -607,6 +624,9 @@ export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser =
           <div className="w-64">
             <GlobalSearch />
           </div>
+
+
+
 
           {/* Theme toggle */}
           <Button

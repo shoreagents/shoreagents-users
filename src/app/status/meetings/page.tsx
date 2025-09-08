@@ -25,7 +25,9 @@ import {
   Video,
   Phone,
   X,
-  RefreshCw
+  RefreshCw,
+  LogOut,
+  CalendarDays
 } from "lucide-react"
 import {
   SidebarInset,
@@ -47,6 +49,8 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Calendar24 } from "@/components/ui/date-picker"
 import { canCreateMeeting, type Meeting } from "@/lib/meeting-utils"
 import { useMeeting } from "@/contexts/meeting-context"
+import { useEventsContext } from "@/contexts/events-context"
+import { toast } from "sonner"
 import { 
   useMeetings, 
   useMeetingStatus, 
@@ -77,8 +81,9 @@ function MeetingCard({
   onCancel, 
   formatTime, 
   getStatusColor, 
-  getTypeIcon
-}: MeetingCardProps) {
+  getTypeIcon,
+  isInEvent
+}: MeetingCardProps & { isInEvent: boolean }) {
   const TypeIcon = getTypeIcon(meeting.meeting_type)
   const isActive = meeting.status === 'in-progress'
   const now = new Date()
@@ -87,7 +92,8 @@ function MeetingCard({
   const gracePeriodMs = 10 * 60 * 1000 // 10 minutes in milliseconds
   const canStart = meeting.status === 'scheduled' && 
     meetingStartTime <= now && 
-    (now.getTime() - meetingStartTime.getTime()) <= gracePeriodMs
+    (now.getTime() - meetingStartTime.getTime()) <= gracePeriodMs &&
+    !isInEvent // Don't show starting automatically if user is in an event
 
   return (
     <Card className={`relative transition-all duration-200 ${isActive ? 'ring-2 ring-green-500 shadow-md' : 'hover:shadow-sm'}`}>
@@ -174,6 +180,8 @@ function MeetingCard({
         <div className="flex items-center justify-center flex-1 text-sm rounded-lg dark:bg-gray-50 bg-gray-200 text-black">
           {canStart ? (
             <span className="text-green-600 font-medium">Starting automatically...</span>
+          ) : isInEvent ? (
+            <span className="text-amber-600 font-medium">Waiting for event to end</span>
           ) : meetingStartTime <= now ? (
             <span className="text-red-600 font-medium">Start time passed</span>
           ) : (
@@ -268,6 +276,9 @@ export default function MeetingsPage() {
     refreshMeetings: contextRefreshMeetings
   } = useMeeting()
   
+  // Use events context for leave event functionality
+  const { currentEvent, leaveEvent, isInEvent } = useEventsContext()
+  
   // Only use direct hooks for pagination-specific data
   const { 
     data: meetingsData, 
@@ -347,6 +358,9 @@ export default function MeetingsPage() {
   const [submitting, setSubmitting] = useState(false)
   const [createMeetingReason, setCreateMeetingReason] = useState<string | null>(null)
   const [dialogError, setDialogError] = useState<string | null>(null)
+  const [showLeaveEventDialog, setShowLeaveEventDialog] = useState(false)
+  const [currentEventToLeave, setCurrentEventToLeave] = useState<any>(null)
+  const [isLeavingEvent, setIsLeavingEvent] = useState(false)
   const [isImmediateMeeting, setIsImmediateMeeting] = useState(false)
   const [activeTab, setActiveTab] = useState('all')
   const [filteredCurrentPage, setFilteredCurrentPage] = useState(1)
@@ -465,12 +479,34 @@ export default function MeetingsPage() {
       }, 100)
     }
 
+    const handleEventLeft = (event: CustomEvent) => {
+      console.log('User left event, checking for scheduled meetings:', event.detail)
+      // Force immediate refresh of both meeting data sources
+      refetchMeetings()
+      contextRefreshMeetings()
+      // Multiple refreshes to ensure we catch the status change quickly
+      setTimeout(() => {
+        refetchMeetings()
+        contextRefreshMeetings()
+      }, 200)
+      setTimeout(() => {
+        refetchMeetings()
+        contextRefreshMeetings()
+      }, 500)
+      setTimeout(() => {
+        refetchMeetings()
+        contextRefreshMeetings()
+      }, 1000)
+    }
+
     window.addEventListener('meeting-started', handleMeetingStarted as EventListener)
+    window.addEventListener('event-left', handleEventLeft as EventListener)
     
     return () => {
       window.removeEventListener('meeting-started', handleMeetingStarted as EventListener)
+      window.removeEventListener('event-left', handleEventLeft as EventListener)
     }
-  }, [refetchMeetings])
+  }, [refetchMeetings, contextRefreshMeetings])
 
   // Periodic refresh for scheduled meetings to catch automatic starts
   useEffect(() => {
@@ -490,11 +526,12 @@ export default function MeetingsPage() {
       if (shouldRefresh) {
         console.log('Refreshing meetings to check for automatic starts...')
         refetchMeetings()
+        contextRefreshMeetings()
       }
-    }, 2000) // Check every 2 seconds for more responsive updates
+    }, 500) // Check every 500ms for more responsive updates
 
     return () => clearInterval(interval)
-  }, [meetings, refetchMeetings])
+  }, [meetings, refetchMeetings, contextRefreshMeetings])
 
   // Periodic sync check to ensure UI consistency
   useEffect(() => {
@@ -517,11 +554,12 @@ export default function MeetingsPage() {
       if (shouldSync) {
         console.log('Detected potentially stale meeting data, refreshing...')
         refetchMeetings()
+        contextRefreshMeetings()
       }
     }, 30000) // Check every 30 seconds for stale data
 
     return () => clearInterval(interval)
-  }, [meetings, refetchMeetings])
+  }, [meetings, refetchMeetings, contextRefreshMeetings])
 
   const getStatusColor = (status: Meeting['status']) => {
     switch (status) {
@@ -653,8 +691,15 @@ export default function MeetingsPage() {
       // Only check meeting validation if form is properly filled
       const canCreate = await canCreateMeeting()
       if (!canCreate.canCreate) {
-        setDialogError(canCreate.reason || 'Cannot create meeting at this time')
-        return
+        // Check if the reason is about being in an event
+        if (canCreate.reason?.includes('Cannot create meeting while in event')) {
+          setCurrentEventToLeave(currentEvent)
+          setShowLeaveEventDialog(true)
+          return
+        } else {
+          setDialogError(canCreate.reason || 'Cannot create meeting at this time')
+          return
+        }
       }
 
       // Determine the actual title to use
@@ -709,6 +754,26 @@ export default function MeetingsPage() {
     setCustomTitle('')
     setDialogError(null)
     setIsImmediateMeeting(false)
+  }
+
+  const handleLeaveEvent = async () => {
+    try {
+      setIsLeavingEvent(true)
+      if (currentEventToLeave) {
+        await leaveEvent(currentEventToLeave.event_id)
+        toast.success(`Left event: ${currentEventToLeave.title}`)
+        setShowLeaveEventDialog(false)
+        setCurrentEventToLeave(null)
+        // After leaving event, try to create the meeting again
+        handleAddMeeting()
+      }
+    } catch (error) {
+      console.error('Error leaving event:', error)
+      toast.error('Failed to leave event. Please try again.')
+      setDialogError('Failed to leave event. Please try again.')
+    } finally {
+      setIsLeavingEvent(false)
+    }
   }
 
   // Helper functions to organize meetings with pagination
@@ -899,6 +964,7 @@ export default function MeetingsPage() {
                     formatTime={formatTime}
                     getStatusColor={getStatusColor}
                     getTypeIcon={getTypeIcon}
+                    isInEvent={isInEvent}
                   />
                 ))}
               </div>
@@ -945,6 +1011,7 @@ export default function MeetingsPage() {
                     formatTime={formatTime}
                     getStatusColor={getStatusColor}
                     getTypeIcon={getTypeIcon}
+                    isInEvent={isInEvent}
                   />
                 ))}
               </div>
@@ -991,6 +1058,7 @@ export default function MeetingsPage() {
                     formatTime={formatTime}
                     getStatusColor={getStatusColor}
                     getTypeIcon={getTypeIcon}
+                    isInEvent={isInEvent}
                   />
                 ))}
               </div>
@@ -1037,6 +1105,7 @@ export default function MeetingsPage() {
                     formatTime={formatTime}
                     getStatusColor={getStatusColor}
                     getTypeIcon={getTypeIcon}
+                    isInEvent={isInEvent}
                   />
                 ))}
               </div>
@@ -1083,6 +1152,7 @@ export default function MeetingsPage() {
                     formatTime={formatTime}
                     getStatusColor={getStatusColor}
                     getTypeIcon={getTypeIcon}
+                    isInEvent={isInEvent}
                   />
                 ))}
               </div>
@@ -1315,6 +1385,67 @@ export default function MeetingsPage() {
                   <>
                     <Plus className="h-4 w-4" />
                     Add Meeting
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Leave Event Dialog */}
+        <Dialog open={showLeaveEventDialog} onOpenChange={setShowLeaveEventDialog}>
+          <DialogContent className="sm:max-w-[400px]">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <CalendarDays className="h-5 w-5 text-amber-500" />
+                Leave Event to Create Meeting
+              </DialogTitle>
+              <DialogDescription>
+                You're currently in an event and cannot create a meeting. Would you like to leave the event to proceed with creating your meeting?
+              </DialogDescription>
+            </DialogHeader>
+            <div className="py-4">
+              {currentEventToLeave && (
+                <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-4 rounded-lg">
+                  <div className="flex items-start gap-3">
+                    <CalendarDays className="h-5 w-5 text-amber-600 dark:text-amber-400 mt-0.5" />
+                    <div>
+                      <h4 className="font-medium text-sm text-amber-900 dark:text-amber-100">
+                        Current Event:
+                      </h4>
+                      <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
+                        {currentEventToLeave.title}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+            <DialogFooter className="flex gap-2">
+              <Button
+                variant="outline"
+                disabled={isLeavingEvent}
+                onClick={() => {
+                  setShowLeaveEventDialog(false)
+                  setCurrentEventToLeave(null)
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleLeaveEvent}
+                disabled={isLeavingEvent}
+                className="bg-red-600 hover:bg-red-700 flex items-center gap-2"
+              >
+                {isLeavingEvent ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                    Leaving Event...
+                  </>
+                ) : (
+                  <>
+                    <LogOut className="h-4 w-4" />
+                    Leave Event & Create Meeting
                   </>
                 )}
               </Button>
