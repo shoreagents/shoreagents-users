@@ -13,6 +13,11 @@ export interface HealthCheckRequest {
   approved_time?: string
   completed_time?: string
   notes?: string
+  going_to_clinic?: boolean
+  in_clinic?: boolean
+  done?: boolean
+  going_to_clinic_at?: string
+  in_clinic_at?: string
   created_at: string
   updated_at: string
 }
@@ -120,6 +125,39 @@ export function useHealthCheckSocketContext(email: string | null) {
         } else if (data.type === 'request_status_changed') {
           // Handle health check request status changes
           const updatedRequest = data.request
+          
+          // Validate that updatedRequest exists and has required properties
+          if (!updatedRequest || !updatedRequest.id) {
+            console.error('Invalid request status change data:', data)
+            return
+          }
+          
+          setRequests(prev => {
+            const existing = prev.find(r => r.id === updatedRequest.id)
+            if (existing) {
+              return prev.map(r => r.id === updatedRequest.id ? updatedRequest : r)
+            } else {
+              return [...prev, updatedRequest]
+            }
+          })
+          setUserRequests(prev => {
+            const existing = prev.find(r => r.id === updatedRequest.id)
+            if (existing) {
+              return prev.map(r => r.id === updatedRequest.id ? updatedRequest : r)
+            } else {
+              return [...prev, updatedRequest]
+            }
+          })
+        } else if (data.type === 'request_updated') {
+          // Handle health check request field updates (going_to_clinic, in_clinic, done)
+          const updatedRequest = data.request
+          
+          // Validate that updatedRequest exists and has required properties
+          if (!updatedRequest || !updatedRequest.id) {
+            console.error('Invalid request update data:', data)
+            return
+          }
+          
           setRequests(prev => {
             const existing = prev.find(r => r.id === updatedRequest.id)
             if (existing) {
@@ -152,16 +190,9 @@ export function useHealthCheckSocketContext(email: string | null) {
     // Listen for health check events
     socket.on('health-check-update', handleHealthCheckUpdate)
     socket.on('health_check_event', (data: any) => {
-      console.log('🔔 Health check event received:', data)
+      console.log('🏥 Received health_check_event:', data)
       
       if (data.event === 'request_status_changed') {
-        console.log('📝 Processing request status change:', {
-          request_id: data.request_id,
-          user_id: data.user_id,
-          new_status: data.new_status,
-          updated_at: data.updated_at
-        })
-        
         // Handle request status change
         const updatedRequest = {
           id: data.request_id,
@@ -183,7 +214,6 @@ export function useHealthCheckSocketContext(email: string | null) {
               ? { ...req, status: data.new_status, updated_at: data.updated_at }
               : req
           )
-          console.log('📋 Updated requests:', updated.map(r => ({ id: r.id, status: r.status, user_id: r.user_id })))
           return updated
         })
         setUserRequests(prev => {
@@ -192,14 +222,6 @@ export function useHealthCheckSocketContext(email: string | null) {
               ? { ...req, status: data.new_status, updated_at: data.updated_at }
               : req
           )
-          console.log('👤 Updated userRequests:', updated.map(r => ({ id: r.id, status: r.status, user_id: r.user_id })))
-          console.log('🔍 After update - hasPending check:', {
-            userId: data.user_id,
-            hasPending: updated.some(request => 
-              request.user_id === data.user_id && 
-              (request.status === 'pending' || request.status === 'approved')
-            )
-          })
           return updated
         })
         
@@ -227,6 +249,56 @@ export function useHealthCheckSocketContext(email: string | null) {
             }
           }))
         }
+        } else if (data.event === 'request_updated') {
+        // Handle health check request field updates (going_to_clinic, in_clinic, done)
+        // The socket sends data directly, not nested in a 'request' object
+        console.log('🏥 Processing request_updated event:', data)
+        const requestId = data.request_id
+        
+        // Validate that requestId exists
+        if (!requestId) {
+          console.error('Invalid request update data - missing request_id:', data)
+          return
+        }
+        
+        // Optimized update function to avoid duplicate processing
+        const updateRequest = (prev: HealthCheckRequest[]) => {
+          return prev.map(r => {
+            if (r.id === requestId) {
+              const updated = { ...r }
+              if (data.going_to_clinic !== undefined) updated.going_to_clinic = data.going_to_clinic
+              if (data.in_clinic !== undefined) updated.in_clinic = data.in_clinic
+              if (data.done !== undefined) updated.done = data.done
+              if (data.going_to_clinic_at !== undefined) updated.going_to_clinic_at = data.going_to_clinic_at
+              if (data.in_clinic_at !== undefined) updated.in_clinic_at = data.in_clinic_at
+              if (data.updated_at) updated.updated_at = data.updated_at
+              
+              // Log the clinic workflow state transitions with timestamps
+              if (data.in_clinic === true && data.going_to_clinic === false) {
+                console.log('🏥 Clinic workflow: Agent is now IN CLINIC (going_to_clinic automatically set to false)', {
+                  going_to_clinic_at: data.going_to_clinic_at,
+                  in_clinic_at: data.in_clinic_at
+                })
+              } else if (data.done === true && data.in_clinic === false) {
+                console.log('🏥 Clinic workflow: Agent clicked DONE (in_clinic automatically set to false)', {
+                  going_to_clinic_at: data.going_to_clinic_at,
+                  in_clinic_at: data.in_clinic_at
+                })
+              } else if (data.going_to_clinic === true) {
+                console.log('🏥 Clinic workflow: Agent clicked GOING TO CLINIC', {
+                  going_to_clinic_at: data.going_to_clinic_at
+                })
+              }
+              
+              return updated
+            }
+            return r
+          })
+        }
+        
+        // Update both state arrays efficiently
+        setRequests(updateRequest)
+        setUserRequests(updateRequest)
       }
     })
 
@@ -273,10 +345,15 @@ export function useHealthCheckSocketContext(email: string | null) {
     setIsLoadingRequests(true)
     try {
       const response = await fetch(`/api/health-check/requests?user_id=${userId}&limit=50&offset=0`)
+      
+      if (!response.ok) {
+        console.error('API request failed:', response.status, response.statusText)
+        return
+      }
+      
       const data = await response.json()
       
       if (data.success) {
-        console.log('📥 Fetched user requests:', data.requests?.map((r: HealthCheckRequest) => ({ id: r.id, status: r.status, user_id: r.user_id })))
         setUserRequests(data.requests || [])
       }
     } catch (error) {
@@ -285,6 +362,38 @@ export function useHealthCheckSocketContext(email: string | null) {
       setIsLoadingRequests(false)
     }
   }, [])
+
+  // Initialize user requests when email is available
+  useEffect(() => {
+    if (!email) return
+
+    const initializeUserRequests = async () => {
+      try {
+        // Get current user from localStorage (same as other parts of the app)
+        const authData = localStorage.getItem("shoreagents-auth")
+        if (authData) {
+          const userData = JSON.parse(authData)
+          
+          // Use railway_id for database operations (numeric ID)
+          let userId = userData.user?.id
+          if (userData.hybrid && userData.user?.railway_id) {
+            userId = userData.user.railway_id
+          }
+          
+          if (userId && !isNaN(Number(userId))) {
+            console.log('🏥 Initializing user requests for user:', userId)
+            await fetchUserRequests(Number(userId))
+          } else {
+            console.error('Invalid user ID for health check requests:', userId)
+          }
+        }
+      } catch (error) {
+        console.error('Error initializing user requests:', error)
+      }
+    }
+
+    initializeUserRequests()
+  }, [email, fetchUserRequests])
 
   // Create health check request
   const createRequest = useCallback(async (requestData: {
@@ -381,14 +490,222 @@ export function useHealthCheckSocketContext(email: string | null) {
       request.user_id === userId && 
       (request.status === 'pending' || request.status === 'approved')
     )
-    console.log('🔍 hasPendingRequest check:', { 
-      userId, 
-      userRequests: userRequests.map(r => ({ id: r.id, status: r.status, user_id: r.user_id })),
-      hasPending,
-      blockingStatuses: userRequests.filter(r => r.user_id === userId && (r.status === 'pending' || r.status === 'approved'))
-    })
     return hasPending
   }, [userRequests])
+
+  // Update going to clinic status
+  const updateGoingToClinic = useCallback(async (requestId: number, goingToClinic: boolean) => {
+    try {
+      const response = await fetch('/api/health-check/going-to-clinic', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ request_id: requestId, going_to_clinic: goingToClinic })
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        // Update local state
+        setRequests(prev => 
+          prev.map(req => 
+            req.id === requestId 
+              ? { ...req, going_to_clinic: goingToClinic, updated_at: data.updated_at }
+              : req
+          )
+        )
+        setUserRequests(prev => 
+          prev.map(req => 
+            req.id === requestId 
+              ? { ...req, going_to_clinic: goingToClinic, updated_at: data.updated_at }
+              : req
+          )
+        )
+        
+        return data.request
+      } else {
+        throw new Error(data.error || 'Failed to update going to clinic status')
+      }
+    } catch (error) {
+      console.error('Error updating going to clinic status:', error)
+      throw error
+    }
+  }, [])
+
+  // Update in clinic status with optimistic updates
+  const updateInClinic = useCallback(async (requestId: number, inClinic: boolean) => {
+    const now = new Date().toISOString()
+    
+    // Optimistic update - update local state immediately
+    setRequests(prev => 
+      prev.map(req => 
+        req.id === requestId 
+          ? { ...req, in_clinic: inClinic, updated_at: now }
+          : req
+      )
+    )
+    setUserRequests(prev => 
+      prev.map(req => 
+        req.id === requestId 
+          ? { ...req, in_clinic: inClinic, updated_at: now }
+          : req
+      )
+    )
+    
+    try {
+      const response = await fetch('/api/health-check/in-clinic', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ request_id: requestId, in_clinic: inClinic })
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        // Update with server timestamp if different
+        if (data.updated_at !== now) {
+          setRequests(prev => 
+            prev.map(req => 
+              req.id === requestId 
+                ? { ...req, in_clinic: inClinic, updated_at: data.updated_at }
+                : req
+            )
+          )
+          setUserRequests(prev => 
+            prev.map(req => 
+              req.id === requestId 
+                ? { ...req, in_clinic: inClinic, updated_at: data.updated_at }
+                : req
+            )
+          )
+        }
+        
+        return data.request
+      } else {
+        // Revert optimistic update on failure
+        setRequests(prev => 
+          prev.map(req => 
+            req.id === requestId 
+              ? { ...req, in_clinic: !inClinic, updated_at: now }
+              : req
+          )
+        )
+        setUserRequests(prev => 
+          prev.map(req => 
+            req.id === requestId 
+              ? { ...req, in_clinic: !inClinic, updated_at: now }
+              : req
+          )
+        )
+        throw new Error(data.error || 'Failed to update in clinic status')
+      }
+    } catch (error) {
+      // Revert optimistic update on error
+      setRequests(prev => 
+        prev.map(req => 
+          req.id === requestId 
+            ? { ...req, in_clinic: !inClinic, updated_at: now }
+            : req
+        )
+      )
+      setUserRequests(prev => 
+        prev.map(req => 
+          req.id === requestId 
+            ? { ...req, in_clinic: !inClinic, updated_at: now }
+            : req
+        )
+      )
+      console.error('Error updating in clinic status:', error)
+      throw error
+    }
+  }, [])
+
+  // Update done status with optimistic updates
+  const updateDone = useCallback(async (requestId: number, done: boolean) => {
+    const now = new Date().toISOString()
+    
+    // Optimistic update - update local state immediately
+    setRequests(prev => 
+      prev.map(req => 
+        req.id === requestId 
+          ? { ...req, done: done, updated_at: now }
+          : req
+      )
+    )
+    setUserRequests(prev => 
+      prev.map(req => 
+        req.id === requestId 
+          ? { ...req, done: done, updated_at: now }
+          : req
+      )
+    )
+    
+    try {
+      const response = await fetch('/api/health-check/done', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ request_id: requestId, done: done })
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        // Update with server timestamp if different
+        if (data.updated_at !== now) {
+          setRequests(prev => 
+            prev.map(req => 
+              req.id === requestId 
+                ? { ...req, done: done, updated_at: data.updated_at }
+                : req
+            )
+          )
+          setUserRequests(prev => 
+            prev.map(req => 
+              req.id === requestId 
+                ? { ...req, done: done, updated_at: data.updated_at }
+                : req
+            )
+          )
+        }
+        
+        return data.request
+      } else {
+        // Revert optimistic update on failure
+        setRequests(prev => 
+          prev.map(req => 
+            req.id === requestId 
+              ? { ...req, done: !done, updated_at: now }
+              : req
+          )
+        )
+        setUserRequests(prev => 
+          prev.map(req => 
+            req.id === requestId 
+              ? { ...req, done: !done, updated_at: now }
+              : req
+          )
+        )
+        throw new Error(data.error || 'Failed to update done status')
+      }
+    } catch (error) {
+      // Revert optimistic update on error
+      setRequests(prev => 
+        prev.map(req => 
+          req.id === requestId 
+            ? { ...req, done: !done, updated_at: now }
+            : req
+        )
+      )
+      setUserRequests(prev => 
+        prev.map(req => 
+          req.id === requestId 
+            ? { ...req, done: !done, updated_at: now }
+            : req
+        )
+      )
+      console.error('Error updating done status:', error)
+      throw error
+    }
+  }, [])
 
   return {
     isConnected,
@@ -404,6 +721,9 @@ export function useHealthCheckSocketContext(email: string | null) {
     fetchUserRequests,
     createRequest,
     isNurseOnDuty,
-    hasPendingRequest
+    hasPendingRequest,
+    updateGoingToClinic,
+    updateInClinic,
+    updateDone
   }
 }

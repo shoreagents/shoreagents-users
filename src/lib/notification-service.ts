@@ -332,9 +332,12 @@ export async function syncNotificationsWithDatabase(email: string): Promise<void
           if (n.category === 'health_check') {
             return '/health'
           }
+          if (n.category === 'event') {
+            return '/status/events'
+          }
           return undefined
         })()
-        const icon = n.category === 'ticket' ? 'FileText' : n.category === 'break' ? 'Clock' : n.category === 'health_check' ? 'Heart' : 'Bell'
+        const icon = n.category === 'ticket' ? 'FileText' : n.category === 'break' ? 'Clock' : n.category === 'health_check' ? 'Heart' : n.category === 'event' ? 'Calendar' : 'Bell'
         return {
           id: `db_${n.id}`,
           type: n.type,

@@ -40,8 +40,20 @@ import { getCurrentUserInfo } from "@/lib/user-profiles"
 import { useBreak } from "@/contexts/break-context"
 import { useTimer } from "@/contexts/timer-context"
 import { useMeeting } from "@/contexts/meeting-context"
+import { useEventsContext } from "@/contexts/events-context"
 
 import { endMeeting } from "@/lib/meeting-utils"
+
+// Helper function to get event type display name
+const getEventTypeDisplayName = (eventType: string) => {
+  switch (eventType) {
+    case 'activity':
+      return 'Activity'
+    case 'event':
+    default:
+      return 'Event'
+  }
+}
 import { 
   getBreaksForShift, 
   getBreakTitle, 
@@ -76,12 +88,15 @@ export default function BreaksPage() {
   const [error, setError] = useState<string | null>(null)
   const [autoEnding, setAutoEnding] = useState(false)
   const [showMeetingEndDialog, setShowMeetingEndDialog] = useState(false)
+  const [showEventLeaveDialog, setShowEventLeaveDialog] = useState(false)
   const [pendingBreakId, setPendingBreakId] = useState<BreakType | null>(null)
+  const [isLeavingEvent, setIsLeavingEvent] = useState(false)
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
   const [availableBreaks, setAvailableBreaks] = useState<BreakInfo[]>([])
-  const { setBreakActive, isBreakActive, activeBreakId, isInitialized, canStartBreak, breakBlockedReason } = useBreak()
+  const { setBreakActive, setBreakActiveAfterEventLeave, isBreakActive, activeBreakId, isInitialized, canStartBreak, breakBlockedReason } = useBreak()
   const { isBreakActive: timerBreakActive, breakStatus: timerBreakStatus, refreshBreakStatus } = useTimer()
   const { isInMeeting, currentMeeting } = useMeeting()
+  const { isInEvent, currentEvent, leaveEvent } = useEventsContext()
 
   // Load user profile and generate available breaks
   useEffect(() => {
@@ -405,7 +420,9 @@ export default function BreaksPage() {
 
       // Check if break is blocked by event
       if (!canStartBreak) {
-        setError(breakBlockedReason || 'Cannot start break at this time')
+        // Show dialog asking if they want to leave the event first
+        setPendingBreakId(breakId)
+        setShowEventLeaveDialog(true)
         setBreakLoadingStates(prev => ({ ...prev, [breakId]: false }))
         return
       }
@@ -521,10 +538,93 @@ export default function BreaksPage() {
     }
   }
 
+  const handleLeaveEventAndStartBreak = async () => {
+    try {
+      if (!currentEvent || !pendingBreakId) return
+
+      setIsLeavingEvent(true)
+      setError(null)
+      
+      // Leave the current event
+      await leaveEvent(currentEvent.event_id)
+      
+      // Wait a moment for event status to update
+      await new Promise(resolve => setTimeout(resolve, 500))
+      
+      // Check if this is a resume operation (check if there's a paused break)
+      const currentBreak = getCurrentBreak()
+      const isResumeOperation = currentBreak && currentBreak.is_paused
+      
+      let result
+      if (isResumeOperation) {
+        // Resume the break
+        result = await resumeBreak()
+      } else {
+        // Start a new break
+        result = await startBreak(pendingBreakId)
+      }
+      
+      if (result.success && result.breakSession) {
+        setActiveBreak(pendingBreakId)
+        setBreakActiveAfterEventLeave(true, pendingBreakId.toLowerCase())
+        
+        // If resuming, update localStorage with resumed break info
+        if (isResumeOperation) {
+          const resumedBreak = {
+            id: result.breakSession.id,
+            break_type: pendingBreakId,
+            start_time: result.breakSession.start_time,
+            agent_user_id: result.breakSession.agent_user_id,
+            is_paused: false,
+            pause_used: true,
+            time_remaining_seconds: result.breakSession.time_remaining_seconds
+          }
+          localStorage.setItem('currentBreak', JSON.stringify(resumedBreak))
+        }
+        
+        // Start black screens on secondary monitors for break
+        if (typeof window !== 'undefined' && window.electronAPI?.multiMonitor) {
+          try {
+            await window.electronAPI.multiMonitor.createBlackScreens()
+            console.log(`✅ Black screens created for ${isResumeOperation ? 'resumed' : 'started'} break after leaving event`)
+          } catch (error) {
+            console.warn('Failed to create black screens:', error)
+          }
+        }
+        
+        // Refresh break status after starting/resuming
+        const { success, status } = await getBreakStatus()
+        if (success && status) {
+          setBreakStatus(status)
+        }
+        
+        // Refresh timer context break status
+        await refreshBreakStatus()
+      } else {
+        setError(result.message || `Failed to ${isResumeOperation ? 'resume' : 'start'} break`)
+      }
+      
+      // Close dialog and clear pending state
+      setShowEventLeaveDialog(false)
+      setPendingBreakId(null)
+      
+    } catch (error) {
+      console.error('Error leaving event and starting/resuming break:', error)
+      setError('Failed to leave event and start/resume break')
+    } finally {
+      setIsLeavingEvent(false)
+    }
+  }
+
   const handleCancelBreakStart = () => {
     setShowMeetingEndDialog(false)
     setPendingBreakId(null)
     setLoading(false)
+  }
+
+  const handleCancelEventLeave = () => {
+    setShowEventLeaveDialog(false)
+    setPendingBreakId(null)
   }
 
   const handleEndBreak = async () => {
@@ -637,7 +737,14 @@ export default function BreaksPage() {
       setBreakLoadingStates(prev => ({ ...prev, [breakId]: true }))
       setError(null)
 
-
+      // Check if break is blocked by event
+      if (!canStartBreak) {
+        // Show dialog asking if they want to leave the event first
+        setPendingBreakId(breakId)
+        setShowEventLeaveDialog(true)
+        setBreakLoadingStates(prev => ({ ...prev, [breakId]: false }))
+        return
+      }
 
       // Call database API to resume break
       const result = await resumeBreak()
@@ -1135,6 +1242,38 @@ export default function BreaksPage() {
               className="bg-yellow-500 hover:bg-yellow-600 text-white"
             >
               {loading ? 'Processing...' : 'End Meeting & Start Break'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Event Leave Dialog */}
+      <Dialog open={showEventLeaveDialog} onOpenChange={setShowEventLeaveDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-orange-500" />
+              Leave {getEventTypeDisplayName(currentEvent?.event_type || 'event')} to {getCurrentBreak()?.is_paused ? 'Resume' : 'Start'} Break?
+            </DialogTitle>
+            <DialogDescription>
+              You're currently in an {getEventTypeDisplayName(currentEvent?.event_type || 'event').toLowerCase()} "{currentEvent?.title || 'Unknown Event'}". 
+              To {getCurrentBreak()?.is_paused ? 'resume' : 'start'} your {pendingBreakId} break, you'll need to leave the {getEventTypeDisplayName(currentEvent?.event_type || 'event').toLowerCase()} first.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col gap-2 sm:flex-row">
+            <Button 
+              variant="outline" 
+              onClick={handleCancelEventLeave}
+              disabled={isLeavingEvent}
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleLeaveEventAndStartBreak}
+              disabled={isLeavingEvent}
+              className="bg-orange-500 hover:bg-orange-600 text-white"
+            >
+              {isLeavingEvent ? 'Processing...' : `Leave ${getEventTypeDisplayName(currentEvent?.event_type || 'event')} & ${getCurrentBreak()?.is_paused ? 'Resume' : 'Start'} Break`}
             </Button>
           </DialogFooter>
         </DialogContent>

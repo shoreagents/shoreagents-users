@@ -364,7 +364,8 @@ BEGIN
                         'event_type', COALESCE(event_record.event_type, 'event'),
                         'created_by', event_record.created_by,
                         'created_by_name', event_record.created_by_name,
-                        'notification_type', 'event_reminder'
+                        'notification_type', 'event_reminder',
+                        'action_url', '/status/events?tab=today&eventId=' || event_record.id
                     )
                 FROM users u
                 RETURNING 1

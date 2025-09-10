@@ -1,6 +1,8 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useSearchParams } from "next/navigation"
+import { motion, AnimatePresence } from "framer-motion"
 import { AppSidebar } from "@/components/app-sidebar"
 import { AppHeader } from "@/components/app-header"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -25,8 +27,17 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { 
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { getCurrentUserInfo } from "@/lib/user-profiles"
 import { useEventsContext } from "@/contexts/events-context"
+import { useMeeting } from "@/contexts/meeting-context"
 import { 
   type Event 
 } from "@/hooks/use-events"
@@ -69,23 +80,147 @@ const getEventTypeDisplayName = (eventType: string) => {
 }
 
 export default function EventsPage() {
+  // URL parameters
+  const searchParams = useSearchParams()
+  const tabParam = searchParams.get('tab')
+  const eventIdParam = searchParams.get('eventId')
+  
+  // Dialog state
+  const [showMeetingBlockedDialog, setShowMeetingBlockedDialog] = useState(false)
+  const [isEndingMeeting, setIsEndingMeeting] = useState(false)
+  const [pendingEventId, setPendingEventId] = useState<number | null>(null)
+  
+  // Tab state
+  const [activeTab, setActiveTab] = useState<string>('today')
+  const [highlightedEventId, setHighlightedEventId] = useState<number | null>(null)
+  
   // Events context
   const { 
     events, 
     isLoading, 
     joinEvent, 
+    joinEventAfterMeetingEnd,
     leaveEvent, 
     getEventStatus, 
     isEventJoinable, 
-    isEventLeavable 
+    isEventLeavable,
+    isInMeeting,
+    eventBlockedReason
   } = useEventsContext()
+  
+  // Meeting context
+  const { endCurrentMeeting, currentMeeting } = useMeeting()
+  
+  // Initialize state from URL parameters
+  useEffect(() => {
+    if (tabParam && ['today', 'upcoming', 'cancelled', 'ended'].includes(tabParam)) {
+      setActiveTab(tabParam)
+    }
+    
+    if (eventIdParam) {
+      const eventId = parseInt(eventIdParam)
+      if (!isNaN(eventId)) {
+        setHighlightedEventId(eventId)
+      }
+    }
+  }, []) // Run only once on mount
+  
+  // Handle URL parameter changes
+  useEffect(() => {
+    if (tabParam && ['today', 'upcoming', 'cancelled', 'ended'].includes(tabParam)) {
+      setActiveTab(tabParam)
+    }
+  }, [tabParam])
+
+  // Force activeTab to match URL parameter when it changes
+  useEffect(() => {
+    if (tabParam && ['today', 'upcoming', 'cancelled', 'ended'].includes(tabParam)) {
+      if (activeTab !== tabParam) {
+        setActiveTab(tabParam)
+      }
+    }
+  }, [tabParam, activeTab])
+  
+  // Handle eventId parameter changes
+  useEffect(() => {
+    if (eventIdParam) {
+      const eventId = parseInt(eventIdParam)
+      if (!isNaN(eventId)) {
+        setHighlightedEventId(eventId)
+      }
+    } else {
+      setHighlightedEventId(null)
+    }
+  }, [eventIdParam])
+  
+  // Handle event highlighting with Framer Motion
+  useEffect(() => {
+    if (highlightedEventId && events.length > 0) {
+      
+      // Wait for events to load and then scroll to the highlighted event
+      setTimeout(() => {
+        const eventElement = document.getElementById(`event-${highlightedEventId}`)
+        
+        if (eventElement) {
+          eventElement.scrollIntoView({ 
+            behavior: 'smooth', 
+            block: 'center' 
+          })
+          
+          // Clear highlight after 2 seconds with smooth fade out
+          setTimeout(() => {
+            setHighlightedEventId(null)
+          }, 2000)
+        } else {
+          setTimeout(() => {
+            const retryElement = document.getElementById(`event-${highlightedEventId}`)
+            if (retryElement) {
+              retryElement.scrollIntoView({ 
+                behavior: 'smooth', 
+                block: 'center' 
+              })
+              
+              // Clear highlight after 2 seconds
+              setTimeout(() => {
+                setHighlightedEventId(null)
+              }, 2000)
+            }
+          }, 1000)
+        }
+      }, 1000) // Increased from 500ms to 1000ms
+    }
+  }, [highlightedEventId, events])
 
   // Handle going to event
   const handleGoing = async (eventId: number) => {
     try {
       await joinEvent(eventId)
     } catch (error) {
-      console.error('Failed to join event:', error)
+      // Check if error is due to meeting conflict
+      if (error instanceof Error && error.message.includes('Cannot join event while in a meeting')) {
+        setPendingEventId(eventId)
+        setShowMeetingBlockedDialog(true)
+      } else {
+        console.error('Failed to join event:', error)
+      }
+    }
+  }
+
+  // Handle end meeting and join event
+  const handleEndMeetingAndJoin = async () => {
+    if (!currentMeeting || isEndingMeeting || !pendingEventId) return
+    try {
+      setIsEndingMeeting(true)
+      await endCurrentMeeting(currentMeeting.id)
+      setShowMeetingBlockedDialog(false)
+      
+      // After ending meeting, try to join the pending event using the bypass function
+      await joinEventAfterMeetingEnd(pendingEventId)
+    } catch (error) {
+      console.error('Failed to end meeting:', error)
+    } finally {
+      setIsEndingMeeting(false)
+      setPendingEventId(null)
     }
   }
 
@@ -123,14 +258,28 @@ export default function EventsPage() {
 
   // Helper function to check if event is today but hasn't started yet
   const isEventNotStarted = (event: Event) => {
-    const currentTime = new Date()
-    const philippinesTime = new Date(currentTime.toLocaleString("en-US", {timeZone: "Asia/Manila"}))
-    const today = philippinesTime.toISOString().split('T')[0]
+    // Get current time in Philippines timezone
+    const now = new Date()
+    const philippinesTime = new Date(now.toLocaleString("en-US", {timeZone: "Asia/Manila"}))
+    
+    // Get today's date in YYYY-MM-DD format
+    const today = philippinesTime.getFullYear() + '-' + 
+                  String(philippinesTime.getMonth() + 1).padStart(2, '0') + '-' + 
+                  String(philippinesTime.getDate()).padStart(2, '0')
     
     // Extract date part from event_date (handle both date strings and ISO timestamps)
-    const eventDate = event.event_date.includes('T') 
-      ? event.event_date.split('T')[0] 
-      : event.event_date
+    let eventDate: string
+    if (typeof event.event_date === 'string') {
+      eventDate = event.event_date.includes('T') 
+        ? event.event_date.split('T')[0] 
+        : event.event_date
+    } else {
+      // It's a Date object - convert to Philippines timezone first
+      const eventDateInPH = new Date((event.event_date as any).toLocaleString("en-US", {timeZone: "Asia/Manila"}))
+      eventDate = eventDateInPH.getFullYear() + '-' + 
+                  String(eventDateInPH.getMonth() + 1).padStart(2, '0') + '-' + 
+                  String(eventDateInPH.getDate()).padStart(2, '0')
+    }
     
     // Only check if event is today
     if (eventDate !== today) {
@@ -154,14 +303,28 @@ export default function EventsPage() {
 
   // Helper function to check if event is in the future
   const isEventInFuture = (event: Event) => {
-    const currentTime = new Date()
-    const philippinesTime = new Date(currentTime.toLocaleString("en-US", {timeZone: "Asia/Manila"}))
-    const today = philippinesTime.toISOString().split('T')[0]
+    // Get current time in Philippines timezone
+    const now = new Date()
+    const philippinesTime = new Date(now.toLocaleString("en-US", {timeZone: "Asia/Manila"}))
+    
+    // Get today's date in YYYY-MM-DD format
+    const today = philippinesTime.getFullYear() + '-' + 
+                  String(philippinesTime.getMonth() + 1).padStart(2, '0') + '-' + 
+                  String(philippinesTime.getDate()).padStart(2, '0')
     
     // Extract date part from event_date (handle both date strings and ISO timestamps)
-    const eventDate = event.event_date.includes('T') 
-      ? event.event_date.split('T')[0] 
-      : event.event_date
+    let eventDate: string
+    if (typeof event.event_date === 'string') {
+      eventDate = event.event_date.includes('T') 
+        ? event.event_date.split('T')[0] 
+        : event.event_date
+    } else {
+      // It's a Date object - convert to Philippines timezone first
+      const eventDateInPH = new Date((event.event_date as any).toLocaleString("en-US", {timeZone: "Asia/Manila"}))
+      eventDate = eventDateInPH.getFullYear() + '-' + 
+                  String(eventDateInPH.getMonth() + 1).padStart(2, '0') + '-' + 
+                  String(eventDateInPH.getDate()).padStart(2, '0')
+    }
     
     return eventDate > today
   }
@@ -176,9 +339,40 @@ export default function EventsPage() {
   const EventCard = ({ event }: { event: Event }) => {
     const StatusIcon = statusIcons[event.status]
     const EventTypeIcon = eventTypeIcons[event.event_type || 'event']
+    const isHighlighted = highlightedEventId === event.event_id
     
     return (
-      <Card className="h-fit">
+      <motion.div
+        id={`event-${event.event_id}`}
+        className="rounded-lg h-full"
+        initial={false}
+        animate={isHighlighted ? {
+          scale: 1.05,
+          boxShadow: "0 0 0 2px rgba(59, 130, 246, 0.5)",
+        } : {
+          scale: 1,
+          boxShadow: "0 0 0 0px rgba(59, 130, 246, 0)",
+        }}
+        transition={{
+          type: "spring",
+          stiffness: 200,
+          damping: 25,
+          duration: 0.4,
+          // Add different transitions for different properties
+          scale: {
+            type: "spring",
+            stiffness: 200,
+            damping: 25,
+            duration: 0.4
+          },
+          boxShadow: {
+            type: "tween",
+            duration: 0.3,
+            ease: "easeInOut"
+          }
+        }}
+      >
+        <Card className="h-full flex flex-col">
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between">
             <div className="flex-1 min-w-0">
@@ -199,13 +393,13 @@ export default function EventsPage() {
             </div>
           </div>
         </CardHeader>
-        <CardContent className="pt-0">
-          <div className="space-y-2">
+        <CardContent className="pt-0 flex-1 flex flex-col">
+          <div className="space-y-2 flex-1 flex flex-col">
             {event.description && (
               <p className="text-xs text-muted-foreground line-clamp-2">{event.description}</p>
             )}
             
-            <div className="space-y-2">
+            <div className="space-y-2 flex-1">
               <div className="flex items-center gap-2">
                 <Calendar className="w-3 h-3 text-muted-foreground flex-shrink-0" />
                 <span className="text-xs">{formatDate(event.event_date)}</span>
@@ -242,10 +436,24 @@ export default function EventsPage() {
                 </Button>
               )}
               
+              {/* Show disabled join button with meeting blocking message */}
+              {!isEventJoinable(event) && event.status !== 'cancelled' && event.status !== 'ended' && 
+               !event.is_going && !event.is_back && isInMeeting && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled
+                  className="text-xs h-7 px-2 opacity-50"
+                >
+                  <CheckCircle className="w-3 h-3 mr-1" />
+                  Join {getEventTypeDisplayName(event.event_type || 'event')}
+                </Button>
+              )}
+              
               {/* Show Leave button if event is leavable and not a 'today' event that hasn't started */}
               {isEventLeavable(event) && !(event.status === 'today' && isEventNotStarted(event)) && (
                 <Button
-                  variant="outline"
+                  variant="destructive"
                   size="sm"
                   onClick={() => handleBack(event.event_id)}
                   disabled={isEventNotStarted(event)}
@@ -283,6 +491,12 @@ export default function EventsPage() {
                 You're currently in this {getEventTypeDisplayName(event.event_type || 'event').toLowerCase()} - joined at {new Date(event.going_at).toLocaleString()}
               </p>
             )}
+            {!isEventJoinable(event) && event.status !== 'cancelled' && event.status !== 'ended' && 
+             !event.is_going && !event.is_back && isInMeeting && (
+              <p className="text-xs text-orange-600 mt-1">
+                Cannot join {getEventTypeDisplayName(event.event_type || 'event').toLowerCase()} while in a meeting. Please end the meeting first.
+              </p>
+            )}
             {getEventStatus(event.event_id) === 'left' && event.back_at && (
               <p className="text-xs text-gray-600 mt-1">
                 You left this event at {new Date(event.back_at).toLocaleString()}
@@ -291,6 +505,7 @@ export default function EventsPage() {
           </div>
         </CardContent>
       </Card>
+      </motion.div>
     )
   }
 
@@ -318,6 +533,7 @@ export default function EventsPage() {
     </Card>
   )
 
+
   return (
     <SidebarProvider>
       <AppSidebar />
@@ -335,13 +551,25 @@ export default function EventsPage() {
           </div>
 
           {/* Events Tabs */}
-          <Tabs defaultValue="upcoming" className="flex-1 flex flex-col overflow-hidden">
+          <Tabs 
+            key={`${activeTab}-${highlightedEventId}`}
+            value={activeTab} 
+            onValueChange={(value) => {
+              setActiveTab(value)
+              // Update URL to match the tab change
+              const newUrl = new URL(window.location.href)
+              newUrl.searchParams.set('tab', value)
+              newUrl.searchParams.delete('eventId') // Clear eventId when changing tabs
+              window.history.replaceState({}, '', newUrl.toString())
+            }} 
+            className="flex-1 flex flex-col overflow-hidden"
+          >
             <TabsList className="grid w-full grid-cols-4 flex-shrink-0">
-              <TabsTrigger value="upcoming">
-                Upcoming ({upcomingEvents.length})
-              </TabsTrigger>
               <TabsTrigger value="today">
                 Today ({todayEvents.length})
+              </TabsTrigger>
+              <TabsTrigger value="upcoming">
+                Upcoming ({upcomingEvents.length})
               </TabsTrigger>
               <TabsTrigger value="cancelled">
                 Cancelled ({cancelledEvents.length})
@@ -353,28 +581,6 @@ export default function EventsPage() {
 
             <ScrollArea className="flex-1 mt-4">
               <div className="p-4">
-                <TabsContent value="upcoming" className="space-y-4">
-                  {isLoading ? (
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                      {Array.from({ length: 4 }).map((_, i) => <EventSkeleton key={i} />)}
-                    </div>
-                  ) : upcomingEvents.length > 0 ? (
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                      {upcomingEvents.map(event => <EventCard key={event.event_id} event={event} />)}
-                    </div>
-                  ) : (
-                    <Card>
-                      <CardContent className="flex flex-col items-center justify-center py-8">
-                        <Calendar className="w-12 h-12 text-muted-foreground mb-4" />
-                        <h3 className="text-lg font-semibold mb-2">No upcoming events</h3>
-                        <p className="text-muted-foreground text-center">
-                          There are no upcoming events scheduled at the moment.
-                        </p>
-                      </CardContent>
-                    </Card>
-                  )}
-                </TabsContent>
-
                 <TabsContent value="today" className="space-y-4">
                   {isLoading ? (
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -391,6 +597,28 @@ export default function EventsPage() {
                         <h3 className="text-lg font-semibold mb-2">No events today</h3>
                         <p className="text-muted-foreground text-center">
                           There are no events scheduled for today.
+                        </p>
+                      </CardContent>
+                    </Card>
+                  )}
+                </TabsContent>
+
+                <TabsContent value="upcoming" className="space-y-4">
+                  {isLoading ? (
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      {Array.from({ length: 4 }).map((_, i) => <EventSkeleton key={i} />)}
+                    </div>
+                  ) : upcomingEvents.length > 0 ? (
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      {upcomingEvents.map(event => <EventCard key={event.event_id} event={event} />)}
+                    </div>
+                  ) : (
+                    <Card>
+                      <CardContent className="flex flex-col items-center justify-center py-8">
+                        <Calendar className="w-12 h-12 text-muted-foreground mb-4" />
+                        <h3 className="text-lg font-semibold mb-2">No upcoming events</h3>
+                        <p className="text-muted-foreground text-center">
+                          There are no upcoming events scheduled at the moment.
                         </p>
                       </CardContent>
                     </Card>
@@ -445,6 +673,49 @@ export default function EventsPage() {
           </Tabs>
         </div>
       </SidebarInset>
+
+      {/* Meeting Blocked Dialog */}
+      <Dialog open={showMeetingBlockedDialog} onOpenChange={setShowMeetingBlockedDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              Cannot Join Event
+            </DialogTitle>
+            <DialogDescription>
+              You cannot join the event while you are currently in a meeting. Please end your meeting first before joining the event.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex gap-2">
+            <Button 
+              onClick={() => {
+                setShowMeetingBlockedDialog(false)
+                setPendingEventId(null)
+              }}
+              variant="outline"
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleEndMeetingAndJoin}
+              variant="destructive"
+              disabled={isEndingMeeting || !currentMeeting}
+            >
+              {isEndingMeeting ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                  Ending Meeting...
+                </>
+              ) : (
+                <>
+                  <Square className="h-4 w-4 mr-2" />
+                  End Meeting & Join Event
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
     </SidebarProvider>
   )

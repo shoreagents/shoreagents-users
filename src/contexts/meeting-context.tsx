@@ -6,7 +6,6 @@ import { getMeetingStatus, createMeeting, endMeeting, type Meeting } from '@/lib
 import { useMeetings, useMeetingStatus, useRefreshMeetings, meetingKeys } from '@/hooks/use-meetings'
 import { useSocket } from '@/contexts/socket-context'
 import { useQueryClient } from '@tanstack/react-query'
-import { useEventsContext } from './events-context'
 
 
 interface MeetingContextType {
@@ -22,9 +21,6 @@ interface MeetingContextType {
   endCurrentMeeting: (meetingId?: number) => Promise<{ success: boolean; message?: string }>
   refreshMeetings: () => Promise<void>
   
-  // Event blocking
-  canCreateMeeting: boolean
-  meetingBlockedReason: string | null
   
   // Real-time updates
   lastUpdated: Date | null
@@ -45,8 +41,8 @@ export function MeetingProvider({ children }: MeetingProviderProps) {
   // Get query client for cache invalidation
   const queryClient = useQueryClient()
   
-  // Check if user is in an event
-  const { isInEvent, currentEvent } = useEventsContext()
+  // Note: Event checking is now handled in the events context
+  // to avoid circular dependency between contexts
   
   
   // Use the proper refresh hook that invalidates cache
@@ -89,7 +85,7 @@ export function MeetingProvider({ children }: MeetingProviderProps) {
       refreshTimeoutRef.current = setTimeout(() => {
         refreshMeetings()
         setLastUpdated(new Date())
-      }, 500) // OPTIMIZED: Increased debounce time to 500ms to reduce API calls
+      }, 1000) // OPTIMIZED: Increased debounce time to 1 second to reduce API calls
     }
 
     // Listen for meeting status updates from Socket.IO server
@@ -145,14 +141,6 @@ export function MeetingProvider({ children }: MeetingProviderProps) {
   }, [socket, isConnected, refreshMeetings])
 
   const startNewMeeting = async (title: string, description?: string, scheduledTime?: string) => {
-    // Prevent creating a meeting if user is in an event
-    if (isInEvent) {
-      return { 
-        success: false, 
-        message: `Cannot create meeting while in event: ${currentEvent?.title || 'Unknown Event'}. Please leave the event first.` 
-      }
-    }
-    
     try {
       const result = await createMeeting({
         title,
@@ -203,10 +191,6 @@ export function MeetingProvider({ children }: MeetingProviderProps) {
     setLastUpdated(new Date())
   }
 
-  // Determine if meeting can be created
-  const canCreateMeeting = !isInEvent
-  const meetingBlockedReason = isInEvent ? `Cannot create meeting while in event: ${currentEvent?.title || 'Unknown Event'}` : null
-
   const value: MeetingContextType = {
     isInMeeting,
     currentMeeting,
@@ -216,8 +200,6 @@ export function MeetingProvider({ children }: MeetingProviderProps) {
     startNewMeeting,
     endCurrentMeeting,
     refreshMeetings: refreshMeetingsContext,
-    canCreateMeeting,
-    meetingBlockedReason,
     lastUpdated
   }
 

@@ -8,8 +8,49 @@ function getPool() {
   })
 }
 
+function getUserFromRequest(request: NextRequest) {
+  const authCookie = request.cookies.get('shoreagents-auth')
+  if (!authCookie) return null
+  try {
+    const raw = typeof authCookie.value === 'string' ? authCookie.value : ''
+    const decoded = (() => { try { return decodeURIComponent(raw) } catch { return raw } })()
+    const authData = JSON.parse(decoded)
+    if (!authData.isAuthenticated || !authData.user) return null
+    
+    // Handle both hybrid and regular auth structures
+    let userId = authData.user.id
+    
+    // If it's a hybrid auth system, use railway_id if available
+    if (authData.hybrid && authData.user.railway_id) {
+      userId = authData.user.railway_id
+    }
+    
+    // Ensure we have a valid numeric ID
+    if (!userId || isNaN(Number(userId))) {
+      console.error('Invalid user ID:', userId)
+      return null
+    }
+    
+    return {
+      ...authData.user,
+      id: Number(userId)
+    }
+  } catch (error) {
+    console.error('Error parsing auth cookie:', error)
+    return null
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
+    const user = getUserFromRequest(request)
+    if (!user) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
     const { searchParams } = new URL(request.url)
     const nurse_id = searchParams.get('nurse_id')
     const day_of_week = searchParams.get('day_of_week')

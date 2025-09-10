@@ -2,8 +2,18 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useEventsContext } from '@/contexts/events-context'
+import { useMeeting } from '@/contexts/meeting-context'
+import { useSocket } from '@/contexts/socket-context'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { 
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { 
   Calendar, 
   Clock,
@@ -13,7 +23,8 @@ import {
   X,
   CheckCircle,
   AlertCircle,
-  Loader2
+  Loader2,
+  Square
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -22,15 +33,20 @@ interface GlobalEventIndicatorProps {
 }
 
 export const GlobalEventIndicator = React.memo(function GlobalEventIndicator({ className }: GlobalEventIndicatorProps) {
-  const { 
-    currentEvent, 
-    isInEvent, 
-    hasLeftEvent, 
-    joinEvent, 
+  const {
+    currentEvent,
+    isInEvent,
+    hasLeftEvent,
+    joinEvent,
+    joinEventAfterMeetingEnd,
     leaveEvent,
     isEventJoinable,
-    isEventLeavable 
+    isEventLeavable,
+    isEventJoinBlockedByMeeting
   } = useEventsContext()
+  
+  const { endCurrentMeeting, currentMeeting } = useMeeting()
+  const { socket, isConnected } = useSocket()
   
   const [isVisible, setIsVisible] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
@@ -39,6 +55,8 @@ export const GlobalEventIndicator = React.memo(function GlobalEventIndicator({ c
   const [isMinimized, setIsMinimized] = useState(false)
   const [isJoining, setIsJoining] = useState(false)
   const [isLeaving, setIsLeaving] = useState(false)
+  const [showMeetingBlockedDialog, setShowMeetingBlockedDialog] = useState(false)
+  const [isEndingMeeting, setIsEndingMeeting] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
   // Save position to localStorage whenever it changes
@@ -90,7 +108,38 @@ export const GlobalEventIndicator = React.memo(function GlobalEventIndicator({ c
     }
   }, [currentEvent, hasEventStarted])
 
-  // Set up a timer to check periodically if an event has started
+  // Listen for real-time socket events to update immediately
+  useEffect(() => {
+    if (!socket || !isConnected) return
+    const handleEventChange = (data: any) => {
+      // Force a refresh of the events context
+      if (currentEvent && hasEventStarted(currentEvent)) {
+        setIsVisible(true)
+      } else {
+        setIsVisible(false)
+      }
+    }
+
+    const handleEventUpdated = (data: any) => {
+      // Force a refresh of the events context
+      if (currentEvent && hasEventStarted(currentEvent)) {
+        setIsVisible(true)
+      } else {
+        setIsVisible(false)
+      }
+    }
+
+    // Listen for socket events
+    socket.on('event-change', handleEventChange)
+    socket.on('event-updated', handleEventUpdated)
+
+    return () => {
+      socket.off('event-change', handleEventChange)
+      socket.off('event-updated', handleEventUpdated)
+    }
+  }, [socket, isConnected, currentEvent, hasEventStarted])
+
+  // Set up a timer to check periodically if an event has started (fallback)
   useEffect(() => {
     if (!currentEvent) return
 
@@ -101,14 +150,14 @@ export const GlobalEventIndicator = React.memo(function GlobalEventIndicator({ c
       setIsVisible(false)
     }
 
-    // Set up interval to check every 30 seconds
+    // Set up interval to check every 1 second for immediate updates
     const interval = setInterval(() => {
       if (currentEvent && hasEventStarted(currentEvent)) {
         setIsVisible(true)
       } else {
         setIsVisible(false)
       }
-    }, 30000) // Check every 30 seconds
+    }, 1000) // Check every 1 second for immediate updates
 
     return () => clearInterval(interval)
   }, [currentEvent, hasEventStarted])
@@ -176,11 +225,17 @@ export const GlobalEventIndicator = React.memo(function GlobalEventIndicator({ c
   // Handle join event
   const handleJoinEvent = async () => {
     if (!currentEvent || isJoining) return
+    
     try {
       setIsJoining(true)
       await joinEvent(currentEvent.event_id)
     } catch (error) {
-      console.error('Failed to join event:', error)
+      // Check if error is due to meeting conflict
+      if (error instanceof Error && error.message.includes('Cannot join event while in a meeting')) {
+        setShowMeetingBlockedDialog(true)
+      } else {
+        console.error('Failed to join event:', error)
+      }
     } finally {
       setIsJoining(false)
     }
@@ -196,6 +251,25 @@ export const GlobalEventIndicator = React.memo(function GlobalEventIndicator({ c
       console.error('Failed to leave event:', error)
     } finally {
       setIsLeaving(false)
+    }
+  }
+
+  // Handle end meeting and join event
+  const handleEndMeetingAndJoin = async () => {
+    if (!currentMeeting || isEndingMeeting) return
+    try {
+      setIsEndingMeeting(true)
+      await endCurrentMeeting(currentMeeting.id)
+      setShowMeetingBlockedDialog(false)
+      
+      // After ending meeting, try to join the event using the bypass function
+      if (currentEvent) {
+        await joinEventAfterMeetingEnd(currentEvent.event_id)
+      }
+    } catch (error) {
+      console.error('Failed to end meeting:', error)
+    } finally {
+      setIsEndingMeeting(false)
     }
   }
 
@@ -363,7 +437,7 @@ export const GlobalEventIndicator = React.memo(function GlobalEventIndicator({ c
                     <Button
                       onClick={handleLeaveEvent}
                       size="sm"
-                      variant="outline"
+                      variant="destructive"
                       className="flex-1 text-xs"
                       disabled={isLeaving}
                     >
@@ -397,6 +471,46 @@ export const GlobalEventIndicator = React.memo(function GlobalEventIndicator({ c
           </>
         )}
       </div>
+
+      {/* Meeting Blocked Dialog */}
+      <Dialog open={showMeetingBlockedDialog} onOpenChange={setShowMeetingBlockedDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertCircle className="h-5 w-5 text-amber-500" />
+              Cannot Join Event
+            </DialogTitle>
+            <DialogDescription>
+              You cannot join the event while you are currently in a meeting. Please end your meeting first before joining the event.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex gap-2">
+            <Button 
+              onClick={() => setShowMeetingBlockedDialog(false)}
+              variant="outline"
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleEndMeetingAndJoin}
+              variant="destructive"
+              disabled={isEndingMeeting || !currentMeeting}
+            >
+              {isEndingMeeting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Ending Meeting...
+                </>
+              ) : (
+                <>
+                  <Square className="h-4 w-4 mr-2" />
+                  End Meeting & Join Event
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 })

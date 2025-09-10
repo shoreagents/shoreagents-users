@@ -11,7 +11,7 @@ class EventReminderScheduler {
   constructor() {
     this.isRunning = false;
     this.intervalId = null;
-    this.checkInterval = 30 * 1000; // Check every 30 seconds for faster response
+    this.checkInterval = 10 * 1000; // Check every 10 seconds for faster response
   }
 
   async checkEventReminders() {
@@ -30,19 +30,12 @@ class EventReminderScheduler {
         console.log(`⏰ [${new Date().toLocaleTimeString()}] Sent ${notificationsSent} event notifications`);
       }
       
-      // Check for events that should be marked as 'today' (from upcoming)
-      const todayEventsResult = await pool.query(`
-        UPDATE events 
-        SET status = 'today' 
-        WHERE status = 'upcoming' 
-        AND event_date = CURRENT_DATE 
-        AND start_time::TIME <= (NOW() AT TIME ZONE 'Asia/Manila')::TIME
-        RETURNING id, title, event_type, start_time, end_time, location
-      `);
+      // Update all event statuses using the comprehensive function
+      const statusUpdateResult = await pool.query('SELECT * FROM update_all_event_statuses()');
+      const statusUpdate = statusUpdateResult.rows[0];
       
-      if (todayEventsResult.rows.length > 0) {
-        console.log(`📅 [${new Date().toLocaleTimeString()}] Updated ${todayEventsResult.rows.length} events to 'today' status:`, 
-          todayEventsResult.rows.map(r => `${r.title} (${r.event_type || 'event'})`));
+      if (statusUpdate.updated_count > 0) {
+        console.log(`📅 [${new Date().toLocaleTimeString()}] Event status updates: ${statusUpdate.details}`);
       }
       
       // Check for events that are already 'today' and should have started (create notifications)
@@ -50,7 +43,7 @@ class EventReminderScheduler {
         SELECT id, title, event_type, start_time, end_time, location
         FROM events 
         WHERE status = 'today' 
-        AND event_date = CURRENT_DATE 
+        AND event_date = (NOW() AT TIME ZONE 'Asia/Manila')::date 
         AND start_time::TIME <= (NOW() AT TIME ZONE 'Asia/Manila')::TIME
       `);
       
@@ -66,7 +59,7 @@ class EventReminderScheduler {
             FROM notifications 
             WHERE payload->>'event_id' = '${event.id}'
             AND payload->>'notification_type' = 'event_started'
-            AND created_at >= CURRENT_DATE
+            AND payload->>'event_date' = (NOW() AT TIME ZONE 'Asia/Manila')::date::text
           `);
           
           if (existingNotifications.rows[0].count === '0') {
@@ -90,17 +83,18 @@ class EventReminderScheduler {
                        '${event.title}', 
                        to_char('${event.start_time}'::TIME, 'HH12:MI AM'),
                        '${event.location}'),
-                jsonb_build_object(
-                  'event_id', ${event.id},
-                  'event_title', '${event.title}',
-                  'event_date', CURRENT_DATE,
-                  'start_time', '${event.start_time}',
-                  'end_time', '${event.end_time}',
-                  'location', '${event.location}',
-                  'status', 'today',
-                  'event_type', COALESCE('${event.event_type}', 'event'),
-                  'notification_type', 'event_started'
-                )
+              jsonb_build_object(
+                'event_id', ${event.id},
+                'event_title', '${event.title}',
+                'event_date', (NOW() AT TIME ZONE 'Asia/Manila')::date,
+                'start_time', '${event.start_time}',
+                'end_time', '${event.end_time}',
+                'location', '${event.location}',
+                'status', 'today',
+                'event_type', COALESCE('${event.event_type}', 'event'),
+                'notification_type', 'event_started',
+                'action_url', '/status/events?tab=today&eventId=' || ${event.id}
+              )
               FROM users u
               RETURNING id, user_id, title
             `);

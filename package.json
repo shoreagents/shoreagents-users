@@ -5,7 +5,8 @@
   "main": "electron/main.js",
   "homepage": "./",
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --turbo",
+    "dev:webpack": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",

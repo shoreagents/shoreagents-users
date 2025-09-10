@@ -9,19 +9,39 @@ import { AppHeader } from '@/components/app-header'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Calendar, Clock, Database, TrendingUp, RefreshCw } from 'lucide-react'
+import { Calendar, Clock, Database, TrendingUp, RefreshCw, BarChart3, Loader2 } from 'lucide-react'
 import WeeklyActivityDisplay from '@/components/weekly-activity-display'
 import MonthlyActivityDisplay from '@/components/monthly-activity-display'
 import ProductivityScoreDisplay from '@/components/productivity-score-display'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   SidebarInset,
   SidebarProvider,
 } from '@/components/ui/sidebar'
 
+// Activity data type based on the provided JSON structure
+type ActivityData = {
+  id: number | string
+  user_id: number
+  is_currently_active: boolean
+  created_at: string
+  updated_at: string
+  today_active_seconds: number
+  today_inactive_seconds: number
+  last_session_start: string
+  today_date: string
+  status?: 'has_data' | 'rest_day' | 'not_yet'
+}
+
 export default function TestActivityPage() {
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [showActivityDialog, setShowActivityDialog] = useState(false)
+  const [activityData, setActivityData] = useState<ActivityData[]>([])
+  const [isLoadingActivity, setIsLoadingActivity] = useState(false)
 
   // Use the global timer context
   const { 
@@ -39,6 +59,146 @@ export default function TestActivityPage() {
 
   const handleGlobalRefresh = () => {
     setRefreshKey(prev => prev + 1)
+  }
+
+  // Function to fetch last 7 days activity data
+  const handleViewLast7Days = async () => {
+    if (!currentUser?.id) {
+      console.error('No current user found')
+      return
+    }
+
+    setIsLoadingActivity(true)
+    try {
+      // Call the actual API endpoint
+      console.log('Calling API for userId:', currentUser.id)
+      const response = await fetch(`/api/activity/last-7-days?userId=${currentUser.id}`)
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      
+      const result = await response.json()
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to fetch activity data')
+      }
+      
+      const rawData: ActivityData[] = result.data || []
+      
+      // Aggregate data by date to show one row per day
+      const aggregatedData = rawData.reduce((acc, activity) => {
+        // Extract just the date part (YYYY-MM-DD) from the today_date field
+        const date = activity.today_date.split('T')[0]
+        console.log(`Aggregating: ${activity.today_date} -> ${date}`)
+        if (!acc[date]) {
+          acc[date] = {
+            ...activity,
+            total_active_seconds: 0,
+            total_inactive_seconds: 0,
+            record_count: 0
+          }
+        }
+        
+        acc[date].total_active_seconds += activity.today_active_seconds
+        acc[date].total_inactive_seconds += activity.today_inactive_seconds
+        acc[date].record_count += 1
+        
+        // Keep the most recent is_currently_active status and last_session_start
+        if (new Date(activity.updated_at) > new Date(acc[date].updated_at)) {
+          acc[date].is_currently_active = activity.is_currently_active
+          acc[date].last_session_start = activity.last_session_start
+          acc[date].updated_at = activity.updated_at
+        }
+        
+        return acc
+      }, {} as Record<string, ActivityData & { total_active_seconds: number; total_inactive_seconds: number; record_count: number }>)
+      
+      // Debug: Log aggregated data keys
+      console.log('Aggregated data keys:', Object.keys(aggregatedData))
+      
+      // Generate complete Saturday-to-Friday week view
+      const today = new Date()
+      const currentDay = today.getDay() // 0 = Sunday, 1 = Monday, etc.
+      
+      // Calculate the start of the current week (Saturday)
+      // If today is Saturday (6), use today; otherwise go back to the most recent Saturday
+      const saturdayOffset = currentDay === 6 ? 0 : currentDay - 6 + 7 // Go back to Saturday
+      const weekStart = new Date(today)
+      weekStart.setDate(today.getDate() - saturdayOffset)
+      
+      // Generate 7 days starting from Saturday
+      const weekData = []
+      for (let i = 0; i < 7; i++) {
+        const currentDate = new Date(weekStart)
+        currentDate.setDate(weekStart.getDate() + i)
+        const dateString = currentDate.toISOString().split('T')[0]
+        
+        const existingData = aggregatedData[dateString]
+        const isFuture = currentDate > today
+        
+        // Check if this is a weekend day that should be REST DAY
+        const dayOfWeek = currentDate.getDay() // 0 = Sunday, 6 = Saturday
+        const isWeekend = dayOfWeek === 0 || dayOfWeek === 6 // Sunday or Saturday
+        
+        // Override logic: Weekends are always REST DAY, weekdays show actual data
+        const hasData = !isWeekend && existingData && (existingData.total_active_seconds > 0 || existingData.total_inactive_seconds > 0)
+        
+        // Debug: Log each day's processing
+        console.log(`Day ${i} (${dateString}): isWeekend=${isWeekend}, existingData=${!!existingData}, hasData=${hasData}`)
+        
+        if (isFuture) {
+          // Future day - show "not yet"
+          const futureEntry = {
+            id: `future-${i}`,
+            user_id: currentUser.id,
+            is_currently_active: false,
+            created_at: currentDate.toISOString(),
+            updated_at: currentDate.toISOString(),
+            today_active_seconds: 0,
+            today_inactive_seconds: 0,
+            last_session_start: currentDate.toISOString(),
+            today_date: dateString,
+            status: 'not_yet' as const
+          }
+          weekData.push(futureEntry)
+        } else if (hasData) {
+          // Day with data
+          const dataEntry = {
+            ...existingData,
+            id: `data-${i}`, // Ensure unique string ID
+            today_date: dateString, // Use clean date format
+            today_active_seconds: existingData.total_active_seconds,
+            today_inactive_seconds: existingData.total_inactive_seconds,
+            status: 'has_data' as const
+          }
+          weekData.push(dataEntry)
+        } else {
+          // Past day with no data - show "REST DAY"
+          const restEntry = {
+            id: `rest-${i}`,
+            user_id: currentUser.id,
+            is_currently_active: false,
+            created_at: currentDate.toISOString(),
+            updated_at: currentDate.toISOString(),
+            today_active_seconds: 0,
+            today_inactive_seconds: 0,
+            last_session_start: currentDate.toISOString(),
+            today_date: dateString,
+            status: 'rest_day' as const
+          }
+          weekData.push(restEntry)
+        }
+      }
+      
+      setActivityData(weekData)
+      setShowActivityDialog(true)
+    } catch (error) {
+      console.error('Error fetching activity data:', error)
+      // You could add a toast notification here to show the error to the user
+    } finally {
+      setIsLoadingActivity(false)
+    }
   }
 
   useEffect(() => {
@@ -94,6 +254,25 @@ export default function TestActivityPage() {
                   day: 'numeric' 
                 })}
               </div>
+              <Button 
+                onClick={handleViewLast7Days}
+                disabled={isLoadingActivity}
+                variant="outline" 
+                size="sm"
+                className="flex items-center gap-2"
+              >
+                {isLoadingActivity ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Loading...
+                  </>
+                ) : (
+                  <>
+                    <BarChart3 className="w-4 h-4" />
+                    View This Week
+                  </>
+                )}
+              </Button>
               <Button 
                 onClick={handleGlobalRefresh}
                 variant="ghost" 
@@ -306,6 +485,161 @@ export default function TestActivityPage() {
             </div>
           </div>
         </div>
+
+        {/* Activity Summary Dialog */}
+        <Dialog open={showActivityDialog} onOpenChange={setShowActivityDialog}>
+          <DialogContent className="max-w-6xl max-h-[80vh]">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <BarChart3 className="h-5 w-5" />
+                My Activity Summary Report - This Week (Sat-Fri)
+              </DialogTitle>
+              <DialogDescription>
+                Complete week view showing Saturday to Friday with activity data, rest days, and future days
+              </DialogDescription>
+            </DialogHeader>
+            
+            {isLoadingActivity ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span className="text-sm text-muted-foreground">Loading activity data...</span>
+                </div>
+              </div>
+            ) : activityData.length > 0 ? (
+              <ScrollArea className="h-[60vh] w-full">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-[120px]">Date</TableHead>
+                      <TableHead className="w-[100px]">Day</TableHead>
+                      <TableHead className="w-[120px]">Active Time</TableHead>
+                      <TableHead className="w-[120px]">Inactive Time</TableHead>
+                      <TableHead className="w-[120px]">Total Time</TableHead>
+                      <TableHead className="w-[120px]">Productivity Score</TableHead>
+                      <TableHead className="w-[150px]">Last Session</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {activityData.map((activity) => {
+                      const totalSeconds = activity.today_active_seconds + activity.today_inactive_seconds
+                      const productivityScore = calculateProductivityPoints(activity.today_active_seconds, activity.today_inactive_seconds)
+                      
+                      const isRestDay = activity.status === 'rest_day'
+                      const isNotYet = activity.status === 'not_yet'
+                      const hasData = activity.status === 'has_data'
+                      
+                      return (
+                        <TableRow key={activity.id} className="hover:bg-muted/50">
+                          <TableCell>
+                            <div className="font-medium text-sm">
+                              {new Date(activity.today_date).toLocaleDateString('en-US', {
+                                month: 'short',
+                                day: 'numeric',
+                                year: 'numeric'
+                              })}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="text-sm font-medium text-muted-foreground">
+                              {new Date(activity.today_date).toLocaleDateString('en-US', {
+                                weekday: 'short'
+                              })}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-sm">
+                            {isRestDay ? (
+                              <div className="font-medium text-orange-600 italic">
+                                REST DAY
+                              </div>
+                            ) : isNotYet ? (
+                              <div className="font-medium text-gray-500 italic">
+                                not yet
+                              </div>
+                            ) : (
+                              <div className="font-medium text-green-600">
+                                {formatTime(activity.today_active_seconds)}
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-sm">
+                            {isRestDay ? (
+                              <div className="font-medium text-orange-600 italic">
+                                REST DAY
+                              </div>
+                            ) : isNotYet ? (
+                              <div className="font-medium text-gray-500 italic">
+                                not yet
+                              </div>
+                            ) : (
+                              <div className="font-medium text-red-600">
+                                {formatTime(activity.today_inactive_seconds)}
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-sm">
+                            {isRestDay ? (
+                              <div className="font-medium text-orange-600 italic">
+                                REST DAY
+                              </div>
+                            ) : isNotYet ? (
+                              <div className="font-medium text-gray-500 italic">
+                                not yet
+                              </div>
+                            ) : (
+                              <div className="font-medium">
+                                {formatTime(totalSeconds)}
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-sm">
+                            {isRestDay ? (
+                              <div className="font-medium text-orange-600 italic">
+                                REST DAY
+                              </div>
+                            ) : isNotYet ? (
+                              <div className="font-medium text-gray-500 italic">
+                                not yet
+                              </div>
+                            ) : (
+                              <div className="font-medium text-purple-600">
+                                {productivityScore.toFixed(1)} pts
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {isRestDay ? (
+                              <div className="font-medium text-orange-600 italic">
+                                REST DAY
+                              </div>
+                            ) : isNotYet ? (
+                              <div className="font-medium text-gray-500 italic">
+                                not yet
+                              </div>
+                            ) : (
+                              new Date(activity.last_session_start).toLocaleTimeString('en-US', {
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </ScrollArea>
+            ) : (
+              <div className="text-center py-8">
+                <BarChart3 className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <h4 className="font-medium text-lg mb-2">No Activity Data</h4>
+                <p className="text-sm text-muted-foreground">
+                  No activity data found for the last 7 days.
+                </p>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       </SidebarInset>
     </SidebarProvider>
   )

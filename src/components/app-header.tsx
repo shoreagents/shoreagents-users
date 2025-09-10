@@ -14,7 +14,7 @@ import {
 import { Separator } from "@/components/ui/separator"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { getCurrentUser } from "@/lib/ticket-utils"
-import { Bell, CheckCircle, AlertCircle, Info, Clock, ArrowRight, CheckSquare, FileText, Sun, Moon, Users, Heart } from "lucide-react"
+import { Bell, CheckCircle, AlertCircle, Info, Clock, ArrowRight, CheckSquare, FileText, Sun, Moon, Users, Heart, Calendar } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -45,6 +45,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { GlobalSearch } from "@/components/global-search"
+import { SwipeableNotificationItem } from "@/components/swipeable-notification-item"
 
 interface BreadcrumbItem {
   title: string
@@ -109,13 +110,14 @@ export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser =
     fetchNotifications,
     markAllAsRead,
     markAsRead,
+    deleteNotification,
     clearAll: clearAllSocket
   } = useNotificationsSocketContext(user?.email || null)
 
   // Initialize socket context notifications when user is available
   useEffect(() => {
     if (user?.email && socketConnected) {
-      fetchNotifications(0, 50, 0) // userId parameter is not used anymore
+      fetchNotifications(0, 8, 0) // userId parameter is not used anymore
     }
   }, [user?.email, socketConnected, fetchNotifications])
 
@@ -128,7 +130,7 @@ export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser =
         const actionUrl = payload.action_url
           || (n.category === 'ticket' && (payload.ticket_id || payload.ticket_row_id) ? `/forms/${payload.ticket_id || ''}` : undefined)
           || (n.category === 'break' ? '/status/breaks' : undefined)
-          || (n.category === 'health_check' ? '/health' : undefined)
+          || (n.category === 'health_check' ? '/status/health' : undefined)
         const icon = n.category === 'ticket' ? 'FileText' : n.category === 'break' ? 'Clock' : n.category === 'health_check' ? 'Heart' : 'Bell'
         return {
           id: `db_${n.id}`,
@@ -258,7 +260,7 @@ export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser =
     const handleNotificationsCleared = () => {
       // Force refresh notifications from socket context
       if (user?.email && socketConnected) {
-        fetchNotifications(0, 50, 0);
+        fetchNotifications(0, 8, 0);
       }
       
       // Also force update the notification service count
@@ -440,6 +442,16 @@ export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser =
           title: 'Meetings',
           href: '/status/meetings'
         })
+      } else if (pathSegments[1] === 'events') {
+        generatedBreadcrumbs.push({
+          title: 'Events & Activities',
+          href: '/status/events'
+        })
+      } else if (pathSegments[1] === 'health') {
+        generatedBreadcrumbs.push({
+          title: 'Health',
+          href: '/status/health'
+        })
       } else if (pathSegments.length === 1) {
         generatedBreadcrumbs[0].href = '/status'
       }
@@ -450,14 +462,6 @@ export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser =
       generatedBreadcrumbs.push({
         title: 'Break Management',
         href: '/breaks'
-      })
-    } else if (pathSegments[0] === 'health') {
-      generatedBreadcrumbs.push({
-        title: 'Health'
-      })
-      generatedBreadcrumbs.push({
-        title: 'Health Staff',
-        href: '/health'
       })
     } else if (pathSegments[0] === 'settings') {
       generatedBreadcrumbs.push({
@@ -492,39 +496,14 @@ export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser =
   // Use useMemo to calculate unread count instead of useEffect to prevent infinite loops
   // Prioritize actual database unread count, then socket updates for real-time changes
   const currentUnreadCount = useMemo(() => {
-    // Calculate the UI badge count (same logic as the UI badge display)
-    const uiBadgeCount = Math.max(socketUnreadCount, socketNotifications ? socketNotifications.filter(n => !n.is_read).length : 0)
-    
-    // First, try to get the actual unread count from the notification service (includes all DB notifications)
-    const serviceUnreadCount = getUnreadCount()
-    
-    // Calculate from current notifications state
-    const unreadCountFromState = notifications.filter(n => !n.read).length
-    
-    // Use the UI badge count as the primary source since that's what's displayed
-    if (uiBadgeCount > 0) {
-      return uiBadgeCount
-    }
-    
-    // If service count is 0, prioritize it (notifications were cleared)
-    if (serviceUnreadCount === 0) {
-      return 0
-    }
-    
-    // If we have a valid service count > 0, use it as the base
-    if (serviceUnreadCount > 0) {
-      return serviceUnreadCount
-    }
-    
-    // Fallback: Calculate from current notifications state
-    
-    // If socket has a higher count, use it (for real-time updates)
-    if (socketConnected && socketUnreadCount !== undefined && socketUnreadCount > unreadCountFromState) {
+    // Use socket unread count as primary source since it now includes total unread count from API
+    if (socketConnected && socketUnreadCount !== undefined) {
       return socketUnreadCount
     }
     
-    return unreadCountFromState
-  }, [notifications, socketConnected, socketUnreadCount, socketNotifications])
+    // Fallback to local notifications count
+    return notifications.filter(n => !n.read).length
+  }, [notifications, socketConnected, socketUnreadCount])
 
   // Update unread count when it changes
   useEffect(() => {
@@ -659,12 +638,12 @@ export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser =
                 className="relative h-8 w-8"
               >
                 <Bell className="h-4 w-4" />
-                                  {(socketUnreadCount > 0 || (socketNotifications && socketNotifications.filter(n => !n.is_read).length > 0)) && (
+                                  {socketUnreadCount > 0 && (
                     <Badge 
                       variant="destructive" 
                       className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 text-xs font-medium bg-red-500 text-white border-2 border-white shadow-sm"
                     >
-                      {Math.max(socketUnreadCount, socketNotifications ? socketNotifications.filter(n => !n.is_read).length : 0) > 9 ? '9+' : Math.max(socketUnreadCount, socketNotifications ? socketNotifications.filter(n => !n.is_read).length : 0)}
+                      {socketUnreadCount > 9 ? '9+' : socketUnreadCount}
                     </Badge>
                   )}
 
@@ -674,12 +653,12 @@ export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser =
               <div className="flex items-center justify-between p-4 pb-2">
                 <h3 className="text-sm font-semibold">Notifications</h3>
                 <div className="flex items-center gap-2">
-                  {(socketUnreadCount > 0 || (socketNotifications && socketNotifications.filter(n => !n.is_read).length > 0)) && (
+                  {socketUnreadCount > 0 && (
                     <Badge variant="destructive" className="text-xs bg-red-500 text-white">
-                      {Math.max(socketUnreadCount, socketNotifications ? socketNotifications.filter(n => !n.is_read).length : 0) > 9 ? '9+' : Math.max(socketUnreadCount, socketNotifications ? socketNotifications.filter(n => !n.is_read).length : 0)} new
+                      {socketUnreadCount > 9 ? '9+' : socketUnreadCount} new
                     </Badge>
                   )}
-                  {(socketUnreadCount > 0 || (socketNotifications && socketNotifications.filter(n => !n.is_read).length > 0)) && (
+                  {socketUnreadCount > 0 && (
                     <Button
                       variant="ghost"
                       size="sm"
@@ -744,113 +723,61 @@ export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser =
                             case 'CheckSquare': return CheckSquare
                             case 'FileText': return FileText
                             case 'Heart': return Heart
+                            case 'Calendar': return Calendar
                             default: return Bell
                           }
                         }
                         
-                        const IconComponent = getIconComponent(notification.icon)
-                        
                         return (
-                          <DropdownMenuItem
+                          <SwipeableNotificationItem
                             key={notification.id}
-                            className={`p-4 cursor-pointer rounded-md transition-colors w-full ${
-                              !notification.read
-                                ? 'bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/40 hover:bg-blue-100/70 dark:hover:bg-blue-900/30'
-                                : 'hover:bg-muted/40 dark:hover:bg-muted/20'
-                            }`}
-                            onClick={async () => {
+                            notification={notification}
+                            onMarkAsRead={async (notificationId: number) => {
                               try {
-                                const currentUser = getCurrentUser()
-                                if (currentUser?.id) {
-                                  // Extract the numeric ID from the db_ prefix
-                                  let notificationId: number
-                                  const idStr = notification.id.toString()
-                                  if (idStr.startsWith('db_')) {
-                                    notificationId = parseInt(idStr.slice(3))
-                                  } else {
-                                    notificationId = parseInt(idStr)
-                                  }
-                                  
-                                  if (!isNaN(notificationId)) {
-                                    // Use the socket context function to mark as read
-                                    // This will update both the database and the socket context state
-                                    await markAsRead(notificationId)
-                                    
-                                    // Dispatch a custom event to notify other components
-                                    window.dispatchEvent(new CustomEvent('notification-marked-read', { 
-                                      detail: { notificationId } 
-                                    }))
-                                  }
+                                await markAsRead(notificationId)
+                                
+                                // Dispatch a custom event to notify other components
+                                window.dispatchEvent(new CustomEvent('notification-marked-read', { 
+                                  detail: { notificationId } 
+                                }))
+                                
+                                // Dispatch notification-clicked event for task notifications
+                                if (notification.category === 'task') {
+                                  const notificationClickEvent = new CustomEvent('notification-clicked', { 
+                                    detail: notification 
+                                  })
+                                  window.dispatchEvent(notificationClickEvent)
                                 }
                               } catch (error) {
                                 console.error('Error marking notification as read:', error)
                               }
-                              
-                              // Dispatch notification-clicked event for task notifications
-                              if (notification.category === 'task') {
-                                const notificationClickEvent = new CustomEvent('notification-clicked', { 
-                                  detail: notification 
-                                })
-                                window.dispatchEvent(notificationClickEvent)
-                              }
-                              
-                               // Navigate if actionUrl is provided
-                              let actionUrl = notification.actionUrl || notification.actionData?.action_url
-                              
-                              // For task notifications, ensure taskId is included in the URL
-                              if (notification.category === 'task' && notification.actionData?.task_id && actionUrl) {
-                                // Check if taskId is already in the URL
-                                if (!actionUrl.includes('taskId=')) {
-                                  const separator = actionUrl.includes('?') ? '&' : '?'
-                                  actionUrl = `${actionUrl}${separator}taskId=${notification.actionData.task_id}`
-                                }
-                              }
-                              
-                              if (actionUrl) {
-                                router.push(actionUrl)
-                              } 
                             }}
-                          >
-                            <div className="flex items-center gap-3 w-full min-w-0">
-                              <div className={`flex-shrink-0 ${
-                                notification.type === 'success' ? 'text-green-600 dark:text-green-400' :
-                                notification.type === 'warning' ? 'text-yellow-600 dark:text-yellow-400' :
-                                notification.type === 'error' ? 'text-red-600 dark:text-red-400' :
-                                'text-blue-600 dark:text-blue-400'
-                              }`}>
-                                <IconComponent className="h-4 w-4" />
-                              </div>
-                              <div className="flex-1 min-w-0 overflow-hidden">
-                                <div className="space-y-1">
-                                  <h4 className={`text-sm font-medium leading-tight ${
-                                    !notification.read ? 'text-foreground' : 'text-muted-foreground'
-                                  }`}>
-                                    {notification.title}
-                                  </h4>
-                                  <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2">
-                                    {truncateNotificationMessage(notification.message)}
-                                  </p>
-                                  <div className="flex items-center justify-between gap-2 pt-1">
-                                    <span key={nowTick} className="text-xs text-muted-foreground">
-                                      {formatTimeAgo(notification.time)}
-                                    </span>
-                                    {!notification.read && (
-                                      <Badge variant="destructive" className="text-xs bg-red-500 text-white flex-shrink-0">
-                                        New
-                                      </Badge>
-                                    )}
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          </DropdownMenuItem>
+                            onDelete={async (notificationId: number) => {
+                              try {
+                                await deleteNotification(notificationId)
+                                
+                                // Dispatch a custom event to notify other components
+                                window.dispatchEvent(new CustomEvent('notification-deleted', { 
+                                  detail: { notificationId } 
+                                }))
+                              } catch (error) {
+                                console.error('🗑️ App header error deleting notification:', error)
+                              }
+                            }}
+                            onNavigate={(actionUrl: string) => {
+                              router.push(actionUrl)
+                            }}
+                            getIconComponent={getIconComponent}
+                            truncateNotificationMessage={truncateNotificationMessage}
+                            nowTick={nowTick}
+                          />
                         )
                       })}
-                      {filteredNotifications.length > 8 && (
-                        <div className="p-3 text-center text-xs text-muted-foreground border-t">
+                      {filteredNotifications.length > 0 && (
+                        <div className="p-3 text-center text-xs text-muted-foreground">
                           {activeTab === 'unread' 
                             ? `Showing ${filteredNotifications.length} unread notifications`
-                            : `Showing 8 most recent notifications`
+                            : `Showing ${Math.min(filteredNotifications.length, 8)} most recent notifications`
                           }
                         </div>
                       )}

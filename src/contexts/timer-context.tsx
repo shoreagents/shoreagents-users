@@ -7,6 +7,7 @@ import { getCurrentUser } from '@/lib/ticket-utils'
 import { useAuth } from './auth-context'
 import { useMeeting } from '@/contexts/meeting-context'
 import { useEventsContext } from './events-context'
+import { useHealth } from './health-context'
 import { isBreakTimeValid, getBreaksForShift } from '@/lib/shift-break-utils'
 import { parseShiftTime } from '@/lib/shift-utils'
 
@@ -65,6 +66,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
   const { hasLoggedIn } = useAuth()
   const { isInMeeting } = useMeeting()
   const { isInEvent } = useEventsContext()
+  const { isGoingToClinic, isInClinic } = useHealth()
 
   // Get current user
   useEffect(() => {
@@ -496,6 +498,11 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         return // Don't increment counters when in an event
       }
       
+      // Pause counting when going to clinic or in clinic
+      if (isGoingToClinic || isInClinic) {
+        return // Don't increment counters when in health check
+      }
+      
       // IMPROVED ACTIVITY STATE DETERMINATION
       // Priority order: local activity state > server state > fallback
       let isActive = false
@@ -573,7 +580,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     }, 1000) // Changed back to 1000ms (1 second) for real-time updates
 
     return () => clearInterval(interval)
-  }, [timerData?.isActive, lastActivityState, isAuthenticated, hasLoggedIn, isBreakActive, breakStatus?.is_paused, isInMeeting, isInEvent, shiftInfo, userProfile])
+  }, [timerData?.isActive, lastActivityState, isAuthenticated, hasLoggedIn, isBreakActive, breakStatus?.is_paused, isInMeeting, isInEvent, isGoingToClinic, isInClinic, shiftInfo, userProfile])
 
   // Helper function to validate if we should actually count inactive time
   const validateInactiveState = useCallback((timerData: any, lastActivityState: boolean | null): boolean => {

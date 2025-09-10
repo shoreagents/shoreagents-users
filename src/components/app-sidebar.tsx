@@ -19,6 +19,7 @@ import {
 import { useActivityStatus } from "@/hooks/use-activity-status"
 import { useMeeting } from "@/contexts/meeting-context"
 import { useEventsContext } from "@/contexts/events-context"
+import { useHealth } from "@/contexts/health-context"
 // import { getNotStartedTaskCount } from "@/lib/task-utils"
 
 import { NavMain } from "@/components/nav-main"
@@ -41,6 +42,7 @@ export const AppSidebar = React.memo(function AppSidebar({ ...props }: React.Com
   const { isActive: isActivityActive, isLoading, isShiftEnded } = useActivityStatus()
   const { isInMeeting } = useMeeting()
   const { isInEvent, currentEvent } = useEventsContext()
+  const { isGoingToClinic, isInClinic } = useHealth()
   const [notStartedTaskCount, setNotStartedTaskCount] = React.useState(0)
 
   // Activity status indicator component
@@ -111,6 +113,34 @@ export const AppSidebar = React.memo(function AppSidebar({ ...props }: React.Com
       <div 
         className="w-2 h-2 rounded-full bg-red-500"
         title={`${notStartedTaskCount} tasks not started`}
+      />
+    </div>
+  )
+
+  // Going to clinic status indicator component
+  const GoingToClinicStatusIndicator = () => (
+    <div className="flex items-center">
+      <div 
+        className={`w-2 h-2 rounded-full ${
+          isGoingToClinic 
+            ? 'bg-orange-500 animate-pulse' 
+            : 'bg-gray-300'
+        }`}
+        title={isGoingToClinic ? 'Going to Clinic' : 'Not Going to Clinic'}
+      />
+    </div>
+  )
+
+  // In clinic status indicator component
+  const InClinicStatusIndicator = () => (
+    <div className="flex items-center">
+      <div 
+        className={`w-2 h-2 rounded-full ${
+          isInClinic 
+            ? 'bg-blue-500 animate-pulse' 
+            : 'bg-gray-300'
+        }`}
+        title={isInClinic ? 'In Clinic' : 'Not In Clinic'}
       />
     </div>
   )
@@ -209,7 +239,7 @@ export const AppSidebar = React.memo(function AppSidebar({ ...props }: React.Com
         title: "Set Your Status",
         icon: Smile,
         isActive: pathname.startsWith("/status"),
-        statusIndicator: isInEvent ? <EventStatusIndicator /> : isInMeeting ? <MeetingStatusIndicator /> : null,
+        statusIndicator: isInClinic ? <InClinicStatusIndicator /> : isGoingToClinic ? <GoingToClinicStatusIndicator /> : isInEvent ? <EventStatusIndicator /> : isInMeeting ? <MeetingStatusIndicator /> : null,
         items: [
           {
             title: "Breaks",
@@ -218,23 +248,17 @@ export const AppSidebar = React.memo(function AppSidebar({ ...props }: React.Com
           {
             title: "Meetings",
             url: "/status/meetings",
-            statusIndicator: <MeetingStatusIndicator />,
+            statusIndicator: isInMeeting ? <MeetingStatusIndicator /> : null,
           },
           {
             title: "Events & Activities",
             url: "/status/events",
             statusIndicator: isInEvent ? <EventStatusIndicator /> : null,
           },
-        ],
-      },
-      {
-        title: "Health",
-        icon: Heart,
-        isActive: pathname.startsWith("/health"),
-        items: [
           {
-            title: "Health Staff",
-            url: "/health",
+            title: "Clinic Visit",
+            url: "/status/health",
+            statusIndicator: isInClinic ? <InClinicStatusIndicator /> : isGoingToClinic ? <GoingToClinicStatusIndicator /> : null,
           },
         ],
       },

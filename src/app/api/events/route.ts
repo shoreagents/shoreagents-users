@@ -75,6 +75,7 @@ export async function GET(request: NextRequest) {
     
     try {
       // Get events with attendance for the current user using direct SQL with timezone conversion
+      // Only show events that are assigned to the current user or visible to all users
       const query = `
         SELECT 
           e.id as event_id,
@@ -86,6 +87,7 @@ export async function GET(request: NextRequest) {
           e.location,
           e.status,
           e.event_type,
+          e.assigned_user_ids,
           u.email as created_by_name,
           COALESCE(ea.is_going, false) as is_going,
           COALESCE(ea.is_back, false) as is_back,
@@ -96,6 +98,8 @@ export async function GET(request: NextRequest) {
         LEFT JOIN event_attendance ea ON e.id = ea.event_id AND ea.user_id = (
           SELECT id FROM users WHERE email = $1
         )
+        WHERE e.assigned_user_ids IS NOT NULL 
+           AND (SELECT id FROM users WHERE email = $1) = ANY(e.assigned_user_ids)
         ORDER BY e.event_date ASC, e.start_time ASC
       `
       
@@ -103,7 +107,17 @@ export async function GET(request: NextRequest) {
       
       console.log('Database response:', { rowCount: result.rowCount })
 
-      const responseData = { success: true, events: result.rows || [] }
+      // Convert PostgreSQL array strings to JavaScript arrays
+      const events = result.rows.map(row => ({
+        ...row,
+        assigned_user_ids: row.assigned_user_ids 
+          ? (typeof row.assigned_user_ids === 'string' 
+              ? row.assigned_user_ids.replace(/[{}]/g, '').split(',').map((id: string) => parseInt(id.trim())).filter((id: number) => !isNaN(id))
+              : row.assigned_user_ids)
+          : null
+      }))
+      
+      const responseData = { success: true, events }
 
       // Cache the result in Redis
       await redisCache.set(cacheKey, responseData, cacheTTL.events)
@@ -136,11 +150,16 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { title, description, event_date, start_time, end_time, location, status, event_type } = body
+    const { title, description, event_date, start_time, end_time, location, status, event_type, assigned_user_ids } = body
 
     // Validate required fields
     if (!title || !event_date || !start_time || !end_time) {
       return NextResponse.json({ success: false, message: 'Missing required fields' }, { status: 400 })
+    }
+
+    // Validate assigned_user_ids if provided
+    if (assigned_user_ids && !Array.isArray(assigned_user_ids)) {
+      return NextResponse.json({ success: false, message: 'assigned_user_ids must be an array' }, { status: 400 })
     }
 
     pool = new Pool(databaseConfig)
@@ -159,8 +178,8 @@ export async function POST(request: NextRequest) {
       
       // Create event using direct SQL with Philippines timezone
       const createQuery = `
-        INSERT INTO events (title, description, event_date, start_time, end_time, location, event_type, created_by, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila', CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
+        INSERT INTO events (title, description, event_date, start_time, end_time, location, event_type, assigned_user_ids, created_by, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila', CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
         RETURNING id
       `
       
@@ -172,6 +191,7 @@ export async function POST(request: NextRequest) {
         end_time,
         location || '',
         event_type || 'event',
+        assigned_user_ids || null,
         userId
       ])
       
