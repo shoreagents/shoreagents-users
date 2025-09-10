@@ -243,12 +243,16 @@ async function initializeGlobalNotificationListener() {
           const payload = JSON.parse(msg.payload);
           console.log(`📡 Health check event received:`, payload);
           
-          // Find the user's email by looking through all connected users
-          let targetEmail = null;
-          for (const [socketId, userData] of connectedUsers.entries()) {
-            if (userData.userId === payload.user_id) {
-              targetEmail = userData.email;
-              break;
+          // Use user_email from payload if available (optimized path)
+          let targetEmail = payload.user_email;
+          
+          // Fallback to looking up by user_id if email not provided
+          if (!targetEmail) {
+            for (const [socketId, userData] of connectedUsers.entries()) {
+              if (userData.userId === payload.user_id) {
+                targetEmail = userData.email;
+                break;
+              }
             }
           }
           
@@ -259,20 +263,14 @@ async function initializeGlobalNotificationListener() {
               userSockets.forEach(socketId => {
                 io.to(socketId).emit('health_check_event', payload);
               });
-            } else {
-              console.log(`⚠️ No active connections found for user ${payload.user_id} (${targetEmail})`);
-            }
-          } else {
-            console.log(`⚠️ User ${payload.user_id} not found in connected users`);
-          }
+            } 
+          } 
         } else if (msg.channel === 'weekly_activity_change') {
           const payload = JSON.parse(msg.payload);
-          console.log(`📡 Weekly activity change notification received:`, payload);
           
           // Find all sockets for this user and emit to all of them
           if (payload.user_id) {
             let targetEmail = null;
-            console.log(`🔍 Looking for user ${payload.user_id} in ${connectedUsers.size} connected users`);
             
             // Find the user by database ID in the connected users
             for (const [socketId, userData] of connectedUsers.entries()) {
@@ -286,21 +284,16 @@ async function initializeGlobalNotificationListener() {
             if (targetEmail) {
               const userSockets = userConnections.get(targetEmail);
               if (userSockets && userSockets.size > 0) {
-                console.log(`📤 Broadcasting weekly activity update to ${userSockets.size} connections for user ${payload.user_id} (${targetEmail})`);
                 userSockets.forEach(socketId => {
                   io.to(socketId).emit('weekly-activity-update', payload);
-                  console.log(`📤 Emitted weekly-activity-update to socket ${socketId}`);
                 });
               } else {
                 console.log(`⚠️ No active connections found for user ${payload.user_id} (${targetEmail})`);
               }
-            } else {
-              console.log(`⚠️ User ${payload.user_id} not found in connected users`);
-            }
+            } 
           }
         } else if (msg.channel === 'activity_data_change') {
           const payload = JSON.parse(msg.payload);
-          console.log(`📡 Activity data change notification received for user ${payload.user_id}:`, payload.action);
           
           // Find all sockets for this user and emit to all of them
           if (payload.user_id) {
@@ -461,6 +454,17 @@ async function initializeGlobalNotificationListener() {
             data: payload.data,
             timestamp: new Date().toISOString()
           });
+          
+          // Also emit event-updated for status changes to ensure frontend updates
+          if (payload.type === 'event_status_changed') {
+            io.emit('event-updated', {
+              eventId: payload.event_id,
+              type: 'status_change',
+              oldStatus: payload.old_status,
+              newStatus: payload.new_status,
+              timestamp: new Date().toISOString()
+            });
+          }
           
           // Invalidate Redis cache for events
           try {

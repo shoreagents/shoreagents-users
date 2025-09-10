@@ -59,11 +59,16 @@ export async function PUT(
 
     const eventId = parseInt(params.id)
     const body = await request.json()
-    const { title, description, event_date, start_time, end_time, location, status, event_type } = body
+    const { title, description, event_date, start_time, end_time, location, status, event_type, assigned_user_ids } = body
 
     // Validate required fields
     if (!title || !event_date || !start_time || !end_time) {
       return NextResponse.json({ success: false, message: 'Missing required fields' }, { status: 400 })
+    }
+
+    // Validate assigned_user_ids if provided
+    if (assigned_user_ids && !Array.isArray(assigned_user_ids)) {
+      return NextResponse.json({ success: false, message: 'assigned_user_ids must be an array' }, { status: 400 })
     }
 
     pool = new Pool(databaseConfig)
@@ -90,8 +95,9 @@ export async function PUT(
           location = $6,
           status = $7,
           event_type = $8,
+          assigned_user_ids = $9,
           updated_at = CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'
-        WHERE id = $9
+        WHERE id = $10
         RETURNING id
       `
       
@@ -104,6 +110,7 @@ export async function PUT(
         location || '',
         status || 'upcoming',
         event_type || 'event',
+        assigned_user_ids || null,
         eventId
       ])
       

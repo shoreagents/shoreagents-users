@@ -9,10 +9,20 @@ const nextConfig: NextConfig = {
   experimental: {
     optimizePackageImports: ['lucide-react', '@radix-ui/react-accordion', '@radix-ui/react-avatar'],
   },
+  // Turbopack configuration (moved from experimental.turbo)
+  turbopack: {
+    rules: {
+      '*.svg': {
+        loaders: ['@svgr/webpack'],
+        as: '*.js',
+      },
+    },
+  },
   compiler: {
     // Remove console.logs in production
     removeConsole: process.env.NODE_ENV === 'production',
   },
+  // Webpack configuration for production builds only
   webpack: (config, { isServer, dev }) => {
     // Only include pg on the server side
     if (!isServer) {

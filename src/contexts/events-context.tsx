@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 import { useEvents, useMarkAsGoing, useMarkAsBack, type Event } from '@/hooks/use-events'
 import { getCurrentUserInfo } from '@/lib/user-profiles'
+import { useMeeting } from './meeting-context'
 
 interface EventsContextType {
   // Event state
@@ -12,16 +13,30 @@ interface EventsContextType {
   
   // Event actions
   joinEvent: (eventId: number) => Promise<void>
+  joinEventAfterMeetingEnd: (eventId: number) => Promise<void>
   leaveEvent: (eventId: number) => Promise<void>
   
   // Event data
   events: Event[]
   isLoading: boolean
   
+  // Global loading states
+  isJoiningEvent: boolean
+  isLeavingEvent: boolean
+  
   // Event status helpers
   getEventStatus: (eventId: number) => 'not_joined' | 'joined' | 'left'
   isEventJoinable: (event: Event) => boolean
   isEventLeavable: (event: Event) => boolean
+  isEventJoinBlockedByMeeting: (event: Event) => boolean
+  
+  // Meeting blocking
+  isInMeeting: boolean
+  eventBlockedReason: string | null
+  
+  // Meeting creation blocking
+  canCreateMeeting: boolean
+  meetingBlockedReason: string | null
 }
 
 const EventsContext = createContext<EventsContextType | undefined>(undefined)
@@ -34,13 +49,34 @@ export function EventsProvider({ children }: EventsProviderProps) {
   const [currentEvent, setCurrentEvent] = useState<Event | null>(null)
   const [isInEvent, setIsInEvent] = useState(false)
   const [hasLeftEvent, setHasLeftEvent] = useState(false)
+  const [isJoiningEvent, setIsJoiningEvent] = useState(false)
+  const [isLeavingEvent, setIsLeavingEvent] = useState(false)
 
   const currentUser = getCurrentUserInfo()
+  
+  // Get meeting status to prevent joining events while in a meeting
+  const { isInMeeting } = useMeeting()
   
   // React Query hooks
   const { events, isLoading, triggerRealtimeUpdate } = useEvents()
   const markAsGoingMutation = useMarkAsGoing()
   const markAsBackMutation = useMarkAsBack()
+
+  // Helper function to check if an event has actually started
+  const hasEventStarted = (event: Event): boolean => {
+    if (!event || !event.start_time) return false
+    
+    try {
+      const now = new Date()
+      const philippinesTime = new Date(now.toLocaleString("en-US", {timeZone: "Asia/Manila"}))
+      const currentTime = philippinesTime.toTimeString().split(' ')[0] // Get HH:MM:SS format
+      
+      // Compare time strings directly
+      return currentTime >= event.start_time
+    } catch {
+      return false
+    }
+  }
 
   // Update current event state when events data changes
   useEffect(() => {
@@ -51,9 +87,9 @@ export function EventsProvider({ children }: EventsProviderProps) {
       return
     }
 
-    // Find events that are started today (status = 'today')
+    // Find events that are started today (status = 'today') AND have actually started
     const todayEvents = events.filter(event => 
-      event.status === 'today'
+      event.status === 'today' && hasEventStarted(event)
     )
 
     if (todayEvents.length === 0) {
@@ -93,20 +129,102 @@ export function EventsProvider({ children }: EventsProviderProps) {
     }
   }, [events])
 
+  // Set up a timer to check periodically if an event has started (for real-time updates)
+  useEffect(() => {
+    if (!events || events.length === 0) return
+
+    // Check immediately
+    const checkForStartedEvents = () => {
+      const todayEvents = events.filter(event => 
+        event.status === 'today' && hasEventStarted(event)
+      )
+
+      if (todayEvents.length > 0) {
+        // Find if user is currently in any of today's events
+        const activeEvent = todayEvents.find(event => 
+          event.is_going && !event.is_back
+        )
+
+        if (activeEvent) {
+          setCurrentEvent(activeEvent)
+          setIsInEvent(true)
+          setHasLeftEvent(false)
+        } else {
+          // Check if user has left any recent event from today
+          const leftEvent = todayEvents.find(event => 
+            event.is_back && event.back_at &&
+            new Date(event.back_at) > new Date(Date.now() - 24 * 60 * 60 * 1000) // Within last 24 hours
+          )
+          
+          if (leftEvent) {
+            // Don't show the indicator if user has left the event
+            setCurrentEvent(null)
+            setIsInEvent(false)
+            setHasLeftEvent(false)
+          } else {
+            // Show the first event of today even if user hasn't joined yet
+            setCurrentEvent(todayEvents[0])
+            setIsInEvent(false)
+            setHasLeftEvent(false)
+          }
+        }
+      } else {
+        setCurrentEvent(null)
+        setIsInEvent(false)
+        setHasLeftEvent(false)
+      }
+    }
+
+    // Check immediately
+    checkForStartedEvents()
+
+    // Set up interval to check every 1 second for immediate updates
+    const interval = setInterval(checkForStartedEvents, 1000)
+
+    return () => clearInterval(interval)
+  }, [events, hasEventStarted])
+
   // Join event function
   const joinEvent = async (eventId: number) => {
+    // Check if join is blocked by meeting before making API call
+    if (isInMeeting) {
+      const error = new Error('Cannot join event while in a meeting. Please end your meeting first.')
+      throw error
+    }
+
     try {
+      setIsJoiningEvent(true)
       await markAsGoingMutation.mutateAsync(eventId)
       // State will be updated via the useEffect when events data refreshes
     } catch (error) {
-      console.error('Failed to join event:', error)
+      // Don't log meeting conflict errors as they're handled in the UI
+      if (error instanceof Error && !error.message.includes('Cannot join event while in a meeting')) {
+        console.error('Failed to join event:', error)
+      }
       throw error
+    } finally {
+      setIsJoiningEvent(false)
+    }
+  }
+
+  // Join event function that bypasses meeting check (for use after ending a meeting)
+  const joinEventAfterMeetingEnd = async (eventId: number) => {
+    try {
+      setIsJoiningEvent(true)
+      await markAsGoingMutation.mutateAsync(eventId)
+      // State will be updated via the useEffect when events data refreshes
+    } catch (error) {
+      console.error('Failed to join event after meeting end:', error)
+      throw error
+    } finally {
+      setIsJoiningEvent(false)
     }
   }
 
   // Leave event function
   const leaveEvent = async (eventId: number) => {
     try {
+      setIsLeavingEvent(true)
       await markAsBackMutation.mutateAsync(eventId)
       // State will be updated via the useEffect when events data refreshes
       
@@ -118,6 +236,8 @@ export function EventsProvider({ children }: EventsProviderProps) {
     } catch (error) {
       console.error('Failed to leave event:', error)
       throw error
+    } finally {
+      setIsLeavingEvent(false)
     }
   }
 
@@ -131,7 +251,7 @@ export function EventsProvider({ children }: EventsProviderProps) {
     return 'not_joined'
   }
 
-  // Check if event is joinable
+  // Check if event is joinable (always show button, but may be disabled)
   const isEventJoinable = (event: Event): boolean => {
     if (!event) return false
     if (event.status === 'cancelled' || event.status === 'ended') return false
@@ -141,13 +261,33 @@ export function EventsProvider({ children }: EventsProviderProps) {
     // Check if event is in the future
     const currentTime = new Date()
     const philippinesTime = new Date(currentTime.toLocaleString("en-US", {timeZone: "Asia/Manila"}))
-    const today = philippinesTime.toISOString().split('T')[0]
     
-    const eventDate = typeof event.event_date === 'string' && event.event_date.includes('T')
-      ? event.event_date.split('T')[0]
-      : event.event_date.toString()
+    // Get today's date in YYYY-MM-DD format
+    const today = philippinesTime.getFullYear() + '-' + 
+                  String(philippinesTime.getMonth() + 1).padStart(2, '0') + '-' + 
+                  String(philippinesTime.getDate()).padStart(2, '0')
+    
+    // Extract date part from event_date (handle both date strings and ISO timestamps)
+    let eventDate: string
+    if (typeof event.event_date === 'string') {
+      eventDate = event.event_date.includes('T') 
+        ? event.event_date.split('T')[0] 
+        : event.event_date
+    } else {
+      // It's a Date object - convert to Philippines timezone first
+      const eventDateInPH = new Date((event.event_date as any).toLocaleString("en-US", {timeZone: "Asia/Manila"}))
+      eventDate = eventDateInPH.getFullYear() + '-' + 
+                  String(eventDateInPH.getMonth() + 1).padStart(2, '0') + '-' + 
+                  String(eventDateInPH.getDate()).padStart(2, '0')
+    }
     
     return eventDate <= today
+  }
+
+  // Check if event join is blocked by meeting (for showing dialog)
+  const isEventJoinBlockedByMeeting = (event: Event): boolean => {
+    if (!event) return false
+    return isInMeeting
   }
 
   // Check if event is leavable
@@ -160,26 +300,55 @@ export function EventsProvider({ children }: EventsProviderProps) {
     // Check if event is in the future
     const currentTime = new Date()
     const philippinesTime = new Date(currentTime.toLocaleString("en-US", {timeZone: "Asia/Manila"}))
-    const today = philippinesTime.toISOString().split('T')[0]
     
-    const eventDate = typeof event.event_date === 'string' && event.event_date.includes('T')
-      ? event.event_date.split('T')[0]
-      : event.event_date.toString()
+    // Get today's date in YYYY-MM-DD format
+    const today = philippinesTime.getFullYear() + '-' + 
+                  String(philippinesTime.getMonth() + 1).padStart(2, '0') + '-' + 
+                  String(philippinesTime.getDate()).padStart(2, '0')
+    
+    // Extract date part from event_date (handle both date strings and ISO timestamps)
+    let eventDate: string
+    if (typeof event.event_date === 'string') {
+      eventDate = event.event_date.includes('T') 
+        ? event.event_date.split('T')[0] 
+        : event.event_date
+    } else {
+      // It's a Date object - convert to Philippines timezone first
+      const eventDateInPH = new Date((event.event_date as any).toLocaleString("en-US", {timeZone: "Asia/Manila"}))
+      eventDate = eventDateInPH.getFullYear() + '-' + 
+                  String(eventDateInPH.getMonth() + 1).padStart(2, '0') + '-' + 
+                  String(eventDateInPH.getDate()).padStart(2, '0')
+    }
     
     return eventDate <= today
   }
+
+  // Determine if event joining is blocked by meeting
+  const eventBlockedReason = isInMeeting ? 'Cannot join event while in a meeting. Please end the meeting first.' : null
+  
+  // Determine if meeting creation is blocked by event
+  const canCreateMeeting = !isInEvent
+  const meetingBlockedReason = isInEvent ? `Cannot create meeting while in event: ${currentEvent?.title || 'Unknown Event'}. Please leave the event first.` : null
 
   const value: EventsContextType = {
     currentEvent,
     isInEvent,
     hasLeftEvent,
     joinEvent,
+    joinEventAfterMeetingEnd,
     leaveEvent,
     events,
     isLoading,
+    isJoiningEvent,
+    isLeavingEvent,
     getEventStatus,
     isEventJoinable,
-    isEventLeavable
+    isEventLeavable,
+    isEventJoinBlockedByMeeting,
+    isInMeeting,
+    eventBlockedReason,
+    canCreateMeeting,
+    meetingBlockedReason
   }
 
   return (

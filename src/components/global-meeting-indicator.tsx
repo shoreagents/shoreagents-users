@@ -12,7 +12,8 @@ import {
   Clock,
   Users,
   AlertCircle,
-  Move
+  Move,
+  X
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -38,6 +39,7 @@ export const GlobalMeetingIndicator = React.memo(function GlobalMeetingIndicator
   const [position, setPosition] = useState({ x: 24, y: 24 }) // Default top-right position
   const [isDragging, setIsDragging] = useState(false)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
+  const [isMinimized, setIsMinimized] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
   // Save position to localStorage whenever it changes
@@ -145,98 +147,63 @@ export const GlobalMeetingIndicator = React.memo(function GlobalMeetingIndicator
     }
   }, [refetchMeetingStatus])
 
-  // Drag functionality with improved accuracy
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (e.target instanceof HTMLElement && e.target.closest('[data-draggable="false"]')) {
-      return // Don't drag if clicking on non-draggable elements
-    }
+  // Handle drag start
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    // Allow dragging from anywhere in the header area
+    const target = e.target as HTMLElement
+    if (target.closest('button')) return // Don't drag if clicking on buttons
     
     setIsDragging(true)
     const rect = containerRef.current?.getBoundingClientRect()
     if (rect) {
-      // More precise offset calculation
       setDragOffset({
         x: e.clientX - rect.left,
         y: e.clientY - rect.top
       })
     }
-    
-    // Prevent text selection during drag
     e.preventDefault()
-  }
+    e.stopPropagation()
+  }, [])
 
-  const handleMouseMove = (e: MouseEvent) => {
+  // Handle drag move
+  const handleMouseMove = useCallback((e: MouseEvent) => {
     if (!isDragging) return
-
-    // Calculate new position with sub-pixel accuracy
-    const newX = e.clientX - dragOffset.x
-    const newY = e.clientY - dragOffset.y
-
-    // Get actual component dimensions for more accurate bounds checking
-    const componentWidth = 288 // w-72 = 288px
-    const componentHeight = containerRef.current?.offsetHeight || 200
     
-    // Keep within viewport bounds with padding for better UX
-    const padding = 8 // 8px padding from edges
-    const maxX = window.innerWidth - componentWidth - padding
-    const maxY = window.innerHeight - componentHeight - padding
-
     const newPosition = {
-      x: Math.max(padding, Math.min(newX, maxX)),
-      y: Math.max(padding, Math.min(newY, maxY))
+      x: e.clientX - dragOffset.x,
+      y: e.clientY - dragOffset.y
     }
-
+    
+    // Keep within viewport bounds
+    const maxX = window.innerWidth - (containerRef.current?.offsetWidth || 300)
+    const maxY = window.innerHeight - (containerRef.current?.offsetHeight || 200)
+    
+    newPosition.x = Math.max(0, Math.min(newPosition.x, maxX))
+    newPosition.y = Math.max(0, Math.min(newPosition.y, maxY))
+    
     setPosition(newPosition)
-  }
+    savePosition(newPosition)
+  }, [isDragging, dragOffset, savePosition])
 
+  // Handle drag end
   const handleMouseUp = useCallback(() => {
-    if (isDragging) {
-      // Save position when dragging ends with debouncing
-      savePosition(position)
-    }
     setIsDragging(false)
-  }, [isDragging, position, savePosition])
+  }, [])
 
-  // Improved event handling with better cleanup
+  // Add global mouse event listeners for dragging
   useEffect(() => {
     if (isDragging) {
-      // Use passive: false to allow preventDefault
-      document.addEventListener('mousemove', handleMouseMove, { passive: false })
-      document.addEventListener('mouseup', handleMouseUp, { passive: true })
-      document.addEventListener('mouseleave', handleMouseUp, { passive: true }) // Handle mouse leaving window
-      
-      // Prevent text selection and improve cursor
+      document.addEventListener('mousemove', handleMouseMove)
+      document.addEventListener('mouseup', handleMouseUp)
       document.body.style.cursor = 'grabbing'
       document.body.style.userSelect = 'none'
-      document.body.style.pointerEvents = 'none' // Prevent other elements from interfering
       
-      // Add visual feedback
-      if (containerRef.current) {
-        containerRef.current.style.transition = 'none' // Disable transitions during drag
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove)
+        document.removeEventListener('mouseup', handleMouseUp)
+        document.body.style.cursor = ''
+        document.body.style.userSelect = ''
       }
-    } else {
-      document.removeEventListener('mousemove', handleMouseMove)
-      document.removeEventListener('mouseup', handleMouseUp)
-      document.removeEventListener('mouseleave', handleMouseUp)
-      
-      // Restore normal behavior
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-      document.body.style.pointerEvents = ''
-      
-      // Re-enable transitions
-      if (containerRef.current) {
-        containerRef.current.style.transition = ''
-      }
-    }
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove)
-      document.removeEventListener('mouseup', handleMouseUp)
-      document.removeEventListener('mouseleave', handleMouseUp)
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-      document.body.style.pointerEvents = ''
     }
   }, [isDragging, handleMouseMove, handleMouseUp])
 
@@ -324,130 +291,151 @@ export const GlobalMeetingIndicator = React.memo(function GlobalMeetingIndicator
   }
 
   return (
-    <div 
+    <div
       ref={containerRef}
       className={cn(
-        "fixed z-50 w-72 cursor-grab select-none",
-        "bg-white/95 dark:bg-gray-900/95 backdrop-blur-md",
-        "border border-gray-200/50 dark:border-gray-700/50",
-        "rounded-xl shadow-xl shadow-black/10 dark:shadow-black/30",
-        "animate-in slide-in-from-top-2 fade-in duration-500",
-        "ring-1 ring-gray-200/20 dark:ring-gray-700/20",
-        "transition-shadow duration-200",
-        isDragging && "shadow-2xl cursor-grabbing",
+        "fixed z-50 select-none",
+        isDragging && "cursor-grabbing",
         className
       )}
       style={{
         left: position.x,
         top: position.y,
+        transform: isDragging ? 'scale(1.02)' : 'scale(1)',
+        transition: isDragging ? 'none' : 'transform 0.2s ease-in-out'
       }}
-      onMouseDown={handleMouseDown}
     >
-      {/* Header with brand gradient background */}
-      <div className="relative bg-gradient-to-r from-primary to-secondary dark:from-primary dark:to-secondary rounded-t-xl p-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className={cn(
-              "p-2 rounded-lg text-white shadow-md",
-              "bg-white/20 backdrop-blur-sm border border-white/30",
-              getMeetingTypeColor(currentMeeting.meeting_type || 'video')
-            )}>
-              {getMeetingTypeIcon(currentMeeting.meeting_type || 'video')}
-            </div>
-            <div>
-              <h3 className="font-bold text-white text-sm">
-                In Meeting
-              </h3>
-              <p className="text-white/80 text-xs font-medium">
-                {currentMeeting.meeting_type || 'video'} call
-              </p>
-            </div>
-          </div>
-        </div>
-        
-        {/* Drag handle */}
-        <div className="absolute top-1 right-1 opacity-30 hover:opacity-60 transition-opacity">
-          <Move className="h-3 w-3 text-white" />
-        </div>
-      </div>
-
-      {/* Content area */}
-      <div className="p-3">
-        {/* Meeting Details */}
-        <div className="mb-3">
-          <h4 className="font-semibold text-gray-900 dark:text-gray-100 text-sm mb-1 leading-tight">
-            {currentMeeting.title}
-          </h4>
-          {currentMeeting.description && (
-            <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-1 leading-relaxed">
-              {currentMeeting.description}
-            </p>
-          )}
-        </div>
-
-        {/* Duration and Status */}
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-1.5 bg-gray-50 dark:bg-gray-800/50 rounded-md px-2 py-1.5">
-            <Clock className="h-3 w-3 text-gray-500 dark:text-gray-400" />
-            <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
-              {formatMeetingDuration(currentMeeting.start_time)}
-            </span>
-          </div>
-          
-          <Badge 
-            variant="secondary" 
-            className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-700/50 font-medium px-2 py-0.5 text-xs"
-          >
-            Active
-          </Badge>
-        </div>
-
-        {/* End Meeting Button */}
-        <Button
-          onClick={handleEndMeeting}
-          disabled={isEnding || isLoading}
-          variant="destructive"
-          size="sm"
-          data-draggable="false"
-          className="w-full h-9 bg-red-500 hover:bg-red-600 dark:bg-red-600 dark:hover:bg-red-700 text-white font-semibold rounded-lg shadow-md hover:shadow-lg transition-all duration-200 border-0 text-sm"
+      <div className={cn(
+        "bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700",
+        "backdrop-blur-sm bg-white/95 dark:bg-gray-800/95",
+        "min-w-[240px] max-w-[280px]",
+        isMinimized ? "h-12" : "h-auto"
+      )}>
+        {/* Header with brand gradient background */}
+        <div 
+          className="relative bg-gradient-to-r from-primary to-secondary dark:from-primary dark:to-secondary rounded-t-xl p-2 cursor-grab active:cursor-grabbing select-none"
+          onMouseDown={handleMouseDown}
         >
-          {isEnding ? (
-            <>
-              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
-              <span className="text-sm">Ending...</span>
-            </>
-          ) : (
-            <>
-              <PhoneOff className="h-4 w-4 mr-2" />
-              <span className="text-sm">End Meeting</span>
-            </>
-          )}
-        </Button>
-
-        {/* Warning for long meetings */}
-        {currentMeeting.start_time && (() => {
-          const start = new Date(currentMeeting.start_time)
-          const now = new Date()
-          const diffHours = (now.getTime() - start.getTime()) / (1000 * 60 * 60)
-          
-          if (diffHours > 2) {
-            return (
-              <div className="mt-3 p-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-lg">
-                <div className="flex items-center gap-1.5">
-                  <AlertCircle className="h-3 w-3 text-amber-600 dark:text-amber-400 flex-shrink-0" />
-                  <span className="text-xs text-amber-800 dark:text-amber-200 font-medium">
-                    Meeting running over 2 hours
-                  </span>
-                </div>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className={cn(
+                "p-1.5 rounded-lg text-white shadow-md",
+                "bg-white/20 backdrop-blur-sm border border-white/30",
+                getMeetingTypeColor(currentMeeting.meeting_type || 'video')
+              )}>
+                {getMeetingTypeIcon(currentMeeting.meeting_type || 'video')}
               </div>
-            )
-          }
-          return null
-        })()}
-      </div>
+              <div>
+                <h3 className="font-bold text-white text-sm">
+                  In Meeting
+                </h3>
+                <p className="text-white/80 text-xs font-medium">
+                  {currentMeeting.meeting_type || 'video'} call
+                </p>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0 text-white hover:bg-white/20"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setIsMinimized(!isMinimized)
+                }}
+              >
+                {isMinimized ? <Video className="h-3 w-3" /> : <X className="h-3 w-3" />}
+              </Button>
+            </div>
+          </div>
+          
+          {/* Drag handle - more prominent */}
+          <div className="absolute top-1 right-8 opacity-40 hover:opacity-80 transition-opacity cursor-grab">
+            <Move className="h-3 w-3 text-white" />
+          </div>
+        </div>
 
-      {/* Subtle bottom border accent */}
-      <div className="h-0.5 bg-gradient-to-r from-blue-500 to-blue-600 dark:from-blue-600 dark:to-blue-700 rounded-b-xl"></div>
+        {!isMinimized && (
+          <>
+            {/* Content area */}
+            <div className="p-2">
+              {/* Meeting Details - Simplified */}
+              <div className="space-y-1.5">
+                <div>
+                  <h4 className="font-semibold text-gray-900 dark:text-white text-sm truncate">
+                    {currentMeeting.title}
+                  </h4>
+                </div>
+
+                {/* Meeting Info - Minimal */}
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
+                    <Clock className="h-3 w-3" />
+                    <span>{formatMeetingDuration(currentMeeting.start_time)}</span>
+                  </div>
+                  
+                  {/* Status badge to match event indicator height */}
+                  <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
+                    <div className="w-3 h-3 rounded-full bg-emerald-500 flex-shrink-0"></div>
+                    <span>Active</span>
+                  </div>
+                  
+                  {currentMeeting.description && (
+                    <div className="text-xs text-gray-600 dark:text-gray-300 truncate">
+                      {currentMeeting.description}
+                    </div>
+                  )}
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex gap-2 mt-2">
+                  <Button
+                    onClick={handleEndMeeting}
+                    disabled={isEnding || isLoading}
+                    variant="destructive"
+                    size="sm"
+                    className="flex-1 text-xs"
+                  >
+                    {isEnding ? (
+                      <>
+                        <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-1" />
+                        <span>Ending...</span>
+                      </>
+                    ) : (
+                      <>
+                        <PhoneOff className="h-3 w-3 mr-1" />
+                        <span>End Meeting</span>
+                      </>
+                    )}
+                  </Button>
+                </div>
+
+                {/* Warning for long meetings */}
+                {currentMeeting.start_time && (() => {
+                  const start = new Date(currentMeeting.start_time)
+                  const now = new Date()
+                  const diffHours = (now.getTime() - start.getTime()) / (1000 * 60 * 60)
+                  
+                  if (diffHours > 2) {
+                    return (
+                      <div className="mt-2 p-1.5 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-lg">
+                        <div className="flex items-center gap-1">
+                          <AlertCircle className="h-3 w-3 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+                          <span className="text-xs text-amber-800 dark:text-amber-200 font-medium">
+                            Meeting running over 2 hours
+                          </span>
+                        </div>
+                      </div>
+                    )
+                  }
+                  return null
+                })()}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   )
 })

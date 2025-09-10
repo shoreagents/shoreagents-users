@@ -13,6 +13,7 @@ export interface Event {
   location: string
   status: 'upcoming' | 'today' | 'cancelled' | 'ended'
   event_type: 'event' | 'activity'
+  assigned_user_ids: number[] | null
   created_by_name: string
   is_going: boolean
   is_back: boolean
@@ -95,6 +96,12 @@ export function useEvents() {
   useEffect(() => {
     if (!socket || !isConnected || !currentUser?.email) {
       return
+    }
+    
+    
+    // Force a refresh when socket connects
+    if (socket && isConnected) {
+      triggerRealtimeUpdate()
     }
 
     const handleEventChange = async (data: any) => {
@@ -179,12 +186,18 @@ export function useEvents() {
     socket.on('event-attendance-change', handleEventAttendanceChange)
     socket.on('event-updated', handleEventUpdated)
     
+    // Set up periodic refresh every 30 seconds to ensure data stays fresh
+    const refreshInterval = setInterval(() => {
+      triggerRealtimeUpdate()
+    }, 30000)
+    
     return () => {
       socket.off('event-change', handleEventChange)
       socket.off('event-attendance-change', handleEventAttendanceChange)
       socket.off('event-updated', handleEventUpdated)
       socket.off('connect')
       socket.off('disconnect')
+      clearInterval(refreshInterval)
     }
   }, [socket, isConnected, currentUser?.email, queryClient])
 
@@ -228,7 +241,10 @@ export function useMarkAsGoing() {
       })
     },
     onError: (error: Error) => {
-      console.error('Error marking as going:', error.message)
+      // Don't log meeting conflict errors as they're handled in the UI
+      if (!error.message.includes('Cannot join event while in a meeting')) {
+        console.error('Error marking as going:', error.message)
+      }
     }
   })
 }

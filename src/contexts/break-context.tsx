@@ -7,6 +7,7 @@ interface BreakContextType {
   isBreakActive: boolean
   activeBreakId: string | null
   setBreakActive: (active: boolean, breakId?: string) => void
+  setBreakActiveAfterEventLeave: (active: boolean, breakId?: string) => void
   isInitialized: boolean
   canStartBreak: boolean
   breakBlockedReason: string | null
@@ -32,6 +33,12 @@ export function BreakProvider({ children }: { children: React.ReactNode }) {
     setActiveBreakId(active ? breakId || null : null)
   }, [isInEvent, currentEvent])
 
+  const setBreakActiveAfterEventLeave = useCallback((active: boolean, breakId?: string) => {
+    // This function bypasses the event check for use after leaving an event
+    setIsBreakActive(active)
+    setActiveBreakId(active ? breakId || null : null)
+  }, [])
+
   // Determine if break can be started
   const canStartBreak = !isInEvent
   const breakBlockedReason = isInEvent ? `Cannot start break while in event: ${currentEvent?.title || 'Unknown Event'}` : null
@@ -40,6 +47,7 @@ export function BreakProvider({ children }: { children: React.ReactNode }) {
     isBreakActive,
     activeBreakId,
     setBreakActive,
+    setBreakActiveAfterEventLeave,
     isInitialized,
     canStartBreak,
     breakBlockedReason

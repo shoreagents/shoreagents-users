@@ -48,6 +48,7 @@ export function useNotificationsSocket(email: string | null) {
           return '/productivity/task-activity'
         }
         if (n.category === 'health_check') return '/health'
+        if (n.category === 'event') return '/status/events'
         return undefined
       })()
       const icon = (() => {
@@ -55,6 +56,7 @@ export function useNotificationsSocket(email: string | null) {
         if (n.category === 'break') return 'Clock' as const
         if (n.category === 'task') return 'CheckSquare' as const
         if (n.category === 'health_check') return 'Heart' as const
+        if (n.category === 'event') return 'Calendar' as const
         return 'Bell' as const
       })()
       const mapped = {

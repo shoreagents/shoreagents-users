@@ -11,6 +11,7 @@ import { useMeeting } from './meeting-context'
 import { useTimer } from './timer-context'
 import { useAuth } from './auth-context'
 import { useEventsContext } from './events-context'
+import { useHealth } from './health-context'
 import { isWithinShiftHours, parseShiftTime } from '@/lib/shift-utils'
 
 
@@ -39,6 +40,7 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
   const { shiftInfo } = useTimer()
   const { hasLoggedIn, setUserLoggedIn, setUserLoggedOut } = useAuth()
   const { isInEvent } = useEventsContext()
+  const { isGoingToClinic, isInClinic } = useHealth()
   const {
     isTracking,
     showInactivityDialog,
@@ -115,13 +117,13 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
     const isShiftEnded = checkIfShiftEnded(shiftInfo)
     const isShiftNotStarted = checkIfShiftNotStarted(shiftInfo)
     
-    // Only start tracking if shift is active (not ended and not started)
-    if (hasLoggedIn && !isTracking && !isBreakActive && !isInMeeting && !isInEvent && isWithinShift && !isShiftEnded && !isShiftNotStarted && window.location.pathname !== '/') {
+    // Only start tracking if shift is active (not ended and not started) and not in health check
+    if (hasLoggedIn && !isTracking && !isBreakActive && !isInMeeting && !isInEvent && !isGoingToClinic && !isInClinic && isWithinShift && !isShiftEnded && !isShiftNotStarted && window.location.pathname !== '/') {
       // Set inactivity threshold to 30 seconds (30000ms)
       setInactivityThreshold(30000)
       startTracking()
     }
-  }, [hasLoggedIn, isTracking, isBreakActive, isInMeeting, isInEvent, shiftInfo, startTracking, setInactivityThreshold])
+  }, [hasLoggedIn, isTracking, isBreakActive, isInMeeting, isInEvent, isGoingToClinic, isInClinic, shiftInfo, startTracking, setInactivityThreshold])
 
   // Pause tracking when break becomes active, resume when break ends
   useEffect(() => {
@@ -182,6 +184,27 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
       }
     }
   }, [isInEvent, hasLoggedIn, pauseTracking, resumeTracking])
+
+  // Pause tracking when going to clinic or in clinic, resume when back to station
+  useEffect(() => {
+    if (hasLoggedIn) {
+      const currentUser = getCurrentUser()
+      if (currentUser) {
+        
+        if (isGoingToClinic || isInClinic) {
+          // Pause activity tracking when going to clinic or in clinic
+          // TODO: Replace with database-driven activity pausing
+          // pauseActivityForHealthCheck(currentUser.email)
+          pauseTracking()
+        } else {
+          // Resume activity tracking when back to station
+          // TODO: Replace with database-driven activity resuming
+          // resumeActivityFromHealthCheck(currentUser.email)
+          resumeTracking()
+        }
+      }
+    }
+  }, [isGoingToClinic, isInClinic, hasLoggedIn, pauseTracking, resumeTracking])
 
   // Pause tracking when outside shift hours, resume when within shift hours
   useEffect(() => {
@@ -426,7 +449,6 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
     // FIRST: Stop activity tracking immediately to prevent any more activity updates
     try {
       await stopTracking()
-      console.log('✅ Activity tracking stopped successfully')
     } catch (error) {
       console.error('Error stopping tracking before logout:', error)
     }
@@ -437,7 +459,6 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
     activityKeys.forEach(key => {
       try {
         localStorage.removeItem(key)
-        console.log(`🗑️ Removed activity data: ${key}`)
       } catch (error) {
         console.error('Error removing activity data:', error)
       }
@@ -445,7 +466,6 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
     
     // THIRD: Set logged out state via auth context
     setUserLoggedOut()
-    console.log('✅ User logged out successfully')
   }, [stopTracking, setUserLoggedOut])
 
   const value = {

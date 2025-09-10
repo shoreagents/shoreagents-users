@@ -8,14 +8,55 @@ function getPool() {
   })
 }
 
+function getUserFromRequest(request: NextRequest) {
+  const authCookie = request.cookies.get('shoreagents-auth')
+  if (!authCookie) return null
+  try {
+    const raw = typeof authCookie.value === 'string' ? authCookie.value : ''
+    const decoded = (() => { try { return decodeURIComponent(raw) } catch { return raw } })()
+    const authData = JSON.parse(decoded)
+    if (!authData.isAuthenticated || !authData.user) return null
+    
+    // Handle both hybrid and regular auth structures
+    let userId = authData.user.id
+    
+    // If it's a hybrid auth system, use railway_id if available
+    if (authData.hybrid && authData.user.railway_id) {
+      userId = authData.user.railway_id
+    }
+    
+    // Ensure we have a valid numeric ID
+    if (!userId || isNaN(Number(userId))) {
+      console.error('Invalid user ID:', userId)
+      return null
+    }
+    
+    return {
+      ...authData.user,
+      id: Number(userId)
+    }
+  } catch (error) {
+    console.error('Error parsing auth cookie:', error)
+    return null
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json()
-    const { user_id, complaint, symptoms, priority = 'normal' } = body
+    const user = getUserFromRequest(request)
+    if (!user) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
 
-    if (!user_id || !complaint) {
+    const body = await request.json()
+    const { complaint, symptoms, priority = 'normal' } = body
+
+    if (!complaint) {
       return NextResponse.json({ 
-        error: 'user_id and complaint are required' 
+        error: 'complaint is required' 
       }, { status: 400 })
     }
 
@@ -40,7 +81,7 @@ export async function POST(request: NextRequest) {
         `INSERT INTO health_check_requests (user_id, nurse_id, complaint, symptoms, priority, status)
          VALUES ($1, $2, $3, $4, $5, 'pending')
          RETURNING *`,
-        [user_id, nurse_id, complaint, symptoms, priority]
+        [user.id, nurse_id, complaint, symptoms, priority]
       )
 
       const newRequest = result.rows[0]
@@ -80,16 +121,17 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
+    const user = getUserFromRequest(request)
+    if (!user) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
     const { searchParams } = new URL(request.url)
-    const user_id = searchParams.get('user_id')
     const status = searchParams.get('status')
     const limit = parseInt(searchParams.get('limit') || '50', 10)
-
-    if (!user_id) {
-      return NextResponse.json({ 
-        error: 'user_id is required' 
-      }, { status: 400 })
-    }
 
     const pool = getPool()
     
@@ -111,7 +153,7 @@ export async function GET(request: NextRequest) {
         LEFT JOIN personal_info npi ON hcr.nurse_id = npi.user_id
         WHERE hcr.user_id = $1
       `
-      const params: (string | number)[] = [user_id]
+      const params: (string | number)[] = [user.id]
       let paramCount = 1
 
       if (status) {

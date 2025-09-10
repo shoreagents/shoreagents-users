@@ -7,6 +7,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { Calendar as CalendarComponent } from "@/components/ui/calendar"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { CalendarIcon } from "lucide-react"
+import { format } from "date-fns"
 import { 
   Heart, 
   Clock, 
@@ -20,7 +27,8 @@ import {
   Filter,
   Settings,
   AlertCircle,
-  Loader2
+  Loader2,
+  Search
 } from "lucide-react"
 import {
   SidebarInset,
@@ -29,7 +37,9 @@ import {
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { useHealthCheckSocketContext, HealthCheckRecord } from "@/hooks/use-health-check-socket-context"
+import { useHealth } from "@/contexts/health-context"
 import { getCurrentUser } from "@/lib/ticket-utils"
 
 export default function HealthPage() {
@@ -37,13 +47,18 @@ export default function HealthPage() {
   const [showNotification, setShowNotification] = useState(false)
   const [requestSent, setRequestSent] = useState(false)
   const [showAllHealthChecks, setShowAllHealthChecks] = useState(false)
-  const [dateFilter, setDateFilter] = useState("")
+  const [dateFilter, setDateFilter] = useState<Date | undefined>(undefined)
   const [showRequestForm, setShowRequestForm] = useState(false)
   const [complaint, setComplaint] = useState("")
   const [symptoms, setSymptoms] = useState("")
   const [priority, setPriority] = useState<'low' | 'normal' | 'high' | 'urgent'>('normal')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isGoingToClinicLoading, setIsGoingToClinicLoading] = useState(false)
+  const [isDoneLoading, setIsDoneLoading] = useState(false)
   const [currentUser, setCurrentUser] = useState<any>(null)
+  const [showHistoryModal, setShowHistoryModal] = useState(false)
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false)
+  const [searchQuery, setSearchQuery] = useState("")
 
   // Get current user
   useEffect(() => {
@@ -75,24 +90,65 @@ export default function HealthPage() {
     fetchUserRequests,
     createRequest,
     isNurseOnDuty,
-    hasPendingRequest
+    hasPendingRequest,
+    updateGoingToClinic,
+    updateInClinic,
+    updateDone
   } = useHealthCheckSocketContext(currentUser?.email || null)
 
-  // Fetch data on mount
+  // Use health context
+  const {
+    isGoingToClinic,
+    isInClinic,
+    currentHealthRequest,
+    setCurrentHealthRequest,
+    handleGoingToClinic,
+    handleBackToStation
+  } = useHealth()
+
+  // Fetch data on mount (except user requests)
   useEffect(() => {
     if (currentUser?.id) {
       fetchRecords(currentUser.id, 10, 0)
       fetchAvailability(1) // Fetch nurse_id 1 availability
-      fetchUserRequests(currentUser.id) // Fetch user's requests
+      // Don't fetch user requests automatically
     }
-  }, [currentUser?.id, fetchRecords, fetchAvailability, fetchUserRequests])
+  }, [currentUser?.id, fetchRecords, fetchAvailability])
+
+  // Function to handle fetching history
+  const handleFetchHistory = async () => {
+    if (!currentUser?.id) return
+    
+    setIsLoadingHistory(true)
+    try {
+      await fetchUserRequests(currentUser.id)
+      setSearchQuery("") // Reset search when opening modal
+      setShowHistoryModal(true)
+    } catch (error) {
+      console.error('Error fetching history:', error)
+    } finally {
+      setIsLoadingHistory(false)
+    }
+  }
+
+  // Filter requests based on search query
+  const filteredRequests = userRequests?.filter((request) => {
+    if (!searchQuery.trim()) return true
+    
+    const query = searchQuery.toLowerCase()
+    return (
+      request.complaint.toLowerCase().includes(query) ||
+      (request.symptoms && request.symptoms.toLowerCase().includes(query)) ||
+      request.status.toLowerCase().includes(query) ||
+      request.priority.toLowerCase().includes(query)
+    )
+  }) || []
 
   // Periodic refresh of user requests to ensure data stays in sync
   useEffect(() => {
     if (!currentUser?.id) return
 
     const interval = setInterval(() => {
-      console.log('🔄 Periodic refresh of user requests')
       fetchUserRequests(currentUser.id)
     }, 30000) // Refresh every 30 seconds
 
@@ -105,24 +161,71 @@ export default function HealthPage() {
   const nurseOnBreak = nurseStatus && typeof nurseStatus === 'object' ? nurseStatus.onBreak : false
   const isNurseStatusLoading = nurseStatus === null // null means still loading
 
-  // Check if user has pending request
-  const userHasPendingRequest = currentUser?.id ? hasPendingRequest(currentUser.id) : false
-  
-  // Debug logging
-  console.log('🏥 Health page state:', {
-    currentUser: currentUser?.id,
-    userHasPendingRequest,
-    userRequests: userRequests.map(r => ({ id: r.id, status: r.status, user_id: r.user_id })),
-    requestSent
-  })
+  // Check if user has pending request (only truly pending, not approved)
+  const userHasPendingRequest = currentUser?.id ? 
+    userRequests.some(request => 
+      request.user_id === currentUser.id && request.status === 'pending'
+    ) : false
+
+  // Get the current approved or completed request
+  const currentApprovedRequest = userRequests.find(req => 
+    req.user_id === currentUser?.id && (req.status === 'approved' || req.status === 'completed')
+  )
+
+  // Set current health request when approved
+  useEffect(() => {
+    if (currentApprovedRequest && !currentHealthRequest) {
+      setCurrentHealthRequest(currentApprovedRequest)
+    }
+  }, [currentApprovedRequest, currentHealthRequest])
 
   // Reset requestSent state when request is no longer pending
   useEffect(() => {
     if (requestSent && !userHasPendingRequest) {
-      console.log('🔄 Resetting requestSent state - no pending requests')
       setRequestSent(false)
     }
   }, [requestSent, userHasPendingRequest])
+
+  // Handle going to clinic
+  const handleGoingToClinicClick = async () => {
+    console.log('Going to clinic clicked, currentApprovedRequest:', currentApprovedRequest)
+    if (!currentApprovedRequest) {
+      console.log('No approved request found')
+      return
+    }
+    
+    setIsGoingToClinicLoading(true)
+    try {
+      console.log('Updating going to clinic status for request ID:', currentApprovedRequest.id)
+      await updateGoingToClinic(currentApprovedRequest.id, true)
+      await handleGoingToClinic()
+    } catch (error) {
+      console.error('Error updating going to clinic status:', error)
+    } finally {
+      setIsGoingToClinicLoading(false)
+    }
+  }
+
+  // Handle back to station (Done button)
+  const handleBackToStationClick = async () => {
+    if (!currentApprovedRequest) return
+    
+    setIsDoneLoading(true)
+    try {
+      console.log('🏥 Updating done status for request:', currentApprovedRequest.id)
+      await updateDone(currentApprovedRequest.id, true)
+      
+      // Add a small delay to ensure the loading state is visible
+      await new Promise(resolve => setTimeout(resolve, 500))
+      
+      await handleBackToStation()
+      console.log('🏥 Done status updated successfully')
+    } catch (error) {
+      console.error('Error updating done status:', error)
+    } finally {
+      setIsDoneLoading(false)
+    }
+  }
 
   // Get current nurse availability
   const currentDayOfWeek = new Date().getDay()
@@ -176,7 +279,10 @@ export default function HealthPage() {
 
   // Filter health check records based on date
   const filteredRecords = dateFilter 
-    ? records.filter(record => record.visit_date.includes(dateFilter))
+    ? records.filter(record => {
+        const recordDate = new Date(record.visit_date)
+        return recordDate.toDateString() === dateFilter.toDateString()
+      })
     : records
 
   // Recent health check records (last 3)
@@ -307,13 +413,12 @@ export default function HealthPage() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
                 <Button
-                  variant="outline"
+                  variant="ghost"
                   size="sm"
                   onClick={() => setShowAllHealthChecks(false)}
-                  className="flex items-center gap-2"
+                  className="flex items-center gap-2 hover:!bg-transparent dark:hover:text-white hover:text-black"
                 >
                   <ArrowLeft className="h-4 w-4" />
-                  Back to Health Check
                 </Button>
                 <div>
                   <h1 className="text-3xl font-bold text-foreground">All Health Checks</h1>
@@ -344,25 +449,39 @@ export default function HealthPage() {
                 <div className="flex items-center gap-4">
                   <div className="flex items-center gap-2">
                     <Calendar className="h-4 w-4 text-muted-foreground" />
-                    <label htmlFor="date-filter" className="text-sm font-medium">Filter by Date:</label>
+                    <label className="text-sm font-medium">Filter by Date:</label>
                   </div>
-                  <Input
-                    id="date-filter"
-                    type="date"
-                    value={dateFilter}
-                    onChange={(e) => setDateFilter(e.target.value)}
-                    className="w-auto"
-                    placeholder="Select date"
-                  />
+                  
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className="w-[280px] justify-start text-left font-normal"
+                      >
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {dateFilter ? format(dateFilter, "PPP") : "Pick a date"}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <CalendarComponent
+                        mode="single"
+                        selected={dateFilter}
+                        onSelect={setDateFilter}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+
                   {dateFilter && (
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setDateFilter("")}
+                      onClick={() => setDateFilter(undefined)}
                     >
                       Clear Filter
                     </Button>
                   )}
+                  
                   <div className="ml-auto text-sm text-muted-foreground">
                     Showing {filteredRecords.length} of {records.length} records
                   </div>
@@ -378,11 +497,7 @@ export default function HealthPage() {
                   Health Check Records
                 </CardTitle>
                 <CardDescription>
-                  {dateFilter ? `Health checks for ${new Date(dateFilter).toLocaleDateString('en-US', { 
-                    month: 'long', 
-                    day: 'numeric', 
-                    year: 'numeric' 
-                  })}` : "All your health check records"}
+                  {dateFilter ? `Health checks for ${format(dateFilter, "PPP")}` : "All your health check records"}
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -590,7 +705,7 @@ export default function HealthPage() {
                          </div>
                        )}
 
-                       {userHasPendingRequest && (
+                       {userHasPendingRequest && !currentApprovedRequest && (
                          <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
                            <p className="text-sm text-yellow-800">
                              <strong>Notice:</strong> You already have a pending health check request. Please wait for it to be processed before submitting a new one.
@@ -599,37 +714,112 @@ export default function HealthPage() {
                        )}
                     </div>
 
-                                         <Button 
-                       onClick={handleStartNewRequest}
-                       disabled={isLoadingAvailability || isNurseStatusLoading || !nurseOnDuty || userHasPendingRequest}
-                       className="w-full"
-                       size="lg"
-                     >
-                       <Bell className="mr-2 h-4 w-4" />
-                       {isLoadingAvailability || isNurseStatusLoading ? "Checking Availability..." : 
-                        userHasPendingRequest ? (() => {
-                          const latestRequest = userRequests.find(req => req.user_id === currentUser?.id)
-                          if (latestRequest?.status === 'approved') {
-                            return "Request Approved"
-                          }
-                          return "Request Pending"
-                        })() : 
-                        "Request Health Check"}
-                     </Button>
+                    {/* Show different buttons based on request status */}
+                    {currentApprovedRequest && !currentApprovedRequest.done ? (
+                      <div className="space-y-3">
+                        {/* Show Done button when status is completed and done is false */}
+                        {currentApprovedRequest.status === 'completed' && !currentApprovedRequest.done ? (
+                          <Button 
+                            onClick={handleBackToStationClick}
+                            disabled={isDoneLoading}
+                            className="w-full"
+                            size="lg"
+                            variant="default"
+                          >
+                            {isDoneLoading ? (
+                              <>
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                Processing...
+                              </>
+                            ) : (
+                              <>
+                                <CheckCircle className="mr-2 h-4 w-4" />
+                                Done - Back to Station
+                              </>
+                            )}
+                          </Button>
+                        ) : currentApprovedRequest.done ? (
+                          <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                            <p className="text-sm text-green-800 text-center">
+                              <strong>Completed:</strong> You have completed your health check and returned to station. Activity tracking has resumed.
+                            </p>
+                          </div>
+                        ) : isDoneLoading ? (
+                          <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                            <div className="flex items-center justify-center gap-2">
+                              <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                              <p className="text-sm text-blue-800">
+                                <strong>Processing...</strong> Completing your health check...
+                              </p>
+                            </div>
+                          </div>
+                        ) : !currentApprovedRequest.going_to_clinic && !currentApprovedRequest.in_clinic ? (
+                          <Button 
+                            onClick={handleGoingToClinicClick}
+                            disabled={isGoingToClinicLoading}
+                            className="w-full"
+                            size="lg"
+                            variant="default"
+                          >
+                            {isGoingToClinicLoading ? (
+                              <>
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                Processing...
+                              </>
+                            ) : (
+                              <>
+                                <MapPin className="mr-2 h-4 w-4" />
+                                Going to Clinic
+                              </>
+                            )}
+                          </Button>
+                        ) : currentApprovedRequest.in_clinic ? (
+                          <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                            <p className="text-sm text-blue-800 text-center">
+                              <strong>In Clinic:</strong> You are currently in the clinic. Please wait for the nurse to complete your health check.
+                            </p>
+                          </div>
+                        ) : isGoingToClinicLoading ? (
+                          <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                            <div className="flex items-center justify-center gap-2">
+                              <Loader2 className="h-4 w-4 animate-spin text-orange-600" />
+                              <p className="text-sm text-orange-800">
+                                <strong>Processing...</strong> Updating your status...
+                              </p>
+                            </div>
+                          </div>
+                        ) : currentApprovedRequest.going_to_clinic && !currentApprovedRequest.in_clinic ? (
+                          <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                            <p className="text-sm text-yellow-800 text-center">
+                              <strong>Going to Clinic:</strong> You are on your way to the clinic. Please proceed to Unit 2.
+                            </p>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <Button 
+                        onClick={handleStartNewRequest}
+                        disabled={isLoadingAvailability || isNurseStatusLoading || !nurseOnDuty || userHasPendingRequest || (currentApprovedRequest && !currentApprovedRequest.done)}
+                        className="w-full"
+                        size="lg"
+                      >
+                        <Bell className="mr-2 h-4 w-4" />
+                        {isLoadingAvailability || isNurseStatusLoading ? "Checking Availability..." : 
+                         userHasPendingRequest ? "Request Pending" : 
+                         (currentApprovedRequest && !currentApprovedRequest.done) ? "Request in Progress" :
+                         "Request Health Check"}
+                      </Button>
+                    )}
 
-                    {(requestSent || userHasPendingRequest) && (
+                    {(requestSent || userHasPendingRequest) && !currentApprovedRequest && (
                       <p className="text-sm text-center text-muted-foreground">
                         {(() => {
                           // Get the latest request status
                           const latestRequest = userRequests.find(req => req.user_id === currentUser?.id)
                           if (latestRequest?.status === 'pending') {
                             return "Your health check request has been submitted. Please wait for approval."
-                          } else if (latestRequest?.status === 'approved') {
-                            return "Your health check request has been approved! Please proceed to the clinic."
                           } else if (latestRequest?.status === 'rejected') {
                             return "Your health check request has been rejected. Please contact the nurse for more information."
-                          } else if (latestRequest?.status === 'completed') {
-                            return "Your health check has been completed. Check your records for details."
                           } else if (latestRequest?.status === 'cancelled') {
                             return "Your health check request has been cancelled."
                           }
@@ -721,35 +911,95 @@ export default function HealthPage() {
                     History of your recent medical consultations and treatments
                   </CardDescription>
                 </div>
-                <Button 
-                  variant="outline" 
-                  size="sm"
-                  onClick={() => setShowAllHealthChecks(true)}
-                  className="flex items-center gap-2"
-                >
-                  <Heart className="h-4 w-4" />
-                  View all Health checks
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={handleFetchHistory}
+                    disabled={isLoadingHistory}
+                    className="flex items-center gap-2"
+                  >
+                    {isLoadingHistory ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <Bell className="h-4 w-4" />
+                        Request History
+                      </>
+                    )}
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => setShowAllHealthChecks(true)}
+                    className="flex items-center gap-2"
+                  >
+                    <Heart className="h-4 w-4" />
+                    View all Health checks
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {recentRecords.length > 0 ? (
-                  recentRecords.map((record, index) => (
-                    <HealthCheckRecord key={index} record={record} index={index} />
-                  ))
-                ) : (
-                  <div className="text-center py-8">
-                    <Heart className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                    <h4 className="font-medium text-lg mb-2">No Recent Health Checks</h4>
-                    <p className="text-sm text-muted-foreground">
-                      Your health check history will appear here after your first visit to the clinic.
-                    </p>
-                  </div>
-                )}
-              </div>
+              {recentRecords.length > 0 ? (
+                <Accordion type="multiple" className="w-full">
+                  {recentRecords.map((record, index) => (
+                    <AccordionItem key={index} value={`item-${index}`} className="border-b border-gray-200 dark:border-gray-700">
+                      <AccordionTrigger className="hover:no-underline">
+                        <div className="flex items-center gap-3 text-left">
+                          <div className="flex items-center gap-2">
+                            <Calendar className="h-4 w-4 text-green-600" />
+                            <span className="font-medium">
+                              {new Date(record.created_at).toLocaleDateString('en-US', {
+                                weekday: 'long',
+                                year: 'numeric',
+                                month: 'long',
+                                day: 'numeric'
+                              })}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Clock className="h-4 w-4 text-gray-500" />
+                            <span className="text-sm text-gray-500">
+                              {new Date(record.created_at).toLocaleTimeString('en-US', {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                second: '2-digit'
+                              })}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <User className="h-4 w-4 text-blue-600" />
+                            <span className="text-sm font-medium text-blue-600">
+                              {record.nurse_first_name && record.nurse_last_name 
+                                ? `${record.nurse_first_name} ${record.nurse_last_name}`
+                                : 'Nurse'
+                              }
+                            </span>
+                          </div>
+                        </div>
+                      </AccordionTrigger>
+                      <AccordionContent className="pt-4">
+                        <HealthCheckRecord record={record} index={index} />
+                      </AccordionContent>
+                    </AccordionItem>
+                  ))}
+                </Accordion>
+              ) : (
+                <div className="text-center py-8">
+                  <Heart className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                  <h4 className="font-medium text-lg mb-2">No Recent Health Checks</h4>
+                  <p className="text-sm text-muted-foreground">
+                    Your health check history will appear here after your first visit to the clinic.
+                  </p>
+                </div>
+              )}
             </CardContent>
           </Card>
+
 
           <Card>
             <CardHeader>
@@ -783,6 +1033,164 @@ export default function HealthPage() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Request History Modal */}
+        <Dialog open={showHistoryModal} onOpenChange={setShowHistoryModal}>
+          <DialogContent className="max-w-6xl max-h-[80vh]">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Bell className="h-5 w-5" />
+                Request History
+              </DialogTitle>
+              <DialogDescription>
+                Your complete health check request history and their status
+              </DialogDescription>
+              <div className="pt-4">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search by complaint, symptoms, status, or priority..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+                {searchQuery && (
+                  <p className="text-sm text-muted-foreground mt-2">
+                    Showing {filteredRequests.length} of {userRequests?.length || 0} requests
+                  </p>
+                )}
+              </div>
+            </DialogHeader>
+            
+            {isLoadingHistory ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span className="text-sm text-muted-foreground">Loading requests...</span>
+                </div>
+              </div>
+            ) : filteredRequests && filteredRequests.length > 0 ? (
+              <ScrollArea className="h-[60vh] w-full">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-[120px]">Complaint</TableHead>
+                      <TableHead className="w-[120px]">Symptoms</TableHead>
+                      <TableHead className="w-[140px]">Date/Time</TableHead>
+                      <TableHead className="w-[160px]">Going to Clinic At</TableHead>
+                      <TableHead className="w-[80px]">Priority</TableHead>
+                      <TableHead className="w-[100px]">Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredRequests.map((request) => (
+                      <TableRow key={request.id} className="hover:bg-muted/50">
+                        <TableCell>
+                          <div className="font-medium text-sm">{request.complaint}</div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="text-sm text-muted-foreground">
+                            {request.symptoms || '-'}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          <div className="space-y-1">
+                            <div>
+                              {new Date(request.request_time).toLocaleDateString('en-US', {
+                                month: 'short',
+                                day: 'numeric',
+                                year: 'numeric'
+                              })}
+                            </div>
+                            <div>
+                              {new Date(request.request_time).toLocaleTimeString('en-US', {
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })}
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="text-sm text-muted-foreground">
+                            {request.going_to_clinic_at ? (
+                              <div className="space-y-1">
+                                <div>
+                                  {new Date(request.going_to_clinic_at).toLocaleDateString('en-US', {
+                                    month: 'short',
+                                    day: 'numeric'
+                                  })}
+                                </div>
+                                <div>
+                                  {new Date(request.going_to_clinic_at).toLocaleTimeString('en-US', {
+                                    hour: '2-digit',
+                                    minute: '2-digit'
+                                  })}
+                                </div>
+                              </div>
+                            ) : (
+                              '-'
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge 
+                            variant={
+                              request.priority === 'urgent' ? 'destructive' :
+                              request.priority === 'high' ? 'destructive' :
+                              request.priority === 'normal' ? 'default' :
+                              'secondary'
+                            }
+                            className="text-xs"
+                          >
+                            {request.priority.charAt(0).toUpperCase() + request.priority.slice(1)}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge 
+                            variant={
+                              request.status === 'completed' ? 'default' :
+                              request.status === 'pending' ? 'secondary' :
+                              request.status === 'approved' ? 'default' :
+                              request.status === 'rejected' ? 'destructive' :
+                              request.status === 'cancelled' ? 'outline' : 'secondary'
+                            }
+                            className="text-xs"
+                          >
+                            {request.status.charAt(0).toUpperCase() + request.status.slice(1)}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </ScrollArea>
+            ) : (
+              <div className="text-center py-8">
+                <Bell className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <h4 className="font-medium text-lg mb-2">
+                  {searchQuery ? 'No Matching Requests' : 'No Request History'}
+                </h4>
+                <p className="text-sm text-muted-foreground">
+                  {searchQuery 
+                    ? 'Try adjusting your search terms to find what you\'re looking for.'
+                    : 'Your health check request history will appear here.'
+                  }
+                </p>
+                {searchQuery && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSearchQuery("")}
+                    className="mt-4"
+                  >
+                    Clear Search
+                  </Button>
+                )}
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       </SidebarInset>
     </SidebarProvider>
   )

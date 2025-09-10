@@ -71,6 +71,17 @@ export async function POST(request: NextRequest) {
       
       const userId = userResult.rows[0].id
       
+      // Check if user is currently in a meeting
+      const meetingCheckQuery = `SELECT is_user_in_meeting($1) as is_in_meeting`
+      const meetingResult = await client.query(meetingCheckQuery, [userId])
+      
+      if (meetingResult.rows[0]?.is_in_meeting) {
+        return NextResponse.json({ 
+          success: false, 
+          message: 'Cannot join event while in a meeting. Please end your meeting first.' 
+        }, { status: 422 })
+      }
+      
       // Check if event exists and validate timing
       const eventQuery = `
         SELECT event_date, start_time, status, title

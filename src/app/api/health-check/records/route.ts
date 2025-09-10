@@ -8,18 +8,52 @@ function getPool() {
   })
 }
 
+function getUserFromRequest(request: NextRequest) {
+  const authCookie = request.cookies.get('shoreagents-auth')
+  if (!authCookie) return null
+  try {
+    const raw = typeof authCookie.value === 'string' ? authCookie.value : ''
+    const decoded = (() => { try { return decodeURIComponent(raw) } catch { return raw } })()
+    const authData = JSON.parse(decoded)
+    if (!authData.isAuthenticated || !authData.user) return null
+    
+    // Handle both hybrid and regular auth structures
+    let userId = authData.user.id
+    
+    // If it's a hybrid auth system, use railway_id if available
+    if (authData.hybrid && authData.user.railway_id) {
+      userId = authData.user.railway_id
+    }
+    
+    // Ensure we have a valid numeric ID
+    if (!userId || isNaN(Number(userId))) {
+      console.error('Invalid user ID:', userId)
+      return null
+    }
+    
+    return {
+      ...authData.user,
+      id: Number(userId)
+    }
+  } catch (error) {
+    console.error('Error parsing auth cookie:', error)
+    return null
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
+    const user = getUserFromRequest(request)
+    if (!user) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
     const { searchParams } = new URL(request.url)
-    const user_id = searchParams.get('user_id')
     const limit = parseInt(searchParams.get('limit') || '50', 10)
     const offset = parseInt(searchParams.get('offset') || '0', 10)
-
-    if (!user_id) {
-      return NextResponse.json({ 
-        error: 'user_id is required' 
-      }, { status: 400 })
-    }
 
     const pool = getPool()
     
@@ -27,7 +61,7 @@ export async function GET(request: NextRequest) {
       // Get total count
       const countResult = await pool.query(
         'SELECT COUNT(*) as total FROM health_check_records WHERE user_id = $1',
-        [user_id]
+        [user.id]
       )
       
       const total = parseInt(countResult.rows[0].total)
@@ -51,7 +85,7 @@ export async function GET(request: NextRequest) {
         WHERE hcr.user_id = $1
         ORDER BY hcr.visit_date DESC, hcr.visit_time DESC
         LIMIT $2 OFFSET $3`,
-        [user_id, limit, offset]
+        [user.id, limit, offset]
       )
       
       return NextResponse.json({ 

@@ -1,52 +1,37 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { executeQuery, initializeDatabase } from '@/lib/database-server'
 
-type Body = {
-  id?: number | string
-  ids?: Array<number | string>
-  email?: string
-}
-
 export async function POST(req: NextRequest) {
   try {
     await initializeDatabase()
-    const body = (await req.json()) as Body
-    const email = body.email
-    if (!email) {
-      return NextResponse.json({ success: false, error: 'email is required' }, { status: 400 })
+    const body = await req.json()
+    const { id, email } = body
+
+    console.log('🗑️ Delete API called with:', { id, email })
+
+    if (!id || !email) {
+      return NextResponse.json({ success: false, error: 'id and email are required' }, { status: 400 })
     }
 
-    const rawIds: Array<number | string> = []
-    if (body.id !== undefined) rawIds.push(body.id)
-    if (Array.isArray(body.ids)) rawIds.push(...body.ids)
-    if (rawIds.length === 0) {
-      return NextResponse.json({ success: false, error: 'id or ids is required' }, { status: 400 })
-    }
-
-    const ids: number[] = rawIds
-      .map((v) => (typeof v === 'string' && v.startsWith('db_') ? v.slice(3) : v))
-      .map((v) => Number(v))
-      .filter((n) => Number.isFinite(n)) as number[]
-
-    if (ids.length === 0) {
-      return NextResponse.json({ success: false, error: 'no valid ids' }, { status: 400 })
-    }
-
-    const deleted = await executeQuery<{ id: number }>(
-      `UPDATE notifications n
-       SET clear = true
-       FROM users u
-       WHERE n.user_id = u.id
-         AND u.email = $1
-         AND n.id = ANY($2::int[])
-       RETURNING n.id`,
-      [email, ids]
+    // Delete the notification (soft delete by setting clear = true)
+    console.log('🗑️ Executing delete query...')
+    const result = await executeQuery<any>(
+      `UPDATE notifications 
+       SET clear = true, created_at = NOW()
+       WHERE id = $1 AND user_id = (SELECT id FROM users WHERE email = $2)
+       RETURNING id`,
+      [id, email]
     )
 
-    return NextResponse.json({ success: true, deletedCount: deleted.length, deletedIds: deleted.map((r) => r.id) })
+    console.log('🗑️ Delete query result:', result)
+
+    if (result.length === 0) {
+      return NextResponse.json({ success: false, error: 'Notification not found or unauthorized' }, { status: 404 })
+    }
+
+    return NextResponse.json({ success: true })
   } catch (error: any) {
+    console.error('🗑️ Error deleting notification:', error)
     return NextResponse.json({ success: false, error: error?.message || 'Internal error' }, { status: 500 })
   }
 }
-
-

@@ -261,28 +261,36 @@ export default function NotificationsPage() {
   }
 
   const handleMarkAllRead = async () => {
-    if (notifications.length === 0) return
-    
     try {
       const user = getCurrentUser()
       if (!user?.id) return
       
-      // Get all unread notification IDs
-      const unreadNotifications = notifications.filter(n => !n.read)
-      if (unreadNotifications.length === 0) return
+      console.log('🔄 Marking all notifications as read...')
       
-      // Extract numeric IDs from the db_ prefix format
-      const notificationIds = unreadNotifications
-        .map(n => {
-          const idStr = n.id.toString()
-          if (idStr.startsWith('db_')) {
-            return parseInt(idStr.slice(3))
-          }
-          return parseInt(idStr)
-        })
-        .filter(id => !isNaN(id))
+      // Fetch ALL unread notifications from the database, not just the loaded ones
+      const response = await fetch(`/api/notifications?email=${encodeURIComponent(user.email)}&limit=1000&offset=0`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include'
+      })
       
-      if (notificationIds.length === 0) return
+      if (!response.ok) {
+        console.error('❌ Failed to fetch notifications for mark all read')
+        return
+      }
+      
+      const data = await response.json()
+      const allUnreadNotifications = data.notifications.filter((n: any) => !n.is_read)
+      
+      if (allUnreadNotifications.length === 0) {
+        console.log('✅ No unread notifications to mark')
+        return
+      }
+      
+      console.log(`🔄 Found ${allUnreadNotifications.length} unread notifications to mark as read`)
+      
+      // Extract numeric IDs
+      const notificationIds = allUnreadNotifications.map((n: any) => n.id)
       
       // Use socket context to mark all as read (this will update both DB and socket state)
       if (socketConnected) {
@@ -291,7 +299,7 @@ export default function NotificationsPage() {
         await fetchSocketNotifications(user.id, 100, 0)
       } else {
         // Fallback to direct API call if socket is not connected
-        const response = await fetch('/api/notifications/mark-read', {
+        const markResponse = await fetch('/api/notifications/mark-read', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
@@ -301,16 +309,19 @@ export default function NotificationsPage() {
           })
         })
         
-        if (response.ok) {
+        if (markResponse.ok) {
+          const markData = await markResponse.json()
+          console.log(`✅ Successfully marked ${markData.updatedCount} notifications as read`)
+          
           // Update local state to mark all as read
           setNotifications(prev => prev.map(n => ({ ...n, read: true })))
           // Update unread count
           setUnreadCount(0)
-
-          
           
           // Dispatch event to update app-header
           window.dispatchEvent(new CustomEvent('notifications-updated'))
+        } else {
+          console.error('❌ Failed to mark notifications as read')
         }
       }
       

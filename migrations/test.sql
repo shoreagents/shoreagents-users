@@ -2,6 +2,8 @@
 
 CREATE SCHEMA public AUTHORIZATION pg_database_owner;
 
+COMMENT ON SCHEMA public IS 'Events and activities schema has been removed';
+
 -- DROP TYPE public."break_type_enum";
 
 CREATE TYPE public."break_type_enum" AS ENUM (
@@ -74,6 +76,24 @@ CREATE SEQUENCE public.activity_data_id_seq
 -- DROP SEQUENCE public.break_sessions_id_seq;
 
 CREATE SEQUENCE public.break_sessions_id_seq
+	INCREMENT BY 1
+	MINVALUE 1
+	MAXVALUE 2147483647
+	START 1
+	CACHE 1
+	NO CYCLE;
+-- DROP SEQUENCE public.event_attendance_id_seq;
+
+CREATE SEQUENCE public.event_attendance_id_seq
+	INCREMENT BY 1
+	MINVALUE 1
+	MAXVALUE 2147483647
+	START 1
+	CACHE 1
+	NO CYCLE;
+-- DROP SEQUENCE public.events_id_seq;
+
+CREATE SEQUENCE public.events_id_seq
 	INCREMENT BY 1
 	MINVALUE 1
 	MAXVALUE 2147483647
@@ -341,6 +361,21 @@ CREATE INDEX idx_break_sessions_agent_user_id ON public.break_sessions USING btr
 CREATE INDEX idx_break_sessions_break_date ON public.break_sessions USING btree (break_date);
 CREATE INDEX idx_break_sessions_break_type ON public.break_sessions USING btree (break_type);
 
+-- Table Triggers
+
+create trigger update_break_sessions_updated_at before
+update
+    on
+    public.break_sessions for each row execute function update_updated_at_column();
+create trigger calculate_break_duration_trigger before
+insert
+    or
+update
+    on
+    public.break_sessions for each row execute function calculate_break_duration();
+
+COMMENT ON TRIGGER calculate_break_duration_trigger ON public.break_sessions IS 'Automatically calculates duration_minutes when end_time is set, handling paused breaks correctly';
+
 
 -- public.members definition
 
@@ -470,6 +505,8 @@ insert
 update
     on
     public.activity_data for each row execute function update_productivity_score_on_time_change();
+
+COMMENT ON TRIGGER trg_productivity_score_on_time_change ON public.activity_data IS 'Automatically calculates productivity scores and sends real-time updates when activity data time tracking values change significantly.';
 create trigger trg_auto_aggregate_on_insert after
 insert
     on
@@ -488,6 +525,8 @@ insert
 update
     on
     public.activity_data for each row execute function notify_activity_data_change();
+
+COMMENT ON TRIGGER notify_activity_data_change ON public.activity_data IS 'Automatically notifies frontend of activity_data changes via WebSocket';
 
 
 -- public.agents definition
@@ -527,6 +566,52 @@ CREATE TABLE public.clients (
 );
 
 
+-- public.events definition
+
+-- Drop table
+
+-- DROP TABLE public.events;
+
+CREATE TABLE public.events (
+	id serial4 NOT NULL,
+	title varchar(255) NOT NULL,
+	description text NULL,
+	event_date date NOT NULL,
+	start_time time NOT NULL,
+	end_time time NOT NULL,
+	"location" varchar(255) NULL,
+	status varchar(20) DEFAULT 'upcoming'::character varying NULL,
+	created_by int4 NOT NULL,
+	created_at timestamp DEFAULT CURRENT_TIMESTAMP NULL,
+	updated_at timestamp DEFAULT CURRENT_TIMESTAMP NULL,
+	event_type varchar(20) DEFAULT 'event'::character varying NOT NULL, -- Type of event: event or activity
+	CONSTRAINT events_event_type_check CHECK (((event_type)::text = ANY ((ARRAY['event'::character varying, 'activity'::character varying])::text[]))),
+	CONSTRAINT events_pkey PRIMARY KEY (id),
+	CONSTRAINT events_status_check CHECK (((status)::text = ANY ((ARRAY['upcoming'::character varying, 'today'::character varying, 'cancelled'::character varying, 'ended'::character varying])::text[]))),
+	CONSTRAINT events_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_events_created_by ON public.events USING btree (created_by);
+CREATE INDEX idx_events_date ON public.events USING btree (event_date);
+CREATE INDEX idx_events_status ON public.events USING btree (status);
+CREATE INDEX idx_events_status_date ON public.events USING btree (status, event_date);
+CREATE INDEX idx_events_type_status ON public.events USING btree (event_type, status);
+
+-- Column comments
+
+COMMENT ON COLUMN public.events.event_type IS 'Type of event: event or activity';
+
+-- Table Triggers
+
+create trigger events_notify_trigger after
+insert
+    or
+delete
+    or
+update
+    on
+    public.events for each row execute function notify_event_change();
+
+
 -- public.health_check_availability definition
 
 -- Drop table
@@ -551,6 +636,7 @@ CREATE TABLE public.health_check_availability (
 CREATE INDEX idx_health_check_availability_day_of_week ON public.health_check_availability USING btree (day_of_week);
 CREATE INDEX idx_health_check_availability_nurse_id ON public.health_check_availability USING btree (nurse_id);
 CREATE UNIQUE INDEX idx_health_check_availability_unique ON public.health_check_availability USING btree (nurse_id, day_of_week);
+COMMENT ON TABLE public.health_check_availability IS 'Nurse availability and shift schedules';
 
 -- Table Triggers
 
@@ -580,16 +666,35 @@ CREATE TABLE public.health_check_requests (
 	notes text NULL,
 	created_at timestamptz DEFAULT now() NULL,
 	updated_at timestamptz DEFAULT now() NULL,
+	done bool DEFAULT false NOT NULL, -- Indicates if the user has completed their health check and returned to station
+	going_to_clinic bool DEFAULT false NOT NULL, -- Indicates if the user is going to the clinic (set by user)
+	in_clinic bool DEFAULT false NOT NULL, -- Indicates if the user is currently in the clinic (set by nurse)
+	going_to_clinic_at timestamptz NULL, -- Timestamp when agent clicked going to clinic button
+	in_clinic_at timestamptz NULL, -- Timestamp when nurse confirmed agent is in clinic
 	CONSTRAINT health_check_requests_pkey PRIMARY KEY (id),
 	CONSTRAINT health_check_requests_priority_check CHECK (((priority)::text = ANY ((ARRAY['low'::character varying, 'normal'::character varying, 'high'::character varying, 'urgent'::character varying])::text[]))),
 	CONSTRAINT health_check_requests_status_check CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'approved'::character varying, 'rejected'::character varying, 'completed'::character varying, 'cancelled'::character varying])::text[]))),
 	CONSTRAINT health_check_requests_nurse_id_fkey FOREIGN KEY (nurse_id) REFERENCES public.users(id) ON DELETE SET NULL,
 	CONSTRAINT health_check_requests_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE
 );
+CREATE INDEX idx_health_check_requests_done ON public.health_check_requests USING btree (done);
+CREATE INDEX idx_health_check_requests_going_to_clinic ON public.health_check_requests USING btree (going_to_clinic);
+CREATE INDEX idx_health_check_requests_going_to_clinic_at ON public.health_check_requests USING btree (going_to_clinic_at);
+CREATE INDEX idx_health_check_requests_in_clinic ON public.health_check_requests USING btree (in_clinic);
+CREATE INDEX idx_health_check_requests_in_clinic_at ON public.health_check_requests USING btree (in_clinic_at);
 CREATE INDEX idx_health_check_requests_nurse_id ON public.health_check_requests USING btree (nurse_id);
 CREATE INDEX idx_health_check_requests_request_time ON public.health_check_requests USING btree (request_time);
 CREATE INDEX idx_health_check_requests_status ON public.health_check_requests USING btree (status);
 CREATE INDEX idx_health_check_requests_user_id ON public.health_check_requests USING btree (user_id);
+COMMENT ON TABLE public.health_check_requests IS 'Health check requests submitted by users';
+
+-- Column comments
+
+COMMENT ON COLUMN public.health_check_requests.done IS 'Indicates if the user has completed their health check and returned to station';
+COMMENT ON COLUMN public.health_check_requests.going_to_clinic IS 'Indicates if the user is going to the clinic (set by user)';
+COMMENT ON COLUMN public.health_check_requests.in_clinic IS 'Indicates if the user is currently in the clinic (set by nurse)';
+COMMENT ON COLUMN public.health_check_requests.going_to_clinic_at IS 'Timestamp when agent clicked going to clinic button';
+COMMENT ON COLUMN public.health_check_requests.in_clinic_at IS 'Timestamp when nurse confirmed agent is in clinic';
 
 -- Table Triggers
 
@@ -599,6 +704,10 @@ insert
 update
     on
     public.health_check_requests for each row execute function notify_health_check_event();
+create trigger health_check_field_update_trigger before
+update
+    on
+    public.health_check_requests for each row execute function trigger_health_check_field_update();
 create trigger update_health_check_requests_updated_at before
 update
     on
@@ -691,18 +800,19 @@ CREATE TABLE public.job_info (
 
 CREATE TABLE public.meetings (
 	id serial4 NOT NULL,
-	agent_user_id int4 NOT NULL,
+	agent_user_id int4 NOT NULL, -- Reference to the user who created the meeting
 	title varchar(255) NOT NULL,
 	description text NULL,
 	start_time timestamptz DEFAULT now() NULL,
 	end_time timestamptz DEFAULT now() NULL,
 	duration_minutes int4 NOT NULL,
-	meeting_type varchar(50) NOT NULL,
-	status varchar(50) DEFAULT 'scheduled'::character varying NOT NULL,
-	is_in_meeting bool DEFAULT false NOT NULL,
+	meeting_type varchar(50) NOT NULL, -- Type of meeting: video, audio, or in-person
+	status varchar(50) DEFAULT 'scheduled'::character varying NOT NULL, -- Current status of the meeting: scheduled, in-progress, completed, or cancelled
+	is_in_meeting bool DEFAULT false NOT NULL, -- Indicates if the user is currently in this meeting
 	created_at timestamptz DEFAULT now() NULL,
 	updated_at timestamptz DEFAULT now() NULL,
-	actual_start_time timestamptz DEFAULT now() NULL,
+	started_automatically bool DEFAULT false NULL,
+	CONSTRAINT check_meeting_status_consistency CHECK ((((is_in_meeting = true) AND ((status)::text = 'in-progress'::text)) OR (is_in_meeting = false))),
 	CONSTRAINT meetings_meeting_type_check CHECK (((meeting_type)::text = ANY ((ARRAY['video'::character varying, 'audio'::character varying, 'in-person'::character varying])::text[]))),
 	CONSTRAINT meetings_pkey PRIMARY KEY (id),
 	CONSTRAINT meetings_status_check CHECK (((status)::text = ANY ((ARRAY['scheduled'::character varying, 'in-progress'::character varying, 'completed'::character varying, 'cancelled'::character varying])::text[]))),
@@ -710,8 +820,18 @@ CREATE TABLE public.meetings (
 );
 CREATE INDEX idx_meetings_agent_user_id ON public.meetings USING btree (agent_user_id);
 CREATE INDEX idx_meetings_created_at ON public.meetings USING btree (created_at);
+CREATE INDEX idx_meetings_notification_queries ON public.meetings USING btree (status, start_time, started_automatically) WHERE ((status)::text = ANY ((ARRAY['scheduled'::character varying, 'in-progress'::character varying])::text[]));
 CREATE INDEX idx_meetings_start_time ON public.meetings USING btree (start_time);
+CREATE INDEX idx_meetings_started_automatically ON public.meetings USING btree (started_automatically);
 CREATE INDEX idx_meetings_status ON public.meetings USING btree (status);
+COMMENT ON TABLE public.meetings IS 'Stores meeting information for users with updated timestamps';
+
+-- Column comments
+
+COMMENT ON COLUMN public.meetings.agent_user_id IS 'Reference to the user who created the meeting';
+COMMENT ON COLUMN public.meetings.meeting_type IS 'Type of meeting: video, audio, or in-person';
+COMMENT ON COLUMN public.meetings.status IS 'Current status of the meeting: scheduled, in-progress, completed, or cancelled';
+COMMENT ON COLUMN public.meetings.is_in_meeting IS 'Indicates if the user is currently in this meeting';
 
 -- Table Triggers
 
@@ -719,6 +839,16 @@ create trigger trigger_update_meetings_updated_at before
 update
     on
     public.meetings for each row execute function update_meetings_updated_at();
+create trigger trigger_meeting_status_change after
+insert
+    or
+update
+    on
+    public.meetings for each row execute function notify_meeting_status_change();
+create trigger trigger_meeting_end after
+update
+    on
+    public.meetings for each row execute function notify_meeting_end();
 
 
 -- public.monthly_activity_summary definition
@@ -787,10 +917,17 @@ CREATE TABLE public.notifications (
 	payload jsonb NULL,
 	is_read bool DEFAULT false NULL,
 	created_at timestamptz DEFAULT now() NULL,
+	clear bool DEFAULT false NULL, -- When true, notification is hidden from users (soft deleted)
 	CONSTRAINT notifications_pkey PRIMARY KEY (id),
 	CONSTRAINT notifications_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE
 );
+CREATE INDEX idx_notifications_clear ON public.notifications USING btree (clear);
+CREATE INDEX idx_notifications_meeting_lookup ON public.notifications USING btree (user_id, category, ((payload ->> 'meeting_id'::text)), ((payload ->> 'notification_type'::text)));
 CREATE INDEX idx_notifications_user_created ON public.notifications USING btree (user_id, created_at DESC);
+
+-- Column comments
+
+COMMENT ON COLUMN public.notifications.clear IS 'When true, notification is hidden from users (soft deleted)';
 
 -- Table Triggers
 
@@ -899,18 +1036,29 @@ update
 -- DROP TABLE public.reports;
 
 CREATE TABLE public.reports (
-	id serial4 NOT NULL,
-	user_id int4 NOT NULL,
-	report_type public."report_type_enum" NOT NULL,
-	title varchar(255) NOT NULL,
-	description text NOT NULL,
-	created_at timestamptz DEFAULT now() NULL,
-	updated_at timestamptz DEFAULT now() NULL,
+	id serial4 NOT NULL, -- Primary key for reports
+	user_id int4 NOT NULL, -- Foreign key to users table
+	report_type public."report_type_enum" NOT NULL, -- Type of report (bug, feature, ui, etc.)
+	title varchar(255) NOT NULL, -- Brief title/description of the issue
+	description text NOT NULL, -- Detailed description of the issue
+	created_at timestamptz DEFAULT now() NULL, -- Timestamp when report was created
+	updated_at timestamptz DEFAULT now() NULL, -- Timestamp when report was last updated
 	CONSTRAINT reports_pkey PRIMARY KEY (id),
 	CONSTRAINT fk_reports_user_id FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE
 );
 CREATE INDEX idx_reports_created_at ON public.reports USING btree (created_at);
 CREATE INDEX idx_reports_user_id ON public.reports USING btree (user_id);
+COMMENT ON TABLE public.reports IS 'Stores user issue reports and feedback';
+
+-- Column comments
+
+COMMENT ON COLUMN public.reports.id IS 'Primary key for reports';
+COMMENT ON COLUMN public.reports.user_id IS 'Foreign key to users table';
+COMMENT ON COLUMN public.reports.report_type IS 'Type of report (bug, feature, ui, etc.)';
+COMMENT ON COLUMN public.reports.title IS 'Brief title/description of the issue';
+COMMENT ON COLUMN public.reports.description IS 'Detailed description of the issue';
+COMMENT ON COLUMN public.reports.created_at IS 'Timestamp when report was created';
+COMMENT ON COLUMN public.reports.updated_at IS 'Timestamp when report was last updated';
 
 -- Table Triggers
 
@@ -1007,6 +1155,10 @@ update
     of due_date,
     status on
     public.tasks for each row execute function notify_task_due_soon();
+create trigger trg_auto_assign_task_creator after
+insert
+    on
+    public.tasks for each row execute function auto_assign_task_creator();
 
 
 -- public.tickets definition
@@ -1076,9 +1228,24 @@ create trigger trg_ticket_status_notification after
 update
     on
     public.tickets for each row execute function create_ticket_status_notification();
-null;
-null;
-null;
+create trigger ticket_changes_notify_insert after
+insert
+    on
+    public.tickets for each row execute function notify_ticket_change();
+
+COMMENT ON TRIGGER ticket_changes_notify_insert ON public.tickets IS 'Triggers real-time notification when a new ticket is created';
+create trigger ticket_changes_notify_update after
+update
+    on
+    public.tickets for each row execute function notify_ticket_change();
+
+COMMENT ON TRIGGER ticket_changes_notify_update ON public.tickets IS 'Triggers real-time notification when a ticket is updated';
+create trigger ticket_changes_notify_delete after
+delete
+    on
+    public.tickets for each row execute function notify_ticket_change();
+
+COMMENT ON TRIGGER ticket_changes_notify_delete ON public.tickets IS 'Triggers real-time notification when a ticket is deleted';
 
 
 -- public.weekly_activity_summary definition
@@ -1131,6 +1298,46 @@ update
     public.weekly_activity_summary for each row execute function notify_weekly_activity_change();
 
 
+-- public.event_attendance definition
+
+-- Drop table
+
+-- DROP TABLE public.event_attendance;
+
+CREATE TABLE public.event_attendance (
+	id serial4 NOT NULL,
+	event_id int4 NOT NULL,
+	user_id int4 NOT NULL,
+	is_going bool DEFAULT false NULL,
+	is_back bool DEFAULT false NULL,
+	going_at timestamp NULL,
+	back_at timestamp NULL,
+	created_at timestamp DEFAULT CURRENT_TIMESTAMP NULL,
+	updated_at timestamp DEFAULT CURRENT_TIMESTAMP NULL,
+	CONSTRAINT event_attendance_event_id_user_id_key UNIQUE (event_id, user_id),
+	CONSTRAINT event_attendance_pkey PRIMARY KEY (id),
+	CONSTRAINT event_attendance_event_id_fkey FOREIGN KEY (event_id) REFERENCES public.events(id) ON DELETE CASCADE,
+	CONSTRAINT event_attendance_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_event_attendance_event_id ON public.event_attendance USING btree (event_id);
+CREATE INDEX idx_event_attendance_going ON public.event_attendance USING btree (is_going, is_back) WHERE (is_going = true);
+CREATE INDEX idx_event_attendance_user_event ON public.event_attendance USING btree (user_id, event_id);
+CREATE INDEX idx_event_attendance_user_id ON public.event_attendance USING btree (user_id);
+
+-- Table Triggers
+
+create trigger event_attendance_notify_trigger after
+insert
+    or
+delete
+    or
+update
+    on
+    public.event_attendance for each row execute function notify_event_attendance_change();
+
+COMMENT ON TRIGGER event_attendance_notify_trigger ON public.event_attendance IS 'Triggers notifications for event attendance changes';
+
+
 -- public.health_check_records definition
 
 -- Drop table
@@ -1164,6 +1371,7 @@ CREATE INDEX idx_health_check_records_request_id ON public.health_check_records 
 CREATE UNIQUE INDEX idx_health_check_records_unique ON public.health_check_records USING btree (user_id, nurse_id, visit_date, visit_time);
 CREATE INDEX idx_health_check_records_user_id ON public.health_check_records USING btree (user_id);
 CREATE INDEX idx_health_check_records_visit_date ON public.health_check_records USING btree (visit_date);
+COMMENT ON TABLE public.health_check_records IS 'Health check records and visit details';
 
 -- Table Triggers
 
@@ -1591,6 +1799,9 @@ END;
 $function$
 ;
 
+COMMENT ON FUNCTION public.auto_aggregate_all_on_activity_change() IS 'Automatically aggregates weekly and monthly activity data whenever activity_data changes. 
+This eliminates the need for frontend polling and ensures data is always up-to-date.';
+
 -- DROP FUNCTION public.auto_aggregate_monthly_on_activity_change();
 
 CREATE OR REPLACE FUNCTION public.auto_aggregate_monthly_on_activity_change()
@@ -1650,38 +1861,57 @@ END;
 $function$
 ;
 
+-- DROP FUNCTION public.auto_assign_task_creator();
+
+CREATE OR REPLACE FUNCTION public.auto_assign_task_creator()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+    -- Insert the task creator as an assignee if they're not already assigned
+    INSERT INTO task_assignees (task_id, user_id)
+    VALUES (NEW.id, NEW.user_id)
+    ON CONFLICT (task_id, user_id) DO NOTHING;
+    
+    RETURN NEW;
+END;
+$function$
+;
+
 -- DROP FUNCTION public.calculate_break_duration();
 
 CREATE OR REPLACE FUNCTION public.calculate_break_duration()
  RETURNS trigger
  LANGUAGE plpgsql
 AS $function$
-      BEGIN
-          -- If end_time is being set and start_time exists, calculate duration
-          IF NEW.end_time IS NOT NULL AND NEW.start_time IS NOT NULL THEN
-              -- If break was paused, calculate based on pause state
-              IF NEW.pause_time IS NOT NULL THEN
-                  -- If break was resumed, use normal pause calculation
-                  IF NEW.resume_time IS NOT NULL THEN
-                      -- Total duration = (pause_time - start_time) + (end_time - resume_time)
-                      NEW.duration_minutes = EXTRACT(EPOCH FROM (
-                          (NEW.pause_time - NEW.start_time) + 
-                          (NEW.end_time - NEW.resume_time)
-                      )) / 60;
-                  ELSE
-                      -- Break was paused but never resumed (auto-ended)
-                      -- Use the time from start to pause as the actual break duration
-                      NEW.duration_minutes = EXTRACT(EPOCH FROM (NEW.pause_time - NEW.start_time)) / 60;
-                  END IF;
-              ELSE
-                  -- Normal calculation for non-paused breaks
-                  NEW.duration_minutes = EXTRACT(EPOCH FROM (NEW.end_time - NEW.start_time)) / 60;
-              END IF;
-          END IF;
-          RETURN NEW;
-      END;
-      $function$
+BEGIN
+    -- If end_time is being set and start_time exists, calculate duration
+    IF NEW.end_time IS NOT NULL AND NEW.start_time IS NOT NULL THEN
+        -- If break was paused, calculate based on pause state
+        IF NEW.pause_time IS NOT NULL THEN
+            -- If break was resumed, use normal pause calculation
+            IF NEW.resume_time IS NOT NULL THEN
+                -- Total duration = (pause_time - start_time) + (end_time - resume_time)
+                NEW.duration_minutes = EXTRACT(EPOCH FROM (
+                    (NEW.pause_time - NEW.start_time) + 
+                    (NEW.end_time - NEW.resume_time)
+                )) / 60;
+            ELSE
+                -- Break was paused but never resumed (auto-ended)
+                -- Use the time from start to pause as the actual break duration
+                NEW.duration_minutes = EXTRACT(EPOCH FROM (NEW.pause_time - NEW.start_time)) / 60;
+            END IF;
+        ELSE
+            -- Normal calculation for non-paused breaks
+            NEW.duration_minutes = EXTRACT(EPOCH FROM (NEW.end_time - NEW.start_time)) / 60;
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$function$
 ;
+
+COMMENT ON FUNCTION public.calculate_break_duration() IS 'Calculates break duration in minutes. For paused breaks that are auto-ended, uses time from start to pause as the actual break duration.';
 
 -- DROP FUNCTION public.calculate_break_windows(int4);
 
@@ -1756,6 +1986,8 @@ AS $function$
       END;
       $function$
 ;
+
+COMMENT ON FUNCTION public.calculate_break_windows(int4) IS 'Calculates break windows based on agent shift times (force cleaned)';
 
 -- DROP FUNCTION public.calculate_monthly_productivity_score(int4, varchar);
 
@@ -1947,6 +2179,9 @@ END;
 $function$
 ;
 
+COMMENT ON FUNCTION public.check_aggregation_status(int4) IS 'Checks the aggregation status for recent activity data. 
+Returns whether weekly and monthly summaries are up-to-date.';
+
 -- DROP FUNCTION public.check_all_task_notifications();
 
 CREATE OR REPLACE FUNCTION public.check_all_task_notifications()
@@ -1969,6 +2204,8 @@ BEGIN
 END;
 $function$
 ;
+
+COMMENT ON FUNCTION public.check_all_task_notifications() IS 'Main function that handles all task notifications and moves overdue tasks';
 
 -- DROP FUNCTION public.check_and_reset_activity_for_shift_starts(timestamp);
 
@@ -2101,6 +2338,81 @@ BEGIN
 END;
 $function$
 ;
+
+-- DROP FUNCTION public.check_and_start_scheduled_meetings();
+
+CREATE OR REPLACE FUNCTION public.check_and_start_scheduled_meetings()
+ RETURNS integer
+ LANGUAGE plpgsql
+AS $function$
+DECLARE
+    meetings_started INTEGER := 0;
+    meeting_record RECORD;
+    start_result JSON;
+    activity_check RECORD;
+BEGIN
+    -- Find meetings that are scheduled and should start now
+    FOR meeting_record IN
+        SELECT id, title, agent_user_id, start_time
+        FROM meetings
+        WHERE status = 'scheduled'
+        AND start_time <= NOW()
+        AND start_time > NOW() - INTERVAL '24 hours' -- Only start meetings within the last 24 hours to avoid starting very old meetings
+    LOOP
+        -- Check if user is currently in an activity/event BEFORE trying to start
+        SELECT ea.is_going, e.title as event_title, e.event_type
+        INTO activity_check
+        FROM event_attendance ea
+        JOIN events e ON ea.event_id = e.id
+        WHERE ea.user_id = meeting_record.agent_user_id
+        AND ea.is_going = true
+        AND ea.is_back = false
+        AND e.status NOT IN ('cancelled', 'ended');
+
+        IF FOUND THEN
+            -- User is currently in an activity/event, skip this meeting
+            -- Don't log this as an error since it's expected behavior
+            RAISE NOTICE 'Skipping meeting % (ID: %) - user is in %: %', 
+                meeting_record.title, 
+                meeting_record.id, 
+                LOWER(activity_check.event_type), 
+                activity_check.event_title;
+            CONTINUE; -- Skip to next meeting
+        END IF;
+
+        -- Try to start the meeting using the existing start_meeting function with automatic flag
+        BEGIN
+            -- Call the start_meeting function with is_automatic = true
+            SELECT start_meeting(meeting_record.id, meeting_record.agent_user_id, true) INTO start_result;
+            
+            -- Check if the meeting was successfully started
+            IF (start_result->>'success')::boolean THEN
+                meetings_started := meetings_started + 1;
+                RAISE NOTICE 'Automatically started meeting: % (ID: %)', meeting_record.title, meeting_record.id;
+            ELSE
+                -- Log the reason why the meeting couldn't start
+                RAISE NOTICE 'Could not start meeting % (ID: %): %', 
+                    meeting_record.title, 
+                    meeting_record.id, 
+                    start_result->>'message';
+            END IF;
+
+        EXCEPTION
+            WHEN OTHERS THEN
+                -- Log any unexpected errors but continue processing other meetings
+                RAISE NOTICE 'Unexpected error starting meeting % (ID: %): %', 
+                    meeting_record.title, 
+                    meeting_record.id, 
+                    SQLERRM;
+        END;
+    END LOOP;
+
+    RETURN meetings_started;
+END;
+$function$
+;
+
+COMMENT ON FUNCTION public.check_and_start_scheduled_meetings() IS 'Automatically starts meetings that are scheduled and due to start now, marking them as automatically started';
 
 -- DROP FUNCTION public.check_break_reminders();
 
@@ -2267,6 +2579,83 @@ AS $function$
             $function$
 ;
 
+-- DROP FUNCTION public.check_meeting_notifications();
+
+CREATE OR REPLACE FUNCTION public.check_meeting_notifications()
+ RETURNS json
+ LANGUAGE plpgsql
+AS $function$
+DECLARE
+    reminders_sent INTEGER;
+    starts_sent INTEGER;
+    result JSON;
+BEGIN
+    -- Send reminder notifications (15 minutes before)
+    SELECT send_meeting_reminder_notification() INTO reminders_sent;
+    
+    -- Send start notifications (when meeting starts)
+    SELECT send_meeting_start_notification() INTO starts_sent;
+    
+    -- Return summary
+    result := json_build_object(
+        'reminders_sent', reminders_sent,
+        'starts_sent', starts_sent,
+        'total_sent', reminders_sent + starts_sent,
+        'timestamp', NOW()
+    );
+    
+    RETURN result;
+END;
+$function$
+;
+
+-- DROP FUNCTION public.check_meeting_reminders();
+
+CREATE OR REPLACE FUNCTION public.check_meeting_reminders()
+ RETURNS integer
+ LANGUAGE plpgsql
+AS $function$
+DECLARE
+    reminders_sent INTEGER := 0;
+    meeting_record RECORD;
+BEGIN
+    -- Find meetings that are scheduled and starting within the next hour
+    FOR meeting_record IN
+        SELECT id, title, agent_user_id, start_time
+        FROM meetings
+        WHERE status = 'scheduled'
+        AND start_time BETWEEN NOW() + INTERVAL '59 minutes' AND NOW() + INTERVAL '61 minutes'
+    LOOP
+        -- Create a notification for the meeting reminder
+        INSERT INTO notifications (
+            user_id,
+            title,
+            message,
+            category,
+            type,
+            created_at
+        ) VALUES (
+            meeting_record.agent_user_id,
+            'Meeting Reminder',
+            'Meeting "' || meeting_record.title || '" starts in 1 hour',
+            'meeting',
+            'reminder',
+            NOW()
+        );
+        
+        reminders_sent := reminders_sent + 1;
+        
+        -- Log the reminder
+        RAISE NOTICE 'Sent reminder for meeting: % (ID: %)', meeting_record.title, meeting_record.id;
+    END LOOP;
+    
+    RETURN reminders_sent;
+END;
+$function$
+;
+
+COMMENT ON FUNCTION public.check_meeting_reminders() IS 'Sends reminder notifications for meetings starting within the next hour';
+
 -- DROP FUNCTION public.check_overdue_task_notifications();
 
 CREATE OR REPLACE FUNCTION public.check_overdue_task_notifications()
@@ -2355,6 +2744,8 @@ BEGIN
 END;
 $function$
 ;
+
+COMMENT ON FUNCTION public.check_overdue_task_notifications() IS 'Sends overdue notifications only for tasks not in Overdue column (prevents spamming)';
 
 -- DROP FUNCTION public.check_productivity_calculation_status(int4, varchar);
 
@@ -2477,6 +2868,8 @@ BEGIN
 END;
 $function$
 ;
+
+COMMENT ON FUNCTION public.check_task_due_notifications() IS 'Sends due soon notifications for tasks not yet overdue';
 
 -- DROP FUNCTION public.cleanup_old_daily_activity(int4);
 
@@ -2823,134 +3216,148 @@ CREATE OR REPLACE FUNCTION public.create_break_reminder_notification(p_agent_use
  RETURNS void
  LANGUAGE plpgsql
 AS $function$
-            DECLARE
-                notif_category TEXT := 'break';
-                notif_type TEXT := 'info';
-                title_text TEXT;
-                message_text TEXT;
-                payload_data JSONB;
-                break_name TEXT;
-                current_time_manila TIMESTAMP;
-                last_notification_time TIMESTAMP;
-                minutes_since_last_notification INTEGER;
-                detected_break_type break_type_enum;
-            BEGIN
-                -- Get current Manila time for logic calculations
-                current_time_manila := NOW() AT TIME ZONE 'Asia/Manila';
+DECLARE
+    notif_category TEXT := 'break';
+    notif_type TEXT := 'info';
+    title_text TEXT;
+    message_text TEXT;
+    payload_data JSONB;
+    break_name TEXT;
+    current_time_manila TIMESTAMP;
+    last_notification_time TIMESTAMP;
+    minutes_since_last_notification INTEGER;
+    detected_break_type break_type_enum;
+    duplicate_exists BOOLEAN;
+BEGIN
+    -- Get current Manila time for logic calculations
+    current_time_manila := NOW() AT TIME ZONE 'Asia/Manila';
 
-                -- For ending_soon, detect the current break type based on time and break windows
-                IF p_notification_type = 'ending_soon' AND p_break_type IS NULL THEN
-                    -- Find which break window is ending soon by checking all break windows
-                    SELECT bw.break_type INTO detected_break_type
-                    FROM calculate_break_windows(p_agent_user_id) bw
-                    WHERE bw.end_time > (current_time_manila::TIME - INTERVAL '17 minutes')
-                    AND bw.end_time <= (current_time_manila::TIME + INTERVAL '2 minutes')
-                    ORDER BY bw.end_time ASC
-                    LIMIT 1;
-                    
-                    -- If we found a break window ending soon, use it
-                    IF detected_break_type IS NOT NULL THEN
-                        p_break_type := detected_break_type;
-                    END IF;
+    -- For ending_soon, detect the current break type based on time and break windows
+    IF p_notification_type = 'ending_soon' AND p_break_type IS NULL THEN
+        -- Find which break window is ending soon by checking all break windows
+        SELECT bw.break_type INTO detected_break_type
+        FROM calculate_break_windows(p_agent_user_id) bw
+        WHERE bw.end_time > (current_time_manila::TIME - INTERVAL '17 minutes')
+        AND bw.end_time <= (current_time_manila::TIME + INTERVAL '2 minutes')
+        ORDER BY bw.end_time ASC
+        LIMIT 1;
+        
+        -- If we found a break window ending soon, use it
+        IF detected_break_type IS NOT NULL THEN
+            p_break_type := detected_break_type;
+        END IF;
+    END IF;
+
+    -- Determine break name for display
+    break_name := CASE p_break_type
+        WHEN 'Morning' THEN 'Morning break'
+        WHEN 'Lunch' THEN 'Lunch break'
+        WHEN 'Afternoon' THEN 'Afternoon break'
+        WHEN 'NightFirst' THEN 'First night break'
+        WHEN 'NightMeal' THEN 'Night meal break'
+        WHEN 'NightSecond' THEN 'Second night break'
+        ELSE 'Break'
+    END;
+
+    -- Set notification content based on type
+    IF p_notification_type = 'available_soon' THEN
+        title_text := break_name || ' available soon';
+        message_text := 'Your ' || break_name || ' will be available in 15 minutes';
+        notif_type := 'info';
+        payload_data := jsonb_build_object(
+            'reminder_type', 'available_soon',
+            'break_type', p_break_type,
+            'action_url', '/status/breaks'
+        );
+    ELSIF p_notification_type = 'available_now' THEN
+        title_text := break_name || ' is now available';
+        message_text := 'Your ' || break_name || ' is now available! You can take it now.';
+        notif_type := 'success';
+        payload_data := jsonb_build_object(
+            'reminder_type', 'available_now',
+            'break_type', p_break_type,
+            'action_url', '/status/breaks'
+        );
+    ELSIF p_notification_type = 'ending_soon' THEN
+        title_text := break_name || ' ending soon';
+        message_text := 'Your ' || break_name || ' will end soon';
+        notif_type := 'warning';
+        payload_data := jsonb_build_object(
+            'reminder_type', 'ending_soon',
+            'break_type', p_break_type,
+            'action_url', '/status/breaks'
+        );
+    ELSIF p_notification_type = 'missed_break' THEN
+        title_text := 'You have not taken your ' || break_name || ' yet!';
+        message_text := 'Your ' || break_name || ' was available but you haven''t taken it yet. Please take your break soon.';
+        notif_type := 'warning';
+        payload_data := jsonb_build_object(
+            'reminder_type', 'missed_break',
+            'break_type', p_break_type,
+            'action_url', '/status/breaks'
+        );
+    ELSE
+        RETURN; -- Invalid notification type
+    END IF;
+
+    -- FIXED: Enhanced duplicate prevention logic with proper timezone handling
+    -- For available_soon notifications, check if we already sent one today for this break type
+    IF p_notification_type = 'available_soon' THEN
+        -- Check if we already sent an "available_soon" notification today for this break type
+        SELECT EXISTS(
+            SELECT 1 FROM notifications
+            WHERE user_id = p_agent_user_id
+            AND category = notif_category
+            AND payload->>'reminder_type' = 'available_soon'
+            AND payload->>'break_type' = p_break_type::text
+            AND DATE(created_at AT TIME ZONE 'Asia/Manila') = current_time_manila::DATE
+        ) INTO duplicate_exists;
+        
+        IF duplicate_exists THEN
+            RETURN; -- Already sent today, don't send again
+        END IF;
+    ELSE
+        -- For other notification types, use the existing cooldown logic
+        SELECT MAX(created_at) INTO last_notification_time
+        FROM notifications
+        WHERE user_id = p_agent_user_id
+        AND category = notif_category
+        AND title = title_text
+        AND created_at > (NOW() - INTERVAL '60 minutes');
+
+        -- If a recent notification exists, check if enough time has passed
+        IF last_notification_time IS NOT NULL THEN
+            -- Calculate minutes since last notification
+            minutes_since_last_notification := EXTRACT(EPOCH FROM (NOW() - last_notification_time)) / 60;
+            
+            -- Different cooldown periods for different notification types
+            IF p_notification_type = 'available_now' THEN
+                -- Available now: Only send once per break window
+                IF minutes_since_last_notification < 60 THEN
+                    RETURN; -- Too soon, don't send
                 END IF;
-
-                -- Determine break name for display
-                break_name := CASE p_break_type
-                    WHEN 'Morning' THEN 'Morning break'
-                    WHEN 'Lunch' THEN 'Lunch break'
-                    WHEN 'Afternoon' THEN 'Afternoon break'
-                    WHEN 'NightFirst' THEN 'First night break'
-                    WHEN 'NightMeal' THEN 'Night meal break'
-                    WHEN 'NightSecond' THEN 'Second night break'
-                    ELSE 'Break'
-                END;
-
-                -- Set notification content based on type
-                IF p_notification_type = 'available_soon' THEN
-                    title_text := break_name || ' available soon';
-                    message_text := 'Your ' || break_name || ' will be available in 15 minutes';
-                    notif_type := 'info';
-                    payload_data := jsonb_build_object(
-                        'reminder_type', 'available_soon',
-                        'break_type', p_break_type,
-                        'action_url', '/status/breaks'
-                    );
-                ELSIF p_notification_type = 'available_now' THEN
-                    title_text := break_name || ' is now available';
-                    message_text := 'Your ' || break_name || ' is now available! You can take it now.';
-                    notif_type := 'success';
-                    payload_data := jsonb_build_object(
-                        'reminder_type', 'available_now',
-                        'break_type', p_break_type,
-                        'action_url', '/status/breaks'
-                    );
-                ELSIF p_notification_type = 'ending_soon' THEN
-                    title_text := break_name || ' ending soon';
-                    -- FIXED: More accurate message since the actual window is 14-16 minutes
-                    message_text := 'Your ' || break_name || ' will end soon';
-                    notif_type := 'warning';
-                    payload_data := jsonb_build_object(
-                        'reminder_type', 'ending_soon',
-                        'break_type', p_break_type,
-                        'action_url', '/status/breaks'
-                    );
-                ELSIF p_notification_type = 'missed_break' THEN
-                    title_text := 'You have not taken your ' || break_name || ' yet!';
-                    message_text := 'Your ' || break_name || ' was available but you haven''t taken it yet. Please take your break soon.';
-                    notif_type := 'warning';
-                    payload_data := jsonb_build_object(
-                        'reminder_type', 'missed_break',
-                        'break_type', p_break_type,
-                        'action_url', '/status/breaks'
-                    );
-                ELSE
-                    RETURN; -- Invalid notification type
+            ELSIF p_notification_type = 'ending_soon' THEN
+                -- Ending soon: Only send once per 15-minute window
+                IF minutes_since_last_notification < 15 THEN
+                    RETURN; -- Too soon, don't send
                 END IF;
-
-                -- FIXED: Enhanced duplicate prevention logic
-                -- Check for similar notification in the last 60 minutes using UTC timestamps
-                SELECT MAX(created_at) INTO last_notification_time
-                FROM notifications
-                WHERE user_id = p_agent_user_id
-                AND category = notif_category
-                AND title = title_text
-                AND created_at > (NOW() - INTERVAL '60 minutes');
-
-                -- If a recent notification exists, check if enough time has passed
-                IF last_notification_time IS NOT NULL THEN
-                    -- Calculate minutes since last notification
-                    minutes_since_last_notification := EXTRACT(EPOCH FROM (NOW() - last_notification_time)) / 60;
-                    
-                    -- Different cooldown periods for different notification types
-                    IF p_notification_type = 'available_soon' THEN
-                        -- Available soon: Only send once per 15-minute window
-                        IF minutes_since_last_notification < 15 THEN
-                            RETURN; -- Too soon, don't send
-                        END IF;
-                    ELSIF p_notification_type = 'available_now' THEN
-                        -- Available now: Only send once per break window
-                        IF minutes_since_last_notification < 60 THEN
-                            RETURN; -- Too soon, don't send
-                        END IF;
-                    ELSIF p_notification_type = 'ending_soon' THEN
-                        -- Ending soon: Only send once per 15-minute window
-                        IF minutes_since_last_notification < 15 THEN
-                            RETURN; -- Too soon, don't send
-                        END IF;
-                    ELSIF p_notification_type = 'missed_break' THEN
-                        -- Missed break: Only send once per 30-minute reminder cycle
-                        IF minutes_since_last_notification < 30 THEN
-                            RETURN; -- Too soon, don't send
-                        END IF;
-                    END IF;
+            ELSIF p_notification_type = 'missed_break' THEN
+                -- Missed break: Only send once per 30-minute reminder cycle
+                IF minutes_since_last_notification < 30 THEN
+                    RETURN; -- Too soon, don't send
                 END IF;
+            END IF;
+        END IF;
+    END IF;
 
-                -- Insert the notification (database will use default UTC timestamp)
-                INSERT INTO notifications (user_id, category, type, title, message, payload)
-                VALUES (p_agent_user_id, notif_category, notif_type, title_text, message_text, payload_data);
-            END;
-            $function$
+    -- Insert the notification (database will use default UTC timestamp)
+    INSERT INTO notifications (user_id, category, type, title, message, payload)
+    VALUES (p_agent_user_id, notif_category, notif_type, title_text, message_text, payload_data);
+END;
+$function$
 ;
+
+COMMENT ON FUNCTION public.create_break_reminder_notification(int4, text, break_type_enum) IS 'Fixed: Prevents duplicate available_soon notifications by checking if one was already sent today for the same break type';
 
 -- DROP FUNCTION public.create_break_status_notification();
 
@@ -3019,6 +3426,34 @@ END;
 $function$
 ;
 
+-- DROP FUNCTION public.create_event(varchar, text, date, time, time, varchar, varchar);
+
+CREATE OR REPLACE FUNCTION public.create_event(p_title character varying, p_description text, p_event_date date, p_start_time time without time zone, p_end_time time without time zone, p_location character varying, p_created_by_email character varying)
+ RETURNS integer
+ LANGUAGE plpgsql
+AS $function$
+DECLARE
+    user_id INTEGER;
+    event_id INTEGER;
+BEGIN
+    -- Get user ID and check if admin
+    SELECT id INTO user_id FROM users WHERE email = p_created_by_email AND user_type = 'Internal';
+    
+    IF user_id IS NULL THEN
+        RAISE EXCEPTION 'User not found or not authorized to create events';
+    END IF;
+    
+    -- Create event with Philippines timezone
+    INSERT INTO events (title, description, event_date, start_time, end_time, location, created_by, created_at, updated_at)
+    VALUES (p_title, p_description, p_event_date, p_start_time, p_end_time, p_location, user_id, 
+            CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila', CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
+    RETURNING id INTO event_id;
+    
+    RETURN event_id;
+END;
+$function$
+;
+
 -- DROP FUNCTION public.create_task_assignment_notification();
 
 CREATE OR REPLACE FUNCTION public.create_task_assignment_notification()
@@ -3076,6 +3511,8 @@ BEGIN
 END;
 $function$
 ;
+
+COMMENT ON FUNCTION public.create_task_assignment_notification() IS 'Creates notifications when users are assigned to tasks';
 
 -- DROP FUNCTION public.create_task_comment_notification();
 
@@ -3178,6 +3615,58 @@ CREATE OR REPLACE FUNCTION public.dearmor(text)
 AS '$libdir/pgcrypto', $function$pg_dearmor$function$
 ;
 
+-- DROP FUNCTION public.debug_activity_date(int4);
+
+CREATE OR REPLACE FUNCTION public.debug_activity_date(p_user_id integer)
+ RETURNS TABLE(debug_info text)
+ LANGUAGE plpgsql
+AS $function$
+      DECLARE
+          shift_info RECORD;
+          current_time_manila TIMESTAMP;
+          shift_start_time TIME;
+          shift_end_time TIME;
+          is_night_shift BOOLEAN;
+          current_time_only TIME;
+          activity_date DATE;
+      BEGIN
+          current_time_manila := (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Manila';
+          current_time_only := current_time_manila::TIME;
+          
+          SELECT * INTO shift_info FROM get_agent_shift_info(p_user_id) LIMIT 1;
+          
+          IF NOT FOUND OR shift_info.shift_time IS NULL THEN
+              RETURN QUERY SELECT 'No shift configured'::text;
+              RETURN;
+          END IF;
+          
+          shift_start_time := CASE 
+              WHEN split_part(shift_info.shift_time, ' - ', 1) LIKE '%PM' AND 
+                   NOT split_part(shift_info.shift_time, ' - ', 1) LIKE '12:%PM' THEN
+                  (split_part(split_part(shift_info.shift_time, ' - ', 1), ' ', 1)::TIME + INTERVAL '12 hours')::TIME
+              WHEN split_part(shift_info.shift_time, ' - ', 1) LIKE '12:%AM' THEN
+                  replace(split_part(shift_info.shift_time, ' - ', 1), '12:', '00:')::TIME
+              ELSE
+                  split_part(split_part(shift_info.shift_time, ' - ', 1), ' ', 1)::TIME
+          END;
+          
+          shift_end_time := CASE 
+              WHEN split_part(shift_info.shift_time, ' - ', 2) LIKE '%PM' AND 
+                   NOT split_part(shift_info.shift_time, ' - ', 2) LIKE '12:%PM' THEN
+                  (split_part(split_part(shift_info.shift_time, ' - ', 2), ' ', 1)::TIME + INTERVAL '12 hours')::TIME
+              WHEN split_part(shift_info.shift_time, ' - ', 2) LIKE '12:%PM' THEN
+                  (split_part(split_part(shift_info.shift_time, ' - ', 2), ' ', 1)::TIME + INTERVAL '12 hours')::TIME
+              ELSE
+                  split_part(split_part(shift_info.shift_time, ' - ', 2), ' ', 1)::TIME
+          END;
+          
+          is_night_shift := shift_start_time > shift_end_time;
+          
+          RETURN QUERY SELECT ('Shift: ' || shift_info.shift_time || ', Start: ' || shift_start_time || ', End: ' || shift_end_time || ', IsNight: ' || is_night_shift || ', Current: ' || current_time_only || ', Manila: ' || current_time_manila)::text;
+      END;
+      $function$
+;
+
 -- DROP FUNCTION public.decrypt(bytea, bytea, text);
 
 CREATE OR REPLACE FUNCTION public.decrypt(bytea, bytea, text)
@@ -3196,18 +3685,42 @@ CREATE OR REPLACE FUNCTION public.decrypt_iv(bytea, bytea, bytea, text)
 AS '$libdir/pgcrypto', $function$pg_decrypt_iv$function$
 ;
 
--- DROP FUNCTION public.digest(bytea, text);
+-- DROP FUNCTION public.delete_event(int4, varchar);
 
-CREATE OR REPLACE FUNCTION public.digest(bytea, text)
+CREATE OR REPLACE FUNCTION public.delete_event(p_event_id integer, p_deleted_by_email character varying)
+ RETURNS boolean
+ LANGUAGE plpgsql
+AS $function$
+DECLARE
+    user_id INTEGER;
+BEGIN
+    -- Get user ID and check if admin
+    SELECT id INTO user_id FROM users WHERE email = p_deleted_by_email AND user_type = 'Internal';
+    
+    IF user_id IS NULL THEN
+        RAISE EXCEPTION 'User not found or not authorized to delete events';
+    END IF;
+    
+    -- Delete event (cascade will handle attendance records)
+    DELETE FROM events WHERE id = p_event_id;
+    
+    RETURN FOUND;
+END;
+$function$
+;
+
+-- DROP FUNCTION public.digest(text, text);
+
+CREATE OR REPLACE FUNCTION public.digest(text, text)
  RETURNS bytea
  LANGUAGE c
  IMMUTABLE PARALLEL SAFE STRICT
 AS '$libdir/pgcrypto', $function$pg_digest$function$
 ;
 
--- DROP FUNCTION public.digest(text, text);
+-- DROP FUNCTION public.digest(bytea, text);
 
-CREATE OR REPLACE FUNCTION public.digest(text, text)
+CREATE OR REPLACE FUNCTION public.digest(bytea, text)
  RETURNS bytea
  LANGUAGE c
  IMMUTABLE PARALLEL SAFE STRICT
@@ -3232,6 +3745,60 @@ CREATE OR REPLACE FUNCTION public.encrypt_iv(bytea, bytea, bytea, text)
 AS '$libdir/pgcrypto', $function$pg_encrypt_iv$function$
 ;
 
+-- DROP FUNCTION public.end_meeting(int4, int4);
+
+CREATE OR REPLACE FUNCTION public.end_meeting(meeting_id_param integer, agent_user_id_param integer)
+ RETURNS json
+ LANGUAGE plpgsql
+AS $function$
+DECLARE
+    meeting_record RECORD;
+    duration_minutes INTEGER;
+    result JSON;
+BEGIN
+    -- Check if meeting exists and belongs to the agent
+    SELECT * INTO meeting_record
+    FROM meetings
+    WHERE id = meeting_id_param AND agent_user_id = agent_user_id_param;
+    
+    IF NOT FOUND THEN
+        RETURN json_build_object('success', false, 'message', 'Meeting not found');
+    END IF;
+    
+    -- Check if meeting is in progress
+    IF NOT meeting_record.is_in_meeting THEN
+        RETURN json_build_object('success', false, 'message', 'Meeting is not in progress');
+    END IF;
+    
+    -- Calculate duration based on start_time (since actual_start_time is being removed)
+    duration_minutes := EXTRACT(EPOCH FROM (NOW() - meeting_record.start_time)) / 60;
+    
+    -- End the meeting
+    UPDATE meetings
+    SET 
+        status = 'completed',
+        is_in_meeting = false,
+        end_time = NOW(),
+        duration_minutes = duration_minutes
+    WHERE id = meeting_id_param;
+    
+    -- Get updated meeting record
+    SELECT * INTO meeting_record
+    FROM meetings
+    WHERE id = meeting_id_param;
+    
+    -- Build result
+    result := json_build_object(
+        'success', true,
+        'message', 'Meeting ended successfully',
+        'meeting', row_to_json(meeting_record)
+    );
+    
+    RETURN result;
+END;
+$function$
+;
+
 -- DROP FUNCTION public.end_meeting(int4);
 
 CREATE OR REPLACE FUNCTION public.end_meeting(p_meeting_id integer)
@@ -3240,6 +3807,7 @@ CREATE OR REPLACE FUNCTION public.end_meeting(p_meeting_id integer)
 AS $function$
 DECLARE
     meeting_record meetings%ROWTYPE;
+    actual_duration_minutes INTEGER;
 BEGIN
     -- Get the meeting
     SELECT * INTO meeting_record
@@ -3255,10 +3823,16 @@ BEGIN
         RETURN FALSE;
     END IF;
     
-    -- Update meeting status to completed and set is_in_meeting to false
+    -- Calculate actual duration in minutes based on start_time
+    actual_duration_minutes := EXTRACT(EPOCH FROM (NOW() - meeting_record.start_time)) / 60;
+    
+    -- Update meeting status to completed, set is_in_meeting to false, 
+    -- set end_time to current time, and update duration_minutes
     UPDATE meetings
     SET status = 'completed',
         is_in_meeting = FALSE,
+        end_time = NOW(),
+        duration_minutes = actual_duration_minutes,
         updated_at = now()
     WHERE id = p_meeting_id;
     
@@ -3266,6 +3840,8 @@ BEGIN
 END;
 $function$
 ;
+
+COMMENT ON FUNCTION public.end_meeting(int4) IS 'Ends a meeting and calculates actual duration based on start_time';
 
 -- DROP FUNCTION public.fixed_comprehensive_activity_reset(timestamp);
 
@@ -3468,15 +4044,6 @@ CREATE OR REPLACE FUNCTION public.gen_random_uuid()
 AS '$libdir/pgcrypto', $function$pg_random_uuid$function$
 ;
 
--- DROP FUNCTION public.gen_salt(text, int4);
-
-CREATE OR REPLACE FUNCTION public.gen_salt(text, integer)
- RETURNS text
- LANGUAGE c
- PARALLEL SAFE STRICT
-AS '$libdir/pgcrypto', $function$pg_gen_salt_rounds$function$
-;
-
 -- DROP FUNCTION public.gen_salt(text);
 
 CREATE OR REPLACE FUNCTION public.gen_salt(text)
@@ -3484,6 +4051,15 @@ CREATE OR REPLACE FUNCTION public.gen_salt(text)
  LANGUAGE c
  PARALLEL SAFE STRICT
 AS '$libdir/pgcrypto', $function$pg_gen_salt$function$
+;
+
+-- DROP FUNCTION public.gen_salt(text, int4);
+
+CREATE OR REPLACE FUNCTION public.gen_salt(text, integer)
+ RETURNS text
+ LANGUAGE c
+ PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pg_gen_salt_rounds$function$
 ;
 
 -- DROP FUNCTION public.generate_ticket_id();
@@ -3502,12 +4078,12 @@ $function$
 -- DROP FUNCTION public.get_active_meeting(int4);
 
 CREATE OR REPLACE FUNCTION public.get_active_meeting(p_user_id integer)
- RETURNS TABLE(id integer, title character varying, description text, start_time timestamp with time zone, end_time timestamp with time zone, duration_minutes integer, meeting_type character varying, status character varying, is_in_meeting boolean, actual_start_time timestamp with time zone)
+ RETURNS TABLE(id integer, title character varying, description text, start_time timestamp with time zone, end_time timestamp with time zone, duration_minutes integer, meeting_type character varying, status character varying, is_in_meeting boolean, started_automatically boolean)
  LANGUAGE plpgsql
 AS $function$
 BEGIN
     RETURN QUERY
-    SELECT 
+    SELECT
         m.id,
         m.title,
         m.description,
@@ -3515,17 +4091,19 @@ BEGIN
         m.end_time,
         m.duration_minutes,
         m.meeting_type,
-        m.status,
+        m.status, -- Return the actual status from the table
         m.is_in_meeting,
-        m.actual_start_time
+        m.started_automatically
     FROM meetings m
     WHERE m.agent_user_id = p_user_id
-    AND m.status = 'in-progress'
+    AND m.is_in_meeting = TRUE
     ORDER BY m.created_at DESC
     LIMIT 1;
 END;
 $function$
 ;
+
+COMMENT ON FUNCTION public.get_active_meeting(int4) IS 'Get the currently active meeting for a user, including started_automatically flag';
 
 -- DROP FUNCTION public.get_activity_date_for_shift(int4, timestamp);
 
@@ -3542,7 +4120,7 @@ AS $function$
           current_time_only TIME;
           activity_date DATE;
       BEGIN
-          -- Get current Manila time
+          -- Get current Manila time using manual calculation (+8 hours from UTC)
           IF p_current_time IS NULL THEN
               current_time_manila := CURRENT_TIMESTAMP + INTERVAL '8 hours';
           ELSE
@@ -3584,19 +4162,10 @@ AS $function$
           is_night_shift := shift_start_time > shift_end_time;
           
           IF is_night_shift THEN
-              -- NIGHT SHIFT LOGIC: Activity date is always the day the shift starts
-              -- For night shifts, the activity date should be the day when the shift starts
-              -- This ensures the entire shift (10 PM - 7 AM) is counted as one continuous period
-              
-              -- If we're before midnight (before shift start time), use previous day
-              -- If we're after midnight (after shift start time), use current day
-              IF current_time_only < shift_start_time THEN
-                  -- We're before midnight, so the shift started the previous day
-                  activity_date := current_time_manila::DATE - INTERVAL '1 day';
-              ELSE
-                  -- We're after midnight, so the shift started today
-                  activity_date := current_time_manila::DATE;
-              END IF;
+              -- FIXED NIGHT SHIFT LOGIC: Use current calendar date for all night shift activity
+              -- This ensures that activity at 5:30 AM on 2025-09-05 is recorded as 2025-09-05
+              -- not 2025-09-04, which makes more sense from a user perspective
+              activity_date := current_time_manila::DATE;
           ELSE
               -- DAY SHIFT LOGIC: Activity date is the current day
               -- For day shifts, activity resets each day at shift start time
@@ -3607,6 +4176,8 @@ AS $function$
       END;
       $function$
 ;
+
+COMMENT ON FUNCTION public.get_activity_date_for_shift(int4, timestamp) IS 'Fixed timezone calculation to use manual +8 hours instead of AT TIME ZONE. This ensures correct Manila time calculation for activity date assignment.';
 
 -- DROP FUNCTION public.get_activity_date_for_shift_simple(int4);
 
@@ -3623,8 +4194,8 @@ AS $function$
           current_time_only TIME;
           activity_date DATE;
       BEGIN
-          -- Get current Manila time
-          current_time_manila := CURRENT_TIMESTAMP + INTERVAL '8 hours';
+          -- Get current Manila time (UTC + 8 hours)
+          current_time_manila := CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila';
           current_time_only := current_time_manila::TIME;
           
           -- Get agent's shift information
@@ -3671,8 +4242,9 @@ AS $function$
                   activity_date := current_time_manila::DATE;
               END IF;
           ELSE
-              -- DAY SHIFT LOGIC: Activity date is the current day
+              -- DAY SHIFT LOGIC: Activity date is always the current day
               -- For day shifts, activity resets each day at shift start time
+              -- Day shifts never cross midnight, so always use current date
               activity_date := current_time_manila::DATE;
           END IF;
           
@@ -3735,6 +4307,8 @@ BEGIN
 END;
 $function$
 ;
+
+COMMENT ON FUNCTION public.get_agent_shift_info(int4) IS 'Gets agent shift information from job_info table with fallback defaults';
 
 -- DROP FUNCTION public.get_current_activity_status(int4, timestamp);
 
@@ -3927,37 +4501,28 @@ $function$
 
 -- DROP FUNCTION public.get_meeting_statistics(int4, int4);
 
-CREATE OR REPLACE FUNCTION public.get_meeting_statistics(p_user_id integer, p_days integer DEFAULT 7)
- RETURNS TABLE(total_meetings integer, completed_meetings integer, cancelled_meetings integer, total_duration_minutes integer, avg_duration_minutes numeric, today_meetings integer, today_duration_minutes integer)
+CREATE OR REPLACE FUNCTION public.get_meeting_statistics(p_user_id integer, p_days integer)
+ RETURNS TABLE(total_meetings bigint, completed_meetings bigint, scheduled_meetings bigint, in_progress_meetings bigint, cancelled_meetings bigint, total_duration_minutes bigint, average_duration_minutes numeric)
  LANGUAGE plpgsql
 AS $function$
 BEGIN
     RETURN QUERY
-    WITH stats AS (
-        SELECT 
-            COUNT(*)::INTEGER as total_count,
-            COUNT(*) FILTER (WHERE status = 'completed')::INTEGER as completed_count,
-            COUNT(*) FILTER (WHERE status = 'cancelled')::INTEGER as cancelled_count,
-            COALESCE(SUM(duration_minutes), 0)::INTEGER as total_duration,
-            COALESCE(AVG(duration_minutes), 0) as avg_duration,
-            COUNT(*) FILTER (WHERE DATE(created_at) = now()::date)::INTEGER as today_count,
-            COALESCE(SUM(duration_minutes) FILTER (WHERE DATE(created_at) = now()::date), 0)::INTEGER as today_duration
-        FROM meetings
-        WHERE agent_user_id = p_user_id
-        AND created_at >= now()::date - INTERVAL '1 day' * p_days
-    )
-    SELECT 
-        total_count,
-        completed_count,
-        cancelled_count,
-        total_duration,
-        avg_duration,
-        today_count,
-        today_duration
-    FROM stats;
+    SELECT
+        COUNT(*) as total_meetings,
+        COUNT(*) FILTER (WHERE status = 'completed') as completed_meetings,
+        COUNT(*) FILTER (WHERE status = 'scheduled') as scheduled_meetings,
+        COUNT(*) FILTER (WHERE status = 'in-progress') as in_progress_meetings,
+        COUNT(*) FILTER (WHERE status = 'cancelled') as cancelled_meetings,
+        COALESCE(SUM(duration_minutes), 0) as total_duration_minutes,
+        COALESCE(AVG(duration_minutes), 0) as average_duration_minutes
+    FROM meetings
+    WHERE agent_user_id = p_user_id
+    AND created_at >= NOW() - INTERVAL '1 day' * p_days;
 END;
 $function$
 ;
+
+COMMENT ON FUNCTION public.get_meeting_statistics(int4, int4) IS 'Get meeting statistics for a user over a specified number of days';
 
 -- DROP FUNCTION public.get_month_end_date(date);
 
@@ -4256,6 +4821,38 @@ AS $function$
       $function$
 ;
 
+-- DROP FUNCTION public.get_user_events(varchar);
+
+CREATE OR REPLACE FUNCTION public.get_user_events(user_email character varying)
+ RETURNS TABLE(event_id integer, title character varying, description text, event_date date, start_time time without time zone, end_time time without time zone, location character varying, status character varying, created_by_name text, is_going boolean, is_back boolean, going_at timestamp without time zone, back_at timestamp without time zone)
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        e.id as event_id,
+        e.title,
+        e.description,
+        e.event_date,
+        e.start_time,
+        e.end_time,
+        e.location,
+        e.status,
+        u.email as created_by_name,
+        COALESCE(ea.is_going, false) as is_going,
+        COALESCE(ea.is_back, false) as is_back,
+        ea.going_at AT TIME ZONE 'Asia/Manila' as going_at,
+        ea.back_at AT TIME ZONE 'Asia/Manila' as back_at
+    FROM events e
+    LEFT JOIN users u ON e.created_by = u.id
+    LEFT JOIN event_attendance ea ON e.id = ea.event_id AND ea.user_id = (
+        SELECT id FROM users WHERE email = user_email
+    )
+    ORDER BY e.event_date ASC, e.start_time ASC;
+END;
+$function$
+;
+
 -- DROP FUNCTION public.get_user_meeting_status(int4);
 
 CREATE OR REPLACE FUNCTION public.get_user_meeting_status(p_user_id integer)
@@ -4279,10 +4876,10 @@ END;
 $function$
 ;
 
--- DROP FUNCTION public.get_user_meetings(int4, int4);
+-- DROP FUNCTION public.get_user_meetings(int4, int4, int4, int4);
 
-CREATE OR REPLACE FUNCTION public.get_user_meetings(p_user_id integer, p_days integer DEFAULT 7)
- RETURNS TABLE(id integer, title character varying, description text, start_time timestamp with time zone, end_time timestamp with time zone, duration_minutes integer, meeting_type character varying, status character varying, is_in_meeting boolean, actual_start_time timestamp with time zone, created_at timestamp with time zone)
+CREATE OR REPLACE FUNCTION public.get_user_meetings(p_user_id integer, p_days integer DEFAULT 7, p_limit integer DEFAULT 10, p_offset integer DEFAULT 0)
+ RETURNS TABLE(id integer, title character varying, description text, start_time timestamp with time zone, end_time timestamp with time zone, duration_minutes integer, meeting_type character varying, status character varying, is_in_meeting boolean, created_at timestamp with time zone, total_count bigint)
  LANGUAGE plpgsql
 AS $function$
 BEGIN
@@ -4295,14 +4892,37 @@ BEGIN
         m.end_time,
         m.duration_minutes,
         m.meeting_type,
-        m.status,
+        -- Ensure status consistency: if is_in_meeting is true, status should be 'in-progress'
+        CASE 
+            WHEN m.is_in_meeting = true THEN 'in-progress'
+            ELSE m.status
+        END as status,
         m.is_in_meeting,
-        m.actual_start_time,
-        m.created_at
+        m.created_at,
+        COUNT(*) OVER() as total_count
     FROM meetings m
     WHERE m.agent_user_id = p_user_id
-    AND m.created_at >= now()::date - INTERVAL '1 day' * p_days
-    ORDER BY m.created_at DESC;
+    AND m.start_time >= NOW() - INTERVAL '1 day' * p_days
+    ORDER BY m.created_at DESC
+    LIMIT p_limit
+    OFFSET p_offset;
+END;
+$function$
+;
+
+-- DROP FUNCTION public.get_user_meetings_count(int4, int4);
+
+CREATE OR REPLACE FUNCTION public.get_user_meetings_count(p_user_id integer, p_days integer DEFAULT 7)
+ RETURNS bigint
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+    RETURN (
+        SELECT COUNT(*)
+        FROM meetings m
+        WHERE m.agent_user_id = p_user_id
+        AND m.start_time >= NOW() - INTERVAL '1 day' * p_days
+    );
 END;
 $function$
 ;
@@ -4483,18 +5103,20 @@ END;
 $function$
 ;
 
--- DROP FUNCTION public.hmac(text, text, text);
+COMMENT ON FUNCTION public.handle_task_assignment_removal() IS 'Creates notifications when users are removed from tasks';
 
-CREATE OR REPLACE FUNCTION public.hmac(text, text, text)
+-- DROP FUNCTION public.hmac(bytea, bytea, text);
+
+CREATE OR REPLACE FUNCTION public.hmac(bytea, bytea, text)
  RETURNS bytea
  LANGUAGE c
  IMMUTABLE PARALLEL SAFE STRICT
 AS '$libdir/pgcrypto', $function$pg_hmac$function$
 ;
 
--- DROP FUNCTION public.hmac(bytea, bytea, text);
+-- DROP FUNCTION public.hmac(text, text, text);
 
-CREATE OR REPLACE FUNCTION public.hmac(bytea, bytea, text)
+CREATE OR REPLACE FUNCTION public.hmac(text, text, text)
  RETURNS bytea
  LANGUAGE c
  IMMUTABLE PARALLEL SAFE STRICT
@@ -4579,6 +5201,8 @@ AS $function$
       END;
 $function$
 ;
+
+COMMENT ON FUNCTION public.is_break_available(int4, break_type_enum, timestamp) IS 'Fixed: Returns false for users without shift times';
 
 -- DROP FUNCTION public.is_break_available_now(int4, break_type_enum, timestamp);
 
@@ -4690,6 +5314,8 @@ BEGIN
 END;
 $function$
 ;
+
+COMMENT ON FUNCTION public.is_break_available_now_notification_sent(int4, break_type_enum, timestamp) IS 'Checks if "available_now" notification was already sent for current break period';
 
 -- DROP FUNCTION public.is_break_available_soon(int4, break_type_enum, timestamp);
 
@@ -4871,6 +5497,8 @@ AS $function$
       $function$
 ;
 
+COMMENT ON FUNCTION public.is_break_missed(int4, break_type_enum, timestamp) IS 'FIXED: Now excludes currently active breaks from missed break notifications. Users will not receive "you have not taken" notifications while they are currently on break.';
+
 -- DROP FUNCTION public.is_break_window_ending_soon(int4, break_type_enum, timestamptz);
 
 CREATE OR REPLACE FUNCTION public.is_break_window_ending_soon(p_agent_user_id integer, p_break_type break_type_enum, p_check_time timestamp with time zone DEFAULT now())
@@ -4948,22 +5576,83 @@ AS $function$
       $function$
 ;
 
+COMMENT ON FUNCTION public.is_break_window_ending_soon(int4, break_type_enum, timestamptz) IS 'FIXED: Now excludes currently active breaks from break window ending soon notifications. Users will not receive "break ending soon" notifications while they are currently on break.';
+
 -- DROP FUNCTION public.is_user_in_meeting(int4);
 
 CREATE OR REPLACE FUNCTION public.is_user_in_meeting(p_user_id integer)
  RETURNS boolean
  LANGUAGE plpgsql
 AS $function$
-DECLARE
-    meeting_count INTEGER;
 BEGIN
-    SELECT COUNT(*) INTO meeting_count
-    FROM meetings
-    WHERE agent_user_id = p_user_id
-    AND is_in_meeting = TRUE
-    AND status = 'in-progress';
+    RETURN EXISTS (
+        SELECT 1 
+        FROM meetings m
+        WHERE m.agent_user_id = p_user_id
+        AND m.is_in_meeting = TRUE
+    );
+END;
+$function$
+;
+
+COMMENT ON FUNCTION public.is_user_in_meeting(int4) IS 'Checks if user is currently in a meeting based on is_in_meeting flag';
+
+-- DROP FUNCTION public.mark_user_back(int4, varchar);
+
+CREATE OR REPLACE FUNCTION public.mark_user_back(event_id integer, user_email character varying)
+ RETURNS boolean
+ LANGUAGE plpgsql
+AS $function$
+DECLARE
+    user_id INTEGER;
+BEGIN
+    -- Get user ID
+    SELECT id INTO user_id FROM users WHERE email = user_email;
     
-    RETURN meeting_count > 0;
+    IF user_id IS NULL THEN
+        RETURN false;
+    END IF;
+    
+    -- Insert or update attendance record with Philippines timezone
+    INSERT INTO event_attendance (event_id, user_id, is_back, back_at, updated_at)
+    VALUES (event_id, user_id, true, CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila', CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
+    ON CONFLICT (event_id, user_id)
+    DO UPDATE SET 
+        is_back = true,
+        back_at = CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila',
+        updated_at = CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila';
+    
+    RETURN true;
+END;
+$function$
+;
+
+-- DROP FUNCTION public.mark_user_going(int4, varchar);
+
+CREATE OR REPLACE FUNCTION public.mark_user_going(event_id integer, user_email character varying)
+ RETURNS boolean
+ LANGUAGE plpgsql
+AS $function$
+DECLARE
+    user_id INTEGER;
+BEGIN
+    -- Get user ID
+    SELECT id INTO user_id FROM users WHERE email = user_email;
+    
+    IF user_id IS NULL THEN
+        RETURN false;
+    END IF;
+    
+    -- Insert or update attendance record with Philippines timezone
+    INSERT INTO event_attendance (event_id, user_id, is_going, going_at, updated_at)
+    VALUES (event_id, user_id, true, CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila', CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
+    ON CONFLICT (event_id, user_id)
+    DO UPDATE SET 
+        is_going = true,
+        going_at = CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila',
+        updated_at = CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila';
+    
+    RETURN true;
 END;
 $function$
 ;
@@ -5020,6 +5709,8 @@ BEGIN
 END;
 $function$
 ;
+
+COMMENT ON FUNCTION public.move_overdue_tasks_to_overdue_column() IS 'Automatically moves overdue tasks to the Overdue column';
 
 -- DROP FUNCTION public.normalize_task_positions(int4);
 
@@ -5080,6 +5771,468 @@ BEGIN
 END;
 $function$
 ;
+
+COMMENT ON FUNCTION public.notify_activity_data_change() IS 'Sends real-time notifications when activity_data rows are created or updated';
+
+-- DROP FUNCTION public.notify_event_attendance_change();
+
+CREATE OR REPLACE FUNCTION public.notify_event_attendance_change()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+DECLARE
+    notification_payload JSONB;
+    event_data JSONB;
+    user_data JSONB;
+BEGIN
+    -- Get event details
+    SELECT to_jsonb(e) INTO event_data
+    FROM events e
+    WHERE e.id = COALESCE(NEW.event_id, OLD.event_id);
+    
+    -- Get user details
+    SELECT to_jsonb(u) INTO user_data
+    FROM users u
+    WHERE u.id = COALESCE(NEW.user_id, OLD.user_id);
+    
+    -- Determine the operation type
+    IF TG_OP = 'INSERT' THEN
+        notification_payload := jsonb_build_object(
+            'type', 'event_attendance_created',
+            'event_id', NEW.event_id,
+            'user_id', NEW.user_id,
+            'is_going', NEW.is_going,
+            'is_back', NEW.is_back,
+            'going_at', NEW.going_at,
+            'back_at', NEW.back_at,
+            'event_data', event_data,
+            'user_data', user_data
+        );
+    ELSIF TG_OP = 'UPDATE' THEN
+        notification_payload := jsonb_build_object(
+            'type', 'event_attendance_updated',
+            'event_id', NEW.event_id,
+            'user_id', NEW.user_id,
+            'is_going', NEW.is_going,
+            'is_back', NEW.is_back,
+            'going_at', NEW.going_at,
+            'back_at', NEW.back_at,
+            'old_data', to_jsonb(OLD),
+            'new_data', to_jsonb(NEW),
+            'event_data', event_data,
+            'user_data', user_data
+        );
+    ELSIF TG_OP = 'DELETE' THEN
+        notification_payload := jsonb_build_object(
+            'type', 'event_attendance_deleted',
+            'event_id', OLD.event_id,
+            'user_id', OLD.user_id,
+            'event_data', event_data,
+            'user_data', user_data
+        );
+    END IF;
+
+    -- Send the notification
+    PERFORM pg_notify('event_attendance_changes', notification_payload::text);
+    
+    -- Return the appropriate record
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    ELSE
+        RETURN NEW;
+    END IF;
+END;
+$function$
+;
+
+COMMENT ON FUNCTION public.notify_event_attendance_change() IS 'Sends real-time notifications when event attendance changes';
+
+-- DROP FUNCTION public.notify_event_change();
+
+CREATE OR REPLACE FUNCTION public.notify_event_change()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+DECLARE
+    notification_payload JSONB;
+    event_data JSONB;
+    created_by_name TEXT;
+    action_url TEXT;
+    current_time_ph TIME;
+    event_start_time TIME;
+BEGIN
+    -- Get current time in Philippines timezone
+    current_time_ph := (NOW() AT TIME ZONE 'Asia/Manila')::TIME;
+    
+    -- Get the name of the user who created the event
+    SELECT email INTO created_by_name
+    FROM users
+    WHERE id = COALESCE(NEW.created_by, OLD.created_by);
+
+    -- Determine the operation type
+    IF TG_OP = 'INSERT' THEN
+        event_data := to_jsonb(NEW);
+        notification_payload := jsonb_build_object(
+            'type', 'event_created',
+            'event_id', NEW.id,
+            'event_title', NEW.title,
+            'event_date', NEW.event_date,
+            'start_time', NEW.start_time,
+            'end_time', NEW.end_time,
+            'location', NEW.location,
+            'status', NEW.status,
+            'created_by', NEW.created_by,
+            'created_at', NEW.created_at,
+            'data', event_data
+        );
+
+        -- Create notifications for all users about the new event (only if status is upcoming)
+        IF NEW.status = 'upcoming' THEN
+            -- Set action URL based on event status
+            action_url := '/status/events?tab=upcoming&eventId=' || NEW.id;
+
+            INSERT INTO notifications (user_id, category, type, title, message, payload)
+            SELECT
+                u.id,
+                'event',
+                'info',
+                format('New %s Scheduled',
+                       CASE
+                           WHEN COALESCE(NEW.event_type, 'event') = 'activity' THEN 'Activity'
+                           ELSE 'Event'
+                       END),
+                format('A new %s "%s" has been scheduled for %s at %s',
+                       CASE
+                           WHEN COALESCE(NEW.event_type, 'event') = 'activity' THEN 'activity'
+                           ELSE 'event'
+                       END,
+                       NEW.title,
+                       to_char(NEW.event_date AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD'),
+                       NEW.start_time),
+                jsonb_build_object(
+                    'event_id', NEW.id,
+                    'event_title', NEW.title,
+                    'event_date', NEW.event_date,
+                    'start_time', NEW.start_time,
+                    'end_time', NEW.end_time,
+                    'location', NEW.location,
+                    'status', NEW.status,
+                    'event_type', COALESCE(NEW.event_type, 'event'),
+                    'created_by', NEW.created_by,
+                    'created_by_name', created_by_name,
+                    'notification_type', 'event_created',
+                    'action_url', action_url
+                )
+            FROM users u
+            WHERE u.id != NEW.created_by; -- Don't notify the creator
+        END IF;
+
+    ELSIF TG_OP = 'UPDATE' THEN
+        event_data := to_jsonb(NEW);
+        notification_payload := jsonb_build_object(
+            'type', 'event_updated',
+            'event_id', NEW.id,
+            'event_title', NEW.title,
+            'event_date', NEW.event_date,
+            'start_time', NEW.start_time,
+            'end_time', NEW.end_time,
+            'location', NEW.location,
+            'status', NEW.status,
+            'created_by', NEW.created_by,
+            'updated_at', NEW.updated_at,
+            'old_data', to_jsonb(OLD),
+            'new_data', event_data
+        );
+
+        -- Create notifications for all users about the event update (only for specific status changes)
+        IF OLD.status IS DISTINCT FROM NEW.status THEN
+            -- Event scheduled for today (status changed to 'today') - Always notify agents
+            IF NEW.status = 'today' THEN
+                action_url := '/status/events?tab=today&eventId=' || NEW.id;
+
+                -- Send "Today's Event" notification to inform agents about the event
+                INSERT INTO notifications (user_id, category, type, title, message, payload)
+                SELECT
+                    u.id,
+                    'event',
+                    'info',
+                    format('Today''s %s - %s',
+                           CASE
+                               WHEN COALESCE(NEW.event_type, 'event') = 'activity' THEN 'Activity'
+                               ELSE 'Event'
+                           END,
+                           NEW.title),
+                    format('%s "%s" is scheduled for today at %s (%s)',
+                           CASE
+                               WHEN COALESCE(NEW.event_type, 'event') = 'activity' THEN 'Activity'
+                               ELSE 'Event'
+                           END,
+                           NEW.title,
+                           to_char(NEW.start_time::TIME, 'HH12:MI AM'),
+                           NEW.location),
+                    jsonb_build_object(
+                        'event_id', NEW.id,
+                        'event_title', NEW.title,
+                        'event_date', NEW.event_date,
+                        'start_time', NEW.start_time,
+                        'end_time', NEW.end_time,
+                        'location', NEW.location,
+                        'event_type', COALESCE(NEW.event_type, 'event'),
+                        'old_status', OLD.status,
+                        'new_status', NEW.status,
+                        'created_by', NEW.created_by,
+                        'created_by_name', created_by_name,
+                        'notification_type', 'event_scheduled_today',
+                        'action_url', action_url
+                    )
+                FROM users u;
+
+                -- Parse the event start time
+                event_start_time := NEW.start_time::TIME;
+                
+                -- Also send "Event Started" notification if the actual start time has been reached
+                IF current_time_ph >= event_start_time THEN
+                    INSERT INTO notifications (user_id, category, type, title, message, payload)
+                    SELECT
+                        u.id,
+                        'event',
+                        'info',
+                        format('%s Started - Please Join',
+                               CASE
+                                   WHEN COALESCE(NEW.event_type, 'event') = 'activity' THEN 'Activity'
+                                   ELSE 'Event'
+                               END),
+                        format('%s "%s" has started at %s (%s)',
+                               CASE
+                                   WHEN COALESCE(NEW.event_type, 'event') = 'activity' THEN 'Activity'
+                                   ELSE 'Event'
+                               END,
+                               NEW.title,
+                               to_char(NEW.start_time::TIME, 'HH12:MI AM'),
+                               NEW.location),
+                        jsonb_build_object(
+                            'event_id', NEW.id,
+                            'event_title', NEW.title,
+                            'event_date', NEW.event_date,
+                            'start_time', NEW.start_time,
+                            'end_time', NEW.end_time,
+                            'location', NEW.location,
+                            'event_type', COALESCE(NEW.event_type, 'event'),
+                            'old_status', OLD.status,
+                            'new_status', NEW.status,
+                            'created_by', NEW.created_by,
+                            'created_by_name', created_by_name,
+                            'notification_type', 'event_started',
+                            'action_url', action_url
+                        )
+                    FROM users u;
+                END IF;
+            END IF;
+
+            -- Event cancelled
+            IF NEW.status = 'cancelled' THEN
+                action_url := '/status/events?tab=cancelled&eventId=' || NEW.id;
+
+                INSERT INTO notifications (user_id, category, type, title, message, payload)
+                SELECT
+                    u.id,
+                    'event',
+                    'warning',
+                    format('%s Cancelled',
+                           CASE
+                               WHEN COALESCE(NEW.event_type, 'event') = 'activity' THEN 'Activity'
+                               ELSE 'Event'
+                           END),
+                    format('%s "%s" scheduled for %s has been cancelled',
+                           CASE
+                               WHEN COALESCE(NEW.event_type, 'event') = 'activity' THEN 'Activity'
+                               ELSE 'Event'
+                           END,
+                           NEW.title,
+                           to_char(NEW.event_date AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD')),
+                    jsonb_build_object(
+                        'event_id', NEW.id,
+                        'event_title', NEW.title,
+                        'event_date', NEW.event_date,
+                        'start_time', NEW.start_time,
+                        'end_time', NEW.end_time,
+                        'location', NEW.location,
+                        'event_type', COALESCE(NEW.event_type, 'event'),
+                        'old_status', OLD.status,
+                        'new_status', NEW.status,
+                        'created_by', NEW.created_by,
+                        'created_by_name', created_by_name,
+                        'notification_type', 'event_cancelled',
+                        'action_url', action_url
+                    )
+                FROM users u;
+            END IF;
+
+            -- Event ended
+            IF NEW.status = 'ended' THEN
+                action_url := '/status/events?tab=ended&eventId=' || NEW.id;
+
+                INSERT INTO notifications (user_id, category, type, title, message, payload)
+                SELECT
+                    u.id,
+                    'event',
+                    'info',
+                    format('%s Ended',
+                           CASE
+                               WHEN COALESCE(NEW.event_type, 'event') = 'activity' THEN 'Activity'
+                               ELSE 'Event'
+                           END),
+                    format('%s "%s" has ended',
+                           CASE
+                               WHEN COALESCE(NEW.event_type, 'event') = 'activity' THEN 'Activity'
+                               ELSE 'Event'
+                           END,
+                           NEW.title),
+                    jsonb_build_object(
+                        'event_id', NEW.id,
+                        'event_title', NEW.title,
+                        'event_date', NEW.event_date,
+                        'start_time', NEW.start_time,
+                        'end_time', NEW.end_time,
+                        'location', NEW.location,
+                        'event_type', COALESCE(NEW.event_type, 'event'),
+                        'old_status', OLD.status,
+                        'new_status', NEW.status,
+                        'created_by', NEW.created_by,
+                        'created_by_name', created_by_name,
+                        'notification_type', 'event_ended',
+                        'action_url', action_url
+                    )
+                FROM users u;
+            END IF;
+        END IF;
+
+    ELSIF TG_OP = 'DELETE' THEN
+        event_data := to_jsonb(OLD);
+        notification_payload := jsonb_build_object(
+            'type', 'event_deleted',
+            'event_id', OLD.id,
+            'event_title', OLD.title,
+            'event_date', OLD.event_date,
+            'data', event_data
+        );
+
+        -- Create notifications for all users about the event deletion
+        action_url := '/status/events?tab=ended&eventId=' || OLD.id;
+
+        INSERT INTO notifications (user_id, category, type, title, message, payload)
+        SELECT
+            u.id,
+            'event',
+            'warning',
+            'Event Deleted',
+            format('Event "%s" scheduled for %s has been deleted',
+                   OLD.title,
+                   to_char(OLD.event_date AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD')),
+            jsonb_build_object(
+                'event_id', OLD.id,
+                'event_title', OLD.title,
+                'event_date', OLD.event_date,
+                'start_time', OLD.start_time,
+                'end_time', OLD.end_time,
+                'location', OLD.location,
+                'notification_type', 'event_deleted',
+                'action_url', action_url
+            )
+        FROM users u;
+    END IF;
+
+    -- Send the notification for real-time updates
+    PERFORM pg_notify('event_changes', notification_payload::text);
+
+    -- Return the appropriate record
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    ELSE
+        RETURN NEW;
+    END IF;
+END;
+$function$
+;
+
+COMMENT ON FUNCTION public.notify_event_change() IS 'Sends real-time notifications for event changes. Fixed to only send "Event Started" notifications when actual start time is reached, not just when status changes to "today" at midnight.';
+
+-- DROP FUNCTION public.notify_event_status_change(int4, varchar, varchar);
+
+CREATE OR REPLACE FUNCTION public.notify_event_status_change(event_id integer, old_status character varying, new_status character varying)
+ RETURNS void
+ LANGUAGE plpgsql
+AS $function$
+DECLARE
+    event_record RECORD;
+    notification_payload JSONB;
+    action_url TEXT;
+BEGIN
+    -- Get event details
+    SELECT 
+        e.id,
+        e.title,
+        e.description,
+        e.event_date,
+        e.start_time,
+        e.end_time,
+        e.location,
+        e.status,
+        e.event_type,
+        e.created_by,
+        u.email as created_by_name
+    INTO event_record
+    FROM events e
+    LEFT JOIN users u ON e.created_by = u.id
+    WHERE e.id = event_id;
+    
+    IF NOT FOUND THEN
+        RETURN;
+    END IF;
+    
+    -- Determine action URL based on new status
+    CASE new_status
+        WHEN 'upcoming' THEN
+            action_url := '/status/events?tab=upcoming&eventId=' || event_record.id;
+        WHEN 'today' THEN
+            action_url := '/status/events?tab=today&eventId=' || event_record.id;
+        WHEN 'cancelled' THEN
+            action_url := '/status/events?tab=cancelled&eventId=' || event_record.id;
+        WHEN 'ended' THEN
+            action_url := '/status/events?tab=ended&eventId=' || event_record.id;
+        ELSE
+            action_url := '/status/events';
+    END CASE;
+    
+    -- Build notification payload
+    notification_payload := jsonb_build_object(
+        'type', 'event_status_changed',
+        'event_id', event_record.id,
+        'event_title', event_record.title,
+        'event_date', event_record.event_date,
+        'start_time', event_record.start_time,
+        'end_time', event_record.end_time,
+        'location', event_record.location,
+        'status', event_record.status,
+        'event_type', COALESCE(event_record.event_type, 'event'),
+        'old_status', old_status,
+        'new_status', new_status,
+        'created_by', event_record.created_by,
+        'created_by_name', event_record.created_by_name,
+        'notification_type', 'event_status_changed',
+        'action_url', action_url
+    );
+    
+    -- Send real-time notification
+    PERFORM pg_notify('event_changes', notification_payload::text);
+    
+    -- Also send to event_attendance_changes channel for broader coverage
+    PERFORM pg_notify('event_attendance_changes', notification_payload::text);
+END;
+$function$
+;
+
+COMMENT ON FUNCTION public.notify_event_status_change(int4, varchar, varchar) IS 'Sends real-time notifications for event status changes with action URLs for proper navigation';
 
 -- DROP FUNCTION public.notify_health_check_event();
 
@@ -5215,6 +6368,120 @@ END;
 $function$
 ;
 
+-- DROP FUNCTION public.notify_health_check_field_update(int4, text, bool);
+
+CREATE OR REPLACE FUNCTION public.notify_health_check_field_update(request_id_param integer, field_name text, field_value boolean)
+ RETURNS void
+ LANGUAGE plpgsql
+AS $function$
+DECLARE
+    request_record RECORD;
+BEGIN
+    -- Get the request details including timestamps
+    SELECT hcr.*, u.email as user_email
+    INTO request_record
+    FROM health_check_requests hcr
+    JOIN users u ON hcr.user_id = u.id
+    WHERE hcr.id = request_id_param;
+    
+    -- If request not found, return
+    IF NOT FOUND THEN
+        RETURN;
+    END IF;
+    
+    -- Send optimized notification with user email and timestamps included
+    PERFORM pg_notify(
+        'health_check_events',
+        json_build_object(
+            'event', 'request_updated',
+            'request_id', request_record.id,
+            'user_id', request_record.user_id,
+            'nurse_id', request_record.nurse_id,
+            'user_email', request_record.user_email,
+            field_name, field_value,
+            'going_to_clinic_at', request_record.going_to_clinic_at,
+            'in_clinic_at', request_record.in_clinic_at,
+            'updated_at', request_record.updated_at
+        )::text
+    );
+END;
+$function$
+;
+
+COMMENT ON FUNCTION public.notify_health_check_field_update(int4, text, bool) IS 'Sends real-time notifications for health check field updates including timestamp tracking';
+
+-- DROP FUNCTION public.notify_meeting_end();
+
+CREATE OR REPLACE FUNCTION public.notify_meeting_end()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+DECLARE
+    payload JSON;
+BEGIN
+    -- Notify when meeting status changes to completed
+    IF TG_OP = 'UPDATE' AND OLD.status != 'completed' AND NEW.status = 'completed' THEN
+        
+        payload := json_build_object(
+            'meeting_id', NEW.id,
+            'agent_user_id', NEW.agent_user_id,
+            'is_in_meeting', false,
+            'status', NEW.status,
+            'title', NEW.title,
+            'start_time', NEW.start_time,
+            'end_time', NEW.end_time,
+            'operation', 'meeting_ended',
+            'timestamp', NOW()
+        );
+        
+        -- Send notification
+        PERFORM pg_notify('meeting_status_change', payload::text);
+        PERFORM pg_notify('"meeting-update"', payload::text);
+    END IF;
+    
+    RETURN NEW;
+END;
+$function$
+;
+
+-- DROP FUNCTION public.notify_meeting_status_change();
+
+CREATE OR REPLACE FUNCTION public.notify_meeting_status_change()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+DECLARE
+    payload JSON;
+BEGIN
+    -- Only notify if is_in_meeting status changed
+    IF (TG_OP = 'UPDATE' AND OLD.is_in_meeting IS DISTINCT FROM NEW.is_in_meeting) OR
+       (TG_OP = 'INSERT' AND NEW.is_in_meeting = true) THEN
+        
+        -- Create payload with meeting and user information
+        payload := json_build_object(
+            'meeting_id', NEW.id,
+            'agent_user_id', NEW.agent_user_id,
+            'is_in_meeting', NEW.is_in_meeting,
+            'status', NEW.status,
+            'title', NEW.title,
+            'start_time', NEW.start_time,
+            'end_time', NEW.end_time,
+            'operation', TG_OP,
+            'timestamp', NOW()
+        );
+        
+        -- Send notification
+        PERFORM pg_notify('meeting_status_change', payload::text);
+        
+        -- Also send a specific notification for meeting updates
+        PERFORM pg_notify('"meeting-update"', payload::text);
+    END IF;
+    
+    RETURN NEW;
+END;
+$function$
+;
+
 -- DROP FUNCTION public.notify_monthly_activity_change();
 
 CREATE OR REPLACE FUNCTION public.notify_monthly_activity_change()
@@ -5245,6 +6512,8 @@ BEGIN
 END;
 $function$
 ;
+
+COMMENT ON FUNCTION public.notify_monthly_activity_change() IS 'Sends NOTIFY events when monthly activity data changes, enabling real-time frontend updates.';
 
 -- DROP FUNCTION public.notify_notification();
 
@@ -5361,6 +6630,8 @@ BEGIN
 END;
 $function$
 ;
+
+COMMENT ON FUNCTION public.notify_task_due_soon() IS 'Updated trigger function that respects Overdue column to prevent notification spamming';
 
 -- DROP FUNCTION public.notify_task_table_change();
 
@@ -5510,6 +6781,8 @@ END;
 $function$
 ;
 
+COMMENT ON FUNCTION public.notify_ticket_change() IS 'Notifies clients of ticket changes via pg_notify for real-time updates';
+
 -- DROP FUNCTION public.notify_ticket_comment_change();
 
 CREATE OR REPLACE FUNCTION public.notify_ticket_comment_change()
@@ -5619,6 +6892,8 @@ END;
 $function$
 ;
 
+COMMENT ON FUNCTION public.notify_weekly_activity_change() IS 'Sends NOTIFY events when weekly activity data changes, enabling real-time frontend updates.';
+
 -- DROP FUNCTION public.pgp_armor_headers(in text, out text, out text);
 
 CREATE OR REPLACE FUNCTION public.pgp_armor_headers(text, OUT key text, OUT value text)
@@ -5637,6 +6912,15 @@ CREATE OR REPLACE FUNCTION public.pgp_key_id(bytea)
 AS '$libdir/pgcrypto', $function$pgp_key_id_w$function$
 ;
 
+-- DROP FUNCTION public.pgp_pub_decrypt(bytea, bytea);
+
+CREATE OR REPLACE FUNCTION public.pgp_pub_decrypt(bytea, bytea)
+ RETURNS text
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_pub_decrypt_text$function$
+;
+
 -- DROP FUNCTION public.pgp_pub_decrypt(bytea, bytea, text, text);
 
 CREATE OR REPLACE FUNCTION public.pgp_pub_decrypt(bytea, bytea, text, text)
@@ -5649,15 +6933,6 @@ AS '$libdir/pgcrypto', $function$pgp_pub_decrypt_text$function$
 -- DROP FUNCTION public.pgp_pub_decrypt(bytea, bytea, text);
 
 CREATE OR REPLACE FUNCTION public.pgp_pub_decrypt(bytea, bytea, text)
- RETURNS text
- LANGUAGE c
- IMMUTABLE PARALLEL SAFE STRICT
-AS '$libdir/pgcrypto', $function$pgp_pub_decrypt_text$function$
-;
-
--- DROP FUNCTION public.pgp_pub_decrypt(bytea, bytea);
-
-CREATE OR REPLACE FUNCTION public.pgp_pub_decrypt(bytea, bytea)
  RETURNS text
  LANGUAGE c
  IMMUTABLE PARALLEL SAFE STRICT
@@ -5709,15 +6984,6 @@ CREATE OR REPLACE FUNCTION public.pgp_pub_encrypt(text, bytea)
 AS '$libdir/pgcrypto', $function$pgp_pub_encrypt_text$function$
 ;
 
--- DROP FUNCTION public.pgp_pub_encrypt_bytea(bytea, bytea);
-
-CREATE OR REPLACE FUNCTION public.pgp_pub_encrypt_bytea(bytea, bytea)
- RETURNS bytea
- LANGUAGE c
- PARALLEL SAFE STRICT
-AS '$libdir/pgcrypto', $function$pgp_pub_encrypt_bytea$function$
-;
-
 -- DROP FUNCTION public.pgp_pub_encrypt_bytea(bytea, bytea, text);
 
 CREATE OR REPLACE FUNCTION public.pgp_pub_encrypt_bytea(bytea, bytea, text)
@@ -5727,18 +6993,27 @@ CREATE OR REPLACE FUNCTION public.pgp_pub_encrypt_bytea(bytea, bytea, text)
 AS '$libdir/pgcrypto', $function$pgp_pub_encrypt_bytea$function$
 ;
 
--- DROP FUNCTION public.pgp_sym_decrypt(bytea, text, text);
+-- DROP FUNCTION public.pgp_pub_encrypt_bytea(bytea, bytea);
 
-CREATE OR REPLACE FUNCTION public.pgp_sym_decrypt(bytea, text, text)
+CREATE OR REPLACE FUNCTION public.pgp_pub_encrypt_bytea(bytea, bytea)
+ RETURNS bytea
+ LANGUAGE c
+ PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_pub_encrypt_bytea$function$
+;
+
+-- DROP FUNCTION public.pgp_sym_decrypt(bytea, text);
+
+CREATE OR REPLACE FUNCTION public.pgp_sym_decrypt(bytea, text)
  RETURNS text
  LANGUAGE c
  IMMUTABLE PARALLEL SAFE STRICT
 AS '$libdir/pgcrypto', $function$pgp_sym_decrypt_text$function$
 ;
 
--- DROP FUNCTION public.pgp_sym_decrypt(bytea, text);
+-- DROP FUNCTION public.pgp_sym_decrypt(bytea, text, text);
 
-CREATE OR REPLACE FUNCTION public.pgp_sym_decrypt(bytea, text)
+CREATE OR REPLACE FUNCTION public.pgp_sym_decrypt(bytea, text, text)
  RETURNS text
  LANGUAGE c
  IMMUTABLE PARALLEL SAFE STRICT
@@ -5763,18 +7038,18 @@ CREATE OR REPLACE FUNCTION public.pgp_sym_decrypt_bytea(bytea, text)
 AS '$libdir/pgcrypto', $function$pgp_sym_decrypt_bytea$function$
 ;
 
--- DROP FUNCTION public.pgp_sym_encrypt(text, text);
+-- DROP FUNCTION public.pgp_sym_encrypt(text, text, text);
 
-CREATE OR REPLACE FUNCTION public.pgp_sym_encrypt(text, text)
+CREATE OR REPLACE FUNCTION public.pgp_sym_encrypt(text, text, text)
  RETURNS bytea
  LANGUAGE c
  PARALLEL SAFE STRICT
 AS '$libdir/pgcrypto', $function$pgp_sym_encrypt_text$function$
 ;
 
--- DROP FUNCTION public.pgp_sym_encrypt(text, text, text);
+-- DROP FUNCTION public.pgp_sym_encrypt(text, text);
 
-CREATE OR REPLACE FUNCTION public.pgp_sym_encrypt(text, text, text)
+CREATE OR REPLACE FUNCTION public.pgp_sym_encrypt(text, text)
  RETURNS bytea
  LANGUAGE c
  PARALLEL SAFE STRICT
@@ -6219,6 +7494,243 @@ AS $function$
 			$function$
 ;
 
+-- DROP FUNCTION public.send_event_reminders();
+
+CREATE OR REPLACE FUNCTION public.send_event_reminders()
+ RETURNS integer
+ LANGUAGE plpgsql
+AS $function$
+      DECLARE
+          event_record RECORD;
+          reminder_time TIMESTAMP;
+          now_time TIMESTAMP;
+          notifications_sent INTEGER := 0;
+          user_count INTEGER;
+      BEGIN
+          -- Get current time in Asia/Manila timezone
+          now_time := NOW() AT TIME ZONE 'Asia/Manila';
+          reminder_time := now_time + INTERVAL '15 minutes';
+          
+          -- Find events that start in approximately 15 minutes and are upcoming or today
+          FOR event_record IN
+              SELECT 
+                  e.id,
+                  e.title,
+                  e.event_date,
+                  e.start_time,
+                  e.end_time,
+                  e.location,
+                  e.status,
+                  e.event_type,
+                  e.created_by,
+                  u.email as created_by_name
+              FROM events e
+              LEFT JOIN users u ON e.created_by = u.id
+              WHERE e.status IN ('upcoming', 'today')
+              AND e.event_date = CURRENT_DATE
+              AND e.start_time::TIME >= (reminder_time::TIME - INTERVAL '2 minutes')::TIME
+              AND e.start_time::TIME <= (reminder_time::TIME + INTERVAL '2 minutes')::TIME
+          LOOP
+              -- Check if we already sent a reminder for this event today
+              IF NOT EXISTS (
+                  SELECT 1 FROM notifications 
+                  WHERE payload->>'event_id' = event_record.id::text
+                  AND payload->>'notification_type' = 'event_reminder'
+                  AND created_at::date = CURRENT_DATE
+              ) THEN
+                  -- Send reminder notification to all users
+                  WITH inserted_notifications AS (
+                      INSERT INTO notifications (user_id, category, type, title, message, payload)
+                      SELECT 
+                          u.id,
+                          'event',
+                          'info',
+                          format('%s Reminder - Starting Soon', 
+                                 CASE 
+                                     WHEN COALESCE(event_record.event_type, 'event') = 'activity' THEN 'Activity'
+                                     ELSE 'Event'
+                                 END),
+                          format('%s "%s" will start in 15 minutes at %s (%s)', 
+                                 CASE 
+                                     WHEN COALESCE(event_record.event_type, 'event') = 'activity' THEN 'Activity'
+                                     ELSE 'Event'
+                                 END,
+                                 event_record.title, 
+                                 to_char(event_record.start_time::TIME, 'HH12:MI AM'),
+                                 event_record.location),
+                          jsonb_build_object(
+                              'event_id', event_record.id,
+                              'event_title', event_record.title,
+                              'event_date', event_record.event_date,
+                              'start_time', event_record.start_time,
+                              'end_time', event_record.end_time,
+                              'location', event_record.location,
+                              'status', event_record.status,
+                              'event_type', COALESCE(event_record.event_type, 'event'),
+                              'created_by', event_record.created_by,
+                              'created_by_name', event_record.created_by_name,
+                              'notification_type', 'event_reminder'
+                          )
+                      FROM users u
+                      RETURNING 1
+                  )
+                  SELECT COUNT(*) INTO user_count FROM inserted_notifications;
+                  notifications_sent := notifications_sent + user_count;
+              END IF;
+          END LOOP;
+          
+          RETURN notifications_sent;
+      END;
+      $function$
+;
+
+-- DROP FUNCTION public.send_meeting_reminder_notification();
+
+CREATE OR REPLACE FUNCTION public.send_meeting_reminder_notification()
+ RETURNS integer
+ LANGUAGE plpgsql
+AS $function$
+DECLARE
+    notifications_sent INTEGER := 0;
+    meeting_record RECORD;
+BEGIN
+    -- Find meetings that are scheduled to start in 15 minutes
+    -- and haven't had a reminder notification sent yet
+    FOR meeting_record IN
+        SELECT m.id, m.agent_user_id, m.title, m.start_time, u.email
+        FROM meetings m
+        JOIN users u ON u.id = m.agent_user_id
+        WHERE m.status = 'scheduled'
+        AND m.start_time BETWEEN NOW() + INTERVAL '14 minutes' AND NOW() + INTERVAL '16 minutes'
+        AND NOT EXISTS (
+            SELECT 1 FROM notifications n 
+            WHERE n.user_id = m.agent_user_id 
+            AND n.category = 'meeting'
+            AND n.payload->>'meeting_id' = m.id::text
+            AND n.payload->>'notification_type' = 'reminder'
+        )
+    LOOP
+        
+        -- Insert notification
+        INSERT INTO notifications (
+            user_id,
+            category,
+            type,
+            title,
+            message,
+            payload,
+            is_read,
+            created_at
+        ) VALUES (
+            meeting_record.agent_user_id,
+            'meeting',
+            'info',
+            'Meeting Starting Soon',
+            'Your meeting "' || meeting_record.title || '" is starting in 15 minutes at ' || 
+            TO_CHAR(meeting_record.start_time, 'HH12:MI AM'),
+            json_build_object(
+                'meeting_id', meeting_record.id,
+                'meeting_title', meeting_record.title,
+                'start_time', meeting_record.start_time,
+                'notification_type', 'reminder',
+                'action_url', '/status/meetings'
+            ),
+            false,
+            NOW()
+        );
+        
+        notifications_sent := notifications_sent + 1;
+        
+        -- Send PostgreSQL notification for real-time updates
+        PERFORM pg_notify('notification_created', json_build_object(
+            'user_id', meeting_record.agent_user_id,
+            'category', 'meeting',
+            'type', 'reminder'
+        )::text);
+        
+        RAISE NOTICE 'Sent reminder notification for meeting % to user %', meeting_record.title, meeting_record.email;
+    END LOOP;
+    
+    RETURN notifications_sent;
+END;
+$function$
+;
+
+-- DROP FUNCTION public.send_meeting_start_notification();
+
+CREATE OR REPLACE FUNCTION public.send_meeting_start_notification()
+ RETURNS integer
+ LANGUAGE plpgsql
+AS $function$
+DECLARE
+    notifications_sent INTEGER := 0;
+    meeting_record RECORD;
+BEGIN
+    -- Find meetings that just started automatically (within the last 2 minutes)
+    -- and haven't had a start notification sent yet
+    FOR meeting_record IN
+        SELECT m.id, m.agent_user_id, m.title, m.start_time, u.email
+        FROM meetings m
+        JOIN users u ON u.id = m.agent_user_id
+        WHERE m.status = 'in-progress'
+        AND m.started_automatically = true  -- Only send notifications for automatically started meetings
+        AND m.start_time BETWEEN NOW() - INTERVAL '2 minutes' AND NOW()
+        AND NOT EXISTS (
+            SELECT 1 FROM notifications n 
+            WHERE n.user_id = m.agent_user_id 
+            AND n.category = 'meeting'
+            AND n.payload->>'meeting_id' = m.id::text
+            AND n.payload->>'notification_type' = 'start'
+        )
+    LOOP
+        
+        -- Insert notification
+        INSERT INTO notifications (
+            user_id,
+            category,
+            type,
+            title,
+            message,
+            payload,
+            is_read,
+            created_at
+        ) VALUES (
+            meeting_record.agent_user_id,
+            'meeting',
+            'success',
+            'Meeting Started Automatically',
+            'Your scheduled meeting "' || meeting_record.title || '" has started automatically',
+            json_build_object(
+                'meeting_id', meeting_record.id,
+                'meeting_title', meeting_record.title,
+                'start_time', meeting_record.start_time,
+                'notification_type', 'start',
+                'started_automatically', true,
+                'action_url', '/status/meetings'
+            ),
+            false,
+            NOW()
+        );
+        
+        notifications_sent := notifications_sent + 1;
+        
+        -- Send PostgreSQL notification for real-time updates
+        PERFORM pg_notify('notification_created', json_build_object(
+            'user_id', meeting_record.agent_user_id,
+            'category', 'meeting',
+            'type', 'start'
+        )::text);
+        
+        RAISE NOTICE 'Sent start notification for automatically started meeting % to user %', meeting_record.title, meeting_record.email;
+    END LOOP;
+    
+    RETURN notifications_sent;
+END;
+$function$
+;
+
+COMMENT ON FUNCTION public.send_meeting_start_notification() IS 'Sends start notifications only for meetings that were started automatically by the scheduler';
+
 -- DROP FUNCTION public.should_reset_activity_for_shift(int4, timestamp);
 
 CREATE OR REPLACE FUNCTION public.should_reset_activity_for_shift(p_user_id integer, p_current_time timestamp without time zone DEFAULT NULL::timestamp without time zone)
@@ -6374,41 +7886,93 @@ END;
 $function$
 ;
 
--- DROP FUNCTION public.start_meeting(int4);
+-- DROP FUNCTION public.start_meeting(int4, int4, bool);
 
-CREATE OR REPLACE FUNCTION public.start_meeting(p_meeting_id integer)
- RETURNS boolean
+CREATE OR REPLACE FUNCTION public.start_meeting(meeting_id_param integer, agent_user_id_param integer, is_automatic boolean DEFAULT false)
+ RETURNS json
  LANGUAGE plpgsql
 AS $function$
 DECLARE
-    meeting_record meetings%ROWTYPE;
+    meeting_record RECORD;
+    activity_check RECORD;
+    result JSON;
 BEGIN
-    -- Get the meeting
+    -- Check if meeting exists and belongs to the agent
     SELECT * INTO meeting_record
     FROM meetings
-    WHERE id = p_meeting_id;
+    WHERE id = meeting_id_param AND agent_user_id = agent_user_id_param;
     
-    -- Check if meeting exists and is scheduled
     IF NOT FOUND THEN
-        RETURN FALSE;
+        RETURN json_build_object('success', false, 'message', 'Meeting not found');
     END IF;
     
-    IF meeting_record.status != 'scheduled' THEN
-        RETURN FALSE;
+    -- Check if meeting is already in progress
+    IF meeting_record.is_in_meeting THEN
+        RETURN json_build_object('success', false, 'message', 'Meeting is already in progress');
     END IF;
     
-    -- Update meeting status to in-progress, set is_in_meeting to true, and record actual start time
+    -- Check if user is currently in an activity/event
+    SELECT ea.is_going, e.title as event_title, e.event_type
+    INTO activity_check
+    FROM event_attendance ea
+    JOIN events e ON ea.event_id = e.id
+    WHERE ea.user_id = agent_user_id_param 
+    AND ea.is_going = true 
+    AND ea.is_back = false
+    AND e.status NOT IN ('cancelled', 'ended');
+    
+    IF FOUND THEN
+        -- User is currently in an activity/event, prevent meeting start
+        RETURN json_build_object(
+            'success', false, 
+            'message', 'Cannot start meeting while in ' || LOWER(activity_check.event_type) || ': ' || activity_check.event_title || '. Please leave the ' || LOWER(activity_check.event_type) || ' first.'
+        );
+    END IF;
+    
+    -- Check if meeting is scheduled and it's time to start
+    IF meeting_record.status = 'scheduled' THEN
+        -- For automatic starts, allow starting if current time is at or after scheduled start time
+        -- For manual starts, allow starting if current time is at or after scheduled start time (with grace period)
+        IF is_automatic THEN
+            -- Automatic starts: must be at or after scheduled time
+            IF NOW() < meeting_record.start_time THEN
+                RETURN json_build_object('success', false, 'message', 'Meeting is scheduled for a future time');
+            END IF;
+        ELSE
+            -- Manual starts: allow starting up to 10 minutes before scheduled time
+            IF NOW() < (meeting_record.start_time - INTERVAL '10 minutes') THEN
+                RETURN json_build_object('success', false, 'message', 'Meeting is scheduled for a future time');
+            END IF;
+        END IF;
+    END IF;
+    
+    -- Start the meeting and update start_time to actual start time for accurate duration calculation
     UPDATE meetings
-    SET status = 'in-progress',
-        is_in_meeting = TRUE,
-        actual_start_time = NOW(),
-        updated_at = now()
-    WHERE id = p_meeting_id;
+    SET 
+        status = 'in-progress',
+        is_in_meeting = true,
+        started_automatically = is_automatic,
+        start_time = NOW()  -- Always use actual start time for accurate elapsed time calculation
+    WHERE id = meeting_id_param;
     
-    RETURN TRUE;
+    -- Get updated meeting record
+    SELECT * INTO meeting_record
+    FROM meetings
+    WHERE id = meeting_id_param;
+    
+    -- Build result
+    result := json_build_object(
+        'success', true,
+        'message', 'Meeting started successfully',
+        'meeting', row_to_json(meeting_record)
+    );
+    
+    RETURN result;
 END;
 $function$
 ;
+
+COMMENT ON FUNCTION public.start_meeting(int4, int4, bool) IS 'Updated: Prevents starting meetings when user is in an activity/event to avoid conflicts';
 
 -- DROP FUNCTION public.trigger_break_availability_check();
 
@@ -6421,6 +7985,54 @@ BEGIN
 END;
 $function$
 ;
+
+-- DROP FUNCTION public.trigger_health_check_field_update();
+
+CREATE OR REPLACE FUNCTION public.trigger_health_check_field_update()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+    -- Only trigger on specific field changes
+    IF TG_OP = 'UPDATE' AND TG_TABLE_NAME = 'health_check_requests' THEN
+        -- Check if going_to_clinic field changed to true
+        IF OLD.going_to_clinic IS DISTINCT FROM NEW.going_to_clinic AND NEW.going_to_clinic = true THEN
+            -- Set timestamp when going_to_clinic becomes true
+            NEW.going_to_clinic_at = NOW();
+            PERFORM notify_health_check_field_update(NEW.id, 'going_to_clinic', NEW.going_to_clinic);
+        ELSIF OLD.going_to_clinic IS DISTINCT FROM NEW.going_to_clinic THEN
+            PERFORM notify_health_check_field_update(NEW.id, 'going_to_clinic', NEW.going_to_clinic);
+        END IF;
+        
+        -- Check if in_clinic field changed to true
+        IF OLD.in_clinic IS DISTINCT FROM NEW.in_clinic AND NEW.in_clinic = true THEN
+            -- Set timestamp when in_clinic becomes true
+            NEW.in_clinic_at = NOW();
+            -- Automatically set going_to_clinic to false when in_clinic becomes true
+            NEW.going_to_clinic = false;
+            PERFORM notify_health_check_field_update(NEW.id, 'in_clinic', NEW.in_clinic);
+            PERFORM notify_health_check_field_update(NEW.id, 'going_to_clinic', false);
+        ELSIF OLD.in_clinic IS DISTINCT FROM NEW.in_clinic THEN
+            PERFORM notify_health_check_field_update(NEW.id, 'in_clinic', NEW.in_clinic);
+        END IF;
+        
+        -- Check if done field changed to true
+        IF OLD.done IS DISTINCT FROM NEW.done AND NEW.done = true THEN
+            -- Automatically set in_clinic to false when done becomes true
+            NEW.in_clinic = false;
+            PERFORM notify_health_check_field_update(NEW.id, 'done', NEW.done);
+            PERFORM notify_health_check_field_update(NEW.id, 'in_clinic', false);
+        ELSIF OLD.done IS DISTINCT FROM NEW.done THEN
+            PERFORM notify_health_check_field_update(NEW.id, 'done', NEW.done);
+        END IF;
+    END IF;
+    
+    RETURN NEW;
+END;
+$function$
+;
+
+COMMENT ON FUNCTION public.trigger_health_check_field_update() IS 'Handles automatic state transitions and timestamp tracking for clinic workflow: going_to_clinic=true sets going_to_clinic_at, in_clinic=true sets in_clinic_at and going_to_clinic=false, done=true sets in_clinic=false';
 
 -- DROP FUNCTION public.trigger_manual_aggregation(int4, date);
 
@@ -6453,6 +8065,9 @@ BEGIN
 END;
 $function$
 ;
+
+COMMENT ON FUNCTION public.trigger_manual_aggregation(int4, date) IS 'Manually triggers aggregation for testing or debugging purposes. 
+Can be called with specific user_id and date parameters.';
 
 -- DROP FUNCTION public.trigger_manual_productivity_calculation(int4, varchar);
 
@@ -6615,6 +8230,86 @@ AS $function$
       $function$
 ;
 
+-- DROP FUNCTION public.update_all_event_statuses();
+
+CREATE OR REPLACE FUNCTION public.update_all_event_statuses()
+ RETURNS TABLE(updated_count integer, details text)
+ LANGUAGE plpgsql
+AS $function$
+DECLARE
+    upcoming_to_today_count INTEGER := 0;
+    today_to_ended_count INTEGER := 0;
+    past_to_ended_count INTEGER := 0;
+    total_updated INTEGER := 0;
+    event_record RECORD;
+BEGIN
+    -- Update events to 'today' if event_date is today (regardless of start_time)
+    FOR event_record IN
+        SELECT id, title, event_type, start_time, end_time, location, created_by, status
+        FROM events 
+        WHERE event_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')::date 
+        AND status = 'upcoming'
+    LOOP
+        -- Update the event status
+        UPDATE events 
+        SET status = 'today', updated_at = CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'
+        WHERE id = event_record.id;
+        
+        -- Send real-time notification
+        PERFORM notify_event_status_change(event_record.id, event_record.status, 'today');
+        
+        upcoming_to_today_count := upcoming_to_today_count + 1;
+    END LOOP;
+    
+    -- Update events to 'ended' if event_date is in the past
+    FOR event_record IN
+        SELECT id, title, event_type, start_time, end_time, location, created_by, status
+        FROM events 
+        WHERE event_date < (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')::date 
+        AND status IN ('upcoming', 'today')
+    LOOP
+        -- Update the event status
+        UPDATE events 
+        SET status = 'ended', updated_at = CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'
+        WHERE id = event_record.id;
+        
+        -- Send real-time notification
+        PERFORM notify_event_status_change(event_record.id, event_record.status, 'ended');
+        
+        past_to_ended_count := past_to_ended_count + 1;
+    END LOOP;
+    
+    -- Update events to 'ended' if they are 'today' but have passed their end_time
+    FOR event_record IN
+        SELECT id, title, event_type, start_time, end_time, location, created_by, status
+        FROM events 
+        WHERE event_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')::date 
+        AND status = 'today'
+        AND end_time::TIME < (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')::TIME
+    LOOP
+        -- Update the event status
+        UPDATE events 
+        SET status = 'ended', updated_at = CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'
+        WHERE id = event_record.id;
+        
+        -- Send real-time notification
+        PERFORM notify_event_status_change(event_record.id, event_record.status, 'ended');
+        
+        today_to_ended_count := today_to_ended_count + 1;
+    END LOOP;
+    
+    total_updated := upcoming_to_today_count + today_to_ended_count + past_to_ended_count;
+    
+    RETURN QUERY SELECT 
+        total_updated,
+        format('Updated: %s upcoming→today, %s today→ended (time), %s past→ended', 
+               upcoming_to_today_count, today_to_ended_count, past_to_ended_count);
+END;
+$function$
+;
+
+COMMENT ON FUNCTION public.update_all_event_statuses() IS 'Updates event statuses and triggers real-time notifications for status changes';
+
 -- DROP FUNCTION public.update_conversation_last_message();
 
 CREATE OR REPLACE FUNCTION public.update_conversation_last_message()
@@ -6627,6 +8322,66 @@ BEGIN
       updated_at = NOW()
   WHERE id = NEW.conversation_id;
   RETURN NEW;
+END;
+$function$
+;
+
+-- DROP FUNCTION public.update_event(int4, varchar, text, date, time, time, varchar, varchar, varchar);
+
+CREATE OR REPLACE FUNCTION public.update_event(p_event_id integer, p_title character varying, p_description text, p_event_date date, p_start_time time without time zone, p_end_time time without time zone, p_location character varying, p_status character varying, p_updated_by_email character varying)
+ RETURNS boolean
+ LANGUAGE plpgsql
+AS $function$
+DECLARE
+    user_id INTEGER;
+BEGIN
+    -- Get user ID and check if admin
+    SELECT id INTO user_id FROM users WHERE email = p_updated_by_email AND user_type = 'Internal';
+    
+    IF user_id IS NULL THEN
+        RAISE EXCEPTION 'User not found or not authorized to update events';
+    END IF;
+    
+    -- Update event with Philippines timezone
+    UPDATE events 
+    SET 
+        title = p_title,
+        description = p_description,
+        event_date = p_event_date,
+        start_time = p_start_time,
+        end_time = p_end_time,
+        location = p_location,
+        status = p_status,
+        updated_at = CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'
+    WHERE id = p_event_id;
+    
+    RETURN FOUND;
+END;
+$function$
+;
+
+-- DROP FUNCTION public.update_event_status();
+
+CREATE OR REPLACE FUNCTION public.update_event_status()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+    -- Update events to 'today' if event_date is today (Philippines time) 
+    -- BUT ONLY if they are still 'upcoming' (not manually cancelled)
+    UPDATE events 
+    SET status = 'today', updated_at = CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'
+    WHERE event_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')::date 
+    AND status = 'upcoming';
+    
+    -- Update events to 'ended' if event_date is in the past and status is not 'cancelled' (Philippines time)
+    -- This respects manually cancelled events - they stay cancelled
+    UPDATE events 
+    SET status = 'ended', updated_at = CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'
+    WHERE event_date < (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')::date 
+    AND status IN ('upcoming', 'today');
+    
+    RETURN NULL;
 END;
 $function$
 ;
@@ -6725,6 +8480,8 @@ BEGIN
 END;
 $function$
 ;
+
+COMMENT ON FUNCTION public.update_productivity_score_on_time_change() IS 'Calculates productivity scores and emits real-time WebSocket updates when activity_data time tracking values change significantly.';
 
 -- DROP FUNCTION public.update_reports_updated_at();
 

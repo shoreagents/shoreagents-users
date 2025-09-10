@@ -50,6 +50,7 @@ import { Calendar24 } from "@/components/ui/date-picker"
 import { canCreateMeeting, type Meeting } from "@/lib/meeting-utils"
 import { useMeeting } from "@/contexts/meeting-context"
 import { useEventsContext } from "@/contexts/events-context"
+import { GlobalLoadingIndicator } from "@/components/global-loading-indicator"
 import { toast } from "sonner"
 import { 
   useMeetings, 
@@ -182,8 +183,6 @@ function MeetingCard({
             <span className="text-green-600 font-medium">Starting automatically...</span>
           ) : isInEvent ? (
             <span className="text-amber-600 font-medium">Waiting for event to end</span>
-          ) : meetingStartTime <= now ? (
-            <span className="text-red-600 font-medium">Start time passed</span>
           ) : (
             <span>Scheduled for {formatTime(meeting.start_time)}</span>
           )}
@@ -364,6 +363,7 @@ export default function MeetingsPage() {
   const [isImmediateMeeting, setIsImmediateMeeting] = useState(false)
   const [activeTab, setActiveTab] = useState('all')
   const [filteredCurrentPage, setFilteredCurrentPage] = useState(1)
+  const [isScheduledMeetingLoading, setIsScheduledMeetingLoading] = useState(false)
 
   // Filter meetings based on active tab
   const filteredMeetings = useMemo(() => {
@@ -471,48 +471,48 @@ export default function MeetingsPage() {
   useEffect(() => {
     const handleMeetingStarted = (event: CustomEvent) => {
       console.log('Meeting automatically started:', event.detail)
-      // Force immediate refresh of meeting data
+      // Refresh both meeting data and context to ensure consistency
       refetchMeetings()
-      // Also force a refetch of the meetings query directly
-      setTimeout(() => {
-        refetchMeetings()
-      }, 100)
+      contextRefreshMeetings()
     }
 
     const handleEventLeft = (event: CustomEvent) => {
       console.log('User left event, checking for scheduled meetings:', event.detail)
-      // Force immediate refresh of both meeting data sources
+      // Single refresh is sufficient - the database function will handle the rest
       refetchMeetings()
       contextRefreshMeetings()
-      // Multiple refreshes to ensure we catch the status change quickly
-      setTimeout(() => {
-        refetchMeetings()
-        contextRefreshMeetings()
-      }, 200)
-      setTimeout(() => {
-        refetchMeetings()
-        contextRefreshMeetings()
-      }, 500)
-      setTimeout(() => {
-        refetchMeetings()
-        contextRefreshMeetings()
-      }, 1000)
     }
 
-    window.addEventListener('meeting-started', handleMeetingStarted as EventListener)
+    window.addEventListener('meeting_started', handleMeetingStarted as EventListener)
     window.addEventListener('event-left', handleEventLeft as EventListener)
     
     return () => {
-      window.removeEventListener('meeting-started', handleMeetingStarted as EventListener)
+      window.removeEventListener('meeting_started', handleMeetingStarted as EventListener)
       window.removeEventListener('event-left', handleEventLeft as EventListener)
     }
   }, [refetchMeetings, contextRefreshMeetings])
 
   // Periodic refresh for scheduled meetings to catch automatic starts
+  // Only poll if user is NOT in an event to prevent unnecessary API calls
   useEffect(() => {
     const hasScheduledMeetings = meetings.some(meeting => meeting.status === 'scheduled')
     
-    if (!hasScheduledMeetings) return
+    if (!hasScheduledMeetings || isInEvent) {
+      setIsScheduledMeetingLoading(false)
+      return // No need to poll if no scheduled meetings or user is in event
+    }
+
+    // Check if any scheduled meetings should have started
+    const now = new Date()
+    const shouldRefresh = meetings.some(meeting => {
+      if (meeting.status !== 'scheduled') return false
+      const meetingStartTime = new Date(meeting.start_time)
+      return meetingStartTime <= now
+    })
+
+    if (shouldRefresh) {
+      setIsScheduledMeetingLoading(true)
+    }
 
     const interval = setInterval(() => {
       // Check if any scheduled meetings should have started
@@ -525,13 +525,19 @@ export default function MeetingsPage() {
 
       if (shouldRefresh) {
         console.log('Refreshing meetings to check for automatic starts...')
+        setIsScheduledMeetingLoading(true)
         refetchMeetings()
         contextRefreshMeetings()
+      } else {
+        setIsScheduledMeetingLoading(false)
       }
-    }, 500) // Check every 500ms for more responsive updates
+    }, 5000) // OPTIMIZED: Increased from 500ms to 5 seconds to reduce API spam
 
-    return () => clearInterval(interval)
-  }, [meetings, refetchMeetings, contextRefreshMeetings])
+    return () => {
+      clearInterval(interval)
+      setIsScheduledMeetingLoading(false)
+    }
+  }, [meetings, refetchMeetings, contextRefreshMeetings, isInEvent])
 
   // Periodic sync check to ensure UI consistency
   useEffect(() => {
@@ -556,7 +562,7 @@ export default function MeetingsPage() {
         refetchMeetings()
         contextRefreshMeetings()
       }
-    }, 30000) // Check every 30 seconds for stale data
+    }, 120000) // OPTIMIZED: Increased from 30 seconds to 2 minutes to reduce API calls
 
     return () => clearInterval(interval)
   }, [meetings, refetchMeetings, contextRefreshMeetings])
@@ -912,11 +918,6 @@ export default function MeetingsPage() {
                 <RefreshCw className="h-4 w-4" />
                 Refresh
               </Button>
-              {meetings.some(meeting => meeting.status === 'scheduled' && new Date(meeting.start_time) <= new Date()) && (
-                <div className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded">
-                  Auto-refreshing for scheduled meetings...
-                </div>
-              )}
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -1452,6 +1453,10 @@ export default function MeetingsPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        <GlobalLoadingIndicator 
+          customLoading={isScheduledMeetingLoading}
+          customLoadingText="Starting scheduled meeting..."
+        />
       </SidebarInset>
     </SidebarProvider>
   )

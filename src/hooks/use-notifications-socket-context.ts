@@ -79,7 +79,7 @@ export function useNotificationsSocketContext(email: string | null) {
   }, [socket, email, notifications])
 
   // Fetch notifications from API
-  const fetchNotifications = useCallback(async (userId: number, limit: number = 50, offset: number = 0) => {
+  const fetchNotifications = useCallback(async (userId: number, limit: number = 8, offset: number = 0) => {
     try {
       if (!email) {
         console.error('Email is required to fetch notifications')
@@ -91,7 +91,9 @@ export function useNotificationsSocketContext(email: string | null) {
       
       if (data.success) {
         setNotifications(data.notifications || [])
-        const unreadCount = data.notifications?.filter((n: DbNotificationPayload) => !n.is_read).length || 0
+        // Use totalUnreadCount from API response instead of calculating from limited notifications
+        // Ensure it's converted to a number to prevent string concatenation issues
+        const unreadCount = Number(data.totalUnreadCount) || 0
         setUnreadCount(unreadCount)
       }
     } catch (error) {
@@ -141,15 +143,31 @@ export function useNotificationsSocketContext(email: string | null) {
         // Use provided notification IDs
         unreadIds = notificationIds
       } else {
-        // Get all unread notification IDs for the current user
-        unreadIds = notifications
-          .filter(n => !n.is_read)
-          .map(n => n.id)
+        // Fetch ALL unread notification IDs from the database, not just the loaded ones
+        const response = await fetch(`/api/notifications?email=${encodeURIComponent(email || '')}&limit=1000&offset=0`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include'
+        })
+        
+        if (response.ok) {
+          const data = await response.json()
+          unreadIds = data.notifications
+            .filter((n: any) => !n.is_read)
+            .map((n: any) => n.id)
+        } else {
+          // Fallback to loaded notifications if API fails
+          unreadIds = notifications
+            .filter(n => !n.is_read)
+            .map(n => n.id)
+        }
       }
       
       if (unreadIds.length === 0) {
         return // No unread notifications to mark
       }
+
+      console.log(`🔄 Marking ${unreadIds.length} notifications as read`)
 
       const response = await fetch(`/api/notifications/mark-read`, {
         method: 'POST',
@@ -163,6 +181,7 @@ export function useNotificationsSocketContext(email: string | null) {
       const data = await response.json()
       
       if (data.success) {
+        console.log(`✅ Successfully marked ${data.updatedCount} notifications as read`)
         setNotifications(prev => prev.map(n => ({ ...n, is_read: true })))
         setUnreadCount(0)
         
@@ -173,6 +192,8 @@ export function useNotificationsSocketContext(email: string | null) {
             user_id: userId
           })
         }
+      } else {
+        console.error('❌ Failed to mark notifications as read:', data.error)
       }
     } catch (error) {
       console.error('Error marking all notifications as read:', error)
