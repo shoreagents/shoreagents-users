@@ -3,9 +3,9 @@
 import { useEffect, useState } from 'react'
 
 export default function DatabaseInitializer() {
-  const [isInitialized, setIsInitialized] = useState(false)
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [_isInitialized, setIsInitialized] = useState(false)
+  const [_isLoading, setIsLoading] = useState(true)
+  const [_error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     const initDatabase = async () => {

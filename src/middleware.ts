@@ -6,6 +6,14 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
   let response = NextResponse.next()
 
+  // Skip middleware for static files (images, audio, etc.)
+  const staticFileExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp', '.mp3', '.wav', '.ogg']
+  const isStaticFile = staticFileExtensions.some(ext => pathname.endsWith(ext))
+  
+  if (isStaticFile) {
+    return response
+  }
+
   // Create Supabase client for middleware
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -126,6 +134,7 @@ export const config = {
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
+     * - static files (images, etc. from public directory)
      */
     '/((?!api|_next/static|_next/image|favicon.ico).*)',
   ],

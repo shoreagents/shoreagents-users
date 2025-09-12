@@ -4,7 +4,6 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useMeeting } from '@/contexts/meeting-context'
 import { useMeetingStatus } from '@/hooks/use-meetings'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { 
   Video, 
   Phone, 
@@ -79,7 +78,6 @@ export const GlobalMeetingIndicator = React.memo(function GlobalMeetingIndicator
           setPosition(parsedPosition)
         } else {
           // Reset to default if saved position is out of bounds or invalid
-          console.log('Saved position is out of bounds or invalid, resetting to default')
           const defaultPosition = { x: 24, y: 24 }
           setPosition(defaultPosition)
           savePosition(defaultPosition)
@@ -132,7 +130,6 @@ export const GlobalMeetingIndicator = React.memo(function GlobalMeetingIndicator
   // Listen for event-left events to refresh meeting status
   useEffect(() => {
     const handleEventLeft = () => {
-      console.log('Event left, refreshing meeting status for global indicator')
       // Multiple refreshes to ensure we catch the meeting start quickly
       refetchMeetingStatus()
       setTimeout(() => refetchMeetingStatus(), 200)
@@ -231,17 +228,13 @@ export const GlobalMeetingIndicator = React.memo(function GlobalMeetingIndicator
       const endPromise = endCurrentMeeting(currentMeeting?.id)
       
       // Show immediate feedback that the process has started
-      console.log('Ending meeting...')
-      
       const result = await endPromise
       clearTimeout(timeoutId) // Clear timeout if operation completes
       
       if (!result.success) {
         console.error('Failed to end meeting:', result.message)
         alert(`Failed to end meeting: ${result.message}`)
-      } else {
-        console.log('Meeting ended successfully')
-      }
+      } 
     } catch (error) {
       clearTimeout(timeoutId) // Clear timeout if operation fails
       console.error('Error ending meeting:', error)

@@ -190,7 +190,6 @@ export function useHealthCheckSocketContext(email: string | null) {
     // Listen for health check events
     socket.on('health-check-update', handleHealthCheckUpdate)
     socket.on('health_check_event', (data: any) => {
-      console.log('🏥 Received health_check_event:', data)
       
       if (data.event === 'request_status_changed') {
         // Handle request status change
@@ -252,7 +251,6 @@ export function useHealthCheckSocketContext(email: string | null) {
         } else if (data.event === 'request_updated') {
         // Handle health check request field updates (going_to_clinic, in_clinic, done)
         // The socket sends data directly, not nested in a 'request' object
-        console.log('🏥 Processing request_updated event:', data)
         const requestId = data.request_id
         
         // Validate that requestId exists
@@ -272,23 +270,6 @@ export function useHealthCheckSocketContext(email: string | null) {
               if (data.going_to_clinic_at !== undefined) updated.going_to_clinic_at = data.going_to_clinic_at
               if (data.in_clinic_at !== undefined) updated.in_clinic_at = data.in_clinic_at
               if (data.updated_at) updated.updated_at = data.updated_at
-              
-              // Log the clinic workflow state transitions with timestamps
-              if (data.in_clinic === true && data.going_to_clinic === false) {
-                console.log('🏥 Clinic workflow: Agent is now IN CLINIC (going_to_clinic automatically set to false)', {
-                  going_to_clinic_at: data.going_to_clinic_at,
-                  in_clinic_at: data.in_clinic_at
-                })
-              } else if (data.done === true && data.in_clinic === false) {
-                console.log('🏥 Clinic workflow: Agent clicked DONE (in_clinic automatically set to false)', {
-                  going_to_clinic_at: data.going_to_clinic_at,
-                  in_clinic_at: data.in_clinic_at
-                })
-              } else if (data.going_to_clinic === true) {
-                console.log('🏥 Clinic workflow: Agent clicked GOING TO CLINIC', {
-                  going_to_clinic_at: data.going_to_clinic_at
-                })
-              }
               
               return updated
             }
@@ -381,7 +362,6 @@ export function useHealthCheckSocketContext(email: string | null) {
           }
           
           if (userId && !isNaN(Number(userId))) {
-            console.log('🏥 Initializing user requests for user:', userId)
             await fetchUserRequests(Number(userId))
           } else {
             console.error('Invalid user ID for health check requests:', userId)

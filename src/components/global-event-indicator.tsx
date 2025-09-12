@@ -5,7 +5,6 @@ import { useEventsContext } from '@/contexts/events-context'
 import { useMeeting } from '@/contexts/meeting-context'
 import { useSocket } from '@/contexts/socket-context'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { 
   Dialog,
   DialogContent,
@@ -36,7 +35,6 @@ export const GlobalEventIndicator = React.memo(function GlobalEventIndicator({ c
   const {
     currentEvent,
     isInEvent,
-    hasLeftEvent,
     joinEvent,
     joinEventAfterMeetingEnd,
     leaveEvent,

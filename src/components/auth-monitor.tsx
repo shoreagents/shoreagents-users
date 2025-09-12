@@ -44,7 +44,6 @@ export function AuthMonitor({ children }: AuthMonitorProps) {
 
   // Function to clear all auth tokens
   const clearAllAuthTokens = () => {
-    console.log('🧹 Clearing all authentication tokens...')
     
     // Clear localStorage
     localStorage.removeItem('shoreagents-auth')
@@ -74,7 +73,6 @@ export function AuthMonitor({ children }: AuthMonitorProps) {
                            lastCheckRef.current.cookies
       
       if (hadAuthBefore) {
-        console.log('🚪 Auto-logout: Authentication tokens removed')
         startLogout()
         clearAllAuthTokens()
         forceLogout()
@@ -88,7 +86,6 @@ export function AuthMonitor({ children }: AuthMonitorProps) {
     const cookiesRemoved = lastCheckRef.current.cookies && !currentAuth.cookies
 
     if (shoreagentsAuthRemoved || supabaseAuthRemoved || cookiesRemoved) {
-      console.log('🚪 Auto-logout: Authentication token deleted - clearing all auth data')
       
       // Start logout loading state
       startLogout()
@@ -108,11 +105,9 @@ export function AuthMonitor({ children }: AuthMonitorProps) {
   // Function to handle storage events (for cross-tab detection)
   const handleStorageChange = (e: StorageEvent) => {
     if (e.key === 'shoreagents-auth' || e.key === 'sb-sanljwkkoawwdpaxrper-auth-token') {
-      console.log('🚪 Storage change detected:', e.key, e.newValue)
       
       if (!e.newValue) {
         // Token was removed in another tab
-        console.log('🚪 Auto-logout: Token removed in another tab - clearing all auth data')
         startLogout()
         clearAllAuthTokens()
         forceLogout()

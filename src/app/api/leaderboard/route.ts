@@ -29,51 +29,9 @@ export async function GET(request: NextRequest) {
     const cachedData = await redisCache.get(cacheKey)
     
     if (cachedData) {
-      console.log('✅ Leaderboard served from Redis cache')
       return NextResponse.json(cachedData)
     }
-    let memberIdParam = searchParams.get('member_id');
-
-    // Try to infer member_id from authenticated user if not provided
-    if (!memberIdParam) {
-      try {
-        // Prefer cookie
-        const authCookie = request.cookies.get('shoreagents-auth')?.value;
-        let userEmail: string | null = null;
-        if (authCookie) {
-          let authData: any = null;
-          try {
-            authData = JSON.parse(decodeURIComponent(authCookie));
-          } catch {
-            try { authData = JSON.parse(authCookie); } catch { authData = null; }
-          }
-          userEmail = authData?.user?.email || null;
-        } else {
-          // Fallback to Authorization header JSON (legacy)
-          const authHeader = request.headers.get('authorization');
-          if (authHeader) {
-            const authData = JSON.parse(authHeader.replace('Bearer ', ''));
-            userEmail = authData?.user?.email || null;
-          }
-        }
-
-        if (userEmail) {
-          const memberIdRes = await pool.query(
-            `SELECT a.member_id
-             FROM users u
-             JOIN agents a ON a.user_id = u.id
-             WHERE u.email = $1
-             LIMIT 1`,
-            [userEmail]
-          );
-          if (memberIdRes.rows.length > 0) {
-            memberIdParam = String(memberIdRes.rows[0].member_id);
-          }
-        }
-      } catch (e) {
-        // ignore and proceed without member filter
-      }
-    }
+    // Remove member ID filtering - let client-side handle team filtering
 
     // Get current month/year for Philippines timezone
     const currentMonthYear = await getCurrentMonthYear(pool);
@@ -106,21 +64,17 @@ export async function GET(request: NextRequest) {
         LEFT JOIN activity_data ad ON u.id = ad.user_id AND ad.today_date = CURRENT_DATE
         LEFT JOIN break_sessions bs ON u.id = bs.agent_user_id AND bs.end_time IS NULL
         WHERE u.user_type = 'Agent' 
-        ${memberIdParam ? 'AND a.member_id = $2' : ''}
         ORDER BY ps.productivity_score DESC NULLS LAST, u.id
-        LIMIT ${memberIdParam ? '$3' : '$2'}
+        LIMIT $2
       `;
       
-      leaderboardParams = [monthYear];
-      if (memberIdParam) leaderboardParams.push(parseInt(memberIdParam));
-      leaderboardParams.push(limit);
+      leaderboardParams = [monthYear, limit];
       
       // Test if productivity_scores table exists
       await pool.query('SELECT 1 FROM productivity_scores LIMIT 1');
       
     } catch (error) {
       // Fallback to basic user list if productivity_scores table doesn't exist
-      console.log('productivity_scores table not found, using fallback query');
       leaderboardQuery = `
         SELECT 
           u.id as user_id,
@@ -138,14 +92,11 @@ export async function GET(request: NextRequest) {
         LEFT JOIN agents a ON u.id = a.user_id
         LEFT JOIN personal_info pi ON u.id = pi.user_id
         WHERE u.user_type = 'Agent' 
-        ${memberIdParam ? 'AND a.member_id = $1' : ''}
         ORDER BY u.id
-        LIMIT ${memberIdParam ? '$2' : '$1'}
+        LIMIT $1
       `;
       
-      leaderboardParams = [];
-      if (memberIdParam) leaderboardParams.push(parseInt(memberIdParam));
-      leaderboardParams.push(limit);
+      leaderboardParams = [limit];
     }
 
 
@@ -195,7 +146,7 @@ export async function GET(request: NextRequest) {
           userEmail = authData?.user?.email || null;
         }
       } catch (error) {
-        console.log('Error parsing auth header:', error);
+        console.error('Error parsing auth header:', error);
       }
     }
     
@@ -209,31 +160,37 @@ export async function GET(request: NextRequest) {
           await pool.query('SELECT 1 FROM productivity_scores LIMIT 1');
           
           userRankQuery = `
-            SELECT 
-              ROW_NUMBER() OVER (ORDER BY COALESCE(ps.productivity_score, 0) DESC NULLS LAST) as rank
-            FROM users u
-            LEFT JOIN agents a ON u.id = a.user_id
-            LEFT JOIN productivity_scores ps ON u.id = ps.user_id AND ps.month_year = $1
-            WHERE u.email = $2 AND u.user_type = 'Agent' 
-            ${memberIdParam ? 'AND a.member_id = $3' : ''}
+            WITH ranked_users AS (
+              SELECT 
+                u.id,
+                u.email,
+                ROW_NUMBER() OVER (ORDER BY COALESCE(ps.productivity_score, 0) DESC NULLS LAST) as rank
+              FROM users u
+              LEFT JOIN agents a ON u.id = a.user_id
+              LEFT JOIN productivity_scores ps ON u.id = ps.user_id AND ps.month_year = $1
+              WHERE u.user_type = 'Agent'
+            )
+            SELECT rank FROM ranked_users WHERE email = $2
           `;
           
           rankParams = [monthYear, userEmail];
-          if (memberIdParam) rankParams.push(parseInt(memberIdParam));
           
         } catch (error) {
           // Fallback if productivity_scores table doesn't exist
           userRankQuery = `
-            SELECT 
-              ROW_NUMBER() OVER (ORDER BY u.id) as rank
-            FROM users u
-            LEFT JOIN agents a ON u.id = a.user_id
-            WHERE u.email = $1 AND u.user_type = 'Agent' 
-            ${memberIdParam ? 'AND a.member_id = $2' : ''}
+            WITH ranked_users AS (
+              SELECT 
+                u.id,
+                u.email,
+                ROW_NUMBER() OVER (ORDER BY u.id) as rank
+              FROM users u
+              LEFT JOIN agents a ON u.id = a.user_id
+              WHERE u.user_type = 'Agent'
+            )
+            SELECT rank FROM ranked_users WHERE email = $1
           `;
           
           rankParams = [userEmail];
-          if (memberIdParam) rankParams.push(parseInt(memberIdParam));
         }
         
         const rankResult = await pool.query(userRankQuery, rankParams);
@@ -241,7 +198,7 @@ export async function GET(request: NextRequest) {
           currentUserRank = rankResult.rows[0].rank;
         }
       } catch (error) {
-        console.log('Error getting user rank:', error);
+        console.error('Error getting user rank:', error);
       }
     }
 
@@ -250,18 +207,16 @@ export async function GET(request: NextRequest) {
       leaderboard,
       currentUserRank,
       monthYear,
-      currentMonthYear,
-      memberId: memberIdParam ? parseInt(memberIdParam) : null
+      currentMonthYear
     }
 
     // Cache the result in Redis
     await redisCache.set(cacheKey, responseData, cacheTTL.leaderboard)
-    console.log('✅ Leaderboard cached in Redis')
 
     return NextResponse.json(responseData);
 
   } catch (error) {
-    console.error('❌ Leaderboard API Error:', error);
+    console.error('Leaderboard API Error:', error);
     return NextResponse.json(
       { error: 'Failed to fetch leaderboard data' },
       { status: 500 }
@@ -276,7 +231,6 @@ async function getCurrentMonthYear(pool: any): Promise<string> {
     return result.rows[0].month_year;
   } catch (error) {
     // Fallback to manual calculation if function doesn't exist
-    console.log('get_month_year function not found, using fallback calculation');
     const now = new Date();
     const month = String(now.getMonth() + 1).padStart(2, '0');
     const year = now.getFullYear();

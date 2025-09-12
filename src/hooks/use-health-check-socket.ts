@@ -93,19 +93,16 @@ export function useHealthCheckSocket(email: string | null) {
     socketRef.current = socket
 
     socket.on('connect', () => {
-      console.log('Health check socket connected')
       setIsConnected(true)
       socket.emit('authenticate', email)
     })
 
     socket.on('disconnect', () => {
-      console.log('Health check socket disconnected')
       setIsConnected(false)
     })
 
     // Listen for health check events
     socket.on('health_check_event', (data: any) => {
-      console.log('Health check event received:', data)
       
       if (data.event === 'request_created') {
         // Handle new request created
@@ -280,14 +277,6 @@ export function useHealthCheckSocket(email: string | null) {
     const dayOfWeek = nowPH.getDay()
     const currentTime = nowPH.toTimeString().slice(0, 5) // HH:MM format in PH timezone
     
-    // Debug logging to help troubleshoot
-    console.log('🕐 Health Check Time Debug:', {
-      currentTime,
-      dayOfWeek,
-      nurseId,
-      nowPH: nowPH.toISOString()
-    })
-    
     const nurseSchedule = availability.find(avail => 
       avail.nurse_id === nurseId && avail.day_of_week === dayOfWeek
     )
@@ -307,15 +296,6 @@ export function useHealthCheckSocket(email: string | null) {
     
     // Check if current time is within shift hours
     const isWithinShift = currentTime >= shiftStart && currentTime <= shiftEnd
-    
-    // Debug logging for shift comparison
-    console.log('🕐 Shift Comparison Debug:', {
-      currentTime,
-      shiftStart,
-      shiftEnd,
-      isWithinShift,
-      comparison: `${currentTime} >= ${shiftStart} && ${currentTime} <= ${shiftEnd}`
-    })
     
     if (!isWithinShift) return false
     

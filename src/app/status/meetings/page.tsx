@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, useMemo, useCallback } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { AppSidebar } from "@/components/app-sidebar"
 import { AppHeader } from "@/components/app-header"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -13,14 +13,8 @@ import {
   MessageSquare, 
   Clock, 
   Users, 
-  Calendar,
   Plus,
-  Edit,
-  Trash2,
-  Play,
-  Pause,
   Square,
-  CheckCircle,
   AlertTriangle,
   Video,
   Phone,
@@ -54,11 +48,10 @@ import { GlobalLoadingIndicator } from "@/components/global-loading-indicator"
 import { toast } from "sonner"
 import { 
   useMeetings, 
-  useMeetingStatus, 
   useMeetingCounts,
   useCreateMeeting, 
   useStartMeeting, 
-  useEndMeeting, 
+  useEndMeeting,  
   useCancelMeeting,
   useRefreshMeetings,
   type Meeting as MeetingType 
@@ -257,7 +250,7 @@ function MeetingCardSkeleton() {
 export default function MeetingsPage() {
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1)
-  const [itemsPerPage, setItemsPerPage] = useState(9)
+  const [itemsPerPage] = useState(9)
   const [isPaginationLoading, setIsPaginationLoading] = useState(false)
   
   // Calculate offset for pagination
@@ -278,7 +271,15 @@ export default function MeetingsPage() {
   // Use events context for leave event functionality
   const { currentEvent, leaveEvent, isInEvent } = useEventsContext()
   
-  // Only use direct hooks for pagination-specific data
+  // Fetch ALL meetings for filtering (not paginated)
+  const { 
+    data: allMeetingsData, 
+    isLoading: allMeetingsLoading, 
+    error: allMeetingsError,
+    refetch: refetchAllMeetings
+  } = useMeetings(7, 1000, 0) // Fetch up to 1000 meetings for filtering
+  
+  // Only use direct hooks for pagination-specific data (for "All" tab)
   const { 
     data: meetingsData, 
     isLoading: meetingsLoading, 
@@ -312,6 +313,14 @@ export default function MeetingsPage() {
   // All data fetching is now handled by direct hooks above
   
   // Extract data from react-query and ensure compatibility
+  // Use all meetings data for filtering, but paginated data for "All" tab
+  const allMeetings = useMemo(() => {
+    return (allMeetingsData?.meetings || []).map(meeting => ({
+      ...meeting,
+      is_in_meeting: meeting.status === 'in-progress'
+    }))
+  }, [allMeetingsData?.meetings])
+  
   const meetings = useMemo(() => {
     return (meetingsData?.meetings || []).map(meeting => ({
       ...meeting,
@@ -330,14 +339,13 @@ export default function MeetingsPage() {
   }
   // Show loading if we're loading meetings, status, or counts, or if we don't have any data yet
   // This prevents the empty state from flashing before data loads
-  const loading = isInitialMount || meetingsLoading || statusLoading || countsLoading || (!meetingsData && !statusData)
+  const loading = isInitialMount || meetingsLoading || allMeetingsLoading || statusLoading || countsLoading || (!meetingsData && !allMeetingsData && !statusData)
   
   // Show loading state when pagination is changing (meetingsLoading is true but we have data)
   const paginationLoading = isPaginationLoading || (meetingsLoading && meetingsData)
   
   // Check if we're still in the initial loading phase (queries not yet enabled)
   const isInitializing = meetingsLoading === false && statusLoading === false && countsLoading === false && !meetingsData && !statusData
-  const queryError = meetingsError || statusError || countsError
   
   const [currentTime, setCurrentTime] = useState(new Date())
   const [showAddForm, setShowAddForm] = useState(false)
@@ -369,7 +377,7 @@ export default function MeetingsPage() {
   const filteredMeetings = useMemo(() => {
     switch (activeTab) {
       case 'today':
-        return meetings.filter(meeting => {
+        return allMeetings.filter(meeting => {
           const now = new Date()
           const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
           
@@ -379,15 +387,15 @@ export default function MeetingsPage() {
           return meetingDate.getTime() === today.getTime()
         })
       case 'scheduled':
-        return meetings.filter(meeting => meeting.status === 'scheduled')
+        return allMeetings.filter(meeting => meeting.status === 'scheduled')
       case 'in-progress':
-        return meetings.filter(meeting => meeting.status === 'in-progress')
+        return allMeetings.filter(meeting => meeting.status === 'in-progress')
       case 'completed':
-        return meetings.filter(meeting => meeting.status === 'completed')
+        return allMeetings.filter(meeting => meeting.status === 'completed')
       default:
-        return meetings
+        return meetings // Use paginated meetings for "All" tab
     }
-  }, [meetings, activeTab])
+  }, [allMeetings, meetings, activeTab])
 
   // Calculate pagination for filtered results
   const filteredPagination = useMemo(() => {
@@ -434,10 +442,10 @@ export default function MeetingsPage() {
 
   // Handle initial mount state
   useEffect(() => {
-    if (meetingsData || statusData || meetingsLoading || statusLoading) {
+    if (meetingsData || allMeetingsData || statusData || meetingsLoading || allMeetingsLoading || statusLoading) {
       setIsInitialMount(false)
     }
-  }, [meetingsData, statusData, meetingsLoading, statusLoading])
+  }, [meetingsData, allMeetingsData, statusData, meetingsLoading, allMeetingsLoading, statusLoading])
 
   // Update current time every second for elapsed time display
   useEffect(() => {
@@ -470,14 +478,12 @@ export default function MeetingsPage() {
   // Listen for automatic meeting start events
   useEffect(() => {
     const handleMeetingStarted = (event: CustomEvent) => {
-      console.log('Meeting automatically started:', event.detail)
       // Refresh both meeting data and context to ensure consistency
       refetchMeetings()
       contextRefreshMeetings()
     }
 
     const handleEventLeft = (event: CustomEvent) => {
-      console.log('User left event, checking for scheduled meetings:', event.detail)
       // Single refresh is sufficient - the database function will handle the rest
       refetchMeetings()
       contextRefreshMeetings()
@@ -524,7 +530,6 @@ export default function MeetingsPage() {
       })
 
       if (shouldRefresh) {
-        console.log('Refreshing meetings to check for automatic starts...')
         setIsScheduledMeetingLoading(true)
         refetchMeetings()
         contextRefreshMeetings()
@@ -558,7 +563,6 @@ export default function MeetingsPage() {
       })
 
       if (shouldSync) {
-        console.log('Detected potentially stale meeting data, refreshing...')
         refetchMeetings()
         contextRefreshMeetings()
       }
@@ -1190,7 +1194,7 @@ export default function MeetingsPage() {
           </Tabs>
 
           {/* Empty State - Only show when we have confirmed there are no meetings */}
-          {filteredMeetings.length === 0 && !loading && !isInitializing && !paginationLoading && meetingsData && !meetingsLoading && 
+          {filteredMeetings.length === 0 && !loading && !isInitializing && !paginationLoading && (meetingsData || allMeetingsData) && !meetingsLoading && !allMeetingsLoading && 
            (currentPage === 1 || pagination.total === 0) && (
             <Card>
               <CardContent className="p-8 text-center">

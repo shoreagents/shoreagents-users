@@ -75,7 +75,6 @@ export async function GET(request: NextRequest) {
       const cachedData = await redisCache.get(cacheKey);
       
       if (cachedData) {
-        console.log(`📦 Task activity cache hit for ${email}`);
         return NextResponse.json({
           success: true,
           groups: cachedData,
@@ -227,7 +226,6 @@ export async function GET(request: NextRequest) {
     if (email) {
       const cacheKey = cacheKeys.taskActivity(email);
       await redisCache.set(cacheKey, groupsData, cacheTTL.taskActivity);
-      console.log(`💾 Task activity cached for ${email}`);
     }
     
     return NextResponse.json({
@@ -274,7 +272,6 @@ export async function POST(request: NextRequest) {
       if (email) {
         const cacheKey = cacheKeys.taskActivity(email);
         await redisCache.del(cacheKey);
-        console.log(`🗑️ Task activity cache invalidated for ${email}`);
       }
     };
 

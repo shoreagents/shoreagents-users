@@ -13,18 +13,26 @@ export const getAllUsersLeaderboard = async (month?: string): Promise<Leaderboar
   if (typeof window === 'undefined') return []
   
   try {
-    const authData = localStorage.getItem("shoreagents-auth")
-    const authToken = authData ? JSON.stringify(JSON.parse(authData)) : null
+    // First, get team agents to filter by team
+    const teamAgentsResponse = await fetch('/api/agents/team')
+    if (!teamAgentsResponse.ok) {
+      console.error('Failed to fetch team agents:', teamAgentsResponse.statusText)
+      return []
+    }
     
+    const teamData = await teamAgentsResponse.json()
+    const teamAgentEmails = teamData.agents?.map((agent: any) => agent.email) || []
+    
+    if (teamAgentEmails.length === 0) {
+      return []
+    }
+    
+    // Get all leaderboard data
     const params = new URLSearchParams()
     if (month) params.append('month', month)
+    params.append('limit', '100') // Get more data to filter from
     
-    const response = await fetch(`/api/leaderboard?${params}`, {
-      headers: {
-        'Authorization': `Bearer ${authToken}`,
-        'Content-Type': 'application/json'
-      }
-    })
+    const response = await fetch(`/api/leaderboard?${params}`)
     
     if (!response.ok) {
       console.error('Failed to fetch leaderboard:', response.statusText)
@@ -32,7 +40,14 @@ export const getAllUsersLeaderboard = async (month?: string): Promise<Leaderboar
     }
     
     const data = await response.json()
-    return data.leaderboard || []
+    const allLeaderboard = data.leaderboard || []
+    
+    // Filter leaderboard to only include team members
+    const teamLeaderboard = allLeaderboard.filter((entry: LeaderboardEntry) => 
+      teamAgentEmails.includes(entry.userId)
+    )
+    
+    return teamLeaderboard
   } catch (error) {
     console.error('Error fetching leaderboard:', error)
     return []
@@ -43,26 +58,26 @@ export const getCurrentUserRank = async (month?: string): Promise<number> => {
   if (typeof window === 'undefined') return 0
   
   try {
+    // Get current user email
     const authData = localStorage.getItem("shoreagents-auth")
-    const authToken = authData ? JSON.stringify(JSON.parse(authData)) : null
+    const userEmail = authData ? JSON.parse(authData)?.user?.email : null
     
-    const params = new URLSearchParams()
-    if (month) params.append('month', month)
-    
-    const response = await fetch(`/api/leaderboard?${params}`, {
-      headers: {
-        'Authorization': `Bearer ${authToken}`,
-        'Content-Type': 'application/json'
-      }
-    })
-    
-    if (!response.ok) {
-      console.error('Failed to fetch user rank:', response.statusText)
+    if (!userEmail) {
       return 0
     }
     
-    const data = await response.json()
-    return data.currentUserRank || 0
+    // Get team leaderboard and find user's rank
+    const teamLeaderboard = await getAllUsersLeaderboard(month)
+    
+    // Find user's rank in the team leaderboard
+    const userEntry = teamLeaderboard.find(entry => entry.userId === userEmail)
+    
+    if (userEntry) {
+      return userEntry.rank
+    }
+    
+    // If user not found in team leaderboard, they might not have any activity
+    return 0
   } catch (error) {
     console.error('Error fetching user rank:', error)
     return 0

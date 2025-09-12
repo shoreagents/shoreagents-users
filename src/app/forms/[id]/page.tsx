@@ -93,24 +93,18 @@ export default function TicketDetailsPage() {
       try {
         const data = JSON.parse(event.data)
         if (data?.type === 'connected') return
-        
-        console.log('🔔 SSE event received:', data)
-        
         // Handle different types of events
         if (data.channel === 'ticket_comments') {
-          console.log('📝 Comment event received via SSE:', data)
           // Handle comment events
           if (data.event === 'insert') {
             const newId = String(data.comment_id)
             if (!seenCommentIdsRef.current.has(newId)) {
-              console.log('✅ New comment via SSE, updating...', { commentId: newId, ticketId })
               seenCommentIdsRef.current.add(newId)
               // Use the dedicated function to trigger fresh comment update
               await triggerCommentsUpdate()
               setTimeout(() => scrollCommentsToBottom('smooth'), 100)
             }
           } else if (data.event === 'update' || data.event === 'delete') {
-            console.log('📝 Comment update/delete via SSE, refreshing...', { event: data.event, commentId: data.comment_id })
             await triggerCommentsUpdate()
           }
         } else {
@@ -312,10 +306,8 @@ export default function TicketDetailsPage() {
   }
 
   const openImageViewer = (url: string, fileName: string) => {
-    console.log('Opening image viewer for:', { url, fileName })
     setSelectedImage({ url, name: fileName })
     setImageViewerOpen(true)
-    console.log('State updated:', { selectedImage: { url, name: fileName }, imageViewerOpen: true })
   }
 
   const handleAddComment = async () => {
@@ -340,12 +332,10 @@ export default function TicketDetailsPage() {
   useTicketCommentsSocket((payload: any) => {
     try {
       if (!ticket) return
-      console.log('🔌 Socket comment event received:', payload)
 
       if (payload?.event === 'insert') {
         const newId = String(payload.comment_id)
         if (!seenCommentIdsRef.current.has(newId)) {
-          console.log('✅ New comment via socket, updating...', { commentId: newId, ticketId })
           // Add to seen IDs to prevent duplicates
           seenCommentIdsRef.current.add(newId)
           // Use the dedicated function to trigger fresh comment update
@@ -354,10 +344,8 @@ export default function TicketDetailsPage() {
           setTimeout(() => scrollCommentsToBottom('smooth'), 100)
         }
       } else if (payload?.event === 'update') {
-        console.log('📝 Comment updated via socket, refreshing...')
         triggerCommentsUpdate()
       } else if (payload?.event === 'delete') {
-        console.log('🗑️ Comment deleted via socket, refreshing...')
         triggerCommentsUpdate()
       }
     } catch (error) {

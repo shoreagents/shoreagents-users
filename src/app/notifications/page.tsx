@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useSearchParams } from "next/navigation"
-import { CheckCircle, AlertCircle, Info, Clock, Trash2, Bell, CheckSquare, FileText, Filter, X, Search, RefreshCw, Check, Heart, Square, SquareCheck } from "lucide-react"
+import { CheckCircle, AlertCircle, Info, Clock, Trash2, Bell, CheckSquare, FileText, Filter, X, Search, RefreshCw, Check, Heart, Square, SquareCheck, Activity, Calendar } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -129,7 +129,7 @@ export default function NotificationsPage() {
                 return '/productivity/task-activity'
               }
               if (n.category === 'health_check') {
-                return '/health'
+                return '/status/health'
               }
               return undefined
             })()
@@ -264,9 +264,6 @@ export default function NotificationsPage() {
     try {
       const user = getCurrentUser()
       if (!user?.id) return
-      
-      console.log('🔄 Marking all notifications as read...')
-      
       // Fetch ALL unread notifications from the database, not just the loaded ones
       const response = await fetch(`/api/notifications?email=${encodeURIComponent(user.email)}&limit=1000&offset=0`, {
         method: 'GET',
@@ -283,12 +280,8 @@ export default function NotificationsPage() {
       const allUnreadNotifications = data.notifications.filter((n: any) => !n.is_read)
       
       if (allUnreadNotifications.length === 0) {
-        console.log('✅ No unread notifications to mark')
         return
       }
-      
-      console.log(`🔄 Found ${allUnreadNotifications.length} unread notifications to mark as read`)
-      
       // Extract numeric IDs
       const notificationIds = allUnreadNotifications.map((n: any) => n.id)
       
@@ -311,8 +304,6 @@ export default function NotificationsPage() {
         
         if (markResponse.ok) {
           const markData = await markResponse.json()
-          console.log(`✅ Successfully marked ${markData.updatedCount} notifications as read`)
-          
           // Update local state to mark all as read
           setNotifications(prev => prev.map(n => ({ ...n, read: true })))
           // Update unread count
@@ -670,7 +661,7 @@ export default function NotificationsPage() {
         const actionUrl = payload.action_url
           || (n.category === 'ticket' && (payload.ticket_id || payload.ticket_row_id) ? `/forms/${payload.ticket_id || ''}` : undefined)
           || (n.category === 'break' ? '/status/breaks' : undefined)
-          || (n.category === 'health_check' ? '/health' : undefined)
+          || (n.category === 'health_check' ? '/status/health' : undefined)
         const icon = n.category === 'ticket' ? 'FileText' : n.category === 'break' ? 'Clock' : n.category === 'health_check' ? 'Heart' : 'Bell'
         return {
           id: `db_${n.id}`,
@@ -900,6 +891,12 @@ export default function NotificationsPage() {
                                   {category === 'break' && <Clock className="h-3 w-3" />}
                                   {category === 'task' && <CheckSquare className="h-3 w-3" />}
                                   {category === 'ticket' && <FileText className="h-3 w-3" />}
+                                  {category === 'activity' && <Activity className="h-3 w-3" />}
+                                  {category === 'event' && <Calendar className="h-3 w-3" />}
+                                  {category === 'system' && <Bell className="h-3 w-3" />}
+                                  {category === 'health_check' && <Heart className="h-3 w-3" />}
+                                  {category === 'meeting' && <Calendar className="h-3 w-3" />}
+                                  
                                   <span className="capitalize">{category}</span>
                                 </div>
                               </SelectItem>
@@ -925,6 +922,7 @@ export default function NotificationsPage() {
                                   {type === 'success' && <CheckCircle className="h-3 w-3 text-green-600" />}
                                   {type === 'warning' && <AlertCircle className="h-3 w-3 text-yellow-600" />}
                                   {type === 'info' && <Info className="h-3 w-3 text-blue-600" />}
+                                  {type === 'error' && <AlertCircle className="h-3 w-3 text-red-600" />}
                                   <span className="capitalize">{type}</span>
                                 </div>
                               </SelectItem>

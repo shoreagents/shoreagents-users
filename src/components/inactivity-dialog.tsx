@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog"
 import { Progress } from "@/components/ui/progress"
 import { Clock, MousePointer } from "lucide-react"
+import Image from "next/image"
 
 interface InactivityDialogProps {
   open: boolean
@@ -89,7 +90,7 @@ export function InactivityDialog({
           </DialogTitle>
           <DialogDescription>
             We haven't detected any mouse movement for {formatInactiveTime(inactiveTime)}. 
-            Move your mouse to naturally resume activity tracking. Manual activity resets are disabled to ensure accurate time tracking.
+            
           </DialogDescription>
         </DialogHeader>
         

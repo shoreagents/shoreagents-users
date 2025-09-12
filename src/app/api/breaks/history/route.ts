@@ -22,7 +22,6 @@ export async function GET(request: NextRequest) {
     const cachedData = await redisCache.get(cacheKey)
     
     if (cachedData) {
-      console.log('✅ Breaks history served from Redis cache')
       return NextResponse.json(cachedData)
     }
 
@@ -156,12 +155,11 @@ export async function GET(request: NextRequest) {
 
     // Cache the result in Redis
     await redisCache.set(cacheKey, responseData, cacheTTL.breaksHistory)
-    console.log('✅ Breaks history cached in Redis')
 
     return NextResponse.json(responseData);
 
   } catch (error) {
-    console.error('❌ Error fetching break history:', error);
+    console.error('Error fetching break history:', error);
     
     return NextResponse.json(
       { 

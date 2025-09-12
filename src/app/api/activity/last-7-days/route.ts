@@ -47,25 +47,6 @@ export async function GET(request: NextRequest) {
     const weekStartStr = weekStartUTC.toISOString().split('T')[0];
     const weekEndStr = weekEndUTC.toISOString().split('T')[0];
     
-    // Debug: Log the date range
-    console.log('API Date range (Philippines time):', {
-      philippinesWeekStart: weekStart.toISOString().split('T')[0],
-      philippinesWeekEnd: weekEnd.toISOString().split('T')[0],
-      today: philippinesTime.toISOString().split('T')[0]
-    });
-    console.log('API Date range (UTC for DB):', {
-      weekStartStr,
-      weekEndStr
-    });
-    
-    // Debug: Log the exact query parameters
-    console.log('Query parameters:', {
-      userId,
-      weekStartStr,
-      weekEndStr,
-      query: `SELECT * FROM activity_data WHERE user_id = ${userId} AND today_date >= '${weekStartStr}' AND today_date <= '${weekEndStr}'`
-    });
-
     const result = await pool.query(`
       SELECT 
         id,
@@ -86,14 +67,6 @@ export async function GET(request: NextRequest) {
 
     const activityData = result.rows;
 
-    // Debug: Log what data is being returned
-    console.log('API returning data:', activityData.map(item => ({
-      id: item.id,
-      today_date: item.today_date,
-      active: item.today_active_seconds,
-      inactive: item.today_inactive_seconds
-    })));
-
     return NextResponse.json({
       success: true,
       data: activityData,
@@ -101,7 +74,7 @@ export async function GET(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error('❌ Error fetching last 7 days activity data:', error);
+    console.error('Error fetching last 7 days activity data:', error);
     return NextResponse.json(
       { error: 'Failed to fetch activity data' },
       { status: 500 }

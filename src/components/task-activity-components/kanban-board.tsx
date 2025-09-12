@@ -10,13 +10,9 @@ import {
   Flag, 
   Calendar, 
   GripVertical,
-  ChevronRight,
   Trash2,
   Edit3,
   ArrowRight,
-  CheckCircle,
-  Clock,
-  ListTodo,
   Paperclip
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -913,7 +909,6 @@ export function KanbanBoard({ tasks, columns, onTaskMove, onTaskCreate, onTaskUp
     const handleOpenTask = (event: CustomEvent) => {
       const task = event.detail
       if (task) {
-        console.log('Opening task from custom event:', task.title)
         setSelectedTask(task)
         setIsDialogOpen(true)
       }

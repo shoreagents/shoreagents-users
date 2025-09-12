@@ -13,6 +13,7 @@ export function Leaderboard() {
   const [currentMonth, setCurrentMonth] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [isInitialized, setIsInitialized] = useState(false) // Add flag to prevent immediate refresh
+  const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null)
 
   // Function to truncate name with ellipsis
   const truncateName = useCallback((name: string, maxLength: number = 12) => {
@@ -30,14 +31,31 @@ export function Leaderboard() {
     return `${monthName} Top Points Leaderboard`
   }, [])
 
+  // Function to get current user email
+  const getCurrentUserEmail = useCallback(() => {
+    try {
+      const authData = localStorage.getItem("shoreagents-auth")
+      if (authData) {
+        const parsed = JSON.parse(authData)
+        return parsed?.user?.email || null
+      }
+    } catch (error) {
+      console.error('Error parsing auth data:', error)
+    }
+    return null
+  }, [])
+
   // Memoize the loadLeaderboard function
   const loadLeaderboard = useCallback(async () => {
     try {
       setLoading(true)
       const data = await getAllUsersLeaderboard()
       const rank = await getCurrentUserRank()
+      const userEmail = getCurrentUserEmail()
+      
       setLeaderboard(data.slice(0, 10)) // Show top 10
       setCurrentUserRank(rank)
+      setCurrentUserEmail(userEmail)
       
       // Get current month for display
       const now = new Date()
@@ -53,7 +71,7 @@ export function Leaderboard() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [getCurrentUserEmail])
 
   // Memoize the productivity update handler
   const handleProductivityUpdate = useCallback((event: CustomEvent) => {
@@ -160,8 +178,17 @@ export function Leaderboard() {
         <TooltipProvider>
         <div className="space-y-2">
           {leaderboard.map((entry, index) => {
+            const isCurrentUser = currentUserEmail && entry.userId === currentUserEmail
+            
             return (
-              <div key={entry.userId} className="flex items-center gap-2 w-full">
+              <div 
+                key={entry.userId} 
+                className={`flex items-center gap-2 w-full rounded-md px-1.5 py-0.5 transition-all duration-500 ease-in-out ${
+                  isCurrentUser 
+                    ? 'bg-gradient-to-r from-slate-100 to-gray-200 border border-gray-300 shadow-lg backdrop-blur-sm' 
+                    : 'hover:bg-muted/50'
+                }`}
+              >
                 <div className="flex items-center gap-1 flex-shrink-0 w-6">
                   
                   {/* Rank indicators */}
@@ -179,7 +206,9 @@ export function Leaderboard() {
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <div className="flex items-center gap-1 w-full">
-                        <span className="text-xs font-medium block w-full text-left">
+                        <span className={`text-xs font-medium block w-full text-left ${
+                          isCurrentUser ? 'text-gray-800 font-semibold' : ''
+                        }`}>
                           {truncateName(entry.name)}
                         </span>
                       </div>
@@ -190,7 +219,12 @@ export function Leaderboard() {
                   </Tooltip>
                 </div>
                 
-                <Badge variant="secondary" className="text-xs px-1.5 py-0.5 flex-shrink-0">
+                <Badge 
+                  variant={isCurrentUser ? "default" : "secondary"} 
+                  className={`text-xs px-1.5 py-0.5 flex-shrink-0 ${
+                    isCurrentUser ? 'bg-gray-200 text-gray-800 border-gray-300 shadow-sm' : ''
+                  }`}
+                >
                   {entry.productivityScore.toFixed(1)} pts
                 </Badge>
               </div>

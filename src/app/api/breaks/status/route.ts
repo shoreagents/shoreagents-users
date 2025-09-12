@@ -121,7 +121,7 @@ export async function GET(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error('❌ Error fetching break status:', error);
+    console.error('Error fetching break status:', error);
     
     // Provide more specific error messages
     let errorMessage = 'Failed to fetch break status';

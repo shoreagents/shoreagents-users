@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error('❌ Error resuming break session:', error);
+    console.error('Error resuming break session:', error);
     
     return NextResponse.json(
       { 

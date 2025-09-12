@@ -40,8 +40,6 @@ export function useTaskActivitySocketContext(email: string | null) {
     // Listen for task activity updates
     const handleTaskActivityUpdate = (data: any) => {
       if (data.email === email) {
-        console.log('Task activity update received:', data)
-        
         if (data.type === 'activity_update') {
           setTaskActivities(prev => {
             const existing = prev.find(a => a.id === data.activity.id)

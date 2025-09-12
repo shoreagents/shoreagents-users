@@ -20,7 +20,7 @@ interface ActivityStatus {
   timeSinceLastActivity: number;
 }
 
-export const useActivityTracking = () => {
+export const useActivityTracking = (setActivityState?: (isActive: boolean) => void) => {
   const [isTracking, setIsTracking] = useState(false);
   const [lastActivity, setLastActivity] = useState<ActivityData | null>(null);
   const [showInactivityDialog, setShowInactivityDialog] = useState(false);
@@ -55,27 +55,17 @@ export const useActivityTracking = () => {
     
     try {
       const result = await window.electronAPI.activityTracking.stop();
-      console.log('🔍 Raw stop result:', result);
       
       if (result && result.success) {
         setIsTracking(false);
         // Activity tracking stopped successfully;
-        
-        // Check if we have enhanced diagnostics
-        if (result.wasTracking !== undefined) {
-          console.log(`   Was tracking: ${result.wasTracking}`);
-          console.log(`   Final state: ${result.finalState}`);
-          console.log(`   Intervals cleaned: ${JSON.stringify(result.cleanupResults)}`);
-        } else {
-          console.log('   (Enhanced diagnostics not available - using old Electron version)');
-        }
       } else {
-        console.error('❌ Failed to stop activity tracking:', result?.error || 'Unknown error');
+        console.error('Failed to stop activity tracking:', result?.error || 'Unknown error');
         // Force set tracking to false even if Electron call failed
         setIsTracking(false);
       }
     } catch (error) {
-      console.error('❌ Error stopping activity tracking:', error);
+      console.error('Error stopping activity tracking:', error);
       // Force set tracking to false even if there was an error
       setIsTracking(false);
     }
@@ -203,10 +193,15 @@ export const useActivityTracking = () => {
     setShowInactivityDialog(false);
     setInactivityData(null);
     
+    // CRITICAL: Set activity state to active when activity is detected
+    if (setActivityState) {
+      setActivityState(true);
+    }
+    
     // Only update last activity time, don't start new sessions on every movement
     // TODO: Replace with database-driven activity update
     // updateLastActivity(currentUser.email);
-  }, [isTracking, stopTracking]);
+  }, [isTracking, stopTracking, setActivityState]);
 
   // Handle inactivity alerts
   const handleInactivityAlert = useCallback((data: unknown) => {
@@ -243,17 +238,21 @@ export const useActivityTracking = () => {
     setInactivityData(alertData);
     setShowInactivityDialog(true);
     
+    // CRITICAL: Set activity state to inactive when inactivity is detected
+    if (setActivityState) {
+      setActivityState(false);
+    }
+    
     // Start inactive session when inactivity is detected
     // TODO: Replace with database-driven inactive session
     // startInactiveSession(currentUser.email);
-  }, [isTracking, stopTracking]);
+  }, [isTracking, stopTracking, setActivityState]);
 
   // Handle activity reset
   const handleActivityReset = useCallback((data: unknown) => {
     // Don't process activity reset if user is not authenticated
     const currentUser = getCurrentUser();
     if (!currentUser) {
-      console.log('Ignoring activity reset - user not authenticated');
       return;
     }
     
@@ -262,10 +261,15 @@ export const useActivityTracking = () => {
     setShowInactivityDialog(false);
     setInactivityData(null);
     
+    // CRITICAL: Set activity state to active when activity is reset
+    if (setActivityState) {
+      setActivityState(true);
+    }
+    
     // Just update last activity time when activity is reset
     // TODO: Replace with database-driven activity update
     // updateLastActivity(currentUser.email);
-  }, []);
+  }, [setActivityState]);
 
   // Handle system suspend events
   const handleSystemSuspend = useCallback(() => {

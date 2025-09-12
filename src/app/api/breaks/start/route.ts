@@ -105,7 +105,7 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error('❌ Error starting break session:', error);
+    console.error('Error starting break session:', error);
     
     return NextResponse.json(
       { 

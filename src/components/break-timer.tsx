@@ -112,7 +112,6 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
         
         if (result?.success) {
           setBlackScreensActive(false);
-          console.log('Black screen windows closed successfully');
         } else {
           console.warn('Failed to close black screen windows:', result?.error);
         }
@@ -132,7 +131,6 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
         
         if (result?.success) {
           setBlackScreensActive(true);
-          console.log('Black screen windows created successfully');
         } else {
           console.warn('Failed to create black screen windows:', result?.error);
         }
@@ -148,7 +146,6 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
       if ((window.electronAPI as any)?.breakMonitoring?.confirmEndDueToFocusLoss) {
         const result = await (window.electronAPI as any).breakMonitoring.confirmEndDueToFocusLoss();
         if (result?.success) {
-          console.log('Break ended due to focus loss');
           setBreakActive(false);
           onEnd();
           setShowFocusLossDialog(false);
@@ -167,11 +164,9 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
       if ((window.electronAPI as any)?.breakMonitoring?.returnToBreak) {
         const result = await (window.electronAPI as any).breakMonitoring.returnToBreak();
         if (result?.success) {
-          console.log('Return to break successful - cooldown active');
           
           // Check if black screen windows were recreated
           if (result.blackScreens?.success) {
-            console.log(`Black screen windows recreated: ${result.blackScreens.count} windows`);
             setBlackScreensActive(true);
           } else {
             console.warn('Failed to recreate black screen windows:', result.blackScreens?.error);
@@ -214,17 +209,14 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
     if (!isElectron()) return;
 
     const handleBreakFocusLost = () => {
-      console.log('Break focus lost - showing confirmation dialog');
       setShowFocusLossDialog(true);
     };
 
     const handleBreakMinimized = () => {
-      console.log('Break minimized - showing confirmation dialog');
       setShowFocusLossDialog(true);
     };
 
     const handleBreakHidden = () => {
-      console.log('Break hidden - showing confirmation dialog');
       setShowFocusLossDialog(true);
     };
 
@@ -234,7 +226,6 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
       window.electronAPI.receive('break-minimized', handleBreakMinimized);
       window.electronAPI.receive('break-hidden', handleBreakHidden);
       window.electronAPI.receive('emergency-escape-pressed', () => {
-        console.log('Emergency escape requested - showing dialog');
         setShowEmergencyEscapeDialog(true);
       });
     }
@@ -588,7 +579,6 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
         // Enable kiosk mode first
         if (window.electronAPI?.kioskMode?.enable) {
           await window.electronAPI.kioskMode.enable();
-          console.log('Kiosk mode enabled');
         }
         
         // Then enter fullscreen
@@ -597,7 +587,6 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
           
           // Check if black screen windows were created successfully
           if (result?.blackScreens?.success) {
-            console.log(`Break started: ${result.blackScreens.count || 0} black screen windows created on secondary monitors`);
             setBlackScreensActive(true);
           } else if (result?.blackScreens?.error) {
             console.warn('Black screen windows creation had issues:', result.blackScreens.error);
@@ -621,7 +610,6 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
             
             // Check if black screen windows were closed successfully
             if (result?.blackScreens?.success) {
-              console.log('Break ended: Black screen windows closed on secondary monitors');
               setBlackScreensActive(false);
             } else if (result?.blackScreens?.error) {
               console.warn('Black screen windows closure had issues:', result.blackScreens.error);
@@ -631,7 +619,6 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
           // Disable kiosk mode
           if (window.electronAPI?.kioskMode?.disable) {
             await window.electronAPI.kioskMode.disable();
-            console.log('Kiosk mode disabled');
           }
         } catch (error) {
           console.error('Failed to exit fullscreen:', error);

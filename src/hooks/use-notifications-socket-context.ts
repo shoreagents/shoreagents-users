@@ -166,9 +166,6 @@ export function useNotificationsSocketContext(email: string | null) {
       if (unreadIds.length === 0) {
         return // No unread notifications to mark
       }
-
-      console.log(`🔄 Marking ${unreadIds.length} notifications as read`)
-
       const response = await fetch(`/api/notifications/mark-read`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -181,7 +178,6 @@ export function useNotificationsSocketContext(email: string | null) {
       const data = await response.json()
       
       if (data.success) {
-        console.log(`✅ Successfully marked ${data.updatedCount} notifications as read`)
         setNotifications(prev => prev.map(n => ({ ...n, is_read: true })))
         setUnreadCount(0)
         
@@ -193,7 +189,7 @@ export function useNotificationsSocketContext(email: string | null) {
           })
         }
       } else {
-        console.error('❌ Failed to mark notifications as read:', data.error)
+        console.error('Failed to mark notifications as read:', data.error)
       }
     } catch (error) {
       console.error('Error marking all notifications as read:', error)

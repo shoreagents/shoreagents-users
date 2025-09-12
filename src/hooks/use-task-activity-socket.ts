@@ -29,7 +29,6 @@ export function useTaskActivitySocket(email: string | null): TaskActivitySocket 
     socketRef.current = io(socketServerUrl)
 
     socketRef.current.on('connect', () => {
-      console.log('Task activity socket connected')
       isConnectedRef.current = true
       try { (window as any)._saSocket = socketRef.current } catch {}
       
@@ -38,13 +37,11 @@ export function useTaskActivitySocket(email: string | null): TaskActivitySocket 
     })
 
     socketRef.current.on('disconnect', () => {
-      console.log('Task activity socket disconnected')
       isConnectedRef.current = false
       try { if ((window as any)._saSocket === socketRef.current) (window as any)._saSocket = null } catch {}
     })
 
     socketRef.current.on('authenticated', (data) => {
-      console.log('Task activity socket authenticated:', data)
     })
 
     return () => {
@@ -65,7 +62,6 @@ export function useTaskActivitySocket(email: string | null): TaskActivitySocket 
         newGroupId,
         task
       }
-      console.log('Socket emitting taskMoved:', eventData)
       socketRef.current.emit('taskMoved', eventData)
     } else {
       console.warn('Cannot emit taskMoved: socket not connected or email missing')

@@ -9,7 +9,6 @@ let redisClient: ReturnType<typeof createClient> | null = null
 export const initializeRedis = async (): Promise<void> => {
   try {
     if (!process.env.REDIS_URL) {
-      console.log('⚠️ REDIS_URL not found, skipping Redis initialization')
       return
     }
 
@@ -21,16 +20,15 @@ export const initializeRedis = async (): Promise<void> => {
     })
 
     redisClient.on('error', (err) => {
-      console.error('❌ Redis Client Error:', err)
+      console.error('Redis Client Error:', err)
     })
 
     redisClient.on('connect', () => {
-      console.log('✅ Redis Client Connected')
     })
 
     await redisClient.connect()
   } catch (error) {
-    console.error('❌ Redis initialization failed:', error)
+    console.error('Redis initialization failed:', error)
     redisClient = null
   }
 }
@@ -60,7 +58,7 @@ export const redisCache = {
       const value = await client.get(key)
       return value ? JSON.parse(value) : null
     } catch (error) {
-      console.error('❌ Redis GET error:', error)
+      console.error('Redis GET error:', error)
       return null
     }
   },
@@ -92,7 +90,7 @@ export const redisCache = {
       await client.del(key)
       return true
     } catch (error) {
-      console.error('❌ Redis DEL error:', error)
+      console.error('Redis DEL error:', error)
       return false
     }
   },
@@ -111,7 +109,7 @@ export const redisCache = {
       }
       return true
     } catch (error) {
-      console.error('❌ Redis INVALIDATE error:', error)
+      console.error('Redis INVALIDATE error:', error)
       return false
     }
   },
@@ -189,7 +187,7 @@ export const cacheTTL = {
   // Global search cache TTL
   globalSearch: 180, // 3 minutes (search results can change frequently)
   // Team agents cache TTL
-  teamAgents: 300, // 5 minutes (team data changes less frequently)
+  teamAgents: 120, // 2 minutes (balanced for performance and updates)
   userAuthData: 60, // 1 minute (auth data changes frequently on login)
   // Profile cache TTL
   profile: 60, // 1 minute (reduced for faster updates)

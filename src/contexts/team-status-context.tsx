@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 import { useSocket } from './socket-context'
+import { useTeamAgents } from '@/hooks/use-team-agents'
 import { getCurrentUser } from '@/lib/ticket-utils'
 
 interface TeamStatusContextType {
@@ -9,6 +10,8 @@ interface TeamStatusContextType {
   totalTeamCount: number
   isLoading: boolean
   lastUpdated: Date | null
+  onlineTeamMembers: string[]
+  teamMembers: string[]
 }
 
 const TeamStatusContext = createContext<TeamStatusContextType | undefined>(undefined)
@@ -30,8 +33,38 @@ export function TeamStatusProvider({ children }: TeamStatusProviderProps) {
   const [totalTeamCount, setTotalTeamCount] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const [onlineTeamMembers, setOnlineTeamMembers] = useState<string[]>([])
+  const [teamMembers, setTeamMembers] = useState<string[]>([])
+  const [socketOnlineUsers, setSocketOnlineUsers] = useState<Set<string>>(new Set())
+  
   const { socket, isConnected } = useSocket()
+  const { data: teamData, isLoading: teamLoading, triggerRealtimeUpdate } = useTeamAgents()
 
+  // Process team data and calculate counts
+  useEffect(() => {
+    if (teamData?.agents) {
+      const teamEmails = teamData.agents.map(agent => agent.email)
+      setTeamMembers(teamEmails)
+      setTotalTeamCount(teamEmails.length)
+      
+      // Calculate online team members based on socket data
+      const onlineTeamEmails = teamEmails.filter(email => socketOnlineUsers.has(email))
+      setOnlineTeamMembers(onlineTeamEmails)
+      setOnlineTeamCount(onlineTeamEmails.length)
+      
+      setLastUpdated(new Date())
+      setIsLoading(false)
+    }
+  }, [teamData, socketOnlineUsers])
+
+  // Update loading state based on team data
+  useEffect(() => {
+    if (teamLoading) {
+      setIsLoading(true)
+    }
+  }, [teamLoading])
+
+  // Socket event handlers for real-time updates
   useEffect(() => {
     if (!socket || !isConnected) {
       return
@@ -43,27 +76,37 @@ export function TeamStatusProvider({ children }: TeamStatusProviderProps) {
     // Listen for connected users list
     const handleConnectedUsersList = (users: any[]) => {
       const onlineUsers = users.filter(user => user.status === 'online')
-      setOnlineTeamCount(onlineUsers.length)
-      setTotalTeamCount(users.length)
+      const onlineEmails = new Set(onlineUsers.map(user => user.email))
+      setSocketOnlineUsers(onlineEmails)
       setLastUpdated(new Date())
-      setIsLoading(false)
     }
 
     // Listen for user status updates
     const handleUserStatusUpdate = (user: any) => {
-      // Update the counts based on the status change
       setLastUpdated(new Date())
       
-      // We need to get the full list to recalculate counts accurately
-      socket.emit('get-connected-users')
+      // Update socket online users set
+      setSocketOnlineUsers(prev => {
+        const newSet = new Set(prev)
+        if (user.status === 'online') {
+          newSet.add(user.email)
+        } else {
+          newSet.delete(user.email)
+        }
+        return newSet
+      })
     }
 
     // Listen for user logout
     const handleUserLoggedOut = (email: string) => {
       setLastUpdated(new Date())
       
-      // Get updated list to recalculate counts
-      socket.emit('get-connected-users')
+      // Remove user from online set
+      setSocketOnlineUsers(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(email)
+        return newSet
+      })
     }
 
     // Set up event listeners
@@ -78,6 +121,15 @@ export function TeamStatusProvider({ children }: TeamStatusProviderProps) {
       socket.off('user-logged-out', handleUserLoggedOut)
     }
   }, [socket, isConnected])
+
+  // Fallback mechanism when socket is disconnected
+  useEffect(() => {
+    if (!isConnected && teamData?.agents) {
+      // When socket is disconnected, assume all team members are offline
+      // This provides a conservative estimate rather than stale data
+      setSocketOnlineUsers(new Set())
+    }
+  }, [isConnected, teamData])
 
   // Listen for socket reconnection events
   useEffect(() => {
@@ -97,11 +149,25 @@ export function TeamStatusProvider({ children }: TeamStatusProviderProps) {
     }
   }, [socket])
 
+  // Periodic refresh when socket is disconnected (fallback)
+  useEffect(() => {
+    if (!isConnected && teamData?.agents) {
+      const interval = setInterval(() => {
+        // Trigger team agents refresh to get updated team data
+        triggerRealtimeUpdate()
+      }, 30000) // Every 30 seconds
+
+      return () => clearInterval(interval)
+    }
+  }, [isConnected, teamData, triggerRealtimeUpdate])
+
   const value: TeamStatusContextType = {
     onlineTeamCount,
     totalTeamCount,
     isLoading,
-    lastUpdated
+    lastUpdated,
+    onlineTeamMembers,
+    teamMembers
   }
 
   return (

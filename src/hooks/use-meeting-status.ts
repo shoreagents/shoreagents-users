@@ -44,7 +44,6 @@ export function useMeetingStatus() {
     const email = currentUser?.email
     
     if (!email) {
-      console.log('No user email available for Socket.IO connection')
       return
     }
 
@@ -53,7 +52,6 @@ export function useMeetingStatus() {
 
     // Disconnect existing socket if email changed
     if (socketRef.current) {
-      console.log('Disconnecting existing socket for new user:', email)
       try {
         socketRef.current.removeAllListeners()
         socketRef.current.disconnect()

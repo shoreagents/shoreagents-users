@@ -71,20 +71,16 @@ export function NavUser({
   }
 
   const handleLogout = async () => {
-    console.log('🔄 Logout button clicked')
-    
     // Start logout loading state
     startLogout()
     
     // Get current user before clearing auth
     const currentUser = getCurrentUser()
-    console.log('👤 Current user:', currentUser)
     
     // Check if user has an ongoing meeting and end it
     try {
       const hasOngoing = await hasOngoingMeeting()
       if (hasOngoing) {
-        console.log('📞 User has ongoing meeting - ending it before logout')
         
         // Get meetings to find the active one
         const { getMeetings } = await import('@/lib/meeting-utils')
@@ -93,7 +89,6 @@ export function NavUser({
         
         if (activeMeeting) {
           await endMeeting(activeMeeting.id)
-          console.log('✅ Active meeting ended successfully before logout')
         }
       }
     } catch (error) {

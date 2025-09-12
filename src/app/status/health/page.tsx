@@ -188,15 +188,12 @@ export default function HealthPage() {
 
   // Handle going to clinic
   const handleGoingToClinicClick = async () => {
-    console.log('Going to clinic clicked, currentApprovedRequest:', currentApprovedRequest)
     if (!currentApprovedRequest) {
-      console.log('No approved request found')
       return
     }
     
     setIsGoingToClinicLoading(true)
     try {
-      console.log('Updating going to clinic status for request ID:', currentApprovedRequest.id)
       await updateGoingToClinic(currentApprovedRequest.id, true)
       await handleGoingToClinic()
     } catch (error) {
@@ -212,14 +209,12 @@ export default function HealthPage() {
     
     setIsDoneLoading(true)
     try {
-      console.log('🏥 Updating done status for request:', currentApprovedRequest.id)
       await updateDone(currentApprovedRequest.id, true)
       
       // Add a small delay to ensure the loading state is visible
       await new Promise(resolve => setTimeout(resolve, 500))
       
       await handleBackToStation()
-      console.log('🏥 Done status updated successfully')
     } catch (error) {
       console.error('Error updating done status:', error)
     } finally {
@@ -969,15 +964,6 @@ export default function HealthPage() {
                                 minute: '2-digit',
                                 second: '2-digit'
                               })}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <User className="h-4 w-4 text-blue-600" />
-                            <span className="text-sm font-medium text-blue-600">
-                              {record.nurse_first_name && record.nurse_last_name 
-                                ? `${record.nurse_first_name} ${record.nurse_last_name}`
-                                : 'Nurse'
-                              }
                             </span>
                           </div>
                         </div>

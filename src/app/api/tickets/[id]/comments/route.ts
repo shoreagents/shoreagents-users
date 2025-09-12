@@ -63,12 +63,9 @@ export async function GET(
       if (!bypassCache) {
         cachedData = await redisCache.get(cacheKey)
         if (cachedData) {
-          console.log('✅ Ticket comments served from Redis cache')
           return NextResponse.json(cachedData)
         }
-      } else {
-        console.log('🔄 Bypassing Redis cache for real-time comment update')
-      }
+      } 
 
       const q = `
         SELECT c.id,
@@ -98,7 +95,6 @@ export async function GET(
 
       // Cache the result in Redis
       await redisCache.set(cacheKey, responseData, cacheTTL.ticketComments)
-      console.log('✅ Ticket comments cached in Redis')
 
       return NextResponse.json(responseData)
     } finally {
@@ -165,7 +161,6 @@ export async function POST(
       const ticketId = (await params).id
       const cacheKey = cacheKeys.ticketComments(ticketId)
       await redisCache.del(cacheKey)
-      console.log('✅ Ticket comments cache invalidated after new comment')
       
       return NextResponse.json({
         success: true,

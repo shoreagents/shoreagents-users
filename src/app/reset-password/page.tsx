@@ -41,11 +41,8 @@ export default function ResetPasswordPage() {
       setToken(urlToken)
       setType(urlType)
       setHasValidToken(true)
-      console.log('Token received:', urlToken)
-      console.log('Type received:', urlType)
     } else {
       // No URL parameters, show error
-      console.log('No URL parameters found')
       setError("Invalid reset link. Please use the link from your email.")
       setHasValidToken(false)
     }

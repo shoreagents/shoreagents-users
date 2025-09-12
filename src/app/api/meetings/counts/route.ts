@@ -5,15 +5,12 @@ import { redisCache, cacheKeys, cacheTTL } from '@/lib/redis-cache'
 // GET /api/meetings/counts - Get meeting counts for tabs
 export async function GET(request: NextRequest) {
   try {
-    console.log('🔍 Counts API called')
     const { searchParams } = new URL(request.url)
     const agent_user_id = searchParams.get('agent_user_id')
     const days = parseInt(searchParams.get('days') || '7')
 
-    console.log('📊 Counts API params:', { agent_user_id, days })
 
     if (!agent_user_id) {
-      console.log('❌ Missing agent_user_id')
       return NextResponse.json({ error: 'agent_user_id is required' }, { status: 400 })
     }
 
@@ -95,16 +92,12 @@ export async function GET(request: NextRequest) {
       inProgress: inProgressResult[0]?.in_progress_count || 0,
       completed: completedResult[0]?.completed_count || 0
     }
-
-    console.log('📈 Counts result:', counts)
-
     // Cache the result
     await redisCache.set(cacheKey, counts, 60) // 1 minute cache
 
-    console.log('✅ Counts API returning:', counts)
     return NextResponse.json(counts)
   } catch (error) {
-    console.error('❌ Error fetching meeting counts:', error)
+    console.error('Error fetching meeting counts:', error)
     return NextResponse.json({ error: 'Failed to fetch meeting counts' }, { status: 500 })
   }
 }

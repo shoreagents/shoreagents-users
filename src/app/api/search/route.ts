@@ -6,7 +6,7 @@ interface SearchResult {
   id: string
   title: string
   description?: string
-  type: 'ticket' | 'task' | 'break' | 'meeting' | 'health' | 'user' | 'page'
+  type: 'ticket' | 'task' | 'break' | 'meeting' | 'health' | 'user' | 'page' | 'event'
   url: string
   metadata?: {
     status?: string
@@ -74,7 +74,6 @@ export async function GET(request: NextRequest) {
     const cachedData = await redisCache.get<GlobalSearchResponse>(cacheKey)
     
     if (cachedData) {
-      console.log('✅ Global search served from Redis cache')
       return NextResponse.json({ ...cachedData, cached: true })
     }
 
@@ -238,6 +237,53 @@ export async function GET(request: NextRequest) {
         })
       })
 
+      // Search events/activities
+      const eventsQuery = `
+        SELECT 
+          e.id,
+          e.title,
+          e.description,
+          e.status,
+          e.event_type,
+          e.event_date,
+          e.start_time,
+          e.end_time,
+          e.location,
+          e.created_at
+        FROM events e
+        WHERE (e.created_by = $1 OR $1 = ANY(e.assigned_user_ids))
+        AND (
+          e.title ILIKE $2 
+          OR e.description ILIKE $2
+          OR e.status ILIKE $2
+          OR e.event_type ILIKE $2
+          OR e.location ILIKE $2
+        )
+        ORDER BY e.event_date DESC, e.start_time DESC
+        LIMIT 10
+      `
+      const eventsResult = await executeQuery(eventsQuery, [user.id, searchTerm])
+      
+      eventsResult.forEach(row => {
+        const eventDate = row.event_date ? new Date(row.event_date).toLocaleDateString() : undefined
+        const timeInfo = row.start_time && row.end_time 
+          ? `${row.start_time} - ${row.end_time}`
+          : row.start_time || row.end_time || ''
+        
+        results.push({
+          id: row.id.toString(),
+          title: row.title,
+          description: row.description || (row.location ? `Location: ${row.location}` : ''),
+          type: 'event',
+          url: '/status/events',
+          metadata: {
+            status: row.status,
+            date: eventDate,
+            category: row.event_type
+          }
+        })
+      })
+
       // Search health records (if user has access)
       const healthQuery = `
         SELECT 
@@ -316,7 +362,9 @@ export async function GET(request: NextRequest) {
          { title: 'Task Management', description: 'Manage tasks and activities', url: '/productivity/task-activity', type: 'page' as const },
          { title: 'Break Management', description: 'Manage breaks and time off', url: '/status/breaks', type: 'page' as const },
          { title: 'Meeting Management', description: 'Manage meetings', url: '/status/meetings', type: 'page' as const },
-         { title: 'Health Records', description: 'View health records', url: '/health', type: 'page' as const },
+         { title: 'Events & Activities', description: 'Manage events and activities', url: '/status/events', type: 'page' as const },
+         { title: 'Restroom Status', description: 'Manage restroom status', url: '/status/restroom', type: 'page' as const },
+         { title: 'Health Records', description: 'View health records', url: '/status/health', type: 'page' as const },
          { title: 'Profile', description: 'User profile settings', url: '/settings/profile', type: 'page' as const },
          { title: 'FAQ', description: 'Frequently asked questions', url: '/help/faq', type: 'page' as const },
          { title: 'Contact Support', description: 'Contact support team', url: '/help/contact', type: 'page' as const },
@@ -365,7 +413,6 @@ export async function GET(request: NextRequest) {
 
       // Cache the result in Redis
       await redisCache.set(cacheKey, responseData, cacheTTL.globalSearch)
-      console.log('✅ Global search cached in Redis')
 
       return NextResponse.json(responseData)
 

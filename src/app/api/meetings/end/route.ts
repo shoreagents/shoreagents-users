@@ -17,8 +17,6 @@ export async function POST(request: NextRequest) {
     const query = `SELECT end_meeting($1)`
     const result = await executeQuery(query, [meetingId])
 
-    console.log('End meeting result:', result[0])
-
     if (result[0]?.end_meeting === false) {
       return NextResponse.json({ 
         error: 'Failed to end meeting. Meeting may not exist or is not in progress.',
@@ -45,9 +43,8 @@ export async function POST(request: NextRequest) {
           redisCache.del(countsCacheKey)
         ])
         
-        console.log('✅ Meeting ended and cache invalidated')
       } catch (error) {
-        console.error('❌ Cache invalidation failed:', error)
+        console.error('Cache invalidation failed:', error)
         // Don't fail the request if cache invalidation fails
       }
     }

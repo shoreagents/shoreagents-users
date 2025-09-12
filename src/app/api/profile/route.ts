@@ -41,7 +41,6 @@ export async function GET(request: NextRequest) {
     
     const cachedProfile = await redisCache.get(cacheKey)
     if (cachedProfile) {
-      console.log('✅ Profile served from Redis cache')
       return NextResponse.json({
         success: true,
         profile: cachedProfile,

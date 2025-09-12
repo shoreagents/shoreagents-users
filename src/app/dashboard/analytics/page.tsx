@@ -6,8 +6,6 @@ import { AppHeader } from "@/components/app-header"
 import { DashboardSkeleton } from "@/components/skeleton-loaders"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { TrendingUp, Target, Award } from "lucide-react"
 import { useAnalyticsData } from "@/hooks/use-analytics"
 import { 
@@ -20,23 +18,11 @@ import {
   ResponsiveContainer,
   BarChart,
   Bar,
-  LineChart,
-  Line,
-  RadialBarChart,
-  RadialBar,
-  PolarAngleAxis,
 } from "recharts"
-
-type WeeklyDay = { today_date: string; active_seconds: number; inactive_seconds: number }
-type WeeklySummary = { week_start_date: string; week_end_date: string; total_active_seconds: number; total_inactive_seconds: number }
-type MonthlySummary = { month_start_date: string; total_active_seconds: number; total_inactive_seconds: number }
-type LeaderboardRow = { rank: number; name: string; productivityScore: number }
-type ProductivityScore = { month_year: string; productivity_score: number }
 
 export default function AnalyticsPage() {
   // Use React Query hooks for all analytics data
   const {
-    weeklyDays,
     weeklySummaries,
     monthlySummaries,
     leaderboard,
@@ -44,19 +30,7 @@ export default function AnalyticsPage() {
     prodScores,
     prodAverage,
     isLoading,
-    hasError
   } = useAnalyticsData()
-
-  const weeklyDaySeries = useMemo(() => {
-    return weeklyDays
-      .slice()
-      .sort((a, b) => new Date(a.today_date).getTime() - new Date(b.today_date).getTime())
-      .map(d => ({
-        date: new Date(d.today_date).toLocaleDateString('en-CA'),
-        activeMin: Math.round((d.active_seconds || 0) / 60),
-        inactiveMin: Math.round((d.inactive_seconds || 0) / 60),
-      }))
-  }, [weeklyDays])
 
   const monthlySeries = useMemo(() => {
     return monthlySummaries

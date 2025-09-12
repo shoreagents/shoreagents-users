@@ -9,7 +9,7 @@ import { AppHeader } from '@/components/app-header'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Calendar, Clock, Database, TrendingUp, RefreshCw, BarChart3, Loader2 } from 'lucide-react'
+import { Clock, RefreshCw, BarChart3, Loader2 } from 'lucide-react'
 import WeeklyActivityDisplay from '@/components/weekly-activity-display'
 import MonthlyActivityDisplay from '@/components/monthly-activity-display'
 import ProductivityScoreDisplay from '@/components/productivity-score-display'
@@ -47,15 +47,12 @@ export default function TestActivityPage() {
   const { 
     timerData, 
     error, 
-    setActivityState, 
-    isAuthenticated,
-    updateTimerData,
     liveActiveSeconds,
     liveInactiveSeconds
   } = useTimer()
 
   // Use meeting context instead of hook to prevent frequent API calls
-  const { isInMeeting, currentMeeting } = useMeeting()
+  const { isInMeeting } = useMeeting()
 
   const handleGlobalRefresh = () => {
     setRefreshKey(prev => prev + 1)
@@ -71,7 +68,6 @@ export default function TestActivityPage() {
     setIsLoadingActivity(true)
     try {
       // Call the actual API endpoint
-      console.log('Calling API for userId:', currentUser.id)
       const response = await fetch(`/api/activity/last-7-days?userId=${currentUser.id}`)
       
       if (!response.ok) {
@@ -90,7 +86,6 @@ export default function TestActivityPage() {
       const aggregatedData = rawData.reduce((acc, activity) => {
         // Extract just the date part (YYYY-MM-DD) from the today_date field
         const date = activity.today_date.split('T')[0]
-        console.log(`Aggregating: ${activity.today_date} -> ${date}`)
         if (!acc[date]) {
           acc[date] = {
             ...activity,
@@ -114,20 +109,23 @@ export default function TestActivityPage() {
         return acc
       }, {} as Record<string, ActivityData & { total_active_seconds: number; total_inactive_seconds: number; record_count: number }>)
       
-      // Debug: Log aggregated data keys
-      console.log('Aggregated data keys:', Object.keys(aggregatedData))
       
-      // Generate complete Saturday-to-Friday week view
+      // Generate current week view (Monday to Sunday)
+      // Use Philippines timezone to match the database
       const today = new Date()
-      const currentDay = today.getDay() // 0 = Sunday, 1 = Monday, etc.
       
-      // Calculate the start of the current week (Saturday)
-      // If today is Saturday (6), use today; otherwise go back to the most recent Saturday
-      const saturdayOffset = currentDay === 6 ? 0 : currentDay - 6 + 7 // Go back to Saturday
-      const weekStart = new Date(today)
-      weekStart.setDate(today.getDate() - saturdayOffset)
+      // Get Philippines time by adding 8 hours to UTC (Philippines is UTC+8)
+      const philippinesTime = new Date(today.getTime() + (8 * 60 * 60 * 1000))
       
-      // Generate 7 days starting from Saturday
+      
+      // Calculate the start of the current week (Monday) using Philippines time
+      const currentDay = philippinesTime.getDay() // 0 = Sunday, 1 = Monday, etc.
+      const mondayOffset = currentDay === 0 ? -6 : 1 - currentDay // Go back to Monday
+      const weekStart = new Date(philippinesTime)
+      weekStart.setDate(philippinesTime.getDate() + mondayOffset)
+      
+      
+      // Generate 7 days starting from Monday
       const weekData = []
       for (let i = 0; i < 7; i++) {
         const currentDate = new Date(weekStart)
@@ -135,20 +133,36 @@ export default function TestActivityPage() {
         const dateString = currentDate.toISOString().split('T')[0]
         
         const existingData = aggregatedData[dateString]
-        const isFuture = currentDate > today
+        // Compare only date parts using Philippines timezone
+        const todayDateOnly = new Date(philippinesTime.getFullYear(), philippinesTime.getMonth(), philippinesTime.getDate())
+        const currentDateOnly = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate())
+        const isFuture = currentDateOnly > todayDateOnly
         
         // Check if this is a weekend day that should be REST DAY
         const dayOfWeek = currentDate.getDay() // 0 = Sunday, 6 = Saturday
         const isWeekend = dayOfWeek === 0 || dayOfWeek === 6 // Sunday or Saturday
         
-        // Override logic: Weekends are always REST DAY, weekdays show actual data
+        // Override logic: Weekends are always REST DAY, weekdays show actual data if available
         const hasData = !isWeekend && existingData && (existingData.total_active_seconds > 0 || existingData.total_inactive_seconds > 0)
         
-        // Debug: Log each day's processing
-        console.log(`Day ${i} (${dateString}): isWeekend=${isWeekend}, existingData=${!!existingData}, hasData=${hasData}`)
         
-        if (isFuture) {
-          // Future day - show "not yet"
+        if (isWeekend) {
+          // Weekend day - always REST DAY (past, present, or future)
+          const restEntry = {
+            id: `rest-${i}`,
+            user_id: currentUser.id,
+            is_currently_active: false,
+            created_at: currentDate.toISOString(),
+            updated_at: currentDate.toISOString(),
+            today_active_seconds: 0,
+            today_inactive_seconds: 0,
+            last_session_start: currentDate.toISOString(),
+            today_date: dateString,
+            status: 'rest_day' as const
+          }
+          weekData.push(restEntry)
+        } else if (isFuture) {
+          // Future weekday - show "not yet"
           const futureEntry = {
             id: `future-${i}`,
             user_id: currentUser.id,
@@ -174,7 +188,7 @@ export default function TestActivityPage() {
           }
           weekData.push(dataEntry)
         } else {
-          // Past day with no data - show "REST DAY"
+          // Past weekday with no data - show "REST DAY"
           const restEntry = {
             id: `rest-${i}`,
             user_id: currentUser.id,
@@ -191,7 +205,12 @@ export default function TestActivityPage() {
         }
       }
       
-      setActivityData(weekData)
+      // Ensure data is sorted by date (Monday to Sunday)
+      const sortedWeekData = weekData.sort((a, b) => {
+        return new Date(a.today_date).getTime() - new Date(b.today_date).getTime()
+      })
+      
+      setActivityData(sortedWeekData)
       setShowActivityDialog(true)
     } catch (error) {
       console.error('Error fetching activity data:', error)
@@ -254,25 +273,7 @@ export default function TestActivityPage() {
                   day: 'numeric' 
                 })}
               </div>
-              <Button 
-                onClick={handleViewLast7Days}
-                disabled={isLoadingActivity}
-                variant="outline" 
-                size="sm"
-                className="flex items-center gap-2"
-              >
-                {isLoadingActivity ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Loading...
-                  </>
-                ) : (
-                  <>
-                    <BarChart3 className="w-4 h-4" />
-                    View This Week
-                  </>
-                )}
-              </Button>
+              
               <Button 
                 onClick={handleGlobalRefresh}
                 variant="ghost" 
@@ -339,13 +340,34 @@ export default function TestActivityPage() {
             {/* Live Timer Card */}
             <Card className="lg:col-span-2 shadow-lg border border-border/50 bg-card/90 backdrop-blur-sm dark:bg-card/90">
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-emerald-600 rounded-lg flex items-center justify-center">
-                    <Clock className="w-4 h-4 text-white" />
+                <CardTitle className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-emerald-600 rounded-lg flex items-center justify-center">
+                      <Clock className="w-4 h-4 text-white" />
+                    </div>
+                    <div>
+                      <div className="text-xl font-bold">Today Activity</div>
+                    </div>
                   </div>
-                  <div>
-                    <div className="text-xl font-bold">Today Activity</div>
-                  </div>
+                  <Button 
+                    onClick={handleViewLast7Days}
+                    disabled={isLoadingActivity}
+                    variant="ghost" 
+                    size="sm"
+                    className="flex items-center gap-2 bg-transparent hover:!bg-transparent dark:hover:text-white hover:text-black "
+                  >
+                    {isLoadingActivity ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Loading...
+                      </>
+                    ) : (
+                      <>
+                        <BarChart3 className="w-4 h-4" />
+                        View This Week
+                      </>
+                    )}
+                  </Button>
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -492,10 +514,10 @@ export default function TestActivityPage() {
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <BarChart3 className="h-5 w-5" />
-                My Activity Summary Report - This Week (Sat-Fri)
+                My Activity Summary Report 
               </DialogTitle>
               <DialogDescription>
-                Complete week view showing Saturday to Friday with activity data, rest days, and future days
+                Complete week view showing Monday to Sunday with activity data
               </DialogDescription>
             </DialogHeader>
             
@@ -507,7 +529,7 @@ export default function TestActivityPage() {
                 </div>
               </div>
             ) : activityData.length > 0 ? (
-              <ScrollArea className="h-[60vh] w-full">
+              <ScrollArea className="w-full">
                 <Table>
                   <TableHeader>
                     <TableRow>

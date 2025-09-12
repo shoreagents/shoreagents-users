@@ -8,7 +8,6 @@ async function getUserFromRequest(request: NextRequest) {
     const authCookie = request.cookies.get('shoreagents-auth')
     
     if (!authCookie) {
-      console.log('No auth cookie found')
       return null
     }
 
@@ -17,7 +16,6 @@ async function getUserFromRequest(request: NextRequest) {
       const decoded = (() => { try { return decodeURIComponent(raw) } catch { return raw } })()
       const authData = JSON.parse(decoded)
       if (!authData.isAuthenticated || !authData.user) {
-        console.log('Invalid auth data in cookie')
         return null
       }
 

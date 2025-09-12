@@ -9,17 +9,16 @@ import {
   Home,
   HelpCircle,
   MessageSquare,
-  BarChart3,
-  Activity,
   Smile,
-  Heart,
   CheckSquare,
   Clock,
+  Toilet,
 } from "lucide-react"
 import { useActivityStatus } from "@/hooks/use-activity-status"
 import { useMeeting } from "@/contexts/meeting-context"
 import { useEventsContext } from "@/contexts/events-context"
 import { useHealth } from "@/contexts/health-context"
+import { useRestroom } from "@/contexts/restroom-context"
 // import { getNotStartedTaskCount } from "@/lib/task-utils"
 
 import { NavMain } from "@/components/nav-main"
@@ -43,6 +42,7 @@ export const AppSidebar = React.memo(function AppSidebar({ ...props }: React.Com
   const { isInMeeting } = useMeeting()
   const { isInEvent, currentEvent } = useEventsContext()
   const { isGoingToClinic, isInClinic } = useHealth()
+  const { isInRestroom, restroomCount } = useRestroom()
   const [notStartedTaskCount, setNotStartedTaskCount] = React.useState(0)
 
   // Activity status indicator component
@@ -54,26 +54,30 @@ export const AppSidebar = React.memo(function AppSidebar({ ...props }: React.Com
             ? 'bg-gray-400 animate-pulse' 
             : isShiftEnded
               ? 'bg-red-500'
-              : isInEvent
-                ? 'bg-purple-500 animate-pulse'
-                : isInMeeting 
-                  ? 'bg-yellow-500 animate-pulse' 
-                  : isActivityActive 
-                    ? 'bg-green-500' 
-                    : 'bg-red-500'
+              : isInRestroom
+                ? 'bg-red-500 animate-pulse'
+                : isInEvent
+                  ? 'bg-purple-500 animate-pulse'
+                  : isInMeeting 
+                    ? 'bg-yellow-500 animate-pulse' 
+                    : isActivityActive 
+                      ? 'bg-green-500' 
+                      : 'bg-red-500'
         }`}
         title={
           isLoading 
             ? 'Loading...' 
             : isShiftEnded
               ? 'Shift Ended'
-              : isInEvent
-                ? `In Event: ${currentEvent?.title || 'Unknown Event'}`
-                : isInMeeting 
-                  ? 'In Meeting' 
-                  : isActivityActive 
-                    ? 'Active' 
-                    : 'Inactive'
+              : isInRestroom
+                ? `In Restroom (${restroomCount} visits today)`
+                : isInEvent
+                  ? `In Event: ${currentEvent?.title || 'Unknown Event'}`
+                  : isInMeeting 
+                    ? 'In Meeting' 
+                    : isActivityActive 
+                      ? 'Active' 
+                      : 'Inactive'
         }
       />
     </div>
@@ -141,6 +145,20 @@ export const AppSidebar = React.memo(function AppSidebar({ ...props }: React.Com
             : 'bg-gray-300'
         }`}
         title={isInClinic ? 'In Clinic' : 'Not In Clinic'}
+      />
+    </div>
+  )
+
+  // Restroom status indicator component
+  const RestroomStatusIndicator = () => (
+    <div className="flex items-center">
+      <div 
+        className={`w-2 h-2 rounded-full ${
+          isInRestroom 
+            ? 'bg-red-500 animate-pulse' 
+            : 'bg-gray-300'
+        }`}
+        title={isInRestroom ? `In Restroom (${restroomCount} visits today)` : `Not In Restroom (${restroomCount} visits today)`}
       />
     </div>
   )
@@ -239,7 +257,7 @@ export const AppSidebar = React.memo(function AppSidebar({ ...props }: React.Com
         title: "Set Your Status",
         icon: Smile,
         isActive: pathname.startsWith("/status"),
-        statusIndicator: isInClinic ? <InClinicStatusIndicator /> : isGoingToClinic ? <GoingToClinicStatusIndicator /> : isInEvent ? <EventStatusIndicator /> : isInMeeting ? <MeetingStatusIndicator /> : null,
+        statusIndicator: isInRestroom ? <RestroomStatusIndicator /> : isInClinic ? <InClinicStatusIndicator /> : isGoingToClinic ? <GoingToClinicStatusIndicator /> : isInEvent ? <EventStatusIndicator /> : isInMeeting ? <MeetingStatusIndicator /> : null,
         items: [
           {
             title: "Breaks",
@@ -254,6 +272,11 @@ export const AppSidebar = React.memo(function AppSidebar({ ...props }: React.Com
             title: "Events & Activities",
             url: "/status/events",
             statusIndicator: isInEvent ? <EventStatusIndicator /> : null,
+          },
+          {
+            title: "Restroom",
+            url: "/status/restroom",
+            statusIndicator: isInRestroom ? <RestroomStatusIndicator /> : null,
           },
           {
             title: "Clinic Visit",
@@ -318,11 +341,16 @@ export const AppSidebar = React.memo(function AppSidebar({ ...props }: React.Com
         url: "/status/meetings",
         icon: MessageSquare,
       },
+      {
+        name: "Restroom",
+        url: "/status/restroom",
+        icon: Toilet,
+      },
     ],
   }
 
   return (
-    <Sidebar collapsible="icon" {...props}>
+    <Sidebar collapsible="icon" {...props} data-sidebar>
       <SidebarHeader>
         <TeamSwitcher teams={data.teams} />
       </SidebarHeader>
@@ -341,7 +369,7 @@ export const AppSidebar = React.memo(function AppSidebar({ ...props }: React.Com
         </ScrollArea>
       </SidebarContent>
       <SidebarFooter>
-        <div className="px-2 pb-2">
+        <div className="px-2 pb-2" data-quick-actions>
           <NavProjects projects={data.quickActions} />
         </div>
       </SidebarFooter>

@@ -86,9 +86,6 @@ export async function POST(request: NextRequest) {
     }
 
     const pausedBreak = result[0];
-
-    console.log(`⏸️ Break paused: ${pausedBreak.break_type} for agent ${agent_user_id}, ${time_remaining_seconds}s remaining`);
-
     return NextResponse.json({
       success: true,
       message: 'Break session paused successfully',
@@ -105,7 +102,7 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error('❌ Error pausing break session:', error);
+    console.error('Error pausing break session:', error);
     
     return NextResponse.json(
       { 

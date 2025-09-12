@@ -27,7 +27,7 @@ class EventReminderScheduler {
       const notificationsSent = result.rows[0].send_event_reminders;
       
       if (notificationsSent > 0) {
-        console.log(`⏰ [${new Date().toLocaleTimeString()}] Sent ${notificationsSent} event notifications`);
+        console.log(`[${new Date().toLocaleTimeString()}] Sent ${notificationsSent} event notifications`);
       }
       
       // Update all event statuses using the comprehensive function
@@ -35,7 +35,7 @@ class EventReminderScheduler {
       const statusUpdate = statusUpdateResult.rows[0];
       
       if (statusUpdate.updated_count > 0) {
-        console.log(`📅 [${new Date().toLocaleTimeString()}] Event status updates: ${statusUpdate.details}`);
+        console.log(`[${new Date().toLocaleTimeString()}] Event status updates: ${statusUpdate.details}`);
       }
       
       // Check for events that are already 'today' and should have started (create notifications)
@@ -48,7 +48,7 @@ class EventReminderScheduler {
       `);
       
       if (startedEventsResult.rows.length > 0) {
-        console.log(`🔔 [${new Date().toLocaleTimeString()}] Checking ${startedEventsResult.rows.length} events that should have started:`, 
+        console.log(`[${new Date().toLocaleTimeString()}] Checking ${startedEventsResult.rows.length} events that should have started:`, 
           startedEventsResult.rows.map(r => `${r.title} (${r.event_type || 'event'})`));
         
         // Create "Event Started" notifications for each event that should have started
@@ -99,15 +99,15 @@ class EventReminderScheduler {
               RETURNING id, user_id, title
             `);
             
-            console.log(`🔔 [${new Date().toLocaleTimeString()}] Created ${eventStartedResult.rows.length} "Event Started" notifications for "${event.title}"`);
+            console.log(`[${new Date().toLocaleTimeString()}] Created ${eventStartedResult.rows.length} "Event Started" notifications for "${event.title}"`);
           } else {
-            console.log(`⏭️ [${new Date().toLocaleTimeString()}] "Event Started" notifications already sent for "${event.title}"`);
+            console.log(`[${new Date().toLocaleTimeString()}] "Event Started" notifications already sent for "${event.title}"`);
           }
         }
       }
       
     } catch (error) {
-      console.error(`❌ [${new Date().toLocaleTimeString()}] Event reminder check failed:`, error.message);
+      console.error(`[${new Date().toLocaleTimeString()}] Event reminder check failed:`, error.message);
     } finally {
       this.isRunning = false;
     }
@@ -118,7 +118,7 @@ class EventReminderScheduler {
       return; // Already running
     }
 
-    console.log(`🚀 Starting event reminder scheduler (checking every ${this.checkInterval / 1000} seconds)`);
+    console.log(`Starting event reminder scheduler (checking every ${this.checkInterval / 1000} seconds)`);
     
     // Run an immediate check
     this.checkEventReminders();
@@ -133,7 +133,7 @@ class EventReminderScheduler {
     if (this.intervalId) {
       clearInterval(this.intervalId);
       this.intervalId = null;
-      console.log('🛑 Event reminder scheduler stopped');
+      console.log('Event reminder scheduler stopped');
     }
   }
 
@@ -155,13 +155,13 @@ if (require.main === module) {
   
   // Handle graceful shutdown
   process.on('SIGINT', () => {
-    console.log('\n🛑 Shutting down event reminder scheduler...');
+    console.log('\nShutting down event reminder scheduler...');
     scheduler.stop();
     process.exit(0);
   });
 
   process.on('SIGTERM', () => {
-    console.log('\n🛑 Shutting down event reminder scheduler...');
+    console.log('\nShutting down event reminder scheduler...');
     scheduler.stop();
     process.exit(0);
   });
@@ -169,5 +169,5 @@ if (require.main === module) {
   // Start the scheduler
   scheduler.start();
   
-  console.log('⏰ Event reminder scheduler is running. Press Ctrl+C to stop.');
+  console.log('Event reminder scheduler is running. Press Ctrl+C to stop.');
 }

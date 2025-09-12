@@ -70,7 +70,6 @@ export async function POST(request: NextRequest) {
           `SELECT id FROM users WHERE id = 1 AND role = 'Internal' LIMIT 1`
         )
         nurse_id = nurseResult.rows.length > 0 ? nurseResult.rows[0].id : 1 // Default to 1 if not found
-        console.log('Nurse assignment:', { nurse_id, nurseResult: nurseResult.rows })
       } catch (nurseError) {
         console.error('Error finding nurse:', nurseError)
         nurse_id = 1 // Default to user_id 1 as nurse

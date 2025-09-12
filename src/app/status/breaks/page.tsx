@@ -154,7 +154,6 @@ export default function BreaksPage() {
             // Check if the active break is outside its valid time window
             const breakInfo = availableBreaks.find(b => b.id === status.active_break?.break_type)
             if (breakInfo && userProfile && !isBreakTimeValid(breakInfo, userProfile as ShiftInfo, currentTime)) {
-              console.log(`⏰ Auto-ending ${breakInfo.name} on page load - outside valid time window (${breakInfo.startTime} - ${breakInfo.endTime})`)
               
               setAutoEnding(true)
               try {
@@ -162,8 +161,6 @@ export default function BreaksPage() {
                 const endResult = await endBreak()
                 
                 if (endResult.success) {
-                  console.log(`✅ Auto-ended ${breakInfo.name} successfully on page load`)
-                  
                   // Clear break state
                   setActiveBreak(null)
                   setBreakActive(false)
@@ -178,9 +175,7 @@ export default function BreaksPage() {
                   // Refresh timer context
                   await refreshBreakStatus()
                   return // Exit early since we've handled the break
-                } else {
-                  console.log(`⚠️ Auto-end failed for ${breakInfo.name} on page load:`, endResult.message)
-                }
+                } 
               } catch (error) {
                 console.error(`❌ Error auto-ending ${breakInfo.name} on page load:`, error)
               } finally {
@@ -209,7 +204,6 @@ export default function BreaksPage() {
                 pause_used: true
               }
               localStorage.setItem('currentBreak', JSON.stringify(pausedBreak))
-              console.log('🔄 Restored paused break to localStorage for resume functionality')
             }
           } else {
             // No active break found - clear all break state
@@ -310,7 +304,6 @@ export default function BreaksPage() {
 
       // Check if current time is outside the valid time window
       if (!isBreakTimeValid(breakInfo, userProfile as ShiftInfo, currentTime)) {
-        console.log(`⏰ Auto-ending ${breakInfo.name} - outside valid time window (${breakInfo.startTime} - ${breakInfo.endTime})`)
         
         setAutoEnding(true)
         try {
@@ -318,8 +311,6 @@ export default function BreaksPage() {
           const result = await endBreak()
           
           if (result.success) {
-            console.log(`✅ Auto-ended ${breakInfo.name} successfully`)
-            
             // Clear break state
             setActiveBreak(null)
             setBreakActive(false)
@@ -333,8 +324,6 @@ export default function BreaksPage() {
             
             // Refresh timer context
             await refreshBreakStatus()
-          } else {
-            console.log(`⚠️ Auto-end failed for ${breakInfo.name}:`, result.message)
           }
         } catch (error) {
           console.error(`❌ Error auto-ending ${breakInfo.name}:`, error)
@@ -360,12 +349,10 @@ export default function BreaksPage() {
       const breakInfo = availableBreaks.find(b => b.id === currentBreak.break_type)
       
       if (breakInfo && userProfile && !isBreakTimeValid(breakInfo, userProfile as ShiftInfo, currentTime)) {
-        console.log(`⏰ Real-time auto-ending ${breakInfo.name} - outside valid time window (${breakInfo.startTime} - ${breakInfo.endTime})`)
         
         setAutoEnding(true)
         endBreak().then(result => {
           if (result.success) {
-            console.log(`✅ Real-time auto-ended ${breakInfo.name} successfully`)
             
             // Clear break state
             setActiveBreak(null)
@@ -378,12 +365,9 @@ export default function BreaksPage() {
                 setBreakStatus(status)
               }
             })
-            
             // Refresh timer context
             refreshBreakStatus()
-          } else {
-            console.log(`⚠️ Real-time auto-end failed for ${breakInfo.name}:`, result.message)
-          }
+          } 
         }).catch(error => {
           console.error(`❌ Error real-time auto-ending ${breakInfo.name}:`, error)
         }).finally(() => {
@@ -457,7 +441,6 @@ export default function BreaksPage() {
         if (typeof window !== 'undefined' && window.electronAPI?.multiMonitor) {
           try {
             await window.electronAPI.multiMonitor.createBlackScreens()
-            console.log('✅ Black screens created for break')
           } catch (error) {
             console.warn('Failed to create black screens:', error)
           }
@@ -508,7 +491,6 @@ export default function BreaksPage() {
         if (typeof window !== 'undefined' && window.electronAPI?.multiMonitor) {
           try {
             await window.electronAPI.multiMonitor.createBlackScreens()
-            console.log('✅ Black screens created for break after ending meeting')
           } catch (error) {
             console.warn('Failed to create black screens:', error)
           }
@@ -586,7 +568,6 @@ export default function BreaksPage() {
         if (typeof window !== 'undefined' && window.electronAPI?.multiMonitor) {
           try {
             await window.electronAPI.multiMonitor.createBlackScreens()
-            console.log(`✅ Black screens created for ${isResumeOperation ? 'resumed' : 'started'} break after leaving event`)
           } catch (error) {
             console.warn('Failed to create black screens:', error)
           }
@@ -645,7 +626,6 @@ export default function BreaksPage() {
         if (typeof window !== 'undefined' && window.electronAPI?.multiMonitor) {
           try {
             await window.electronAPI.multiMonitor.closeBlackScreens()
-            console.log('✅ Black screens closed when break ended')
           } catch (error) {
             console.warn('Failed to close black screens:', error)
           }
@@ -705,7 +685,6 @@ export default function BreaksPage() {
         if (typeof window !== 'undefined' && window.electronAPI?.multiMonitor) {
           try {
             await window.electronAPI.multiMonitor.closeBlackScreens()
-            console.log('✅ Black screens closed when break paused')
           } catch (error) {
             console.warn('Failed to close black screens:', error)
           }
@@ -773,7 +752,6 @@ export default function BreaksPage() {
         if (typeof window !== 'undefined' && window.electronAPI?.multiMonitor) {
           try {
             await window.electronAPI.multiMonitor.createBlackScreens()
-            console.log('✅ Black screens created when break resumed')
           } catch (error) {
             console.warn('Failed to create black screens:', error)
           }
@@ -1134,9 +1112,13 @@ export default function BreaksPage() {
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => setShowAllHistory(false)}
+                              disabled={loadingHistory}
+                              onClick={async () => {
+                                setShowAllHistory(false)
+                                await refreshBreakHistory()
+                              }}
                             >
-                              Show recent only
+                              {loadingHistory ? 'Loading…' : 'Show recent only'}
                             </Button>
                           )}
                         </div>
@@ -1158,7 +1140,7 @@ export default function BreaksPage() {
                           {(() => {
                             const sessions = [...(breakHistory.completed_breaks || []), ...(breakHistory.active_breaks || [])]
                               .sort((a: any, b: any) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime())
-                            const display = showAllHistory ? sessions : sessions.slice(0, 5)
+                            const display = showAllHistory ? sessions : sessions.slice(0, 3)
                             return display.map((breakSession: any) => {
                               const breakInfo = availableBreaks.find(b => b.id === breakSession.break_type)
                               const Icon = breakInfo?.icon || Clock

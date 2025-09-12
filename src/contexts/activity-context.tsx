@@ -12,6 +12,7 @@ import { useTimer } from './timer-context'
 import { useAuth } from './auth-context'
 import { useEventsContext } from './events-context'
 import { useHealth } from './health-context'
+import { useRestroom } from './restroom-context'
 import { isWithinShiftHours, parseShiftTime } from '@/lib/shift-utils'
 
 
@@ -37,10 +38,11 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
   const notificationUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const { isBreakActive } = useBreak()
   const { isInMeeting } = useMeeting()
-  const { shiftInfo } = useTimer()
+  const { shiftInfo, setActivityState } = useTimer()
   const { hasLoggedIn, setUserLoggedIn, setUserLoggedOut } = useAuth()
   const { isInEvent } = useEventsContext()
   const { isGoingToClinic, isInClinic } = useHealth()
+  const { isInRestroom } = useRestroom()
   const {
     isTracking,
     showInactivityDialog,
@@ -52,7 +54,7 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
     setInactivityThreshold,
     getActivityStatus,
     setShowInactivityDialog
-  } = useActivityTracking()
+  } = useActivityTracking(setActivityState)
 
   // Helper function to check if shift has ended
   const checkIfShiftEnded = useCallback((shiftInfo: any) => {
@@ -117,94 +119,44 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
     const isShiftEnded = checkIfShiftEnded(shiftInfo)
     const isShiftNotStarted = checkIfShiftNotStarted(shiftInfo)
     
-    // Only start tracking if shift is active (not ended and not started) and not in health check
-    if (hasLoggedIn && !isTracking && !isBreakActive && !isInMeeting && !isInEvent && !isGoingToClinic && !isInClinic && isWithinShift && !isShiftEnded && !isShiftNotStarted && window.location.pathname !== '/') {
+    // Only start tracking if shift is active (not ended and not started) and not in health check or restroom
+    if (hasLoggedIn && !isTracking && !isBreakActive && !isInMeeting && !isInEvent && !isGoingToClinic && !isInClinic && !isInRestroom && isWithinShift && !isShiftEnded && !isShiftNotStarted && window.location.pathname !== '/') {
       // Set inactivity threshold to 30 seconds (30000ms)
       setInactivityThreshold(30000)
       startTracking()
     }
-  }, [hasLoggedIn, isTracking, isBreakActive, isInMeeting, isInEvent, isGoingToClinic, isInClinic, shiftInfo, startTracking, setInactivityThreshold])
+  }, [hasLoggedIn, isTracking, isBreakActive, isInMeeting, isInEvent, isGoingToClinic, isInClinic, isInRestroom, shiftInfo, startTracking, setInactivityThreshold])
 
-  // Pause tracking when break becomes active, resume when break ends
+  // Pause/resume activity tracking based on various status conditions
   useEffect(() => {
-    if (hasLoggedIn) {
-      const currentUser = getCurrentUser()
-      if (currentUser?.email) {
-        if (isBreakActive) {
-          // Pause activity tracking when break starts
-          // TODO: Replace with database-driven activity pausing
-          // pauseActivityForBreak(currentUser.email)
-          pauseTracking()
-        } else {
-          // Resume activity tracking when break ends
-          // TODO: Replace with database-driven activity resuming
-          // resumeActivityFromBreak(currentUser.email)
-          resumeTracking()
-        }
-      }
-    }
-  }, [isBreakActive, hasLoggedIn, pauseTracking, resumeTracking])
+    if (!hasLoggedIn) return
 
-  // Pause tracking when meeting starts, resume when meeting ends
-  useEffect(() => {
-    if (hasLoggedIn) {
-      const currentUser = getCurrentUser()
-      if (currentUser?.email) {
-        if (isInMeeting) {
-          // Pause activity tracking when meeting starts
-          // TODO: Replace with database-driven activity pausing
-          // pauseActivityForMeeting(currentUser.email)
-          pauseTracking()
-        } else {
-          // Resume activity tracking when meeting ends
-          // TODO: Replace with database-driven activity resuming
-          // resumeActivityFromMeeting(currentUser.email)
-          resumeTracking()
-        }
-      }
-    }
-  }, [isInMeeting, hasLoggedIn, pauseTracking, resumeTracking])
+    const currentUser = getCurrentUser()
+    if (!currentUser?.email) return
 
-  // Pause tracking when in event, resume when event ends
-  useEffect(() => {
-    if (hasLoggedIn) {
-      const currentUser = getCurrentUser()
-      if (currentUser) {
-        if (isInEvent) {
-          // Pause activity tracking when in event
-          // TODO: Replace with database-driven activity pausing
-          // pauseActivityForEvent(currentUser.email)
-          pauseTracking()
-        } else {
-          // Resume activity tracking when event ends
-          // TODO: Replace with database-driven activity resuming
-          // resumeActivityFromEvent(currentUser.email)
-          resumeTracking()
-        }
-      }
-    }
-  }, [isInEvent, hasLoggedIn, pauseTracking, resumeTracking])
+    // Check if any status requires pausing activity tracking
+    const shouldPause = isBreakActive || isInMeeting || isInEvent || isGoingToClinic || isInClinic || isInRestroom
 
-  // Pause tracking when going to clinic or in clinic, resume when back to station
-  useEffect(() => {
-    if (hasLoggedIn) {
-      const currentUser = getCurrentUser()
-      if (currentUser) {
-        
-        if (isGoingToClinic || isInClinic) {
-          // Pause activity tracking when going to clinic or in clinic
-          // TODO: Replace with database-driven activity pausing
-          // pauseActivityForHealthCheck(currentUser.email)
-          pauseTracking()
-        } else {
-          // Resume activity tracking when back to station
-          // TODO: Replace with database-driven activity resuming
-          // resumeActivityFromHealthCheck(currentUser.email)
-          resumeTracking()
-        }
-      }
+    if (shouldPause) {
+      // Pause activity tracking when any status is active
+      // TODO: Replace with database-driven activity pausing
+      pauseTracking()
+    } else {
+      // Resume activity tracking when all statuses are inactive
+      // TODO: Replace with database-driven activity resuming
+      resumeTracking()
     }
-  }, [isGoingToClinic, isInClinic, hasLoggedIn, pauseTracking, resumeTracking])
+  }, [
+    hasLoggedIn, 
+    isBreakActive, 
+    isInMeeting, 
+    isInEvent, 
+    isGoingToClinic, 
+    isInClinic, 
+    isInRestroom, 
+    pauseTracking, 
+    resumeTracking
+  ])
 
   // Pause tracking when outside shift hours, resume when within shift hours
   useEffect(() => {
@@ -358,11 +310,26 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
             // Start updating notification every 3 seconds with dynamic time
             let currentInactiveTime = 0; // Start from 0 seconds
             notificationUpdateIntervalRef.current = setInterval(() => {
+              // Check if still in meeting - if so, stop updating and close notification
+              if (isInMeeting || isInEvent) {
+                if (notificationUpdateIntervalRef.current) {
+                  clearInterval(notificationUpdateIntervalRef.current)
+                  notificationUpdateIntervalRef.current = null
+                }
+                // Close the notification if in meeting
+                if (window.electronAPI?.inactivityNotifications) {
+                  window.electronAPI.inactivityNotifications.close()
+                }
+                setNotificationShown(false)
+                return
+              }
+              
               // Increment the inactive time by 3 seconds
               currentInactiveTime += 3000;
               if (window.electronAPI?.inactivityNotifications) {
                 window.electronAPI.inactivityNotifications.update({
-                  inactiveTime: currentInactiveTime
+                  inactiveTime: currentInactiveTime,
+                  skipUpdate: isInMeeting || isInEvent // Skip update if in meeting
                 })
               }
             }, 3000) // Update every 3 seconds
@@ -372,7 +339,36 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
         })
       }
     }
-  }, [showInactivityDialog, notificationShown, inactivityData])
+  }, [showInactivityDialog, notificationShown, inactivityData, isInMeeting, isInEvent])
+
+  // Close inactivity dialog and notification when meeting starts
+  useEffect(() => {
+    if (isInMeeting || isInEvent) {
+      // Close the inactivity dialog immediately when meeting starts
+      setShowInactivityDialog(false)
+      
+      // Clear notification update interval
+      if (notificationUpdateIntervalRef.current) {
+        clearInterval(notificationUpdateIntervalRef.current)
+        notificationUpdateIntervalRef.current = null
+      }
+      
+      // Close system notification
+      if (window.electronAPI?.inactivityNotifications && notificationShown) {
+        window.electronAPI.inactivityNotifications.close().then(() => {
+          setNotificationShown(false)
+        }).catch((error) => {
+          console.error('Error closing inactivity notification:', error)
+          setNotificationShown(false)
+        })
+      }
+      
+      if (notificationTimeoutRef.current) {
+        clearTimeout(notificationTimeoutRef.current)
+        notificationTimeoutRef.current = null
+      }
+    }
+  }, [isInMeeting, isInEvent, notificationShown])
 
   // Reset notification flag when dialog closes
   useEffect(() => {

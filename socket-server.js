@@ -85,15 +85,15 @@ redisClient.on('error', (err) => {
 });
 
 redisClient.on('connect', () => {
-  console.log('✅ Redis client connected');
+  console.log('Redis client connected');
 });
 
 redisClient.on('reconnecting', () => {
-  console.log('🔄 Redis client reconnecting...');
+  console.log('Redis client reconnecting...');
 });
 
 redisClient.on('end', () => {
-  console.log('🔌 Redis client disconnected');
+  console.log('Redis client disconnected');
 });
 
 // Add process-level error handling to prevent crashes
@@ -116,7 +116,7 @@ pool.query('SELECT NOW()', (err, result) => {
     console.error('Database connection failed:', err.message);
     // Don't exit the process, just log the error
   } else {
-    console.log('✅ Database connected successfully');
+    console.log('Database connected successfully');
   }
 });
 
@@ -126,16 +126,16 @@ const taskNotificationScheduler = new TaskNotificationScheduler();
 const meetingScheduler = new MeetingScheduler();
 const eventReminderScheduler = new EventReminderScheduler();
 
-console.log('🔔 Initializing break reminder scheduler...');
+console.log('Initializing break reminder scheduler...');
 breakReminderScheduler.start();
 
-console.log('📋 Initializing task notification scheduler...');
+console.log('Initializing task notification scheduler...');
 taskNotificationScheduler.start();
 
-console.log('📅 Initializing meeting scheduler...');
+console.log('Initializing meeting scheduler...');
 meetingScheduler.start();
 
-console.log('🎉 Initializing event reminder scheduler...');
+console.log('Initializing event reminder scheduler...');
 eventReminderScheduler.start();
 
 // Initialize global notification listener
@@ -160,7 +160,7 @@ async function initializeGlobalNotificationListener() {
     await globalNotificationClient.query('LISTEN event_changes');
     await globalNotificationClient.query('LISTEN event_attendance_changes');
     
-    console.log('📡 Global notification listener initialized');
+    console.log('Global notification listener initialized');
     
     globalNotificationClient.on('notification', async (msg) => {
       try {
@@ -169,14 +169,16 @@ async function initializeGlobalNotificationListener() {
           
           // Find all sockets for this user and emit to all of them
           if (payload.user_id) {
-            console.log(`🔍 Looking for user ${payload.user_id} in ${connectedUsers.size} connected users`);
-            console.log(`🔍 Connected users:`, Array.from(connectedUsers.entries()).map(([id, data]) => `${id}: ${data.email} (userId: ${data.userId})`));
+            console.log(`Looking for user ${payload.user_id} in ${connectedUsers.size} connected users`);
+            console.log(`Connected users:`, Array.from(connectedUsers.entries()).map(([id, data]) => `${id}: ${data.email} (userId: ${data.userId})`));
             
             // Find the user's email by looking through all connected users
             let targetEmail = null;
             for (const [socketId, userData] of connectedUsers.entries()) {
+              console.log(`Checking socket ${socketId}: userId=${userData.userId}, email=${userData.email}, payload.user_id=${payload.user_id}, match=${userData.userId === payload.user_id}`);
               if (userData.userId === payload.user_id) {
                 targetEmail = userData.email;
+                console.log(`Found matching user: ${targetEmail}`);
                 break;
               }
             }
@@ -184,20 +186,20 @@ async function initializeGlobalNotificationListener() {
             if (targetEmail) {
               const userSockets = userConnections.get(targetEmail);
               if (userSockets && userSockets.size > 0) {
-                console.log(`📤 Broadcasting notification to ${userSockets.size} connections for user ${payload.user_id} (${targetEmail})`);
+                console.log(`Broadcasting notification to ${userSockets.size} connections for user ${payload.user_id} (${targetEmail})`);
                 userSockets.forEach(socketId => {
                   io.to(socketId).emit('db-notification', payload);
                 });
               } else {
-                console.log(`⚠️ No active connections found for user ${payload.user_id} (${targetEmail})`);
+                console.log(`No active connections found for user ${payload.user_id} (${targetEmail})`);
               }
             } else {
-              console.log(`⚠️ User ${payload.user_id} not found in connected users`);
+              console.log(`User ${payload.user_id} not found in connected users`);
             }
           }
         } else if (msg.channel === 'ticket_comments') {
           const payload = JSON.parse(msg.payload);
-          console.log(`📡 Global ticket comment notification received for user ${payload.user_id}, ticket_row_id ${payload.ticket_row_id}`);
+          console.log(`Global ticket comment notification received for user ${payload.user_id}, ticket_row_id ${payload.ticket_row_id}`);
           
           // Get the ticket owner's user_id from the database
           try {
@@ -208,7 +210,7 @@ async function initializeGlobalNotificationListener() {
             
             if (ticketResult.rows.length > 0) {
               const ticketOwnerId = ticketResult.rows[0].user_id;
-              console.log(`📝 Ticket owner ID: ${ticketOwnerId}, Comment author ID: ${payload.user_id}`);
+              console.log(`Ticket owner ID: ${ticketOwnerId}, Comment author ID: ${payload.user_id}`);
               
               // Emit to both comment author and ticket owner (if different)
               const userIdsToNotify = [payload.user_id];
@@ -228,7 +230,7 @@ async function initializeGlobalNotificationListener() {
                 if (targetEmail) {
                   const userSockets = userConnections.get(targetEmail);
                   if (userSockets && userSockets.size > 0) {
-                    console.log(`📤 Emitting ticket-comment to user ${userId} (${targetEmail})`);
+                    console.log(`Emitting ticket-comment to user ${userId} (${targetEmail})`);
                     userSockets.forEach(socketId => {
                       io.to(socketId).emit('ticket-comment', payload);
                     });
@@ -237,11 +239,11 @@ async function initializeGlobalNotificationListener() {
               }
             }
           } catch (error) {
-            console.error('❌ Error getting ticket owner:', error);
+            console.error('Error getting ticket owner:', error);
           }
         } else if (msg.channel === 'health_check_events') {
           const payload = JSON.parse(msg.payload);
-          console.log(`📡 Health check event received:`, payload);
+          console.log(`Health check event received:`, payload);
           
           // Use user_email from payload if available (optimized path)
           let targetEmail = payload.user_email;
@@ -259,7 +261,7 @@ async function initializeGlobalNotificationListener() {
           if (targetEmail) {
             const userSockets = userConnections.get(targetEmail);
             if (userSockets && userSockets.size > 0) {
-              console.log(`📤 Broadcasting health check event to ${userSockets.size} connections for user ${payload.user_id} (${targetEmail})`);
+              console.log(`Broadcasting health check event to ${userSockets.size} connections for user ${payload.user_id} (${targetEmail})`);
               userSockets.forEach(socketId => {
                 io.to(socketId).emit('health_check_event', payload);
               });
@@ -276,7 +278,7 @@ async function initializeGlobalNotificationListener() {
             for (const [socketId, userData] of connectedUsers.entries()) {
               if (userData.userId === payload.user_id) {
                 targetEmail = userData.email;
-                console.log(`✅ Found user ${payload.user_id} with email ${targetEmail}`);
+                console.log(`Found user ${payload.user_id} with email ${targetEmail}`);
                 break;
               }
             }
@@ -288,7 +290,7 @@ async function initializeGlobalNotificationListener() {
                   io.to(socketId).emit('weekly-activity-update', payload);
                 });
               } else {
-                console.log(`⚠️ No active connections found for user ${payload.user_id} (${targetEmail})`);
+                console.log(`No active connections found for user ${payload.user_id} (${targetEmail})`);
               }
             } 
           }
@@ -308,15 +310,15 @@ async function initializeGlobalNotificationListener() {
             if (targetEmail) {
               const userSockets = userConnections.get(targetEmail);
               if (userSockets && userSockets.size > 0) {
-                console.log(`📤 Broadcasting activity data update to ${userSockets.size} connections for user ${payload.user_id} (${targetEmail})`);
+                console.log(`Broadcasting activity data update to ${userSockets.size} connections for user ${payload.user_id} (${targetEmail})`);
                 userSockets.forEach(socketId => {
                   io.to(socketId).emit('activity-data-updated', payload);
                 });
               } else {
-                console.log(`⚠️ No active connections found for user ${payload.user_id} (${targetEmail})`);
+                console.log(`No active connections found for user ${payload.user_id} (${targetEmail})`);
               }
             } else {
-              console.log(`⚠️ User ${payload.user_id} not found in connected users`);
+              console.log(`User ${payload.user_id} not found in connected users`);
             }
           }
         } else if (msg.channel === 'monthly_activity_change') {
@@ -325,14 +327,14 @@ async function initializeGlobalNotificationListener() {
           // Find all sockets for this user and emit to all of them
           if (payload.user_id) {
             let targetEmail = null;
-            console.log(`🔍 Looking for user ${payload.user_id} in ${connectedUsers.size} connected users`);
-            console.log(`🔍 Connected users:`, Array.from(connectedUsers.entries()).map(([id, data]) => `${id}: ${data.email} (userId: ${data.userId})`));
+            console.log(`Looking for user ${payload.user_id} in ${connectedUsers.size} connected users`);
+            console.log(`Connected users:`, Array.from(connectedUsers.entries()).map(([id, data]) => `${id}: ${data.email} (userId: ${data.userId})`));
             
             // Find the user by database ID in the connected users
             for (const [socketId, userData] of connectedUsers.entries()) {
               if (userData.userId === payload.user_id) {
                 targetEmail = userData.email;
-                console.log(`✅ Found user ${payload.user_id} with email ${targetEmail}`);
+                console.log(`Found user ${payload.user_id} with email ${targetEmail}`);
                 break;
               }
             }
@@ -340,33 +342,33 @@ async function initializeGlobalNotificationListener() {
             if (targetEmail) {
               const userSockets = userConnections.get(targetEmail);
               if (userSockets && userSockets.size > 0) {
-                console.log(`📤 Broadcasting monthly activity update to ${userSockets.size} connections for user ${payload.user_id} (${targetEmail})`);
+                console.log(`Broadcasting monthly activity update to ${userSockets.size} connections for user ${payload.user_id} (${targetEmail})`);
                 userSockets.forEach(socketId => {
                   io.to(socketId).emit('monthly-activity-update', payload);
-                  console.log(`📤 Emitted monthly-activity-update to socket ${socketId}`);
+                  console.log(`Emitted monthly-activity-update to socket ${socketId}`);
                 });
               } else {
-                console.log(`⚠️ No active connections found for user ${payload.user_id} (${targetEmail})`);
+                console.log(`No active connections found for user ${payload.user_id} (${targetEmail})`);
               }
             } else {
-              console.log(`⚠️ User ${payload.user_id} not found in connected users`);
+              console.log(`User ${payload.user_id} not found in connected users`);
             }
           }
         } else if (msg.channel === 'meeting_status_change' || msg.channel === 'meeting-update') {
           const payload = JSON.parse(msg.payload);
-          console.log(`📡 Meeting status change notification received:`, payload);
+          console.log(`Meeting status change notification received:`, payload);
           
           // Find all sockets for this user and emit to all of them
           if (payload.agent_user_id) {
             let targetEmail = null;
-            console.log(`🔍 Looking for user ${payload.agent_user_id} in ${connectedUsers.size} connected users`);
-            console.log(`🔍 Connected users:`, Array.from(connectedUsers.entries()).map(([id, data]) => `${id}: ${data.email} (userId: ${data.userId})`));
+            console.log(`Looking for user ${payload.agent_user_id} in ${connectedUsers.size} connected users`);
+            console.log(`Connected users:`, Array.from(connectedUsers.entries()).map(([id, data]) => `${id}: ${data.email} (userId: ${data.userId})`));
             
             // Find the user by database ID in the connected users
             for (const [socketId, userData] of connectedUsers.entries()) {
               if (userData.userId === payload.agent_user_id) {
                 targetEmail = userData.email;
-                console.log(`✅ Found user ${payload.agent_user_id} with email ${targetEmail}`);
+                console.log(`Found user ${payload.agent_user_id} with email ${targetEmail}`);
                 break;
               }
             }
@@ -380,14 +382,14 @@ async function initializeGlobalNotificationListener() {
                   redisClient.del(meetingsCacheKey),
                   redisClient.del(statusCacheKey)
                 ]);
-                console.log(`🗑️ Invalidated Redis cache for user ${payload.agent_user_id}`);
+                console.log(`Invalidated Redis cache for user ${payload.agent_user_id}`);
               } catch (cacheError) {
-                console.error('❌ Error invalidating cache:', cacheError.message);
+                console.error('Error invalidating cache:', cacheError.message);
               }
 
               const userSockets = userConnections.get(targetEmail);
               if (userSockets && userSockets.size > 0) {
-                console.log(`📤 Broadcasting meeting status update to ${userSockets.size} connections for user ${payload.agent_user_id} (${targetEmail})`);
+                console.log(`Broadcasting meeting status update to ${userSockets.size} connections for user ${payload.agent_user_id} (${targetEmail})`);
                 
                 // Determine the event type based on the operation
                 let eventType = 'meeting-update';
@@ -411,7 +413,7 @@ async function initializeGlobalNotificationListener() {
                     },
                     timestamp: payload.timestamp
                   });
-                  console.log(`📤 Emitted ${eventType} to socket ${socketId}`);
+                  console.log(`Emitted ${eventType} to socket ${socketId}`);
                 });
 
                 // Also broadcast agent status update for meeting status changes
@@ -423,22 +425,22 @@ async function initializeGlobalNotificationListener() {
                       meetingId: payload.meeting_id,
                       timestamp: payload.timestamp
                     });
-                    console.log(`📤 Emitted agent-status-update to socket ${socketId}: isInMeeting=${payload.is_in_meeting}`);
+                    console.log(`Emitted agent-status-update to socket ${socketId}: isInMeeting=${payload.is_in_meeting}`);
                   });
                 }
               } else {
-                console.log(`⚠️ No active connections found for user ${payload.agent_user_id} (${targetEmail})`);
+                console.log(`No active connections found for user ${payload.agent_user_id} (${targetEmail})`);
               }
             } else {
-              console.log(`⚠️ User ${payload.agent_user_id} not found in connected users`);
+              console.log(`User ${payload.agent_user_id} not found in connected users`);
             }
           }
         } else if (msg.channel === 'event_changes') {
           const payload = JSON.parse(msg.payload);
-          console.log(`📡 Event change notification received:`, payload.type, `Event ID: ${payload.event_id}`);
+          console.log(`Event change notification received:`, payload.type, `Event ID: ${payload.event_id}`);
           
           // Broadcast to all connected users since events are visible to all
-          console.log(`📤 Broadcasting event change to all ${connectedUsers.size} connected users`);
+          console.log(`Broadcasting event change to all ${connectedUsers.size} connected users`);
           
           // Emit to all connected sockets
           io.emit('event-change', {
@@ -471,12 +473,12 @@ async function initializeGlobalNotificationListener() {
             await redisClient.del('events:*');
             console.log('🗑️ Cleared events cache after event change');
           } catch (error) {
-            console.error('❌ Error clearing events cache:', error);
+            console.error('Error clearing events cache:', error);
           }
           
         } else if (msg.channel === 'event_attendance_changes') {
           const payload = JSON.parse(msg.payload);
-          console.log(`📡 Event attendance change notification received:`, payload.type, `Event ID: ${payload.event_id}, User ID: ${payload.user_id}`);
+          console.log(`Event attendance change notification received:`, payload.type, `Event ID: ${payload.event_id}, User ID: ${payload.user_id}`);
           
           // Find the user's email by looking through all connected users
           let targetEmail = null;
@@ -490,7 +492,7 @@ async function initializeGlobalNotificationListener() {
           if (targetEmail) {
             const userSockets = userConnections.get(targetEmail);
             if (userSockets && userSockets.size > 0) {
-              console.log(`📤 Broadcasting event attendance change to ${userSockets.size} connections for user ${payload.user_id} (${targetEmail})`);
+              console.log(`Broadcasting event attendance change to ${userSockets.size} connections for user ${payload.user_id} (${targetEmail})`);
               userSockets.forEach(socketId => {
                 io.to(socketId).emit('event-attendance-change', {
                   type: payload.type,
@@ -506,10 +508,10 @@ async function initializeGlobalNotificationListener() {
                 });
               });
             } else {
-              console.log(`⚠️ No active connections found for user ${payload.user_id} (${targetEmail})`);
+              console.log(`No active connections found for user ${payload.user_id} (${targetEmail})`);
             }
           } else {
-            console.log(`⚠️ User ${payload.user_id} not found in connected users`);
+            console.log(`User ${payload.user_id} not found in connected users`);
           }
           
           // Also broadcast to all users since event attendance affects event visibility
@@ -524,16 +526,16 @@ async function initializeGlobalNotificationListener() {
             await redisClient.del('events:*');
             console.log('🗑️ Cleared events cache after attendance change');
           } catch (error) {
-            console.error('❌ Error clearing events cache:', error);
+            console.error('Error clearing events cache:', error);
           }
         }
       } catch (error) {
-        console.error('❌ Error handling global notification:', error.message);
+        console.error('Error handling global notification:', error.message);
       }
     });
     
     globalNotificationClient.on('error', (error) => {
-      console.error('❌ Global notification client error:', error.message);
+      console.error('Global notification client error:', error.message);
       scheduleGlobalNotificationRetry();
     });
     
@@ -549,7 +551,7 @@ async function initializeGlobalNotificationListener() {
     }
     
   } catch (error) {
-    console.error('❌ Failed to initialize global notification listener:', error.message);
+    console.error('Failed to initialize global notification listener:', error.message);
     scheduleGlobalNotificationRetry();
   }
 }
@@ -559,9 +561,9 @@ function scheduleGlobalNotificationRetry() {
     clearInterval(globalNotificationRetryInterval);
   }
   
-  console.log('🔄 Scheduling global notification listener retry in 5 seconds...');
+  console.log('Scheduling global notification listener retry in 5 seconds...');
   globalNotificationRetryInterval = setInterval(() => {
-    console.log('🔄 Retrying global notification listener...');
+    console.log('Retrying global notification listener...');
     initializeGlobalNotificationListener();
   }, 5000);
 }
@@ -574,7 +576,7 @@ setInterval(() => {
   if (globalNotificationClient && globalNotificationClient.connection) {
     const status = globalNotificationClient.connection.stream.readyState;
     if (status === 'closed' || status === 'closing') {
-      console.log('⚠️ Global notification client connection is closed, reconnecting...');
+      console.log('Global notification client connection is closed, reconnecting...');
       initializeGlobalNotificationListener();
     }
   }
@@ -591,12 +593,12 @@ setInterval(() => {
     
     // Log warning if too many connections
     if (poolStatus.total > 10) {
-      console.warn(`⚠️ High database connections: ${poolStatus.total} total, ${poolStatus.idle} idle, ${poolStatus.waiting} waiting`);
+      console.warn(`High database connections: ${poolStatus.total} total, ${poolStatus.idle} idle, ${poolStatus.waiting} waiting`);
     }
     
     // Log every 5 minutes for monitoring
     if (Date.now() % 300000 < 1000) { // Every 5 minutes
-      console.log(`📊 Database pool status: ${poolStatus.total} total, ${poolStatus.idle} idle, ${poolStatus.waiting} waiting`);
+      console.log(`Database pool status: ${poolStatus.total} total, ${poolStatus.idle} idle, ${poolStatus.waiting} waiting`);
     }
   }
 }, 60000); // Check every minute
@@ -715,7 +717,7 @@ function shouldResetForShift(lastActivityTime, currentTime, shiftInfo) {
       // This means the last activity was from a different night shift start time
       const shouldReset = lastShiftStart.getTime() !== currentShiftStart.getTime();
       
-      console.log(`🕐 Night Shift reset check:`, {
+      console.log(`Night Shift reset check:`, {
         lastActivity: lastActivityTime.toISOString(),
         currentTime: currentTime.toISOString(),
         lastShiftStart: lastShiftStart.toISOString(),
@@ -920,7 +922,7 @@ async function initializeTeamUserStatus(referenceMemberId) {
     `;
     
     const teamResult = await pool.query(teamQuery, [referenceMemberId]);
-    console.log(`📋 Found ${teamResult.rows.length} team members to initialize`);
+    console.log(`Found ${teamResult.rows.length} team members to initialize`);
     
     // Initialize userStatus for all team members (default to offline)
     for (const row of teamResult.rows) {
@@ -931,20 +933,20 @@ async function initializeTeamUserStatus(referenceMemberId) {
           loginTime: null,
           lastSeen: null
         });
-        console.log(`⏸️ Initialized offline status for: ${email}`);
+        console.log(`Initialized offline status for: ${email}`);
       }
     }
     
-    console.log(`✅ Team user status initialization completed for ${teamResult.rows.length} members`);
+    console.log(`Team user status initialization completed for ${teamResult.rows.length} members`);
   } catch (error) {
-    console.error('❌ Error initializing team user status:', error);
+    console.error('Error initializing team user status:', error);
   }
 }
 
 // Function to get all connected users with their status
 async function getConnectedUsersList() {
   try {
-    console.log('🔍 Fetching connected users list...');
+    console.log('Fetching connected users list...');
     
     // Get all users from the database who are part of the same team
     // First, we need to get a reference user to determine the team
@@ -963,7 +965,7 @@ async function getConnectedUsersList() {
     }
     
     if (!referenceUser) {
-      console.log('⚠️ No reference user found, returning empty list');
+      console.log('No reference user found, returning empty list');
       return [];
     }
     
@@ -978,17 +980,17 @@ async function getConnectedUsersList() {
       const memberResult = await pool.query(memberQuery, [referenceUser.userId]);
       
       if (memberResult.rows.length === 0) {
-        console.log('⚠️ Reference user is not an agent, returning empty list');
+        console.log('Reference user is not an agent, returning empty list');
         return [];
       }
       
              referenceMemberId = memberResult.rows[0].member_id;
-       console.log(`🔍 Found reference member_id: ${referenceMemberId}`);
+       console.log(`Found reference member_id: ${referenceMemberId}`);
        
        // Initialize user status for all team members
        await initializeTeamUserStatus(referenceMemberId);
      } catch (error) {
-       console.error('❌ Error getting reference member_id:', error);
+       console.error('Error getting reference member_id:', error);
        return [];
      }
     
@@ -1031,7 +1033,7 @@ async function getConnectedUsersList() {
           lastSeen: socketStatus.lastSeen?.toISOString(),
           loginTime: socketStatus.loginTime?.toISOString()
         });
-        console.log(`✅ User ${email} has socket status: ${socketStatus.status}`);
+        console.log(`User ${email} has socket status: ${socketStatus.status}`);
       } else {
         // User doesn't have socket status - mark as offline
         users.push({
@@ -1042,7 +1044,7 @@ async function getConnectedUsersList() {
           lastSeen: null,
           loginTime: null
         });
-        console.log(`⏸️ User ${email} has no socket status - marked as offline`);
+        console.log(`User ${email} has no socket status - marked as offline`);
       }
     }
     
@@ -1050,7 +1052,7 @@ async function getConnectedUsersList() {
     return users;
     
   } catch (error) {
-    console.error('❌ Error in getConnectedUsersList:', error);
+    console.error('Error in getConnectedUsersList:', error);
     return [];
   }
 }
@@ -1360,7 +1362,7 @@ io.on('connection', (socket) => {
       // Handle user authentication
    socket.on('authenticate', async (data) => {
       const startTime = Date.now();
-      console.log(`🔐 AUTHENTICATE EVENT RECEIVED from socket ${socket.id}:`, data);
+      console.log(`AUTHENTICATE EVENT RECEIVED from socket ${socket.id}:`, data);
       
       try {
         
@@ -1368,19 +1370,19 @@ io.on('connection', (socket) => {
        const email = typeof data === 'string' ? data : data?.email;
        
        if (!email || typeof email !== 'string') {
-         console.log('❌ Authentication failed: Invalid email format');
+         console.log('Authentication failed: Invalid email format');
          socket.emit('error', { message: 'Valid email string is required' });
          return;
        }
        
-       console.log(`🔐 Authenticating user with email: ${email}`);
+       console.log(`Authenticating user with email: ${email}`);
       
       // Get or create user data
       const emailString = String(email);
       
       // Check if authentication is already in progress for this user
       if (authenticationInProgress.has(emailString)) {
-        console.log(`⏳ Authentication already in progress for: ${emailString}, waiting...`);
+        console.log(`Authentication already in progress for: ${emailString}, waiting...`);
         try {
           await authenticationInProgress.get(emailString);
           // After waiting, get the user data and send response
@@ -1399,7 +1401,7 @@ io.on('connection', (socket) => {
               userInfo,
               fullName 
             });
-            console.log(`🔐 AUTHENTICATION COMPLETED (waited): Socket ${socket.id} now associated with user ${emailString}`);
+            console.log(`AUTHENTICATION COMPLETED (waited): Socket ${socket.id} now associated with user ${emailString}`);
             // User data retrieved after waiting
             
             const initialTimerData = {
@@ -1410,10 +1412,10 @@ io.on('connection', (socket) => {
               sessionStart: userInfo.sessionStart
             };
             socket.emit('authenticated', initialTimerData);
-            console.log(`✅ Authentication completed (waited) for ${emailString}`);
+            console.log(`Authentication completed (waited) for ${emailString}`);
           }
         } catch (error) {
-          console.log(`❌ Authentication wait failed for ${emailString}:`, error.message);
+          console.log(`Authentication wait failed for ${emailString}:`, error.message);
           socket.emit('error', { message: 'Authentication failed' });
         }
         return;
@@ -1431,16 +1433,16 @@ io.on('connection', (socket) => {
       
       // Set timeout to reject the promise if it takes too long
       const authTimeout = setTimeout(() => {
-        console.error(`⏰ Authentication timeout for ${emailString} - cleaning up`);
+        console.error(`Authentication timeout for ${emailString} - cleaning up`);
         rejectAuth(new Error('Authentication timeout'));
         authenticationInProgress.delete(emailString);
         socket.emit('error', { message: 'Authentication timeout' });
       }, 10000); // 10 second timeout
       
-      console.log(`🔍 Looking up user data for: ${emailString}`);
+      console.log(`Looking up user data for: ${emailString}`);
       let userInfo = userData.get(emailString);
       if (!userInfo) {
-        console.log(`📝 Creating new user data for: ${emailString}`);
+        console.log(`Creating new user data for: ${emailString}`);
         // Creating new user data;
         userInfo = {
           userId: null, // Will be set after database lookup
@@ -1474,12 +1476,12 @@ io.on('connection', (socket) => {
           // User ID set from database
           
           // Get user shift information for shift-based resets
-          console.log(`🕐 Getting shift info for user ID: ${userId}`);
+          console.log(`Getting shift info for user ID: ${userId}`);
           const shiftInfo = await getUserShiftInfo(userId);
           userShiftInfo.set(emailString, shiftInfo);
           
           if (shiftInfo) {
-            console.log(`👤 User ${emailString} has ${shiftInfo.period} schedule: ${shiftInfo.time}`);
+            console.log(`User ${emailString} has ${shiftInfo.period} schedule: ${shiftInfo.time}`);
           }
           
                      // Load activity data from database (shift-aware or daily)
@@ -1498,7 +1500,7 @@ io.on('connection', (socket) => {
            }
           
           // First check if there's any activity data for this user
-          console.log(`🔍 Loading activity data for user ${emailString} (ID: ${userId})`);
+          console.log(`Loading activity data for user ${emailString} (ID: ${userId})`);
           
           // PRIORITY: First try to get current day's data, then fall back to most recent
           // Extract date parts and compare since dates are stored as JavaScript Date objects
@@ -1513,7 +1515,7 @@ io.on('connection', (socket) => {
           
           // If no current day data, get the most recent data as fallback
           if (activityResult.rows.length === 0) {
-            console.log(`📅 No current day (${currentDate}) data found for ${emailString}, checking for most recent data...`);
+            console.log(`No current day (${currentDate}) data found for ${emailString}, checking for most recent data...`);
             activityResult = await pool.query(
               `SELECT today_active_seconds, today_inactive_seconds, last_session_start, is_currently_active, today_date
                FROM activity_data 
@@ -1523,16 +1525,16 @@ io.on('connection', (socket) => {
               [userId]
             );
           } else {
-            console.log(`✅ Found current day (${currentDate}) data for ${emailString}`);
+            console.log(`Found current day (${currentDate}) data for ${emailString}`);
           }
-          console.log(`📊 Activity query for user ${emailString} (ID: ${userId}) returned ${activityResult.rows.length} rows`);
+          console.log(`Activity query for user ${emailString} (ID: ${userId}) returned ${activityResult.rows.length} rows`);
           
           if (activityResult.rows.length > 0) {
             const dbData = activityResult.rows[0];
             const dbDate = dbData.today_date.toISOString().split('T')[0]; // Convert to YYYY-MM-DD format
             const lastActivityTime = new Date(dbData.last_session_start || dbData.today_date);
             
-            console.log(`📅 User ${emailString} (ID: ${userId}) - Last Activity: ${lastActivityTime.toISOString()}, Current: ${currentTime.toISOString()}`);
+            console.log(`User ${emailString} (ID: ${userId}) - Last Activity: ${lastActivityTime.toISOString()}, Current: ${currentTime.toISOString()}`);
             
             // Check if we should reset based on shift schedule
             // FIXED: Use the database session start time to determine if reset is needed
@@ -1541,9 +1543,9 @@ io.on('connection', (socket) => {
             if (!shouldReset) {
               // Same shift period - use existing values
               if (shiftInfo) {
-                console.log(`✅ Same shift period detected for ${emailString} (${shiftInfo.period}) - loading existing timer data`);
+                console.log(`Same shift period detected for ${emailString} (${shiftInfo.period}) - loading existing timer data`);
               } else {
-                console.log(`✅ Same day detected for ${emailString} - loading existing timer data`);
+                console.log(`Same day detected for ${emailString} - loading existing timer data`);
               }
               userInfo.activeSeconds = dbData.today_active_seconds || 0;
               userInfo.inactiveSeconds = dbData.today_inactive_seconds || 0;
@@ -1560,12 +1562,12 @@ io.on('connection', (socket) => {
                 // If we don't have reset tracking, initialize it based on current state
                 if (!userInfo.lastShiftId) {
                   userInfo.lastShiftId = currentShiftId;
-                  console.log(`🔄 Initializing reset tracking for ${emailString} with shift ID: ${currentShiftId}`);
+                  console.log(`Initializing reset tracking for ${emailString} with shift ID: ${currentShiftId}`);
                 }
                 // If we don't have reset timestamp, set it to prevent immediate reset
                 if (!userInfo.lastResetAt) {
                   userInfo.lastResetAt = Date.now();
-                  console.log(`🔄 Initializing reset timestamp for ${emailString} to prevent immediate reset`);
+                  console.log(`Initializing reset timestamp for ${emailString} to prevent immediate reset`);
                 }
               }
               
@@ -1581,9 +1583,9 @@ io.on('connection', (socket) => {
             } else {
               // New shift period - reset timers
               if (shiftInfo) {
-                console.log(`🔄 New shift period detected for ${emailString} (${shiftInfo.period}: ${shiftInfo.time}) - resetting timers`);
+                console.log(`New shift period detected for ${emailString} (${shiftInfo.period}: ${shiftInfo.time}) - resetting timers`);
               } else {
-                console.log(`🔄 New day detected for ${emailString} (${dbDate} -> ${currentDate}) - resetting timers`);
+                console.log(`New day detected for ${emailString} (${dbDate} -> ${currentDate}) - resetting timers`);
               }
               // FIXED: For a new shift, always start as active unless explicitly set to inactive
               // This ensures users start productive work at the beginning of each shift
@@ -1591,11 +1593,11 @@ io.on('connection', (socket) => {
               
               // If this is a genuine new shift (not just a reconnection), force active state
               if (shiftInfo && shouldReset) {
-                console.log(`🔄 New shift detected - forcing active state for productivity`);
+                console.log(`New shift detected - forcing active state for productivity`);
                 preserveActive = true;
               }
               
-              console.log(`🔄 Shift reset: Activity state change for ${email}: ${userInfo.isActive} → ${preserveActive}`);
+              console.log(`Shift reset: Activity state change for ${email}: ${userInfo.isActive} → ${preserveActive}`);
               
               // Reset user data
               userInfo.activeSeconds = 0;
@@ -1623,7 +1625,7 @@ io.on('connection', (socket) => {
                    updated_at = NOW()`,
                 [userId, userInfo.sessionStart, currentDate, preserveActive]
               );
-              console.log(`📊 Created new activity record for ${email} on ${currentDate}`);
+              console.log(`Created new activity record for ${email} on ${currentDate}`);
             }
           } else {
             // No existing data found - check if we should reset based on shift start time
@@ -1636,7 +1638,7 @@ io.on('connection', (socket) => {
               if (hasShiftStarted) {
                 shouldResetForNewUser = true;
                 resetReason = 'shift_started';
-                console.log(`🔄 User ${email} logging in after shift start time (${shiftInfo.time}) - resetting timers`);
+                console.log(`User ${email} logging in after shift start time (${shiftInfo.time}) - resetting timers`);
               }
             }
             
@@ -1653,7 +1655,7 @@ io.on('connection', (socket) => {
               userInfo.lastDbUpdate = 0; // Initialize for throttling
               userInfo.lastSocketEmit = 0; // Initialize for throttling
               userInfo.lastActivityEmit = 0; // Initialize for throttling
-              console.log(`⏰ Fresh start with reset for ${email} - ${resetReason} - starting as ACTIVE`);
+              console.log(`Fresh start with reset for ${email} - ${resetReason} - starting as ACTIVE`);
             } else {
               // Normal fresh start
               userInfo.activeSeconds = 0;
@@ -1667,7 +1669,7 @@ io.on('connection', (socket) => {
               userInfo.lastDbUpdate = 0; // Initialize for throttling
               userInfo.lastSocketEmit = 0; // Initialize for throttling
               userInfo.lastActivityEmit = 0; // Initialize for throttling
-              console.log(`🆕 Fresh start for ${email} - no reset needed - starting as ACTIVE`);
+              console.log(`Fresh start for ${email} - no reset needed - starting as ACTIVE`);
             }
             
             // Create initial activity_data record
@@ -1685,24 +1687,24 @@ io.on('connection', (socket) => {
         }
         
         userData.set(emailString, userInfo);
-        console.log(`💾 Stored new user data for: ${emailString}`);
+        console.log(`Stored new user data for: ${emailString}`);
       } else {
-        console.log(`✅ Found existing user data for: ${emailString}`);
+        console.log(`Found existing user data for: ${emailString}`);
         // Found existing user data;
         // Keep existing timer data - don't reset on reconnection
         // But also try to refresh from database to ensure we have latest data and check for new shift
-        console.log(`🔄 Refreshing existing user data from database for: ${emailString}`);
+        console.log(`Refreshing existing user data from database for: ${emailString}`);
         try {
           const userResult = await pool.query('SELECT id FROM users WHERE email = $1', [emailString]);
           if (userResult.rows.length > 0) {
             const userId = userResult.rows[0].id;
-            console.log(`📊 Database user ID found: ${userId}`);
+            console.log(`Database user ID found: ${userId}`);
             
             // Get/refresh user shift information
-            console.log(`🕐 Refreshing shift info for user ID: ${userId}`);
+            console.log(`Refreshing shift info for user ID: ${userId}`);
             const shiftInfo = await getUserShiftInfo(userId);
             userShiftInfo.set(emailString, shiftInfo);
-            console.log(`✅ Shift info refreshed for: ${emailString}`);
+            console.log(`Shift info refreshed for: ${emailString}`);
             
                          const currentTime = new Date();
              // For night shifts, use the date when the shift started (not current calendar date)
@@ -1719,7 +1721,7 @@ io.on('connection', (socket) => {
              }
             
                         // Get the most recent activity data for this user
-            console.log(`📊 Loading most recent activity data for user ${emailString} (ID: ${userId})`);
+            console.log(`Loading most recent activity data for user ${emailString} (ID: ${userId})`);
             
             // PRIORITY: First try to get current day's data, then fall back to most recent
             // Use simple date comparison since dates are already stored in Manila time
@@ -1732,7 +1734,7 @@ io.on('connection', (socket) => {
             
             // If no current day data, get the most recent data as fallback
             if (activityResult.rows.length === 0) {
-              console.log(`📅 No current day (${currentDate}) data found during refresh for ${emailString}, checking for most recent data...`);
+              console.log(`No current day (${currentDate}) data found during refresh for ${emailString}, checking for most recent data...`);
               activityResult = await pool.query(
                 `SELECT today_active_seconds, today_inactive_seconds, last_session_start, is_currently_active, today_date
                  FROM activity_data 
@@ -1742,16 +1744,16 @@ io.on('connection', (socket) => {
                 [userId]
               );
             } else {
-              console.log(`✅ Found current day (${currentDate}) data during refresh for ${emailString}`);
+              console.log(`Found current day (${currentDate}) data during refresh for ${emailString}`);
             }
-            console.log(`📊 Activity query for user ${emailString} (ID: ${userId}) returned ${activityResult.rows.length} rows`);
+            console.log(`Activity query for user ${emailString} (ID: ${userId}) returned ${activityResult.rows.length} rows`);
             
             if (activityResult.rows.length > 0) {
               const dbData = activityResult.rows[0];
               const dbDate = dbData.today_date.toISOString().split('T')[0]; // Convert to YYYY-MM-DD format
               const lastActivityTime = new Date(dbData.last_session_start || dbData.today_date);
               
-              console.log(`📅 Refresh check for ${emailString} - Last Activity: ${lastActivityTime.toISOString()}, Current: ${currentTime.toISOString()}`);
+              console.log(`Refresh check for ${emailString} - Last Activity: ${lastActivityTime.toISOString()}, Current: ${currentTime.toISOString()}`);
               
               // Check if we should reset based on shift schedule
               const shouldReset = shouldResetForShift(lastActivityTime, currentTime, shiftInfo);
@@ -1760,9 +1762,9 @@ io.on('connection', (socket) => {
                 // Same shift period - update with database data if it's more recent
                 if (dbData.today_active_seconds > userInfo.activeSeconds || dbData.today_inactive_seconds > userInfo.inactiveSeconds) {
                   if (shiftInfo) {
-                    console.log(`🔄 Updating memory data for ${emailString} with more recent database data (same shift period: ${shiftInfo.period})`);
+                    console.log(`Updating memory data for ${emailString} with more recent database data (same shift period: ${shiftInfo.period})`);
                   } else {
-                    console.log(`🔄 Updating memory data for ${emailString} with more recent database data`);
+                    console.log(`Updating memory data for ${emailString} with more recent database data`);
                   }
                   userInfo.activeSeconds = dbData.today_active_seconds || 0;
                   userInfo.inactiveSeconds = dbData.today_inactive_seconds || 0;
@@ -1779,12 +1781,12 @@ io.on('connection', (socket) => {
                     // If we don't have reset tracking, initialize it based on current state
                     if (!userInfo.lastShiftId) {
                       userInfo.lastShiftId = currentShiftId;
-                      console.log(`🔄 Initializing reset tracking for ${emailString} with shift ID: ${currentShiftId}`);
+                      console.log(`Initializing reset tracking for ${emailString} with shift ID: ${currentShiftId}`);
                     }
                     // If we don't have reset timestamp, set it to prevent immediate reset
                     if (!userInfo.lastResetAt) {
                       userInfo.lastResetAt = Date.now();
-                      console.log(`🔄 Initializing reset timestamp for ${emailString} to prevent immediate reset`);
+                      console.log(`Initializing reset timestamp for ${emailString} to prevent immediate reset`);
                     }
                   }
                   
@@ -1801,9 +1803,9 @@ io.on('connection', (socket) => {
               } else {
               // New shift period - reset for new shift
                 if (shiftInfo) {
-                  console.log(`🔄 New shift period detected during refresh for ${emailString} (${shiftInfo.period}: ${shiftInfo.time}) - resetting timers`);
+                  console.log(`New shift period detected during refresh for ${emailString} (${shiftInfo.period}: ${shiftInfo.time}) - resetting timers`);
                 } else {
-                  console.log(`🔄 New day detected during refresh for ${emailString} (${dbDate} -> ${currentDate}) - resetting timers`);
+                  console.log(`New day detected during refresh for ${emailString} (${dbDate} -> ${currentDate}) - resetting timers`);
                 }
               // FIXED: For a new shift, always start as active unless explicitly set to inactive
               // This ensures users start productive work at the beginning of each shift
@@ -1811,11 +1813,11 @@ io.on('connection', (socket) => {
               
               // If this is a genuine new shift (not just a reconnection), force active state
               if (shiftInfo && shouldReset) {
-                console.log(`🔄 New shift detected - forcing active state for productivity`);
+                console.log(`New shift detected - forcing active state for productivity`);
                 preserveActive = true;
               }
               
-              console.log(`🔄 Shift reset: Activity state change for ${email}: ${userInfo.isActive} → ${preserveActive}`);
+              console.log(`Shift reset: Activity state change for ${email}: ${userInfo.isActive} → ${preserveActive}`);
               
               // Reset user data
               userInfo.activeSeconds = 0;
@@ -1843,11 +1845,11 @@ io.on('connection', (socket) => {
                      updated_at = NOW()`,
                   [userId, userInfo.sessionStart, currentDate, preserveActive]
                 );
-                console.log(`📊 Created new activity record for ${email} on ${currentDate}`);
+                console.log(`Created new activity record for ${email} on ${currentDate}`);
               }
             } else {
               // No activity data exists, create fresh record
-                              console.log(`🆕 No activity data found during refresh for ${email} - creating fresh start`);
+                              console.log(`No activity data found during refresh for ${email} - creating fresh start`);
               
               // Ensure throttling fields exist
               if (typeof userInfo.lastDbUpdate === 'undefined') {
@@ -1870,7 +1872,7 @@ io.on('connection', (socket) => {
                 if (hasShiftStarted) {
                   shouldResetForRefresh = true;
                   refreshResetReason = 'shift_started_refresh';
-                  console.log(`🔄 User ${emailString} refreshing after shift start time (${shiftInfo.time}) - resetting timers`);
+                  console.log(`User ${emailString} refreshing after shift start time (${shiftInfo.time}) - resetting timers`);
                 }
               }
               
@@ -1887,7 +1889,7 @@ io.on('connection', (socket) => {
                 userInfo.lastDbUpdate = 0; // Initialize for throttling
                 userInfo.lastSocketEmit = 0; // Initialize for throttling
                 userInfo.lastActivityEmit = 0; // Initialize for throttling
-                console.log(`⏰ Refresh with reset for ${emailString} - ${refreshResetReason}`);
+                console.log(`Refresh with reset for ${emailString} - ${refreshResetReason}`);
               } else {
                 // Normal fresh start
                 const preserveActive = !!userInfo.isActive;
@@ -1900,7 +1902,7 @@ io.on('connection', (socket) => {
                 userInfo.lastDbUpdate = 0; // Initialize for throttling
                 userInfo.lastSocketEmit = 0; // Initialize for throttling
                 userInfo.lastActivityEmit = 0; // Initialize for throttling
-                console.log(`🆕 Refresh fresh start for ${emailString} - no reset needed`);
+                console.log(`Refresh fresh start for ${emailString} - no reset needed`);
               }
               
               // Ensure throttling fields exist
@@ -1923,7 +1925,7 @@ io.on('connection', (socket) => {
                  } catch (insertError) {
                    // If insert fails due to conflict, it means a row already exists for this date
                    if (insertError.code === '23505') { // Unique constraint violation
-                     console.log(`📊 Activity record already exists for ${emailString} on ${currentDate} - updating instead`);
+                     console.log(`Activity record already exists for ${emailString} on ${currentDate} - updating instead`);
                      await pool.query(
                        `UPDATE activity_data 
                         SET is_currently_active = $1, 
@@ -1941,9 +1943,9 @@ io.on('connection', (socket) => {
             }
           }
         } catch (dbError) {
-          console.error(`❌ Database refresh failed for ${emailString}:`, dbError.message);
+          console.error(`Database refresh failed for ${emailString}:`, dbError.message);
         }
-        console.log(`🔄 Refresh completed for existing user: ${emailString}`);
+        console.log(`Refresh completed for existing user: ${emailString}`);
       }
 
                      // Store user info - ensure email is stored as string
@@ -1960,8 +1962,8 @@ io.on('connection', (socket) => {
           userInfo,
           fullName 
         });
-        console.log(`🔐 AUTHENTICATION COMPLETED: Socket ${socket.id} now associated with user ${emailString}`);
-        console.log(`📊 Connected users map now contains:`, Array.from(connectedUsers.entries()).map(([id, data]) => `${id} -> ${data.email}`));
+        console.log(`AUTHENTICATION COMPLETED: Socket ${socket.id} now associated with user ${emailString}`);
+        console.log(`Connected users map now contains:`, Array.from(connectedUsers.entries()).map(([id, data]) => `${id} -> ${data.email}`));
         // User authentication completed with data
         
         // Clean up any temporary user data that might exist
@@ -1972,7 +1974,7 @@ io.on('connection', (socket) => {
           }
         }
         
-        console.log(`🔄 Updated socket ${socket.id} with real user data for: ${emailString}`);
+        console.log(`Updated socket ${socket.id} with real user data for: ${emailString}`);
         
         // Track user connections for notifications
         if (!userConnections.has(emailString)) {
@@ -1987,14 +1989,14 @@ io.on('connection', (socket) => {
             loginTime: new Date(),
             lastSeen: new Date()
           });
-          console.log(`🆕 Created userStatus entry for: ${emailString}`);
+          console.log(`Created userStatus entry for: ${emailString}`);
         } else {
           // Update existing status to online
           const status = userStatus.get(emailString);
           status.status = 'online';
           status.loginTime = new Date();
           status.lastSeen = new Date();
-          console.log(`🔄 Updated userStatus to online for: ${emailString}`);
+          console.log(`Updated userStatus to online for: ${emailString}`);
         }
 
         // Get user info for the status update
@@ -2016,10 +2018,10 @@ io.on('connection', (socket) => {
       // REMOVED: Online status tracking functionality
       
       // Get initial meeting status
-      console.log(`👥 Getting meeting status for user: ${emailString}`);
+      console.log(`Getting meeting status for user: ${emailString}`);
       const isInMeeting = await getUserMeetingStatus(userInfo.userId);
       userMeetingStatus.set(emailString, isInMeeting);
-      console.log(`👥 Meeting status retrieved: ${isInMeeting}`);
+      console.log(`Meeting status retrieved: ${isInMeeting}`);
       
       // IMPORTANT: Don't send initial data immediately - wait for database hydration
       let initialTimerData = {
@@ -2030,7 +2032,7 @@ io.on('connection', (socket) => {
       };
       
       // Add shift reset information if available
-      console.log(`⏰ Preparing timer data for: ${emailString}`);
+      console.log(`Preparing timer data for: ${emailString}`);
       const shiftInfo = userShiftInfo.get(emailString);
       if (shiftInfo) {
         const currentTime = new Date();
@@ -2048,35 +2050,35 @@ io.on('connection', (socket) => {
           nextResetTime: new Date(currentTime.getTime() + timeUntilReset).toISOString()
         };
         
-        console.log(`⏰ Shift reset info for ${emailString}: ${formattedTimeUntilReset} until next reset`);
+        console.log(`Shift reset info for ${emailString}: ${formattedTimeUntilReset} until next reset`);
       }
       
       // Send initial meeting status
-      console.log(`📤 Sending meeting status for: ${emailString} - ${isInMeeting}`);
+      console.log(`Sending meeting status for: ${emailString} - ${isInMeeting}`);
       try {
         socket.emit('meeting-status-update', { isInMeeting });
-        console.log(`✅ Meeting status sent for: ${emailString}`);
+        console.log(`Meeting status sent for: ${emailString}`);
       } catch (emitError) {
-        console.error(`❌ Meeting status emit failed for: ${emailString}`, emitError.message);
+        console.error(`Meeting status emit failed for: ${emailString}`, emitError.message);
       }
       
       // Join task activity rooms for real-time updates (by email and by userId)
-      console.log(`🏠 Joining rooms for: ${emailString}`);
+      console.log(`Joining rooms for: ${emailString}`);
       try {
         socket.join(`task-activity-${emailString}`);
         if (userInfo.userId) {
           socket.join(`task-user-${userInfo.userId}`);
         }
-        console.log(`✅ Rooms joined for: ${emailString}`);
+        console.log(`Rooms joined for: ${emailString}`);
       } catch (roomError) {
-        console.error(`❌ Room joining failed for: ${emailString}`, roomError.message);
+        console.error(`Room joining failed for: ${emailString}`, roomError.message);
       }
 
       // Note: Removed precreateNextDayRowIfEnded as it was causing incorrect row creation for night shifts
 
       // FIXED: Simple hydration - use the existing data that was already loaded from the database
       try {
-        console.log(`🔄 Using existing loaded data for ${emailString}: ${userInfo.activeSeconds}s active, ${userInfo.inactiveSeconds}s inactive, isActive: ${userInfo.isActive}`);
+        console.log(`Using existing loaded data for ${emailString}: ${userInfo.activeSeconds}s active, ${userInfo.inactiveSeconds}s inactive, isActive: ${userInfo.isActive}`);
         
         // The data was already loaded in the earlier database query during user creation
         // Just ensure the initial timer data matches what was loaded
@@ -2085,7 +2087,7 @@ io.on('connection', (socket) => {
         initialTimerData.inactiveSeconds = userInfo.inactiveSeconds;
         initialTimerData.sessionStart = userInfo.sessionStart;
         
-        console.log(`✅ Timer data initialized for ${emailString}: ${userInfo.activeSeconds}s active, ${userInfo.inactiveSeconds}s inactive`);
+        console.log(`Timer data initialized for ${emailString}: ${userInfo.activeSeconds}s active, ${userInfo.inactiveSeconds}s inactive`);
         
         // NOW send the authenticated event with proper hydrated data
         // Create clean data object to avoid circular references
@@ -2108,25 +2110,25 @@ io.on('connection', (socket) => {
           } : undefined
         };
         
-        console.log(`📤 Sending authenticated event for: ${emailString}`);
+        console.log(`Sending authenticated event for: ${emailString}`);
         try {
           socket.emit('authenticated', cleanTimerData);
-          console.log(`✅ Authenticated event sent for: ${emailString}`);
+          console.log(`Authenticated event sent for: ${emailString}`);
         } catch (authEmitError) {
-          console.error(`❌ Authenticated emit failed for: ${emailString}`, authEmitError.message);
+          console.error(`Authenticated emit failed for: ${emailString}`, authEmitError.message);
         }
         
         // Also send a timer update to ensure client has latest data
-        console.log(`📤 Sending timerUpdated event for: ${emailString}`);
+        console.log(`Sending timerUpdated event for: ${emailString}`);
         try {
           socket.emit('timerUpdated', cleanTimerData);
-          console.log(`✅ TimerUpdated event sent for: ${emailString}`);
+          console.log(`TimerUpdated event sent for: ${emailString}`);
         } catch (timerEmitError) {
-          console.error(`❌ TimerUpdated emit failed for: ${emailString}`, timerEmitError.message);
+          console.error(`TimerUpdated emit failed for: ${emailString}`, timerEmitError.message);
         }
         
         const duration = Date.now() - startTime;
-        console.log(`✅ Authentication completed for ${emailString} in ${duration}ms`);
+        console.log(`Authentication completed for ${emailString} in ${duration}ms`);
         
         // Resolve the authentication promise for waiting sockets
         if (resolveAuth) {
@@ -2140,7 +2142,7 @@ io.on('connection', (socket) => {
         // REMOVED: Online status broadcast
       } catch (error) {
         // Even if hydration fails, send authenticated event
-        console.log(`⚠️ Authentication hydration failed for ${emailString}:`, error.message);
+        console.log(`Authentication hydration failed for ${emailString}:`, error.message);
         try {
           socket.emit('authenticated', {
             email: emailString, // Include email for frontend user matching
@@ -2151,11 +2153,11 @@ io.on('connection', (socket) => {
             sessionStart: new Date().toISOString()
           });
         } catch (fallbackEmitError) {
-          console.error(`❌ Fallback authenticated emit failed for: ${emailString}`, fallbackEmitError.message);
+          console.error(`Fallback authenticated emit failed for: ${emailString}`, fallbackEmitError.message);
         }
         
         const duration = Date.now() - startTime;
-        console.log(`✅ Authentication completed (with errors) for ${emailString} in ${duration}ms`);
+        console.log(`Authentication completed (with errors) for ${emailString} in ${duration}ms`);
         
         // Resolve the authentication promise for waiting sockets (even on error)
         if (resolveAuth) {
@@ -2172,65 +2174,17 @@ io.on('connection', (socket) => {
       // Notifications are now handled by the global notification listener
       // No need for individual socket notification listeners
       
-      // Clean up user connection tracking on disconnect
-         socket.on('disconnect', () => {
-           try {
-             // Clean up user connection tracking
-             const userData = connectedUsers.get(socket.id);
-             if (userData) {
-               let { email } = userData;
-               // Ensure email is a string
-               if (typeof email === 'object' && email.email) {
-                 email = email.email;
-               }
-               email = String(email);
-               
-               if (userConnections.has(email)) {
-                 userConnections.get(email).delete(socket.id);
-                 if (userConnections.get(email).size === 0) {
-                   userConnections.delete(email);
-                 }
-               }
-               connectedUsers.delete(socket.id);
-               console.log(`🔌 Socket ${socket.id} disconnected for ${email}`);
-             }
-           } catch (error) {
-          console.error(`❌ Error cleaning up socket ${socket.id}:`, error.message);
-           }
-         });
+      // Note: Disconnect handling is done globally outside this authenticate handler
+      // to avoid duplicate handlers and race conditions
         
-                 // Also clean up on socket error
-         socket.on('error', () => {
-           try {
-             // Clean up user connection tracking
-             const userData = connectedUsers.get(socket.id);
-             if (userData) {
-               let { email } = userData;
-               // Ensure email is a string
-               if (typeof email === 'object' && email.email) {
-                 email = email.email;
-               }
-               email = String(email);
-               
-               if (userConnections.has(email)) {
-                 userConnections.get(email).delete(socket.id);
-                 if (userConnections.get(email).size === 0) {
-                   userConnections.delete(email);
-                 }
-               }
-               connectedUsers.delete(socket.id);
-            console.log(`🔌 Socket ${socket.id} disconnected for ${email} due to error`);
-             }
-           } catch (error) {
-          console.error(`❌ Error cleaning up socket ${socket.id}:`, error.message);
-           }
-         });
+      // Note: Error handling is done globally outside this authenticate handler
+      // to avoid duplicate handlers and race conditions
 
       // Timer data is now sent via the authenticated event with proper hydration
     } catch (error) {
       const duration = Date.now() - startTime;
       const emailString = String(email || 'unknown');
-      console.error(`❌ Authentication error for ${emailString} after ${duration}ms:`, error.message);
+      console.error(`Authentication error for ${emailString} after ${duration}ms:`, error.message);
       socket.emit('error', { message: 'Authentication failed: ' + error.message });
       
       // Clean up authentication tracking
@@ -2245,6 +2199,7 @@ io.on('connection', (socket) => {
    socket.on('disconnect', () => {
                   // Clean up user connection tracking
              const userData = connectedUsers.get(socket.id);
+             console.log(`🔌 Socket ${socket.id} disconnecting. Connected users before cleanup: ${connectedUsers.size}`);
              if (userData) {
                let { email } = userData;
                // Ensure email is a string
@@ -2275,7 +2230,9 @@ io.on('connection', (socket) => {
                  }
                }
                connectedUsers.delete(socket.id);
-               console.log(`🔌 Socket ${socket.id} disconnected for ${email}`);
+               console.log(`🔌 Socket ${socket.id} disconnected for ${email}. Connected users after cleanup: ${connectedUsers.size}`);
+             } else {
+               console.log(`No user data found for disconnecting socket ${socket.id}`);
              }
    });
 
@@ -2300,12 +2257,12 @@ io.on('connection', (socket) => {
             try {
               // Handle productivity score updates from database triggers
               const updateData = JSON.parse(msg.payload);
-              console.log(`📊 Productivity score update notification received for user ${updateData.user_id}: ${updateData.old_score} -> ${updateData.new_score}`);
+              console.log(`Productivity score update notification received for user ${updateData.user_id}: ${updateData.old_score} -> ${updateData.new_score}`);
               
               // Emit real-time update to all connected clients
               emitProductivityScoreUpdate(updateData.user_id, updateData.month_year);
             } catch (error) {
-              console.error('❌ Error handling productivity score update notification:', error);
+              console.error('Error handling productivity score update notification:', error);
             }
           } else if (
             msg.channel === 'task_relations' ||
@@ -2344,7 +2301,7 @@ io.on('connection', (socket) => {
         // Listen to all channels
         listenChannels.forEach(channel => {
           client.query(`LISTEN ${channel}`).catch(err => {
-            console.error(`❌ Failed to LISTEN to ${channel}:`, err.message);
+            console.error(`Failed to LISTEN to ${channel}:`, err.message);
           });
         });
         
@@ -2352,13 +2309,13 @@ io.on('connection', (socket) => {
         
         // Handle client errors and cleanup
         client.on('error', (err) => {
-          console.error('❌ Global task activity listener error:', err.message);
+          console.error('Global task activity listener error:', err.message);
           // Try to reconnect after a delay
           setTimeout(() => {
             try {
               client.release();
               global.__sa_task_activity_listener = false;
-              console.log('🔄 Global task activity listener will reconnect on next request');
+              console.log('Global task activity listener will reconnect on next request');
             } catch (_) {}
           }, 5000);
         });
@@ -2370,12 +2327,12 @@ io.on('connection', (socket) => {
         });
         
       }).catch((err) => {
-        console.error('❌ Failed to connect global task activity listener:', err.message);
+        console.error('Failed to connect global task activity listener:', err.message);
         global.__sa_task_activity_listener = false;
       });
     }
   } catch (err) {
-    console.error('❌ Error setting up global task activity listener:', err.message);
+    console.error('Error setting up global task activity listener:', err.message);
   }
 
   // Function to emit productivity score updates to connected users
@@ -2400,7 +2357,7 @@ io.on('connection', (socket) => {
         const score = scoreResult.rows[0];
         const email = score.email;
         
-        console.log(`📊 Emitting productivity score update for ${email}: ${score.productivity_score} points`);
+        console.log(`Emitting productivity score update for ${email}: ${score.productivity_score} points`);
         
         // Emit to all connected users for real-time updates
         io.emit('productivityScoreUpdated', {
@@ -2412,146 +2369,15 @@ io.on('connection', (socket) => {
           timestamp: score.updated_at
         });
         
-        console.log(`✅ Productivity score update emitted for ${email}`);
+        console.log(`Productivity score update emitted for ${email}`);
       }
     } catch (error) {
-      console.error('❌ Error emitting productivity score update:', error);
+      console.error('Error emitting productivity score update:', error);
     }
   }
 
   // Make the function globally available for database triggers to call
   global.emitProductivityScoreUpdate = emitProductivityScoreUpdate;
-
-  // Team Chat Real-time Messaging
-  socket.on('join-chat', async (data) => {
-    try {
-      const { userId, conversationId } = data;
-      const userData = connectedUsers.get(socket.id);
-      
-      if (!userData || userData.userId !== userId) {
-        socket.emit('chat-error', { message: 'Unauthorized' });
-        return;
-      }
-      
-      // Join the conversation room
-      socket.join(`conversation_${conversationId}`);
-      
-      // Debug: Check room size after joining
-      const room = io.sockets.adapter.rooms.get(`conversation_${conversationId}`);
-      const roomSize = room ? room.size : 0;
-      console.log(`👤 User ${userId} joined conversation ${conversationId} (room now has ${roomSize} participants)`);
-      
-      // Emit typing indicator to other participants
-      socket.to(`conversation_${conversationId}`).emit('user-joined-chat', {
-        userId,
-        conversationId,
-        timestamp: new Date().toISOString()
-      });
-    } catch (error) {
-      console.error('Error joining chat:', error);
-      socket.emit('chat-error', { message: 'Failed to join chat' });
-    }
-  });
-
-  socket.on('leave-chat', async (data) => {
-    try {
-      const { userId, conversationId } = data;
-      socket.leave(`conversation_${conversationId}`);
-      console.log(`👤 User ${userId} left conversation ${conversationId}`);
-      
-      // Emit to other participants
-      socket.to(`conversation_${conversationId}`).emit('user-left-chat', {
-        userId,
-        conversationId,
-        timestamp: new Date().toISOString()
-      });
-    } catch (error) {
-      console.error('Error leaving chat:', error);
-    }
-  });
-
-  socket.on('send-chat-message', async (data) => {
-    try {
-      const { userId, conversationId, messageContent, messageType = 'text' } = data;
-      const userData = connectedUsers.get(socket.id);
-      
-      if (!userData || userData.userId !== userId) {
-        socket.emit('chat-error', { message: 'Unauthorized' });
-        return;
-      }
-      
-      // Store message in database (this will be handled by the API)
-      // For now, just broadcast the message
-      const messageData = {
-        id: Date.now().toString(), // Temporary ID
-        conversationId,
-        senderId: userId,
-        senderName: userData.fullName || userData.email,
-        content: messageContent,
-        messageType,
-        timestamp: new Date().toISOString(),
-        isTemporary: true
-      };
-      
-      // Debug: Check who's in the conversation room
-      const room = io.sockets.adapter.rooms.get(`conversation_${conversationId}`);
-      const roomSize = room ? room.size : 0;
-      console.log(`🔍 Room conversation_${conversationId} has ${roomSize} participants`);
-      
-      // Broadcast to conversation participants
-      io.to(`conversation_${conversationId}`).emit('new-chat-message', messageData);
-      
-      // Emit delivery confirmation to sender
-      socket.emit('message-delivered', {
-        messageId: messageData.id,
-        conversationId,
-        timestamp: new Date().toISOString()
-      });
-      
-      console.log(`💬 Chat message sent in conversation ${conversationId} by user ${userId} to ${roomSize} participants`);
-    } catch (error) {
-      console.error('Error sending chat message:', error);
-      socket.emit('chat-error', { message: 'Failed to send message' });
-    }
-  });
-
-  socket.on('typing-indicator', (data) => {
-    try {
-      const { userId, conversationId, isTyping } = data;
-      const userData = connectedUsers.get(socket.id);
-      
-      if (!userData || userData.userId !== userId) return;
-      
-      // Broadcast typing indicator to other participants
-      socket.to(`conversation_${conversationId}`).emit('user-typing', {
-        userId,
-        conversationId,
-        isTyping,
-        timestamp: new Date().toISOString()
-      });
-    } catch (error) {
-      console.error('Error handling typing indicator:', error);
-    }
-  });
-
-  socket.on('mark-message-read', async (data) => {
-    try {
-      const { userId, conversationId, messageIds } = data;
-      const userData = connectedUsers.get(socket.id);
-      
-      if (!userData || userData.userId !== userId) return;
-      
-      // Emit read receipt to other participants
-      socket.to(`conversation_${conversationId}`).emit('messages-read', {
-        userId,
-        conversationId,
-        messageIds,
-        timestamp: new Date().toISOString()
-      });
-    } catch (error) {
-      console.error('Error marking messages as read:', error);
-    }
-  });
 
   // Handle activity state changes
   socket.on('activityChange', async (isActive) => {
@@ -2584,7 +2410,7 @@ io.on('connection', (socket) => {
         const shouldEmitActivity = timeSinceLastActivityEmit >= 15000; // 15 seconds
         
         if (shouldEmitActivity) {
-          console.log(`📡 Sending activity update to ${userSockets.size} connections for ${userData.email}:`, {
+          console.log(`Sending activity update to ${userSockets.size} connections for ${userData.email}:`, {
             activeSeconds: activityData.activeSeconds,
             inactiveSeconds: activityData.inactiveSeconds,
             isActive: activityData.isActive
@@ -2597,10 +2423,10 @@ io.on('connection', (socket) => {
           // Update last activity emit timestamp
           userInfo.lastActivityEmit = Date.now();
           
-          console.log(`✅ Activity update sent to ${userSockets.size} connections for ${userData.email}`);
+          console.log(`Activity update sent to ${userSockets.size} connections for ${userData.email}`);
         }
       } else {
-        console.log(`⚠️ No connections found for ${userData.email} to send activity update`);
+        console.log(`No connections found for ${userData.email} to send activity update`);
       }
 
     } catch (error) {
@@ -2715,7 +2541,7 @@ io.on('connection', (socket) => {
       const inactiveDiff = Math.abs(userInfo.inactiveSeconds - oldInactive);
       
       if (activeDiff >= 30 || inactiveDiff >= 30) {
-        console.log(`📊 Timer updated for ${userData.email}: Active ${oldActive}s → ${userInfo.activeSeconds}s, Inactive ${oldInactive}s → ${userInfo.inactiveSeconds}s`);
+        console.log(`Timer updated for ${userData.email}: Active ${oldActive}s → ${userInfo.activeSeconds}s, Inactive ${oldInactive}s → ${userInfo.inactiveSeconds}s`);
       }
       
       // Also try to update database if connection is available
@@ -2756,7 +2582,7 @@ io.on('connection', (socket) => {
               [userId]
             );
             const shiftText = (shiftRes.rows[0]?.shift_time || '').toString();
-            console.log(`🔍 Shift window check for ${userData.email}: shift_time="${shiftText}"`);
+            console.log(`Shift window check for ${userData.email}: shift_time="${shiftText}"`);
             const both = shiftText.match(/(\d{1,2}:\d{2}\s*(?:AM|PM))\s*-\s*(\d{1,2}:\d{2}\s*(?:AM|PM))/i);
             if (both) {
               const parseToMinutes = (token) => {
@@ -2778,14 +2604,14 @@ io.on('connection', (socket) => {
               } else {
                 withinShift = (curMinutes >= startMinutes) || (curMinutes < endMinutes); // night shift crossing midnight
               }
-              console.log(`🔍 Shift window calculation: start=${startMinutes}min, end=${endMinutes}min, current=${curMinutes}min, withinShift=${withinShift}`);
+              console.log(`Shift window calculation: start=${startMinutes}min, end=${endMinutes}min, current=${curMinutes}min, withinShift=${withinShift}`);
             } else {
               withinShift = true; // default allow if shift text not parsable
-              console.log(`🔍 Shift window: using default withinShift=true (shift text not parsable)`);
+              console.log(`Shift window: using default withinShift=true (shift text not parsable)`);
             }
           } catch (_) {
             withinShift = true; // be permissive on errors so counting still saves
-            console.log(`🔍 Shift window: using default withinShift=true (error in calculation)`);
+            console.log(`Shift window: using default withinShift=true (error in calculation)`);
           }
           
         } catch (dbError) {
@@ -2864,7 +2690,7 @@ io.on('connection', (socket) => {
         const shouldUpdateDb = timeSinceLastUpdate >= 2000; // 2 seconds instead of 5
         
         if (withinShift && shouldUpdateDb) {
-          console.log(`💾 Updating database for ${userData.email} - within shift window (date: ${currentDate})`);
+          console.log(`Updating database for ${userData.email} - within shift window (date: ${currentDate})`);
           // Ensure values only increase (monotonic) to prevent decreasing timer values
           await pool.query(
             `INSERT INTO activity_data (user_id, is_currently_active, today_active_seconds, today_inactive_seconds, last_session_start, today_date, updated_at) 
@@ -2882,12 +2708,12 @@ io.on('connection', (socket) => {
           // Update last database update timestamp
           userInfo.lastDbUpdate = Date.now();
           
-          console.log(`✅ Database updated successfully for ${userData.email}`);
+          console.log(`Database updated successfully for ${userData.email}`);
         } else if (!withinShift) {
-          console.log(`⏸️ Skipping database update for ${userData.email} - outside shift window (date: ${currentDate})`);
+          console.log(`Skipping database update for ${userData.email} - outside shift window (date: ${currentDate})`);
           // Outside shift window: automatically set user to inactive if they were active
           if (userInfo.isActive) {
-            console.log(`🕐 Shift ended - automatically setting ${userData.email} to inactive`);
+            console.log(`Shift ended - automatically setting ${userData.email} to inactive`);
             userInfo.isActive = false;
             // Update database to set inactive state
             try {
@@ -2898,9 +2724,9 @@ io.on('connection', (socket) => {
                  WHERE user_id = $1 AND today_date = $2`,
                 [userId, currentDate]
               );
-              console.log(`✅ Set ${userData.email} to inactive in database`);
+              console.log(`Set ${userData.email} to inactive in database`);
             } catch (dbError) {
-              console.error(`❌ Failed to set ${userData.email} to inactive:`, dbError.message);
+              console.error(`Failed to set ${userData.email} to inactive:`, dbError.message);
             }
           }
           // Outside shift window: do not increment or create rows
@@ -2911,7 +2737,7 @@ io.on('connection', (socket) => {
         // Only log timer updates when database is updated or for significant changes (every 30 seconds)
         const shouldLogTimer = shouldUpdateDb || (userInfo.activeSeconds % 30 === 0) || (userInfo.inactiveSeconds % 30 === 0);
         if (shouldLogTimer) {
-          console.log(`💾 Updated timer for ${userData.email}: Active=${userInfo.activeSeconds}s, Inactive=${userInfo.inactiveSeconds}s`);
+          console.log(`Updated timer for ${userData.email}: Active=${userInfo.activeSeconds}s, Inactive=${userInfo.inactiveSeconds}s`);
         }
         
         // Database save successful
@@ -2937,7 +2763,7 @@ io.on('connection', (socket) => {
           const shouldEmitSocket = timeSinceLastEmit >= 10000; // 10 seconds
           
           if (shouldEmitSocket) {
-            console.log(`📡 Sending timer update to ${userSockets.size} connections for ${userData.email}:`, {
+            console.log(`Sending timer update to ${userSockets.size} connections for ${userData.email}:`, {
               activeSeconds: timerData.activeSeconds,
               inactiveSeconds: timerData.inactiveSeconds,
               isActive: timerData.isActive
@@ -2950,10 +2776,10 @@ io.on('connection', (socket) => {
             // Update last socket emit timestamp
             userInfo.lastSocketEmit = Date.now();
             
-            console.log(`✅ Timer update sent to ${userSockets.size} connections for ${userData.email}`);
+            console.log(`Timer update sent to ${userSockets.size} connections for ${userData.email}`);
           }
         } else {
-          console.log(`⚠️ No connections found for ${userData.email} to send timer update`);
+          console.log(`No connections found for ${userData.email} to send timer update`);
         }
 
     } catch (error) {
@@ -2988,7 +2814,7 @@ io.on('connection', (socket) => {
     if (userData) {
       const email = userData.email;
       
-      console.log(`📊 Productivity update for ${email}: ${data.productivityScore} points`);
+      console.log(`Productivity update for ${email}: ${data.productivityScore} points`);
       
       // Broadcast productivity update to all connected users for real-time leaderboard updates
       io.emit('productivity-update', {
@@ -3006,7 +2832,7 @@ io.on('connection', (socket) => {
   socket.on('requestProductivityData', async (data) => {
     try {
       const { email, userId } = data;
-      console.log(`📊 Productivity data requested for ${email} (ID: ${userId})`);
+      console.log(`Productivity data requested for ${email} (ID: ${userId})`);
       
       // Get current productivity score from database
       const currentScore = await pool.query(`
@@ -3034,12 +2860,12 @@ io.on('connection', (socket) => {
           timestamp: score.updated_at
         });
         
-        console.log(`✅ Productivity data sent to ${email}: ${score.productivity_score} points`);
+        console.log(`Productivity data sent to ${email}: ${score.productivity_score} points`);
       } else {
-        console.log(`⚠️  No productivity score found for ${email} (ID: ${userId})`);
+        console.log(` No productivity score found for ${email} (ID: ${userId})`);
       }
     } catch (error) {
-      console.error('❌ Error fetching productivity data:', error);
+      console.error('Error fetching productivity data:', error);
       socket.emit('error', { message: 'Failed to fetch productivity data' });
     }
   });
@@ -3091,7 +2917,7 @@ io.on('connection', (socket) => {
    // Handle user logout event
    socket.on('user-logout', async (email) => {
      const emailString = typeof email === 'string' ? email : String(email);
-     console.log(`🚪 User logout event received for: ${emailString}`);
+     console.log(`User logout event received for: ${emailString}`);
      
      if (userStatus.has(emailString)) {
        const status = userStatus.get(emailString);
@@ -3128,16 +2954,16 @@ io.on('connection', (socket) => {
        // Also emit specific logout event
        io.emit('user-logged-out', emailString);
        
-       console.log(`👤 User ${emailString} logged out - status set to offline`);
+       console.log(`User ${emailString} logged out - status set to offline`);
      } else {
-       console.log(`⚠️ User ${emailString} not found in userStatus during logout`);
+       console.log(`User ${emailString} not found in userStatus during logout`);
      }
    });
 
    // Handle user login event (for tracking login time)
    socket.on('user-login', async (email) => {
      const emailString = typeof email === 'string' ? email : String(email);
-     console.log(`🚪 User login event received for: ${emailString}`);
+     console.log(`User login event received for: ${emailString}`);
      
      // Ensure userStatus entry exists for this user
      if (!userStatus.has(emailString)) {
@@ -3146,7 +2972,7 @@ io.on('connection', (socket) => {
          loginTime: new Date(),
          lastSeen: new Date()
        });
-       console.log(`🆕 Created new userStatus entry for: ${emailString}`);
+       console.log(`Created new userStatus entry for: ${emailString}`);
      } else {
        const status = userStatus.get(emailString);
        status.status = 'online';
@@ -3181,16 +3007,16 @@ io.on('connection', (socket) => {
        lastSeen: new Date().toISOString()
      });
      
-     console.log(`👤 User ${emailString} logged in - status set to online`);
+     console.log(`User ${emailString} logged in - status set to online`);
    });
 });
 
 const PORT = process.env.SOCKET_PORT || 3001;
 server.listen(PORT, () => {
-  console.log(`🚀 Socket.IO server running on port ${PORT}`);
-  console.log(`⏰ Break reminder scheduler: ${breakReminderScheduler.getStatus().isRunning ? '✅ Running' : '❌ Stopped'} (${breakReminderScheduler.getStatus().interval}s interval)`);
-  console.log(`📋 Task notification scheduler: ${taskNotificationScheduler.getStatus().isRunning ? '✅ Running' : '❌ Stopped'} (${taskNotificationScheduler.getStatus().interval}s interval)`);
-  console.log(`📅 Meeting scheduler: ${meetingScheduler.getStatus().isRunning ? '✅ Running' : '❌ Stopped'} (${meetingScheduler.getStatus().interval}s interval)`);
-  console.log(`🎉 Event reminder scheduler: ${eventReminderScheduler.getStatus().isRunning ? '✅ Running' : '❌ Stopped'} (${eventReminderScheduler.getStatus().interval}s interval)`);
-  console.log(`📡 All schedulers are now active and monitoring for notifications`);
+  console.log(`Socket.IO server running on port ${PORT}`);
+  console.log(`Break reminder scheduler: ${breakReminderScheduler.getStatus().isRunning ? 'Running' : 'Stopped'} (${breakReminderScheduler.getStatus().interval}s interval)`);
+  console.log(`Task notification scheduler: ${taskNotificationScheduler.getStatus().isRunning ? 'Running' : 'Stopped'} (${taskNotificationScheduler.getStatus().interval}s interval)`);
+  console.log(`Meeting scheduler: ${meetingScheduler.getStatus().isRunning ? 'Running' : 'Stopped'} (${meetingScheduler.getStatus().interval}s interval)`);
+  console.log(`Event reminder scheduler: ${eventReminderScheduler.getStatus().isRunning ? 'Running' : 'Stopped'} (${eventReminderScheduler.getStatus().interval}s interval)`);
+  console.log(`All schedulers are now active and monitoring for notifications`);
 });

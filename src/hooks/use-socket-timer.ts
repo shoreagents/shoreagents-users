@@ -61,13 +61,11 @@ export const useSocketTimer = (email: string | null): UseSocketTimerReturn => {
 
     // Disconnect existing socket if email changed
     if (socketRef.current) {
-      console.log('Disconnecting existing socket for new user:', email)
       socketRef.current.disconnect()
       socketRef.current = null
     }
 
     setConnectionStatus('connecting')
-    console.log('Connecting Socket.IO for user:', email)
 
     // Use a ref to track if this effect is still active
     const isActive = { current: true }
@@ -100,48 +98,40 @@ export const useSocketTimer = (email: string | null): UseSocketTimerReturn => {
       // Handle connection events
       socket.on('connect', () => {
         if (!isActive.current) return
-        console.log('Socket.IO connected for user:', email)
         setConnectionStatus('connected')
         setError(null)
         
         // Authenticate with the server
-        console.log('Authenticating with server for user:', email)
         socket.emit('authenticate', email)
       })
 
       socket.on('disconnect', (reason) => {
         if (!isActive.current) return
-        console.log('Socket.IO disconnected for user:', email, 'Reason:', reason)
         setConnectionStatus('disconnected')
       })
 
       socket.on('connect_error', (error) => {
         if (!isActive.current) return
-        console.log('Socket.IO connection error for user:', email, error)
         setConnectionStatus('error')
         setError('Connection failed')
       })
 
       socket.on('reconnect', (attemptNumber) => {
         if (!isActive.current) return
-        console.log('Socket.IO reconnected for user:', email, 'Attempt:', attemptNumber)
         setConnectionStatus('connected')
         setError(null)
         
         // Re-authenticate after reconnection
-        console.log('Re-authenticating after reconnect for user:', email)
         socket.emit('authenticate', email)
       })
 
       socket.on('reconnect_attempt', (attemptNumber) => {
         if (!isActive.current) return
-        console.log('Socket.IO reconnection attempt for user:', email, 'Attempt:', attemptNumber)
         setConnectionStatus('connecting')
       })
 
       socket.on('reconnect_error', (error) => {
         if (!isActive.current) return
-        console.log('Socket.IO reconnection error for user:', email, error)
         setConnectionStatus('error')
         setError('Reconnection failed')
       })
@@ -156,7 +146,7 @@ export const useSocketTimer = (email: string | null): UseSocketTimerReturn => {
         
         // Validate that authentication data is for the current user
         if (data && data.email && email && data.email !== email) {
-          console.warn(`⚠️ Authentication data received for wrong user: expected ${email}, got ${data.email}`)
+          console.warn(`Authentication data received for wrong user: expected ${email}, got ${data.email}`)
           return
         }
         
@@ -172,7 +162,7 @@ export const useSocketTimer = (email: string | null): UseSocketTimerReturn => {
         
         // Validate that activity data is for the current user
         if (data && data.email && email && data.email !== email) {
-          console.warn(`⚠️ Activity data received for wrong user: expected ${email}, got ${data.email}`)
+          console.warn(`Activity data received for wrong user: expected ${email}, got ${data.email}`)
           return
         }
         
@@ -185,18 +175,12 @@ export const useSocketTimer = (email: string | null): UseSocketTimerReturn => {
         
         // Validate that timer data is for the current user
         if (data && data.email && email && data.email !== email) {
-          console.warn(`⚠️ Timer data received for wrong user: expected ${email}, got ${data.email}`)
+          console.warn(`Timer data received for wrong user: expected ${email}, got ${data.email}`)
           return
         }
         
-        // IMPROVED ACTIVITY STATE SYNCHRONIZATION
         // Only update if we have new, valid data
         if (data && typeof data.isActive === 'boolean') {
-          // Log activity state changes for debugging
-          if (timerData && timerData.isActive !== data.isActive) {
-            console.log(`🔄 Server activity state changed: ${timerData.isActive} → ${data.isActive}`)
-          }
-          
           // Update timer data
           setTimerData(data)
           
@@ -218,13 +202,9 @@ export const useSocketTimer = (email: string | null): UseSocketTimerReturn => {
         
         // Validate that shift reset data is for the current user
         if (data && data.email && email && data.email !== email) {
-          console.warn(`⚠️ Shift reset data received for wrong user: expected ${email}, got ${data.email}`)
+          console.warn(`Shift reset data received for wrong user: expected ${email}, got ${data.email}`)
           return
         }
-        
-        console.log('🔄 Shift reset received from server:', data)
-        console.log('🔄 Previous timer data was:', timerData)
-        
         // Force update timer data immediately
         setTimerData(data)
         
@@ -236,12 +216,10 @@ export const useSocketTimer = (email: string | null): UseSocketTimerReturn => {
         
         // Emit a custom event to notify other components about the shift reset
         const eventData = { ...data, resetReason: data.resetReason || 'shift_change' }
-        console.log('🔄 Dispatching shiftReset event with data:', eventData)
         window.dispatchEvent(new CustomEvent('shiftReset', { 
           detail: eventData
         }))
         
-        console.log('🔄 Shift reset event dispatched successfully')
       })
 
       // When client-side countdown detects 0s, ask server to force a reset write
@@ -249,7 +227,6 @@ export const useSocketTimer = (email: string | null): UseSocketTimerReturn => {
         try {
           // Guard: if we recently received a server-driven reset (within 2 minutes), skip
           if (lastServerResetAtRef.current && (Date.now() - lastServerResetAtRef.current) < 120000) {
-            console.log('⏭️ Skipping client forceShiftReset: recent server reset detected')
             return
           }
           // Guard: if we have a shiftId from server and timerData has shiftInfo, avoid duplicate for same shift period
@@ -339,8 +316,6 @@ export const useSocketTimer = (email: string | null): UseSocketTimerReturn => {
                            typeof timerData.isActive === 'boolean'
         
         if (hasValidData) {
-          console.log(`⏰ Periodic sync: ${timerData.activeSeconds}s active, ${timerData.inactiveSeconds}s inactive, Active: ${timerData.isActive}`)
-          
           // Send timer update to server
           socketRef.current.emit('timerUpdate', {
             activeSeconds: timerData.activeSeconds,
@@ -349,11 +324,10 @@ export const useSocketTimer = (email: string | null): UseSocketTimerReturn => {
           
           // Also sync activity state if it changed
           if (lastActivityStateRef.current !== timerData.isActive) {
-            console.log(`🔄 Syncing activity state: ${lastActivityStateRef.current} → ${timerData.isActive}`)
             lastActivityStateRef.current = timerData.isActive
           }
         } else {
-          console.warn('⚠️ Skipping timer sync - invalid data:', timerData)
+          console.warn('Skipping timer sync - invalid data:', timerData)
         }
       }
     }, 15000) // 15 seconds (reduced frequency)

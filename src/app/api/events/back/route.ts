@@ -162,16 +162,10 @@ export async function POST(request: NextRequest) {
 
       // Invalidate Redis cache for events
       await redisCache.del(cacheKeys.events(currentUser.email))
-      console.log('✅ Events cache invalidated after marking as back')
 
       // Trigger meeting check for scheduled meetings that might start now
       try {
-        const meetingCheckResult = await client.query('SELECT check_and_start_scheduled_meetings()')
-        const meetingsStarted = meetingCheckResult.rows[0].check_and_start_scheduled_meetings
-        
-        if (meetingsStarted > 0) {
-          console.log(`📅 [${new Date().toLocaleTimeString()}] Started ${meetingsStarted} scheduled meetings after user left event`)
-        }
+        await client.query('SELECT check_and_start_scheduled_meetings()')
       } catch (error) {
         console.error('Error checking scheduled meetings after event leave:', error)
         // Don't fail the request if meeting check fails

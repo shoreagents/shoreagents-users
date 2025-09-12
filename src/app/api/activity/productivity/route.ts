@@ -32,7 +32,6 @@ export async function POST(request: NextRequest) {
     // Get user ID
     const userResult = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
     if (userResult.rows.length === 0) {
-      console.log('❌ PRODUCTIVITY API: User not found for email:', email);
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
     const actualUserId = userResult.rows[0].id;
@@ -45,7 +44,6 @@ export async function POST(request: NextRequest) {
         const cachedData = await redisCache.get(cacheKey)
         
         if (cachedData) {
-          console.log('✅ Productivity data served from Redis cache')
           return NextResponse.json(cachedData)
         }
 
@@ -117,7 +115,6 @@ export async function POST(request: NextRequest) {
               };
             }
           } catch (error) {
-            console.log('Fallback productivity calculation failed:', error instanceof Error ? error.message : String(error));
             // Return default values if calculation fails
             allCurrentMonthScore = {
               month_year: currentMonthYear,
@@ -139,7 +136,6 @@ export async function POST(request: NextRequest) {
 
         // Cache the result in Redis
         await redisCache.set(cacheKey, responseData, cacheTTL.productivity)
-        console.log('✅ Productivity data cached in Redis')
 
         return NextResponse.json(responseData);
 
@@ -231,7 +227,7 @@ export async function POST(request: NextRequest) {
               });
             }
           } catch (error) {
-            console.log('Fallback productivity calculation failed:', error instanceof Error ? error.message : String(error));
+            console.error('Fallback productivity calculation failed:', error instanceof Error ? error.message : String(error));
           }
           
           // Return default values if all else fails

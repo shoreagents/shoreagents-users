@@ -2,17 +2,11 @@
 
 import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
-import { Search, Clock, FileText, CheckSquare, Users, Activity, X, Command } from "lucide-react"
-import { Input } from "@/components/ui/input"
+import { Search, Clock, FileText, CheckSquare, Users, Activity, X, Command, Calendar } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   CommandDialog,
-  CommandEmpty,
-  CommandGroup,
   CommandInput,
-  CommandItem,
-  CommandList,
-  CommandSeparator,
 } from "@/components/ui/command"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -23,7 +17,7 @@ interface GlobalSearchProps {
   className?: string
 }
 
-function truncateNotificationMessage(message: string, maxLength: number = 30): string {
+function truncateMessage(message: string, maxLength: number = 30): string {
   if (message.length <= maxLength) {
     return message
   }
@@ -98,6 +92,7 @@ export function GlobalSearch({ className }: GlobalSearchProps) {
       case 'task': return CheckSquare
       case 'break': return Clock
       case 'meeting': return Users
+      case 'event': return Calendar
       case 'health': return Activity
       case 'user': return Users
       case 'page': return FileText
@@ -111,6 +106,7 @@ export function GlobalSearch({ className }: GlobalSearchProps) {
       case 'task': return 'Tasks'
       case 'break': return 'Breaks'
       case 'meeting': return 'Meetings'
+      case 'event': return 'Events & Activities'
       case 'health': return 'Health'
       case 'user': return 'Users'
       case 'page': return 'Pages'
@@ -143,12 +139,14 @@ export function GlobalSearch({ className }: GlobalSearchProps) {
           className
         )}
         onClick={() => setOpen(true)}
+        data-search-trigger
       >
         <Search className="mr-2 h-4 w-4" />
         <span className="hidden lg:inline-flex">Search...</span>
         <span className="inline-flex lg:hidden">Search</span>
         <kbd className="pointer-events-none absolute right-[0.3rem] top-[0.3rem] hidden h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium opacity-100 sm:flex">
-          <span className="text-xs">⌘</span>K
+          <span className="text-[10px] leading-none pt-0.5">⌘</span>
+          <span className="text-[10px] leading-none pt-0.5">K</span>
         </kbd>
       </Button>
 
@@ -156,7 +154,7 @@ export function GlobalSearch({ className }: GlobalSearchProps) {
       <CommandDialog open={open} onOpenChange={setOpen}>
         <CommandInput
           ref={inputRef}
-          placeholder="Search tickets, tasks, breaks, meetings..."
+          placeholder="Search tickets, tasks, breaks, meetings, events..."
           value={query}
           onValueChange={setQuery}
         />
@@ -253,6 +251,15 @@ export function GlobalSearch({ className }: GlobalSearchProps) {
                      <span className="font-medium text-foreground transition-colors duration-200 hover:text-foreground/90">Productivity</span>
                    </div>
                  </div>
+                 <div
+                   onClick={() => handleSelect({ id: 'events', title: 'Events & Activities', type: 'page', url: '/status/events' })}
+                   className="flex items-center gap-3 p-3 cursor-pointer rounded-sm transition-all duration-200 hover:bg-muted/50"
+                 >
+                   <div className="h-4 w-4 rounded-full border border-muted-foreground/30 flex-shrink-0 transition-colors duration-200 hover:border-muted-foreground/60" />
+                   <div className="flex-1 min-w-0">
+                     <span className="font-medium text-foreground transition-colors duration-200 hover:text-foreground/90">Events & Activities</span>
+                   </div>
+                 </div>
               </>
             )}
 
@@ -275,7 +282,7 @@ export function GlobalSearch({ className }: GlobalSearchProps) {
                           <Icon className="h-4 w-4 text-muted-foreground/60 flex-shrink-0 transition-colors duration-200 hover:text-muted-foreground/80" />
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1">
-                              <span className="font-medium text-foreground truncate transition-colors duration-200 hover:text-foreground/90">{truncateNotificationMessage(result.title)}</span>
+                              <span className="font-medium text-foreground transition-colors duration-200 hover:text-foreground/90">{truncateMessage(result.title, 30)}</span>
                               {result.metadata?.status && (
                                 <Badge 
                                   variant="secondary" 
@@ -294,8 +301,8 @@ export function GlobalSearch({ className }: GlobalSearchProps) {
                               )}
                             </div>
                             {result.description && (
-                              <p className="text-sm text-muted-foreground/70 truncate">
-                                {result.description}
+                              <p className="text-sm text-muted-foreground/70">
+                                {truncateMessage(result.description, 70)}
                               </p>
                             )}
                             <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground/60">
