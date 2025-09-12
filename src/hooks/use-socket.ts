@@ -28,18 +28,15 @@ export function useSocket() {
 
     // Prevent multiple socket connections for the same user
     if (socket && socket.connected) {
-      console.log('🔌 Socket already connected, skipping new connection')
       return
     }
 
     // Prevent race conditions during connection
     if (isConnectingRef.current) {
-      console.log('🔄 Connection already in progress, skipping')
       return
     }
 
     isConnectingRef.current = true
-    console.log('🚀 Starting new socket connection for:', email)
 
     // Connect to Socket.IO server
     const socketServerUrl = (process.env.NEXT_PUBLIC_SOCKET_URL || process.env.SOCKET_SERVER_URL || 'http://localhost:3001') as string
@@ -53,7 +50,6 @@ export function useSocket() {
 
     // Handle connection events
     newSocket.on('connect', () => {
-      console.log('Socket connected for activity tracking')
       setIsConnected(true)
       isConnectingRef.current = false
       
@@ -62,19 +58,16 @@ export function useSocket() {
     })
 
     newSocket.on('disconnect', () => {
-      console.log('Socket disconnected')
       setIsConnected(false)
       isConnectingRef.current = false
     })
 
     newSocket.on('connect_error', (error) => {
-      console.log('Socket connection error:', error)
       setIsConnected(false)
       isConnectingRef.current = false
     })
 
     newSocket.on('authenticated', () => {
-      console.log('Socket authenticated for activity tracking')
       
       // Dispatch connection event for UI updates
       const event = new CustomEvent('socket-connected', { 
@@ -89,7 +82,6 @@ export function useSocket() {
 
     // Listen for logout events to disconnect socket
     const handleLogout = () => {
-      console.log('🚪 Logout detected - disconnecting socket')
       if (newSocket && newSocket.connected) {
         // Emit logout event to socket server
         newSocket.emit('logout')
@@ -97,18 +89,14 @@ export function useSocket() {
         // Wait for server to process logout before disconnecting
         setTimeout(() => {
           if (newSocket && newSocket.connected) {
-            console.log('🔌 Disconnecting socket after logout processing')
             newSocket.disconnect()
           }
         }, 300) // Wait 300ms for server to process logout
-      } else {
-        console.log('⚠️ Socket not connected - cannot send logout event')
-      }
+      } 
     }
 
     // Listen for productivity updates to sync with socket server
     const handleProductivityUpdate = (event: Event) => {
-      console.log('📊 Productivity update detected - syncing with socket server')
       if (newSocket && newSocket.connected) {
         const customEvent = event as CustomEvent
         // Emit productivity update to socket server
@@ -128,7 +116,6 @@ export function useSocket() {
     
     // Listen for login events to mark user as online
     const handleLogin = (event: Event) => {
-      console.log('🚪 Login detected - marking user as online')
       if (newSocket && newSocket.connected) {
         const customEvent = event as CustomEvent
         const email = customEvent.detail.email || customEvent.detail.user?.email
@@ -141,7 +128,6 @@ export function useSocket() {
 
     // Listen for custom logout events to emit socket logout
     const handleCustomLogout = (event: Event) => {
-      console.log('🚪 Custom logout detected - notifying socket server')
       if (newSocket && newSocket.connected) {
         const customEvent = event as CustomEvent
         const email = customEvent.detail.email
@@ -170,11 +156,9 @@ export function useSocket() {
       
       // Only disconnect if this is a real unmount, not just a re-render
       if (newSocket && newSocket.connected) {
-        console.log('🔌 Component unmounting, disconnecting socket')
         try {
           newSocket.disconnect()
         } catch (error) {
-          console.log('🔌 Socket already disconnected during cleanup')
         }
       }
       

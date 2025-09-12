@@ -63,23 +63,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [hasLoggedIn])
 
   const setUserLoggedIn = () => {
-    console.log('User logging in - will start activity tracking')
     setHasLoggedIn(true)
+    
+    // Check if this is a new user (first time logging in)
+    const currentUser = getCurrentUser()
+    if (currentUser?.email) {
+      const hasLoggedInBefore = localStorage.getItem(`tutorial-completed-${currentUser.email}`)
+      if (!hasLoggedInBefore) {
+        // Mark as new user to trigger tutorial
+        localStorage.setItem(`is-new-user-${currentUser.email}`, 'true')
+      }
+    }
     
     // Add a small delay to ensure authentication data is stored, then reload the page
     // This ensures the timer initializes properly after login
     setTimeout(() => {
       if (window.location.pathname !== '/login' && window.location.pathname !== '/') {
-        console.log('🔄 Reloading page after login to ensure timer initialization')
         window.location.reload()
       }
     }, 1000) // 1 second delay to ensure all data is stored
   }
 
   const setUserLoggedOut = () => {
-    console.log('🔄 User logging out - stopping activity tracking')
     setHasLoggedIn(false)
-    console.log('✅ User logged out successfully')
   }
 
   const value = {

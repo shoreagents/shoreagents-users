@@ -330,7 +330,7 @@ export async function syncNotificationsWithDatabase(email: string): Promise<void
             return '/productivity/task-activity'
           }
           if (n.category === 'health_check') {
-            return '/health'
+            return '/status/health'
           }
           if (n.category === 'event') {
             return '/status/events'
@@ -372,7 +372,7 @@ export async function syncNotificationsWithDatabase(email: string): Promise<void
       }
     }
   } catch (error) {
-    console.error('❌ Error syncing notifications with database:', error)
+    console.error('Error syncing notifications with database:', error)
   }
 }
 
@@ -401,7 +401,6 @@ export function clearAllNotifications(): void {
 
 // Clear all notifications on logout
 export function clearAllNotificationsOnLogout(): void {
-  console.log('🧹 Clearing all notifications on logout');
   clearAllNotifications();
 }
 

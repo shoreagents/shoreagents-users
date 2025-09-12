@@ -101,7 +101,6 @@ export function initializeSocketServer(httpServer: HTTPServer) {
           sessionStart: activityData.last_session_start
         });
 
-        console.log(`User ${userId} authenticated on socket ${socket.id}`);
       } catch (error) {
         console.error('Authentication error:', error);
         socket.emit('error', { message: 'Authentication failed' });
@@ -177,8 +176,6 @@ export function initializeSocketServer(httpServer: HTTPServer) {
             inactiveSeconds: newInactiveSeconds,
             sessionStart
           });
-
-          console.log(`User ${session.userId} activity changed to ${isActive ? 'active' : 'inactive'}`);
         }
       } catch (error) {
         console.error('Activity change error:', error);

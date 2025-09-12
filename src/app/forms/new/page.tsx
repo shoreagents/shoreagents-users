@@ -170,7 +170,6 @@ export default function NewTicketPage() {
       
       // Now upload files to Supabase storage using server-side API
       if (filesToUpload.length > 0) {
-        console.log('📤 Uploading files to Supabase storage...')
         setUploadingFiles(true) // Set uploading state to true
         
         // Create FormData for file upload
@@ -209,13 +208,10 @@ export default function NewTicketPage() {
             
             if (!updateResponse.ok) {
               const errorData = await updateResponse.json()
-              console.error('❌ Failed to update ticket with file URLs:', errorData)
-              console.error('❌ Response status:', updateResponse.status)
-              console.error('❌ Uploaded files:', uploadResult.files)
-            } else {
-              const updateResult = await updateResponse.json()
-              console.log('✅ Successfully updated ticket with file URLs:', updateResult)
-            }
+              console.error('Failed to update ticket with file URLs:', errorData)
+              console.error('Response status:', updateResponse.status)
+              console.error('Uploaded files:', uploadResult.files)
+            } 
           } else {
             console.warn('Failed to upload files, but ticket was created')
           }

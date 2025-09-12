@@ -72,7 +72,6 @@ export default function ElectronLogoutHandler() {
             try {
               const hasOngoing = await hasOngoingMeeting()
               if (hasOngoing) {
-                console.log('📞 User has ongoing meeting - ending it before force logout')
                 
                 // Get meetings to find the active one
                 const { getMeetings } = await import('@/lib/meeting-utils')
@@ -81,7 +80,6 @@ export default function ElectronLogoutHandler() {
                 
                 if (activeMeeting) {
                   await endMeeting(activeMeeting.id)
-                  console.log('✅ Active meeting ended successfully before force logout')
                 }
               }
             } catch (error) {

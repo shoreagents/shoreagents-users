@@ -47,7 +47,7 @@ export function useNotificationsSocket(email: string | null) {
           }
           return '/productivity/task-activity'
         }
-        if (n.category === 'health_check') return '/health'
+        if (n.category === 'health_check') return '/status/health'
         if (n.category === 'event') return '/status/events'
         return undefined
       })()

@@ -72,8 +72,8 @@ export function useTeamAgents() {
       return response.json()
     },
     enabled: isClient && !!currentUser?.email,
-    staleTime: 5 * 60 * 1000, // 5 minutes - team data changes less frequently
-    gcTime: 15 * 60 * 1000, // 15 minutes - keep in cache for 15 min
+    staleTime: 120 * 1000, // 2 minutes - matches Redis cache TTL for balanced performance
+    gcTime: 5 * 60 * 1000, // 5 minutes - keep in cache for 5 min
     refetchOnMount: false,
     refetchOnWindowFocus: false,
     retry: 2,

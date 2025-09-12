@@ -29,11 +29,11 @@ class MeetingScheduler {
       const meetingsStarted = result.rows[0].check_and_start_scheduled_meetings;
       
       if (meetingsStarted > 0) {
-        console.log(`📅 [${new Date().toLocaleTimeString()}] Started ${meetingsStarted} scheduled meetings`);
+        console.log(`[${new Date().toLocaleTimeString()}] Started ${meetingsStarted} scheduled meetings`);
       }
       
     } catch (error) {
-      console.error(`❌ [${new Date().toLocaleTimeString()}] Meeting start check failed:`, error.message);
+      console.error(`[${new Date().toLocaleTimeString()}] Meeting start check failed:`, error.message);
     } finally {
       this.isRunning = false;
     }
@@ -46,11 +46,11 @@ class MeetingScheduler {
       const remindersSent = result.rows[0].check_meeting_reminders;
       
       if (remindersSent > 0) {
-        console.log(`⏰ [${new Date().toLocaleTimeString()}] Sent ${remindersSent} meeting reminders`);
+        console.log(`[${new Date().toLocaleTimeString()}] Sent ${remindersSent} meeting reminders`);
       }
       
     } catch (error) {
-      console.error(`❌ [${new Date().toLocaleTimeString()}] Meeting reminder check failed:`, error.message);
+      console.error(`[${new Date().toLocaleTimeString()}] Meeting reminder check failed:`, error.message);
     }
   }
 
@@ -61,11 +61,11 @@ class MeetingScheduler {
       const notificationResult = result.rows[0].check_meeting_notifications;
       
       if (notificationResult.total_sent > 0) {
-        console.log(`🔔 [${new Date().toLocaleTimeString()}] Sent ${notificationResult.total_sent} meeting notifications (${notificationResult.reminders_sent} reminders, ${notificationResult.starts_sent} starts)`);
+        console.log(`[${new Date().toLocaleTimeString()}] Sent ${notificationResult.total_sent} meeting notifications (${notificationResult.reminders_sent} reminders, ${notificationResult.starts_sent} starts)`);
       }
       
     } catch (error) {
-      console.error(`❌ [${new Date().toLocaleTimeString()}] Meeting notification check failed:`, error.message);
+      console.error(`[${new Date().toLocaleTimeString()}] Meeting notification check failed:`, error.message);
     }
   }
 
@@ -74,7 +74,7 @@ class MeetingScheduler {
       return; // Already running
     }
 
-    console.log(`🚀 Starting meeting scheduler (checking every ${this.checkInterval / 1000} seconds)`);
+    console.log(`Starting meeting scheduler (checking every ${this.checkInterval / 1000} seconds)`);
     
     // Run immediate checks
     this.checkScheduledMeetings();
@@ -113,7 +113,7 @@ class MeetingScheduler {
       this.notificationIntervalId = null;
     }
     
-    console.log('🛑 Meeting scheduler stopped');
+    console.log('Meeting scheduler stopped');
   }
 
   // Method to get current status
@@ -129,16 +129,16 @@ class MeetingScheduler {
   // Method to manually trigger meeting checks
   async processScheduledMeetings() {
     try {
-      console.log(`📅 [${new Date().toLocaleTimeString()}] Manually processing scheduled meetings...`);
+      console.log(`[${new Date().toLocaleTimeString()}] Manually processing scheduled meetings...`);
       
       const result = await pool.query('SELECT check_and_start_scheduled_meetings()');
       const meetingsStarted = result.rows[0].check_and_start_scheduled_meetings;
       
-      console.log(`📅 [${new Date().toLocaleTimeString()}] Meeting processing complete: ${meetingsStarted} meetings started`);
+      console.log(`[${new Date().toLocaleTimeString()}] Meeting processing complete: ${meetingsStarted} meetings started`);
       
       return { meetingsStarted };
     } catch (error) {
-      console.error(`❌ [${new Date().toLocaleTimeString()}] Error processing scheduled meetings:`, error.message);
+      console.error(`[${new Date().toLocaleTimeString()}] Error processing scheduled meetings:`, error.message);
       throw error;
     }
   }
@@ -146,13 +146,13 @@ class MeetingScheduler {
   // Method to manually trigger notification checks
   async processMeetingNotifications() {
     try {
-      console.log(`🔔 [${new Date().toLocaleTimeString()}] Manually processing meeting notifications...`);
+      console.log(`[${new Date().toLocaleTimeString()}] Manually processing meeting notifications...`);
       
       await this.checkMeetingNotifications();
       
-      console.log(`✅ [${new Date().toLocaleTimeString()}] Meeting notification processing completed`);
+      console.log(`[${new Date().toLocaleTimeString()}] Meeting notification processing completed`);
     } catch (error) {
-      console.error(`❌ [${new Date().toLocaleTimeString()}] Error processing meeting notifications:`, error.message);
+      console.error(`[${new Date().toLocaleTimeString()}] Error processing meeting notifications:`, error.message);
       throw error;
     }
   }
@@ -194,7 +194,7 @@ class MeetingScheduler {
         client.release();
       }
     } catch (error) {
-      console.error(`❌ [${new Date().toLocaleTimeString()}] Error getting meeting stats:`, error.message);
+      console.error(`[${new Date().toLocaleTimeString()}] Error getting meeting stats:`, error.message);
       throw error;
     }
   }
@@ -209,13 +209,13 @@ if (require.main === module) {
   
   // Handle graceful shutdown
   process.on('SIGINT', () => {
-    console.log('\n🛑 Shutting down meeting scheduler...');
+    console.log('\nShutting down meeting scheduler...');
     scheduler.stop();
     process.exit(0);
   });
 
   process.on('SIGTERM', () => {
-    console.log('\n🛑 Shutting down meeting scheduler...');
+    console.log('\nShutting down meeting scheduler...');
     scheduler.stop();
     process.exit(0);
   });
@@ -227,18 +227,18 @@ if (require.main === module) {
   setTimeout(async () => {
     try {
       const stats = await scheduler.getMeetingStats();
-      console.log(`📊 Initial meeting stats:`);
-      console.log(`   📅 Scheduled meetings: ${stats.scheduledMeetings}`);
-      console.log(`   🔄 In-progress meetings: ${stats.inProgressMeetings}`);
-      console.log(`   ⏰ Starting within 1 hour: ${stats.soonStarting}`);
+      console.log(`Initial meeting stats:`);
+      console.log(`Scheduled meetings: ${stats.scheduledMeetings}`);
+      console.log(`In-progress meetings: ${stats.inProgressMeetings}`);
+      console.log(`Starting within 1 hour: ${stats.soonStarting}`);
     } catch (error) {
-      console.log('⚠️  Could not get initial meeting stats');
+      console.log('Could not get initial meeting stats');
     }
   }, 2000); // Wait 2 seconds after starting
   
-  console.log('📅 Meeting scheduler is running. Press Ctrl+C to stop.');
-  console.log('📅 This scheduler handles:');
-  console.log('   • Automatically starting scheduled meetings');
-  console.log('   • Sending meeting reminders (1 hour before)');
-  console.log('   • Checking every 2 seconds for starts, 60 seconds for reminders, 30 seconds for notifications');
+  console.log('Meeting scheduler is running. Press Ctrl+C to stop.');
+  console.log('This scheduler handles:');
+  console.log('Automatically starting scheduled meetings');
+  console.log('Sending meeting reminders (1 hour before)');
+  console.log('Checking every 2 seconds for starts, 60 seconds for reminders, 30 seconds for notifications');
 }

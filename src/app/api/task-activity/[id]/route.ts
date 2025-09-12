@@ -105,7 +105,7 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
           }
         }
       } catch (e) {
-        console.error('Supabase storage cleanup failed:', e)
+        console.error('Storage cleanup failed:', e)
       }
     } else {
       // Soft delete the task (keep history)
@@ -127,7 +127,6 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
     if (email) {
       const cacheKey = cacheKeys.taskActivity(email);
       await redisCache.del(cacheKey);
-      console.log(`🗑️ Task activity cache invalidated for ${email} after task deletion`);
     }
     
     return NextResponse.json({ success: true })

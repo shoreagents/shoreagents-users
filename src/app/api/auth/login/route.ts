@@ -58,8 +58,6 @@ export async function POST(request: NextRequest) {
 
     // If fallback is explicitly requested, use Railway authentication only
     if (fallback) {
-      console.log('Using Railway authentication fallback (explicit request)')
-      
       // Initialize database connection
       await initializeDatabase()
 
@@ -154,9 +152,8 @@ export async function POST(request: NextRequest) {
       // Invalidate user auth data cache to ensure real-time updates
       try {
         await redisCache.del(cacheKeys.userAuthData(email))
-        console.log('✅ Invalidated user auth data cache for:', email)
       } catch (cacheError) {
-        console.warn('⚠️ Failed to invalidate user auth data cache:', cacheError)
+        console.warn('Failed to invalidate user auth data cache:', cacheError)
       }
 
       const resFallback = NextResponse.json({
@@ -180,9 +177,6 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       )
     }
-
-    // Hybrid approach: Supabase for authentication, Railway for role validation
-    console.log('Using hybrid authentication: Supabase + Railway role validation')
 
     // Step 1: Authenticate with Supabase
     const { data, error } = await supabaseAdmin.auth.signInWithPassword({
@@ -299,9 +293,8 @@ export async function POST(request: NextRequest) {
     // Invalidate user auth data cache to ensure real-time updates
     try {
       await redisCache.del(cacheKeys.userAuthData(email))
-      console.log('✅ Invalidated user auth data cache for:', email)
     } catch (cacheError) {
-      console.warn('⚠️ Failed to invalidate user auth data cache:', cacheError)
+      console.warn('Failed to invalidate user auth data cache:', cacheError)
     }
 
     const resHybrid = NextResponse.json({

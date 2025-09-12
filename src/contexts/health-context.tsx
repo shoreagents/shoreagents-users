@@ -27,6 +27,7 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const currentUser = getCurrentUser()
     if (!currentUser?.id) return
+    
     // Find the current approved or completed request for this user
     const approvedRequest = userRequests.find(req => 
       req.user_id === currentUser.id && (req.status === 'approved' || req.status === 'completed')
@@ -119,6 +120,7 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
   const setInClinic = useCallback((inClinic: boolean) => {
     setIsInClinic(inClinic)
   }, [])
+
 
   const value = {
     isGoingToClinic,

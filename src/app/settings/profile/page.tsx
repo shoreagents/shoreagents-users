@@ -25,9 +25,11 @@ import {
 } from "lucide-react"
 import { ProfileSkeleton } from "@/components/skeleton-loaders"
 import { useProfile, UserProfile } from "@/hooks/use-profile"
+import { useTutorial } from "@/contexts/tutorial-context"
 
 export default function ProfilePage() {
   const { profile, isLoading, error, isCached } = useProfile()
+  const { startTutorial, resetTutorial } = useTutorial()
   
   const getInitials = (first?: string, last?: string, email?: string) => {
     const firstTrim = (first || '').trim()
@@ -540,6 +542,39 @@ export default function ProfilePage() {
                       <span className="text-sm text-muted-foreground">{profile.exit_date}</span>
                     </div>
                   )}
+                </CardContent>
+              </Card>
+
+              {/* Tutorial Settings */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <User className="h-5 w-5 text-primary" />
+                    App Tutorial
+                  </CardTitle>
+                  <CardDescription>
+                    Take a guided tour of the main features
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                   <div className="flex gap-3">
+                       <Button
+                         variant="outline"
+                         size="sm"
+                         onClick={startTutorial}
+                         className="flex-1"
+                       >
+                         Start Tutorial
+                       </Button>
+                       <Button
+                         variant="outline"
+                         size="sm"
+                         onClick={resetTutorial}
+                         className="flex-1"
+                       >
+                         Reset Tutorial
+                       </Button>
+                     </div>
                 </CardContent>
               </Card>
             </div>

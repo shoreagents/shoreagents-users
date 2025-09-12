@@ -5,33 +5,37 @@ export async function POST(req: NextRequest) {
   try {
     await initializeDatabase()
     const body = await req.json()
-    const { id, email } = body
+    const { id, ids, email } = body
 
-    console.log('🗑️ Delete API called with:', { id, email })
-
-    if (!id || !email) {
-      return NextResponse.json({ success: false, error: 'id and email are required' }, { status: 400 })
+    if (!email) {
+      return NextResponse.json({ success: false, error: 'email is required' }, { status: 400 })
     }
 
-    // Delete the notification (soft delete by setting clear = true)
-    console.log('🗑️ Executing delete query...')
+    // Handle both single ID and array of IDs
+    const notificationIds = ids || (id ? [id] : [])
+    
+    if (notificationIds.length === 0) {
+      return NextResponse.json({ success: false, error: 'id or ids are required' }, { status: 400 })
+    }
+
+    
+    // Create placeholders for the IN clause
+    const placeholders = notificationIds.map((_: any, index: number) => `$${index + 2}`).join(',')
+    
     const result = await executeQuery<any>(
       `UPDATE notifications 
        SET clear = true, created_at = NOW()
-       WHERE id = $1 AND user_id = (SELECT id FROM users WHERE email = $2)
+       WHERE id IN (${placeholders}) AND user_id = (SELECT id FROM users WHERE email = $1)
        RETURNING id`,
-      [id, email]
+      [email, ...notificationIds]
     )
-
-    console.log('🗑️ Delete query result:', result)
-
     if (result.length === 0) {
-      return NextResponse.json({ success: false, error: 'Notification not found or unauthorized' }, { status: 404 })
+      return NextResponse.json({ success: false, error: 'No notifications found or unauthorized' }, { status: 404 })
     }
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ success: true, deletedCount: result.length })
   } catch (error: any) {
-    console.error('🗑️ Error deleting notification:', error)
+    console.error('Error deleting notification:', error)
     return NextResponse.json({ success: false, error: error?.message || 'Internal error' }, { status: 500 })
   }
 }

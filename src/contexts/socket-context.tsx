@@ -29,10 +29,8 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     // Check if another provider is already mounted
     if (typeof window !== 'undefined') {
       if ((window as any)._saProviderMounted) {
-        console.log('⚠️ SocketProvider already mounted elsewhere - this instance will be inactive')
         setIsActiveProvider(false)
       } else {
-        console.log('✅ This SocketProvider instance is now active')
         ;(window as any)._saProviderMounted = true
         setIsActiveProvider(true)
       }

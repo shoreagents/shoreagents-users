@@ -7,7 +7,7 @@ try {
   // Send messages to main process
   send: (channel, data) => {
     // Whitelist channels
-    const validChannels = ['new-ticket', 'save-ticket', 'load-tickets', 'show-notification', 'notification-count-changed', 'enter-fullscreen', 'exit-fullscreen', 'create-black-screens', 'close-black-screens', 'get-monitor-info', 'test-black-screens'];
+    const validChannels = ['new-ticket', 'save-ticket', 'load-tickets', 'show-notification', 'notification-count-changed', 'enter-fullscreen', 'exit-fullscreen', 'create-black-screens', 'close-black-screens', 'get-monitor-info'];
     if (validChannels.includes(channel)) {
       ipcRenderer.send(channel, data);
     }
@@ -65,6 +65,11 @@ try {
     getCount: () => ipcRenderer.invoke('get-notification-count')
   },
 
+  // Listen for clear all notifications from system tray
+  onClearAllNotifications: (callback) => {
+    ipcRenderer.on('clear-all-notifications', callback);
+  },
+
 
   // Logout and quit methods
   app: {
@@ -92,7 +97,6 @@ try {
     createBlackScreens: () => ipcRenderer.invoke('create-black-screens'),
     closeBlackScreens: () => ipcRenderer.invoke('close-black-screens'),
     getMonitorInfo: () => ipcRenderer.invoke('get-monitor-info'),
-    testBlackScreens: () => ipcRenderer.invoke('test-black-screens')
   },
   
   // Break monitoring methods
@@ -118,7 +122,6 @@ try {
   platform: process.platform
   });
   
-  console.log('electronAPI exposed successfully');
 } catch (error) {
   console.error('Error in preload script:', error);
 }
@@ -134,5 +137,4 @@ window.addEventListener('DOMContentLoaded', () => {
     replaceText(`${dependency}-version`, process.versions[dependency]);
   }
   
-  console.log('electronAPI exposed:', !!window.electronAPI);
 }); 

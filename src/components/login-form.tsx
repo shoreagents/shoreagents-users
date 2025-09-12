@@ -43,7 +43,6 @@ export function LoginForm({
           setEmail(remembered.email)
           setPassword(remembered.password)
           setRememberMe(true)
-          console.log('✅ Loaded remembered credentials')
         }
       } catch (error) {
         console.error('Error loading remembered credentials:', error)
@@ -61,7 +60,6 @@ export function LoginForm({
     // If user unchecks remember me, clear saved credentials
     if (!checked) {
       clearRememberedCredentials().then(() => {
-        console.log('✅ Remembered credentials cleared')
       }).catch((error) => {
         console.error('Error clearing credentials:', error)
       })
@@ -113,7 +111,6 @@ export function LoginForm({
       // Save credentials if "Remember me" is checked
       if (rememberMe) {
         setRememberedCredentials(email, password).then(() => {
-          console.log('✅ Credentials saved for future logins')
         }).catch((error) => {
           console.error('Error saving credentials:', error)
         })
@@ -139,10 +136,8 @@ export function LoginForm({
           } 
         });
         window.dispatchEvent(loginEvent);
-        
-        console.log('🚪 Login event dispatched to socket server');
       } catch (error) {
-        console.log('Socket login event failed (socket may not be connected):', error);
+        console.error('Socket login event failed (socket may not be connected):', error);
       }
 
       await new Promise(r => setTimeout(r, 120))

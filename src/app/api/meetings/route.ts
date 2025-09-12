@@ -28,7 +28,6 @@ export async function GET(request: NextRequest) {
     const cachedData = await redisCache.get(cacheKey)
     
     if (cachedData) {
-      // console.log('✅ Meetings served from Redis cache') // Reduced logging
       return NextResponse.json(cachedData)
     }
 
@@ -56,7 +55,6 @@ export async function GET(request: NextRequest) {
 
     // Cache the result in Redis with shorter TTL for more responsive updates
     await redisCache.set(cacheKey, responseData, 30)
-    // console.log('✅ Meetings cached in Redis') // Reduced logging
 
     return NextResponse.json(responseData)
   } catch (error) {
@@ -115,8 +113,6 @@ export async function POST(request: NextRequest) {
     const countsCacheKey = `meeting-counts:${agent_user_id}:7`
     await redisCache.del(countsCacheKey)
     
-    console.log('✅ Meeting created and cache invalidated')
-
     return NextResponse.json({
       success: true,
       meeting: result[0]

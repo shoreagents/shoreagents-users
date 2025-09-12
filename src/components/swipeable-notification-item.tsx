@@ -141,7 +141,7 @@ export function SwipeableNotificationItem({
         setIsSwipeRevealed(false)
         setDragProgress(0)
       } else {
-        console.error('🗑️ Invalid notification ID:', notificationId)
+        console.error('Invalid notification ID:', notificationId)
         // Reset animation state on error
         setIsDeletingAnimation(false)
         if (containerRef.current) {
@@ -151,7 +151,7 @@ export function SwipeableNotificationItem({
         }
       }
     } catch (error) {
-      console.error('🗑️ Error deleting notification:', error)
+      console.error('Error deleting notification:', error)
       // Reset animation state on error
       setIsDeletingAnimation(false)
       if (containerRef.current) {

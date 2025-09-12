@@ -18,7 +18,6 @@ export async function GET(request: NextRequest) {
     const cachedData = await redisCache.get(cacheKey)
     
     if (cachedData) {
-      // console.log('✅ Meeting status served from Redis cache') // Reduced logging
       return NextResponse.json(cachedData)
     }
 
@@ -43,7 +42,6 @@ export async function GET(request: NextRequest) {
 
     // Cache the result in Redis with very short TTL for status (10 seconds)
     await redisCache.set(cacheKey, responseData, 10)
-    // console.log('✅ Meeting status cached in Redis') // Reduced logging
 
     return NextResponse.json(responseData)
   } catch (error) {

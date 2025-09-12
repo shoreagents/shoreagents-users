@@ -34,7 +34,6 @@ export async function GET(
     const cachedData = await redisCache.get(cacheKey)
     
     if (cachedData) {
-      console.log('✅ User auth data served from Redis cache')
       return NextResponse.json(cachedData)
     }
     // Step 1: First try to find user in Supabase Auth
@@ -50,7 +49,7 @@ export async function GET(
         })
         
         if (error) {
-          console.error('❌ Supabase Auth error:', error)
+          console.error('Auth error:', error)
         } else if (users?.users) {
           // Try exact match first
           user = users.users.find(u => u.email === decodedEmail)
@@ -65,7 +64,7 @@ export async function GET(
           }
         }
       } catch (supabaseError) {
-        console.log('⚠️ Supabase Auth check failed, falling back to Railway database:', supabaseError)
+        console.warn('Auth check failed, falling back to Railway database:', supabaseError)
       }
     }
 
@@ -86,8 +85,6 @@ export async function GET(
         
         if (railwayResult.length > 0) {
           const railwayUser = railwayResult[0]
-          console.log('🔍 Found user in Railway database:', { email: railwayUser.email, id: railwayUser.id })
-          
           // Create a compatible user object for Railway users
           user = {
             id: railwayUser.id.toString(),
@@ -102,7 +99,7 @@ export async function GET(
           authSource = 'railway'
         }
       } catch (railwayError) {
-        console.error('❌ Railway database check failed:', railwayError)
+        console.error('Database check failed:', railwayError)
       }
     }
 
@@ -134,7 +131,6 @@ export async function GET(
 
     // Cache the result in Redis
     await redisCache.set(cacheKey, responseData, cacheTTL.userAuthData)
-    console.log('✅ User auth data cached in Redis')
 
     return NextResponse.json(responseData)
 

@@ -156,7 +156,7 @@ export async function GET(request: NextRequest) {
       })
     }
   } catch (e) {
-    console.error('❌ SSE setup error:', e)
+    console.error('SSE setup error:', e)
     return NextResponse.json({ error: 'Failed to establish stream' }, { status: 500 })
   }
 
@@ -188,11 +188,8 @@ export async function GET(request: NextRequest) {
       if (!bypassCache) {
         cachedData = await redisCache.get(cacheKey)
         if (cachedData) {
-          console.log('✅ Tickets served from Redis cache')
           return NextResponse.json(cachedData)
         }
-      } else {
-        console.log('🔄 Bypassing Redis cache for real-time update')
       }
 
       // Get tickets for the user using optimized query
@@ -238,7 +235,6 @@ export async function GET(request: NextRequest) {
 
       // Cache the result in Redis
       await redisCache.set(cacheKey, responseData, cacheTTL.tickets)
-      console.log('✅ Tickets cached in Redis')
 
       return NextResponse.json(responseData)
 
@@ -247,7 +243,7 @@ export async function GET(request: NextRequest) {
     }
 
   } catch (error) {
-    console.error('❌ Error fetching tickets:', error)
+    console.error('Error fetching tickets:', error)
     return NextResponse.json(
       { 
         error: 'Failed to fetch tickets',
@@ -372,8 +368,6 @@ export async function POST(request: NextRequest) {
       // Invalidate Redis cache for this user's tickets
       const cacheKey = cacheKeys.tickets(user.email)
       await redisCache.del(cacheKey)
-      console.log('✅ Tickets cache invalidated after ticket creation')
-
       // Return the created ticket
       return NextResponse.json({
         success: true,

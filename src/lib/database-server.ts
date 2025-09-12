@@ -96,7 +96,7 @@ export const executeQuery = async <T = any>(
     
     return result.rows;
   } catch (error) {
-    console.error('❌ Query execution failed:', error);
+    console.error('Query execution failed:', error);
     throw error;
   } finally {
     client.release();
@@ -109,10 +109,9 @@ export const executeQuery = async <T = any>(
 export const testDatabaseConnection = async (): Promise<boolean> => {
   try {
     const result = await executeQuery('SELECT NOW() as current_time');
-    console.log('✅ Database connection test successful:', result[0]);
     return true;
   } catch (error) {
-    console.error('❌ Database connection test failed:', error);
+    console.error('Database connection test failed:', error);
     return false;
   }
 };
@@ -123,7 +122,6 @@ export const testDatabaseConnection = async (): Promise<boolean> => {
 export const closeDatabase = async (): Promise<void> => {
   if (pool) {
     await pool.end();
-    console.log('🔌 Database connection pool closed');
   }
 };
 

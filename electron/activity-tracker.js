@@ -30,14 +30,12 @@ class ActivityTracker {
       powerMonitor.on('lock-screen', this.handleSystemSuspend);
       powerMonitor.on('unlock-screen', this.handleSystemResume);
       
-      console.log('Power monitoring setup complete');
     } catch (error) {
       console.error('Error setting up power monitoring:', error);
     }
   }
 
   handleSystemSuspend() {
-    console.log('System suspended/locked - pausing activity tracking');
     this.isSystemSuspended = true;
     this.pauseMouseTracking();
     
@@ -52,7 +50,6 @@ class ActivityTracker {
   }
 
   handleSystemResume() {
-    console.log('System resumed/unlocked - resuming activity tracking');
     this.isSystemSuspended = false;
     if (this.isTracking) {
       this.startMouseTracking();
@@ -91,19 +88,14 @@ class ActivityTracker {
     // Start mouse tracking
     this.startMouseTracking();
     
-    console.log('Activity tracking started');
   }
 
   stopTracking() {
-    console.log(`ActivityTracker.stopTracking() called - isTracking: ${this.isTracking}`);
-    
     if (!this.isTracking) {
-      console.log('Already not tracking, skipping stop');
       return;
     }
     
     this.isTracking = false;
-    console.log('Set isTracking to false');
     
     let cleanupCount = 0;
     
@@ -111,20 +103,15 @@ class ActivityTracker {
       clearInterval(this.activityCheckInterval);
       this.activityCheckInterval = null;
       cleanupCount++;
-      console.log('Cleared activityCheckInterval');
     }
     
     if (this.systemIdleCheckInterval) {
       clearInterval(this.systemIdleCheckInterval);
       this.systemIdleCheckInterval = null;
       cleanupCount++;
-      console.log('Cleared systemIdleCheckInterval');
     }
     
     this.pauseMouseTracking();
-    console.log('Paused mouse tracking');
-    
-    console.log(`Activity tracking stopped - cleaned ${cleanupCount} intervals`);
   }
 
   startMouseTracking() {
@@ -161,10 +148,7 @@ class ActivityTracker {
     if (this.mouseTrackingInterval) {
       clearInterval(this.mouseTrackingInterval);
       this.mouseTrackingInterval = null;
-      console.log('Mouse tracking interval cleared');
-    } else {
-      console.log('No mouse tracking interval to clear');
-    }
+    } 
   }
 
   checkSystemIdle() {
@@ -285,7 +269,6 @@ class ActivityTracker {
           }
         }, 3000); // Remove always on top after 3 seconds
         
-        console.log('Inactivity window brought to foreground');
       }
     } catch (error) {
       console.error('Error showing inactivity window:', error);
@@ -315,7 +298,6 @@ class ActivityTracker {
     
     this.pauseMouseTracking();
     
-    console.log('Activity tracking paused');
   }
 
   resumeTracking() {
@@ -339,7 +321,6 @@ class ActivityTracker {
       this.startMouseTracking();
     }
     
-    console.log('Activity tracking resumed');
   }
 
   getCurrentActivity() {

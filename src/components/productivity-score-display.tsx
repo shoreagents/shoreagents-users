@@ -138,11 +138,11 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
             });
             window.dispatchEvent(event);
           } catch (error) {
-            console.log('Socket productivity update failed:', error);
+            console.error('Socket productivity update failed:', error);
           }
         }
       } else {
-        console.error('❌ API ERROR:', response.status, response.statusText);
+        console.error('API ERROR:', response.status, response.statusText);
       }
     } catch (error) {
       console.error('Error fetching productivity data:', error);

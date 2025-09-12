@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
         'SELECT COUNT(*) as null_task_events FROM task_activity_events WHERE task_id IS NULL'
       )
       if (nullTaskIdCheck.rows[0].null_task_events > 0) {
-        console.error(`❌ DATA INTEGRITY ISSUE: Found ${nullTaskIdCheck.rows[0].null_task_events} events with NULL task_id!`)
+        console.error(`DATA INTEGRITY ISSUE: Found ${nullTaskIdCheck.rows[0].null_task_events} events with NULL task_id!`)
       }
       
       // Check events for this specific task
@@ -107,13 +107,13 @@ export async function GET(request: NextRequest) {
       const invalidEvents = rows.rows.filter((event: any) => {
         const isValid = event.task_id === parsedTaskId
         if (!isValid) {
-          console.error(`❌ INVALID EVENT: Event ${event.id} has task_id ${event.task_id}, expected ${parsedTaskId}`)
+          console.error(`INVALID EVENT: Event ${event.id} has task_id ${event.task_id}, expected ${parsedTaskId}`)
         }
         return !isValid
       })
       
       if (invalidEvents.length > 0) {
-        console.error(`❌ CRITICAL: Found ${invalidEvents.length} events with wrong task_id!`, invalidEvents)
+        console.error(`CRITICAL: Found ${invalidEvents.length} events with wrong task_id!`, invalidEvents)
         
         // Let's also check what's in the database for this task_id
         const debugQuery = await pool.query(
@@ -140,16 +140,6 @@ export async function GET(request: NextRequest) {
         }, { status: 500 })
       }
       
-      // Log first few events for debugging
-      if (rows.rows.length > 0) {
-        console.log(`📝 Sample events:`, rows.rows.slice(0, 3).map((e: any) => ({
-          id: e.id,
-          task_id: e.task_id,
-          action: e.action,
-          created_at: e.created_at
-        })))
-      }
-      
       return NextResponse.json({ 
         success: true, 
         events: rows.rows,
@@ -163,7 +153,7 @@ export async function GET(request: NextRequest) {
     }
     
   } catch (e) {
-    console.error('❌ Error in task activity events API:', e)
+    console.error('Error in task activity events API:', e)
     return NextResponse.json({ 
       error: 'Internal server error',
       details: e instanceof Error ? e.message : 'Unknown error'

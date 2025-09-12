@@ -27,11 +27,11 @@ class BreakReminderScheduler {
       const notificationsSent = result.rows[0].check_break_reminders;
       
       if (notificationsSent > 0) {
-        console.log(`⏰ [${new Date().toLocaleTimeString()}] Sent ${notificationsSent} break notifications`);
+        console.log(`[${new Date().toLocaleTimeString()}] Sent ${notificationsSent} break notifications`);
       }
       
     } catch (error) {
-      console.error(`❌ [${new Date().toLocaleTimeString()}] Break reminder check failed:`, error.message);
+      console.error(`[${new Date().toLocaleTimeString()}] Break reminder check failed:`, error.message);
     } finally {
       this.isRunning = false;
     }
@@ -42,7 +42,7 @@ class BreakReminderScheduler {
       return; // Already running
     }
 
-    console.log(`🚀 Starting break reminder scheduler (checking every ${this.checkInterval / 1000} seconds)`);
+    console.log(`Starting break reminder scheduler (checking every ${this.checkInterval / 1000} seconds)`);
     
     // Run an immediate check
     this.checkBreakReminders();
@@ -57,7 +57,7 @@ class BreakReminderScheduler {
     if (this.intervalId) {
       clearInterval(this.intervalId);
       this.intervalId = null;
-      console.log('🛑 Break reminder scheduler stopped');
+      console.log('Break reminder scheduler stopped');
     }
   }
 
@@ -79,13 +79,13 @@ if (require.main === module) {
   
   // Handle graceful shutdown
   process.on('SIGINT', () => {
-    console.log('\n🛑 Shutting down break reminder scheduler...');
+    console.log('\nShutting down break reminder scheduler...');
     scheduler.stop();
     process.exit(0);
   });
 
   process.on('SIGTERM', () => {
-    console.log('\n🛑 Shutting down break reminder scheduler...');
+    console.log('\nShutting down break reminder scheduler...');
     scheduler.stop();
     process.exit(0);
   });
@@ -93,5 +93,5 @@ if (require.main === module) {
   // Start the scheduler
   scheduler.start();
   
-  console.log('⏰ Break reminder scheduler is running. Press Ctrl+C to stop.');
+  console.log('Break reminder scheduler is running. Press Ctrl+C to stop.');
 }

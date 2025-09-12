@@ -39,7 +39,6 @@ export const initializeOptimizedDatabase = async (): Promise<void> => {
     const client = await pool.connect();
     try {
       await client.query('SELECT NOW()');
-      console.log('✅ Optimized database connection established');
     } finally {
       client.release();
     }
@@ -130,7 +129,6 @@ export const closeOptimizedDatabase = async (): Promise<void> => {
   if (pool) {
     await pool.end();
     pool = null;
-    console.log('✅ Optimized database pool closed');
   }
 };
 

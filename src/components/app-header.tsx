@@ -33,6 +33,7 @@ import {
   initializeNotificationChecking,
   addSampleNotifications,
   formatTimeAgo,
+  clearAllNotifications,
 } from "@/lib/notification-service"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { BellNotificationsSkeleton } from "@/components/skeleton-loaders"
@@ -300,8 +301,8 @@ export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser =
             // Get user email for API call (works in both browser and Electron)
             const userEmail = currentUser.email;
             const apiUrl = userEmail 
-              ? `http://localhost:3000/api/profile/?email=${encodeURIComponent(userEmail)}`
-              : 'http://localhost:3000/api/profile/';
+              ? `/api/profile/?email=${encodeURIComponent(userEmail)}`
+              : '/api/profile/';
               
             const response = await fetch(apiUrl, {
               credentials: 'include' // Include authentication cookies for Electron
@@ -452,6 +453,11 @@ export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser =
           title: 'Health',
           href: '/status/health'
         })
+      } else if (pathSegments[1] === 'restroom') {
+        generatedBreadcrumbs.push({
+          title: 'Restroom',
+          href: '/status/restroom'
+        })
       } else if (pathSegments.length === 1) {
         generatedBreadcrumbs[0].href = '/status'
       }
@@ -537,6 +543,76 @@ export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser =
     }
   }, [])
 
+  // Listen for clear all notifications from system tray
+  useEffect(() => {
+    if (window.electronAPI?.onClearAllNotifications) {
+      
+      const handleSystemTrayClear = async () => {
+        try {
+          // Get current user to clear notifications from database
+          const currentUser = getCurrentUser()
+          
+          if (currentUser?.email) {
+            // First, fetch notifications from the API to get the actual database notifications
+            const response = await fetch(`/api/notifications/?email=${encodeURIComponent(currentUser.email)}&limit=200`)
+            
+            if (response.ok) {
+              const data = await response.json()
+              const allNotifications = data.notifications || []
+              const notificationIds = allNotifications.map((n: { id: number }) => n.id)
+              
+              if (notificationIds.length > 0) {
+                // Clear notifications from database using delete API
+                const deleteResponse = await fetch('/api/notifications/delete', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({ 
+                    ids: notificationIds, 
+                    email: currentUser.email 
+                  })
+                })
+                
+                if (deleteResponse.ok) {
+                  await deleteResponse.json()
+                } else {
+                  console.error('App header: Failed to clear notifications from database')
+                }
+              } 
+            } else {
+              console.error('App header: Failed to fetch notifications from API')
+            }
+          } 
+          
+          // Clear local notification service
+          clearAllNotifications()
+          
+          // Trigger the same clear functionality as the UI
+          window.dispatchEvent(new CustomEvent('notifications-cleared', {
+            detail: { unreadCount: 0 }
+          }))
+          
+          // Also trigger the general update event
+          window.dispatchEvent(new CustomEvent('notifications-updated'))
+          
+          // Update Electron badge count
+          if (window.electronAPI?.send) {
+            window.electronAPI.send('notification-count-changed', { count: 0 });
+          }
+        } catch (error) {
+          console.error('Error clearing notifications from system tray:', error)
+        }
+      }
+
+      window.electronAPI.onClearAllNotifications(handleSystemTrayClear)
+      
+      return () => {
+        // Cleanup is handled by the preload script
+      }
+    }
+  }, [])
+
   // Get team status for the badge
   const { isLoading: teamStatusLoading, onlineTeamCount, totalTeamCount } = useTeamStatus()
 
@@ -579,6 +655,7 @@ export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser =
                   size="sm"
                   className="h-8 px-3 flex items-center gap-2 hover:bg-blue-50 dark:hover:bg-blue-950/20"
                   onClick={() => router.push('/settings/connected-users')}
+                  data-team-status
                 >
                   <Users className="w-4 h-4 text-muted-foreground" />
                   <Badge 
@@ -636,6 +713,7 @@ export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser =
                 variant="ghost"
                 size="icon"
                 className="relative h-8 w-8"
+                data-notifications-trigger
               >
                 <Bell className="h-4 w-4" />
                                   {socketUnreadCount > 0 && (
@@ -756,12 +834,17 @@ export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser =
                               try {
                                 await deleteNotification(notificationId)
                                 
+                                // Refresh notifications to maintain 8-count display
+                                if (user?.email && socketConnected) {
+                                  fetchNotifications(0, 8, 0)
+                                }
+                                
                                 // Dispatch a custom event to notify other components
                                 window.dispatchEvent(new CustomEvent('notification-deleted', { 
                                   detail: { notificationId } 
                                 }))
                               } catch (error) {
-                                console.error('🗑️ App header error deleting notification:', error)
+                                console.error('App header error deleting notification:', error)
                               }
                             }}
                             onNavigate={(actionUrl: string) => {

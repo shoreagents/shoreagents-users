@@ -52,7 +52,6 @@ export async function GET(request: NextRequest) {
     const cachedData = await redisCache.get(cacheKey)
     
     if (cachedData) {
-      console.log('✅ Task statistics served from Redis cache')
       return NextResponse.json(cachedData)
     }
 
@@ -191,8 +190,6 @@ export async function GET(request: NextRequest) {
 
     // Cache the result in Redis
     await redisCache.set(cacheKey, responseData, cacheTTL.taskStats)
-    console.log('✅ Task statistics cached in Redis')
-
     return NextResponse.json(responseData)
 
   } catch (error) {

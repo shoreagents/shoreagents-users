@@ -10,7 +10,7 @@ export const updateMeetingStatus = (isInMeeting: boolean) => {
     const socket = (window as any).meetingSocket
     socket.emit('updateMeetingStatus', isInMeeting)
   } else {
-    console.warn('⚠️ Socket.IO not available for meeting status update')
+    console.warn('Socket.IO not available for meeting status update')
   }
 }
 

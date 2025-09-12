@@ -22,7 +22,6 @@ export const setRememberedCredentials = async (email: string, password: string) 
         // Use Electron's secure storage
         const result = await window.electronAPI.secureCredentials.store(email.trim(), password.trim())
         if (result.success) {
-          console.log('✅ Credentials stored securely using Electron safeStorage')
           return
         } else {
           console.warn('Electron secure storage failed, falling back to localStorage:', result.error)
@@ -48,7 +47,6 @@ export const setRememberedCredentials = async (email: string, password: string) 
     const value = encodeURIComponent(JSON.stringify(credentials))
     document.cookie = `shoreagents-remembered=${value};expires=${expires.toUTCString()};path=/;SameSite=Lax`
     
-    console.log('✅ Credentials remembered using localStorage fallback')
   } catch (error) {
     console.error('Error remembering credentials:', error)
   }
@@ -64,15 +62,13 @@ export const getRememberedCredentials = async () => {
         if (result.success && result.credentials) {
           // Check if credentials are not too old (max 1 year)
           if (Date.now() - result.credentials.timestamp < 365 * 24 * 60 * 60 * 1000) {
-            console.log('✅ Retrieved credentials from Electron secure storage')
             return result.credentials
           } else {
-            console.log('Credentials expired, clearing them')
             await window.electronAPI.secureCredentials.clear()
             return null
           }
         } else {
-          console.log('No secure credentials found or error:', result.error)
+          console.warn('No secure credentials found or error:', result.error)
         }
       } catch (error) {
         console.warn('Electron secure storage error, falling back to localStorage:', error)
@@ -115,7 +111,6 @@ export const clearRememberedCredentials = async () => {
     if (typeof window !== 'undefined' && window.electronAPI?.secureCredentials) {
       try {
         await window.electronAPI.secureCredentials.clear()
-        console.log('✅ Secure credentials cleared')
       } catch (error) {
         console.warn('Error clearing secure credentials:', error)
       }
@@ -124,7 +119,6 @@ export const clearRememberedCredentials = async () => {
     // Clear localStorage fallback
     localStorage.removeItem('shoreagents-remembered')
     document.cookie = 'shoreagents-remembered=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;'
-    console.log('✅ Remembered credentials cleared')
   } catch (error) {
     console.error('Error clearing remembered credentials:', error)
   }
@@ -204,7 +198,6 @@ export const refreshAuthDataFormat = () => {
     try {
       const parsed = JSON.parse(localAuthData)
       if (!parsed.hybrid && authData.user?.railway_id) {
-        console.log('Updating localStorage auth format for hybrid authentication')
         localStorage.setItem("shoreagents-auth", JSON.stringify(authData))
       }
     } catch (error) {
@@ -255,8 +248,6 @@ export function forceLogout() {
         });
         window.dispatchEvent(event);
         
-        console.log('🚪 Logout event dispatched - socket server will mark user as offline');
-        
         // Wait a bit for the socket event to be processed before redirecting
         setTimeout(() => {
           performLogoutCleanup();
@@ -277,7 +268,6 @@ export function forceLogout() {
  * Perform the actual logout cleanup and redirect
  */
 function performLogoutCleanup() {
-  console.log('🧹 Performing logout cleanup...');
   
   // Clear all notifications on logout
   try {
@@ -295,13 +285,17 @@ function performLogoutCleanup() {
   document.cookie = 'shoreagents-auth=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;'
   document.cookie = 'sb-sanljwkkoawwdpaxrper-auth-token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;'
   
+  // Set flag to indicate this is a logout navigation (use localStorage so it persists)
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('shoreagents-logout-navigation', 'true')
+  }
+  
   // Clear sessionStorage
   sessionStorage.clear()
   
   // Note: We don't clear remembered credentials here to preserve the "Remember me" functionality
   // Users can still use remembered credentials after logout
   
-  console.log('✅ Logout cleanup completed, redirecting to login...');
   
   // Dispatch logout finished event for the logout context
   if (typeof window !== 'undefined') {
@@ -359,7 +353,6 @@ export function getAuthTokens() {
  * Clear specific authentication token (with cascading delete)
  */
 export function clearAuthToken(tokenName: 'shoreagents-auth' | 'sb-sanljwkkoawwdpaxrper-auth-token') {
-  console.log(`🧹 Clearing ${tokenName} and all related auth tokens...`)
   
   // Clear the specific token
   localStorage.removeItem(tokenName)
@@ -375,5 +368,4 @@ export function clearAuthToken(tokenName: 'shoreagents-auth' | 'sb-sanljwkkoawwd
   // Clear sessionStorage
   sessionStorage.clear()
   
-  console.log('✅ All authentication tokens cleared')
 } 

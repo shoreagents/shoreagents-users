@@ -30,9 +30,9 @@ class TaskNotificationScheduler {
       const notificationsSent = result.rows[0].check_all_task_notifications;
       
       if (notificationsSent > 0) {
-        console.log(`📋 [${new Date().toLocaleTimeString()}] Sent ${notificationsSent} task notifications`);
+        console.log(`[${new Date().toLocaleTimeString()}] Sent ${notificationsSent} task notifications`);
       } else {
-        console.log(`📋 [${new Date().toLocaleTimeString()}] No task notifications needed`);
+        console.log(`[${new Date().toLocaleTimeString()}] No task notifications needed`);
       }
       
       // Also check how many tasks were moved to overdue column
@@ -40,11 +40,11 @@ class TaskNotificationScheduler {
       const tasksMoved = movedResult.rows[0].tasks_moved;
       
       if (tasksMoved > 0) {
-        console.log(`🔴 [${new Date().toLocaleTimeString()}] Moved ${tasksMoved} tasks to Overdue column`);
+        console.log(`[${new Date().toLocaleTimeString()}] Moved ${tasksMoved} tasks to Overdue column`);
       }
       
     } catch (error) {
-      console.error(`❌ [${new Date().toLocaleTimeString()}] Task notification check failed:`, error.message);
+      console.error(`[${new Date().toLocaleTimeString()}] Task notification check failed:`, error.message);
     } finally {
       this.isRunning = false;
     }
@@ -55,7 +55,7 @@ class TaskNotificationScheduler {
       return; // Already running
     }
 
-    console.log(`🚀 Starting task notification scheduler (checking every ${this.checkInterval / 1000} seconds)`);
+    console.log(`Starting task notification scheduler (checking every ${this.checkInterval / 1000} seconds)`);
     
     // Run an immediate check
     this.checkTaskNotifications();
@@ -70,7 +70,7 @@ class TaskNotificationScheduler {
     if (this.intervalId) {
       clearInterval(this.intervalId);
       this.intervalId = null;
-      console.log('🛑 Task notification scheduler stopped');
+      console.log('Task notification scheduler stopped');
     }
   }
 
@@ -88,7 +88,7 @@ class TaskNotificationScheduler {
       this.start();
     }
     
-    console.log(`⚙️ Task notification interval changed to ${seconds} seconds`);
+    console.log(`Task notification interval changed to ${seconds} seconds`);
   }
 
   // Method to get current status
@@ -103,7 +103,7 @@ class TaskNotificationScheduler {
   // Method to manually trigger overdue task processing
   async processOverdueTasks() {
     try {
-      console.log(`🔴 [${new Date().toLocaleTimeString()}] Manually processing overdue tasks...`);
+      console.log(`[${new Date().toLocaleTimeString()}] Manually processing overdue tasks...`);
       
       // Move overdue tasks to Overdue column
       const movedResult = await pool.query('SELECT move_overdue_tasks_to_overdue_column() as tasks_moved');
@@ -113,11 +113,11 @@ class TaskNotificationScheduler {
       const notificationsResult = await pool.query('SELECT check_overdue_task_notifications() as notifications_sent');
       const notificationsSent = notificationsResult.rows[0].notifications_sent;
       
-      console.log(`🔴 [${new Date().toLocaleTimeString()}] Overdue processing complete: ${tasksMoved} tasks moved, ${notificationsSent} notifications sent`);
+      console.log(`[${new Date().toLocaleTimeString()}] Overdue processing complete: ${tasksMoved} tasks moved, ${notificationsSent} notifications sent`);
       
       return { tasksMoved, notificationsSent };
     } catch (error) {
-      console.error(`❌ [${new Date().toLocaleTimeString()}] Error processing overdue tasks:`, error.message);
+      console.error(`[${new Date().toLocaleTimeString()}] Error processing overdue tasks:`, error.message);
       throw error;
     }
   }
@@ -164,7 +164,7 @@ class TaskNotificationScheduler {
         client.release();
       }
     } catch (error) {
-      console.error(`❌ [${new Date().toLocaleTimeString()}] Error getting overdue stats:`, error.message);
+      console.error(`[${new Date().toLocaleTimeString()}] Error getting overdue stats:`, error.message);
       throw error;
     }
   }
@@ -179,13 +179,13 @@ if (require.main === module) {
   
   // Handle graceful shutdown
   process.on('SIGINT', () => {
-    console.log('\n🛑 Shutting down task notification scheduler...');
+    console.log('\nShutting down task notification scheduler...');
     scheduler.stop();
     process.exit(0);
   });
 
   process.on('SIGTERM', () => {
-    console.log('\n🛑 Shutting down task notification scheduler...');
+    console.log('\nShutting down task notification scheduler...');
     scheduler.stop();
     process.exit(0);
   });
@@ -197,18 +197,18 @@ if (require.main === module) {
   setTimeout(async () => {
     try {
       const stats = await scheduler.getOverdueStats();
-      console.log(`📊 Initial overdue task stats:`);
-      console.log(`   🔴 Overdue tasks: ${stats.overdueTasks}`);
-      console.log(`   ⚠️  Soon overdue (within 1 hour): ${stats.soonOverdue}`);
-      console.log(`   📢 Recent overdue notifications (24h): ${stats.recentNotifications}`);
+      console.log(`Initial overdue task stats:`);
+      console.log(`Overdue tasks: ${stats.overdueTasks}`);
+      console.log(`Soon overdue (within 1 hour): ${stats.soonOverdue}`);
+      console.log(`Recent overdue notifications (24h): ${stats.recentNotifications}`);
     } catch (error) {
-      console.log('⚠️  Could not get initial overdue stats');
+      console.log('Could not get initial overdue stats');
     }
   }, 2000); // Wait 2 seconds after starting
   
-  console.log('📋 Task notification scheduler is running. Press Ctrl+C to stop.');
-  console.log('🔴 This scheduler now includes overdue task management:');
-  console.log('   • Moves overdue tasks to Overdue column');
-  console.log('   • Sends overdue notifications (prevents spamming)');
-  console.log('   • Checks every 5 minutes');
+  console.log('Task notification scheduler is running. Press Ctrl+C to stop.');
+  console.log('This scheduler now includes overdue task management:');
+  console.log('Moves overdue tasks to Overdue column');
+  console.log('Sends overdue notifications (prevents spamming)');
+  console.log('Checks every 5 minutes');
 }

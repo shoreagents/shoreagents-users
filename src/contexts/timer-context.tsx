@@ -8,6 +8,7 @@ import { useAuth } from './auth-context'
 import { useMeeting } from '@/contexts/meeting-context'
 import { useEventsContext } from './events-context'
 import { useHealth } from './health-context'
+import { useRestroom } from './restroom-context'
 import { isBreakTimeValid, getBreaksForShift } from '@/lib/shift-break-utils'
 import { parseShiftTime } from '@/lib/shift-utils'
 
@@ -58,6 +59,9 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
   const [isResetting, setIsResetting] = useState(false)
   const resetTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   
+  // Track when a meeting just ended to force active state
+  const meetingJustEndedRef = useRef(false)
+  
   // Real-time activity data state
   const [realtimeActivityData, setRealtimeActivityData] = useState<any>(null)
   const [lastRealtimeUpdate, setLastRealtimeUpdate] = useState<Date | null>(null)
@@ -67,6 +71,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
   const { isInMeeting } = useMeeting()
   const { isInEvent } = useEventsContext()
   const { isGoingToClinic, isInClinic } = useHealth()
+  const { isInRestroom } = useRestroom()
 
   // Get current user
   useEffect(() => {
@@ -77,7 +82,6 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       setLiveInactiveSeconds(0)
       setIsInitialized(false)
       setLastActivityState(null)
-      console.log('User changed, resetting timer state for:', user?.email)
     }
     setCurrentUser(user)
   }, [currentUser?.email])
@@ -211,7 +215,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
               await refreshBreakStatus()
             } 
           } catch (error) {
-            console.error(`❌ Error in background auto-ending ${breakInfo.name}:`, error)
+            console.error(`Error in background auto-ending ${breakInfo.name}:`, error)
           }
         }
       } catch (error) {
@@ -326,7 +330,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     // Validate that timer data is for the current user
     if (timerData && timerData.email && currentUser?.email && timerData.email !== currentUser.email) {
-      console.warn(`⚠️ Timer data received for wrong user: expected ${currentUser.email}, got ${timerData.email}`)
+      console.warn(`Timer data received for wrong user: expected ${currentUser.email}, got ${timerData.email}`)
       return
     }
     
@@ -503,6 +507,11 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         return // Don't increment counters when in health check
       }
       
+      // Pause counting when in restroom
+      if (isInRestroom) {
+        return // Don't increment counters when in restroom
+      }
+      
       // IMPROVED ACTIVITY STATE DETERMINATION
       // Priority order: local activity state > server state > fallback
       let isActive = false
@@ -524,9 +533,28 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       
       // ADDITIONAL SAFETY CHECKS
       // If we have recent activity data from server, trust it more than local state
+      // BUT: Don't override local state if it was explicitly set by inactivity detection
       if (timerData && timerData.activeSeconds !== undefined && timerData.inactiveSeconds !== undefined) {
-        // Server has recent data - use server's activity state
-        isActive = timerData.isActive
+        // Only use server state if local state is null/undefined (not explicitly set)
+        // This allows inactivity detection to work properly
+        if (lastActivityState === null) {
+          isActive = timerData.isActive
+        }
+      }
+      
+      // MEETING END RESUME LOGIC
+      // If we just ended a meeting and no other status is active, FORCE active state
+      // This prevents the timer from staying inactive after meetings end
+      if (!isInMeeting && !isBreakActive && !isInEvent && !isGoingToClinic && !isInClinic && !isInRestroom) {
+        // If meeting just ended, FORCE active state regardless of current state
+        if (meetingJustEndedRef.current) {
+          isActive = true
+        } else {
+          // Normal case: use existing logic
+          if (lastActivityState !== false) {
+            isActive = true
+          }
+        }
       }
       
       // Activity state determined - no logging needed
@@ -546,7 +574,6 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         }
         
         if (shiftEndDate && nowPH > shiftEndDate && isActive) {
-          console.log('🕐 Shift ended - automatically setting user to inactive');
           setActivityState(false);
           // Update database immediately when shift ends
           updateTimerData(liveActiveSeconds, liveInactiveSeconds);
@@ -580,17 +607,22 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     }, 1000) // Changed back to 1000ms (1 second) for real-time updates
 
     return () => clearInterval(interval)
-  }, [timerData?.isActive, lastActivityState, isAuthenticated, hasLoggedIn, isBreakActive, breakStatus?.is_paused, isInMeeting, isInEvent, isGoingToClinic, isInClinic, shiftInfo, userProfile])
+  }, [timerData?.isActive, lastActivityState, isAuthenticated, hasLoggedIn, isBreakActive, breakStatus?.is_paused, isInMeeting, isInEvent, isGoingToClinic, isInClinic, isInRestroom, shiftInfo, userProfile])
 
   // Helper function to validate if we should actually count inactive time
   const validateInactiveState = useCallback((timerData: any, lastActivityState: boolean | null): boolean => {
-    // If server explicitly says inactive, trust it
+    // PRIORITY 1: If local state explicitly says inactive, trust it (from inactivity detection)
+    if (lastActivityState === false) {
+      return true
+    }
+    
+    // PRIORITY 2: If server explicitly says inactive, trust it
     if (timerData && timerData.isActive === false) {
       return true
     }
     
-    // If local state says inactive but we have recent server data that says active
-    if (lastActivityState === false && timerData && timerData.isActive === true) {
+    // PRIORITY 3: If local state says active, don't count inactive
+    if (lastActivityState === true) {
       return false
     }
     
@@ -599,9 +631,19 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       return false
     }
     
-    // Only count inactive if we have a clear, consistent inactive state
-    return lastActivityState === false
-  }, [])
+    // MEETING END RESUME: Prevent inactive counting when meeting just ended
+    // This ensures the timer resumes active counting after meetings end
+    if (!isInMeeting && !isBreakActive && !isInEvent && !isGoingToClinic && !isInClinic && !isInRestroom) {
+      // If meeting just ended, prevent inactive counting
+      if (meetingJustEndedRef.current) {
+        return false
+      }
+      // Normal case: allow inactive counting if explicitly set
+    }
+    
+    // Default: don't count inactive unless explicitly set
+    return false
+  }, [isInMeeting, isBreakActive, isInEvent, isGoingToClinic, isInClinic, isInRestroom])
 
   // Real-time countdown timer for shift reset
   useEffect(() => {
@@ -885,6 +927,27 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(periodicSync);
   }, [isAuthenticated, hasLoggedIn, timerData, liveActiveSeconds, liveInactiveSeconds, updateTimerData, shiftInfo, userProfile]);
 
+  // Handle meeting end transitions - resume active counting when meeting ends
+  useEffect(() => {
+    if (!isAuthenticated || !hasLoggedIn) return
+    
+    // If we just ended a meeting (isInMeeting changed from true to false)
+    // and no other status is active, FORCE resume active counting
+    if (!isInMeeting && !isBreakActive && !isInEvent && !isGoingToClinic && !isInClinic && !isInRestroom) {
+      // Set flag to indicate meeting just ended
+      meetingJustEndedRef.current = true
+      
+      // FORCE active state when meeting ends - this overrides any previous inactive state
+      // This ensures the timer resumes active counting after meetings end
+      setActivityState(true)
+      
+      // Clear the flag after a short delay to allow normal inactivity detection to resume
+      setTimeout(() => {
+        meetingJustEndedRef.current = false
+      }, 5000) // 5 seconds grace period
+    }
+  }, [isInMeeting, isBreakActive, isInEvent, isGoingToClinic, isInClinic, isInRestroom, isAuthenticated, hasLoggedIn, setActivityState])
+
   // Activity detection - use Electron activity tracking if available
   useEffect(() => {
     if (!isAuthenticated || !hasLoggedIn) return
@@ -995,7 +1058,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         setLiveInactiveSeconds(data.today_inactive_seconds || 0)
       }
     } catch (error) {
-      console.error('❌ Error refreshing real-time activity data:', error)
+      console.error('Error refreshing real-time activity data:', error)
       setIsRealtimeConnected(false)
     }
   }, [currentUser?.id])
@@ -1019,11 +1082,6 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         if (!socket) {
           return false
         }
-        console.log('🔌 Socket status:', {
-          connected: socket.connected,
-          id: socket.id,
-          hasSocket: !!socket
-        })
         return socket.connected
       }
     }

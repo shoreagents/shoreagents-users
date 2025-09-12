@@ -104,7 +104,7 @@ export async function GET(request: NextRequest) {
     }
 
   } catch (error) {
-    console.error('❌ Error fetching ticket categories:', error)
+    console.error('Error fetching ticket categories:', error)
     return NextResponse.json(
       { 
         error: 'Failed to fetch ticket categories',
@@ -202,7 +202,7 @@ export async function POST(request: NextRequest) {
     }
 
   } catch (error) {
-    console.error('❌ Error creating ticket category:', error)
+    console.error('Error creating ticket category:', error)
     return NextResponse.json(
       { 
         error: 'Failed to create ticket category',

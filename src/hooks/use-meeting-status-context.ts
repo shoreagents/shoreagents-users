@@ -49,7 +49,6 @@ export function useMeetingStatusContext() {
     const email = currentUser?.email
     
     if (!email) {
-      console.log('No user email available for Socket.IO connection')
       return
     }
 

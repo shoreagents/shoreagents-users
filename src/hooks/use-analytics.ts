@@ -135,7 +135,21 @@ export function useAnalyticsLeaderboard() {
   return useQuery({
     queryKey: ['analytics-leaderboard'],
     queryFn: async (): Promise<{ leaderboard: LeaderboardRow[], monthYear: string }> => {
-      const response = await fetch('/api/leaderboard?limit=10', {
+      // First, get team agents to filter by team
+      const teamAgentsResponse = await fetch('/api/agents/team')
+      if (!teamAgentsResponse.ok) {
+        throw new Error(`Failed to fetch team agents: ${teamAgentsResponse.statusText}`)
+      }
+      
+      const teamData = await teamAgentsResponse.json()
+      const teamAgentEmails = teamData.agents?.map((agent: any) => agent.email) || []
+      
+      if (teamAgentEmails.length === 0) {
+        return { leaderboard: [], monthYear: '' }
+      }
+      
+      // Get all leaderboard data
+      const response = await fetch('/api/leaderboard?limit=100', {
         credentials: 'include'
       })
       
@@ -143,7 +157,23 @@ export function useAnalyticsLeaderboard() {
         throw new Error(`Failed to fetch leaderboard: ${response.statusText}`)
       }
       
-      return response.json()
+      const data = await response.json()
+      const allLeaderboard = data.leaderboard || []
+      
+      // Filter leaderboard to only include team members
+      const teamLeaderboard = allLeaderboard
+        .filter((entry: any) => teamAgentEmails.includes(entry.userId))
+        .slice(0, 10) // Limit to top 10
+        .map((entry: any) => ({
+          rank: entry.rank,
+          name: entry.name,
+          productivityScore: entry.productivityScore
+        }))
+      
+      return {
+        leaderboard: teamLeaderboard,
+        monthYear: data.monthYear || ''
+      }
     },
     enabled: isClient,
     staleTime: 15 * 60 * 1000, // 15 minutes (leaderboard changes less frequently)

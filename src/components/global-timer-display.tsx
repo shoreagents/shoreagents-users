@@ -9,12 +9,15 @@ import { usePathname } from 'next/navigation'
 import { useMeeting } from '@/contexts/meeting-context'
 import { useEventsContext } from '@/contexts/events-context'
 import { useHealth } from '@/contexts/health-context'
+import { useRestroom } from '@/contexts/restroom-context'
 import { useShiftResetTimer } from '@/hooks/use-shift-reset-timer'
 import { parseShiftTime } from '@/lib/shift-utils'
+import { useLoading } from '@/contexts/loading-context'
 
 export const GlobalTimerDisplay = React.memo(function GlobalTimerDisplay() {
   const [isVisible, setIsVisible] = useState(true)
   const pathname = usePathname()
+  const { isLoading } = useLoading()
   const { 
     timerData, 
     connectionStatus, 
@@ -29,15 +32,8 @@ export const GlobalTimerDisplay = React.memo(function GlobalTimerDisplay() {
   const { isInMeeting } = useMeeting()
   const { isInEvent, currentEvent } = useEventsContext()
   const { isGoingToClinic, isInClinic } = useHealth()
+  const { isInRestroom } = useRestroom()
   
-  // Debug logging for health states
-  useEffect(() => {
-    console.log('🏥 GlobalTimerDisplay: Health states updated', {
-      isGoingToClinic,
-      isInClinic,
-      timestamp: new Date().toISOString()
-    })
-  }, [isGoingToClinic, isInClinic])
   const { 
     timeUntilResetFormatted, 
     resetType, 
@@ -178,8 +174,8 @@ export const GlobalTimerDisplay = React.memo(function GlobalTimerDisplay() {
   // Debug logging for authentication check
   // Removed console logs
   
-  // Don't show timer on login page or if not authenticated
-  if (pathname === '/login' || pathname === '/' || !isAuthenticated || !currentUser) {
+  // Don't show timer on login page, if not authenticated, or during loading
+  if (pathname === '/login' || pathname === '/' || !isAuthenticated || !currentUser || isLoading) {
     // Removed console logs
     return null
   }
@@ -230,7 +226,7 @@ export const GlobalTimerDisplay = React.memo(function GlobalTimerDisplay() {
 
       {/* Timer Display - Conditionally visible */}
       {isVisible && (
-        <div className="fixed bottom-4 right-16 bg-card text-foreground rounded-lg shadow-lg border border-border p-4 min-w-[300px] z-50">
+        <div className="fixed bottom-4 right-16 bg-card text-foreground rounded-lg shadow-lg border border-border p-4 min-w-[300px] z-50" data-activity-timer>
           {connectionStatus === 'connecting' && (
             <div className="absolute inset-0 bg-background/90 rounded-lg flex items-center justify-center z-10">
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -281,6 +277,8 @@ export const GlobalTimerDisplay = React.memo(function GlobalTimerDisplay() {
                       ? 'bg-orange-100 text-orange-800 dark:bg-orange-950/20 dark:text-orange-300'
                       : isInClinic
                       ? 'bg-blue-100 text-blue-800 dark:bg-blue-950/20 dark:text-blue-300'
+                      : isInRestroom
+                      ? 'bg-red-100 text-red-800 dark:bg-red-950/20 dark:text-red-300'
                       : isBreakActive && breakStatus?.is_paused
                       ? 'bg-green-100 text-green-800 dark:bg-green-950/20 dark:text-green-300'
                       : isBreakActive
@@ -301,6 +299,8 @@ export const GlobalTimerDisplay = React.memo(function GlobalTimerDisplay() {
                       ? 'Going to Clinic'
                       : isInClinic
                       ? 'In Clinic'
+                      : isInRestroom
+                      ? 'In Restroom'
                       : isBreakActive && breakStatus?.is_paused
                       ? 'Emergency Pause'
                       : isBreakActive 
@@ -311,11 +311,11 @@ export const GlobalTimerDisplay = React.memo(function GlobalTimerDisplay() {
                </div>
               
               <div className="grid grid-cols-2 gap-3">
-                 <div className={`p-2 rounded ${shiftEnded || shiftNotStarted ? 'bg-gray-100 dark:bg-gray-900/20' : isBreakActive || isInMeeting || isInEvent || isGoingToClinic || isInClinic ? 'bg-muted' : 'bg-green-50 dark:bg-green-950/20'}`}>
-                   <div className={`text-xs font-medium ${shiftEnded || shiftNotStarted ? 'text-gray-600 dark:text-gray-400' : isBreakActive || isInMeeting || isInEvent || isGoingToClinic || isInClinic ? 'text-muted-foreground' : 'text-green-700 dark:text-green-400'}`}>
+                 <div className={`p-2 rounded ${shiftEnded || shiftNotStarted ? 'bg-gray-100 dark:bg-gray-900/20' : isBreakActive || isInMeeting || isInEvent || isGoingToClinic || isInClinic || isInRestroom ? 'bg-muted' : 'bg-green-50 dark:bg-green-950/20'}`}>
+                   <div className={`text-xs font-medium ${shiftEnded || shiftNotStarted ? 'text-gray-600 dark:text-gray-400' : isBreakActive || isInMeeting || isInEvent || isGoingToClinic || isInClinic || isInRestroom ? 'text-muted-foreground' : 'text-green-700 dark:text-green-400'}`}>
                      Active
                    </div>
-                   <div className={`text-lg font-bold ${shiftEnded || shiftNotStarted ? 'text-gray-500 dark:text-gray-400' : isBreakActive || isInMeeting || isInEvent || isGoingToClinic || isInClinic ? 'text-muted-foreground' : 'text-green-600 dark:text-green-400'}`}>
+                   <div className={`text-lg font-bold ${shiftEnded || shiftNotStarted ? 'text-gray-500 dark:text-gray-400' : isBreakActive || isInMeeting || isInEvent || isGoingToClinic || isInClinic || isInRestroom ? 'text-muted-foreground' : 'text-green-600 dark:text-green-400'}`}>
                      {shiftEnded || shiftNotStarted ? '0s' : formatTime(liveActiveSeconds)}
                    </div>
                                        {(shiftEnded || shiftNotStarted) ? (
@@ -323,7 +323,7 @@ export const GlobalTimerDisplay = React.memo(function GlobalTimerDisplay() {
                         <span className="w-1 h-1 bg-gray-400 rounded-full"></span>
                         {shiftEnded ? 'Shift Ended' : 'Shift Not Started'}
                       </div>
-                    ) : timerData.isActive && !isBreakActive && !isInMeeting && !isInEvent && !isGoingToClinic && !isInClinic && !shiftEnded && !shiftNotStarted && (
+                    ) : timerData.isActive && !isBreakActive && !isInMeeting && !isInEvent && !isGoingToClinic && !isInClinic && !isInRestroom && !shiftEnded && !shiftNotStarted && (
                       <div className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
                         <span className="w-1 h-1 bg-green-500 rounded-full animate-pulse"></span>
                         Counting...
@@ -365,13 +365,19 @@ export const GlobalTimerDisplay = React.memo(function GlobalTimerDisplay() {
                         In Clinic
                       </div>
                     )}
+                    {!isInEvent && !isInMeeting && !isBreakActive && !isGoingToClinic && !isInClinic && isInRestroom && (
+                      <div className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
+                        <span className="w-1 h-1 bg-red-500 rounded-full animate-pulse"></span>
+                        In Restroom
+                      </div>
+                    )}
                  </div>
                  
-                 <div className={`p-2 rounded ${shiftEnded || shiftNotStarted ? 'bg-gray-100 dark:bg-gray-900/20' : isBreakActive || isInMeeting || isInEvent || isGoingToClinic || isInClinic ? 'bg-muted' : 'bg-red-50 dark:bg-red-950/20'}`}>
-                   <div className={`text-xs font-medium ${shiftEnded || shiftNotStarted ? 'text-gray-600 dark:text-gray-400' : isBreakActive || isInMeeting || isInEvent || isGoingToClinic || isInClinic ? 'text-muted-foreground' : 'text-red-700 dark:text-red-400'}`}>
+                 <div className={`p-2 rounded ${shiftEnded || shiftNotStarted ? 'bg-gray-100 dark:bg-gray-900/20' : isBreakActive || isInMeeting || isInEvent || isGoingToClinic || isInClinic || isInRestroom ? 'bg-muted' : 'bg-red-50 dark:bg-red-950/20'}`}>
+                   <div className={`text-xs font-medium ${shiftEnded || shiftNotStarted ? 'text-gray-600 dark:text-gray-400' : isBreakActive || isInMeeting || isInEvent || isGoingToClinic || isInClinic || isInRestroom ? 'text-muted-foreground' : 'text-red-700 dark:text-red-400'}`}>
                      Inactive
                    </div>
-                   <div className={`text-lg font-bold ${shiftEnded || shiftNotStarted ? 'text-gray-500 dark:text-gray-400' : isBreakActive || isInMeeting || isInEvent || isGoingToClinic || isInClinic ? 'text-muted-foreground' : 'text-red-600 dark:text-red-400'}`}>
+                   <div className={`text-lg font-bold ${shiftEnded || shiftNotStarted ? 'text-gray-500 dark:text-gray-400' : isBreakActive || isInMeeting || isInEvent || isGoingToClinic || isInClinic || isInRestroom ? 'text-muted-foreground' : 'text-red-600 dark:text-red-400'}`}>
                      {shiftEnded || shiftNotStarted ? '0s' : formatTime(liveInactiveSeconds)}
                    </div>
                                        {(shiftEnded || shiftNotStarted) ? (
@@ -379,7 +385,7 @@ export const GlobalTimerDisplay = React.memo(function GlobalTimerDisplay() {
                         <span className="w-1 h-1 bg-gray-400 rounded-full"></span>
                         {shiftEnded ? 'Shift Ended' : 'Shift Not Started'}
                       </div>
-                    ) : !timerData.isActive && !isBreakActive && !isInMeeting && !isInEvent && !isGoingToClinic && !isInClinic && !shiftEnded && !shiftNotStarted && (
+                    ) : !timerData.isActive && !isBreakActive && !isInMeeting && !isInEvent && !isGoingToClinic && !isInClinic && !isInRestroom && !shiftEnded && !shiftNotStarted && (
                       <div className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
                         <span className="w-1 h-1 bg-red-500 rounded-full animate-pulse"></span>
                         Counting...
@@ -419,6 +425,12 @@ export const GlobalTimerDisplay = React.memo(function GlobalTimerDisplay() {
                       <div className="text-xs text-blue-600 dark:text-blue-400 flex items-center gap-1">
                         <span className="w-1 h-1 bg-blue-500 rounded-full animate-pulse"></span>
                         In Clinic
+                      </div>
+                    )}
+                    {!isInEvent && !isInMeeting && !isBreakActive && !isGoingToClinic && !isInClinic && isInRestroom && (
+                      <div className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
+                        <span className="w-1 h-1 bg-red-500 rounded-full animate-pulse"></span>
+                        In Restroom
                       </div>
                     )}
                  </div>

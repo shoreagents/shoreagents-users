@@ -23,6 +23,7 @@ declare global {
         clear: () => Promise<any>;
         getCount: () => Promise<any>;
       };
+      onClearAllNotifications: (callback: () => void) => void;
       app: {
         confirmLogoutAndQuit: () => Promise<any>;
         logoutCompleted: () => Promise<any>;

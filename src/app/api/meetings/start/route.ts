@@ -115,7 +115,6 @@ export async function POST(request: NextRequest) {
         redisCache.del(statusCacheKey),
         redisCache.del(countsCacheKey)
       ])
-      console.log('✅ Meeting started and cache invalidated')
     }
 
     return NextResponse.json({

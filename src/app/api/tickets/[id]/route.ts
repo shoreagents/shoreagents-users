@@ -75,7 +75,7 @@ export async function GET(
             pool = new Pool(databaseConfig)
             client = await pool.connect()
           } catch (error) {
-            console.error('❌ Failed to connect to database:', error instanceof Error ? error.message : String(error))
+            console.error('Failed to connect to database:', error instanceof Error ? error.message : String(error))
             controller.close()
             return
           }
@@ -86,7 +86,7 @@ export async function GET(
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
               } catch (error) {
                 if (!closed) {
-                  console.error('❌ Error sending SSE data:', error instanceof Error ? error.message : String(error))
+                  console.error('Error sending SSE data:', error instanceof Error ? error.message : String(error))
                   onClose()
                 }
               }
@@ -99,7 +99,7 @@ export async function GET(
                 controller.enqueue(encoder.encode(`: ping\n\n`))
               } catch (error) {
                 if (!closed) {
-                  console.error('❌ Error sending heartbeat:', error instanceof Error ? error.message : String(error));
+                  console.error('Error sending heartbeat:', error instanceof Error ? error.message : String(error));
                   onClose()
                 }
               }
@@ -140,7 +140,6 @@ export async function GET(
                   send(payload)
                 }
               } else if (msg.channel === 'ticket_comments') {
-                console.log('🔔 Received ticket_comments event:', payload)
                 // Handle comment changes - check if this comment is for the current ticket
                 const commentTicketRowId = payload.ticket_row_id
                 if (commentTicketRowId) {
@@ -148,18 +147,15 @@ export async function GET(
                   client.query('SELECT ticket_id FROM tickets WHERE id = $1', [commentTicketRowId])
                     .then((result: any) => {
                       if (result.rows.length > 0 && result.rows[0].ticket_id === ticketId) {
-                        console.log('✅ Sending comment event to frontend for ticket:', ticketId)
                         // This comment is for the current ticket, send it
                         send({ ...payload, channel: 'ticket_comments' })
-                      } else {
-                        console.log('❌ Comment event not for current ticket:', ticketId)
-                      }
+                      } 
                     })
                     .catch((error: any) => {
-                      console.error('❌ Error checking ticket_id:', error)
+                      console.error('Error checking ticket_id:', error)
                     })
                 } else {
-                  console.log('❌ No ticket_row_id in comment payload')
+                  console.log('No ticket_row_id in comment payload')
                 }
               }
             } catch {}
@@ -203,7 +199,7 @@ export async function GET(
       })
     }
   } catch (e) {
-    console.error('❌ SSE setup error (ticket):', e)
+    console.error('SSE setup error (ticket):', e)
     return NextResponse.json({ error: 'Failed to establish stream' }, { status: 500 })
   }
 
@@ -212,7 +208,6 @@ export async function GET(
   try {
     // Get user from request
     const user = getUserFromRequest(request)
-    console.log('🔍 GET - User from request:', user)
     
     if (!user) {
       return NextResponse.json(
@@ -222,7 +217,6 @@ export async function GET(
     }
 
     const ticketId = (await params).id
-    console.log('🔍 GET - Ticket ID:', ticketId)
 
     // Create database connection
     pool = new Pool(databaseConfig)
@@ -240,12 +234,9 @@ export async function GET(
       if (!bypassCache) {
         cachedData = await redisCache.get(cacheKey)
         if (cachedData) {
-          console.log('✅ Ticket served from Redis cache')
           return NextResponse.json(cachedData)
         }
-      } else {
-        console.log('🔄 Bypassing Redis cache for real-time update')
-      }
+      } 
 
       // Get specific ticket for the user
       const ticketQuery = `
@@ -287,9 +278,6 @@ export async function GET(
       }
 
       const row = result.rows[0]
-      console.log('🔍 GET - Ticket user_email:', row.user_email)
-      console.log('🔍 GET - Request user.email:', user.email)
-
       // Check if the current user is the ticket owner or has admin access
       // Compare by email since user.id might be in different format
       if (row.user_email !== user.email && user.role !== 'admin') {
@@ -355,12 +343,11 @@ export async function GET(
 
       // Cache the result in Redis
       await redisCache.set(cacheKey, responseData, cacheTTL.ticket)
-      console.log('✅ Ticket cached in Redis')
 
       return NextResponse.json(responseData)
 
     } catch (error) {
-      console.error('❌ Error fetching ticket:', error)
+      console.error('Error fetching ticket:', error)
       return NextResponse.json(
         { 
           error: 'Failed to fetch ticket',
@@ -373,7 +360,7 @@ export async function GET(
     }
 
   } catch (error) {
-    console.error('❌ Error in ticket API:', error)
+    console.error('Error in ticket API:', error)
     return NextResponse.json(
       { 
         error: 'Internal server error',
@@ -398,7 +385,6 @@ export async function PUT(
   try {
     // Get user from request
     const user = getUserFromRequest(request)
-    console.log('🔍 PUT - User from request:', user)
     
     if (!user) {
       return NextResponse.json(
@@ -408,13 +394,11 @@ export async function PUT(
     }
 
     const ticketId = (await params).id
-    console.log('🔍 PUT - Ticket ID:', ticketId)
 
     // Parse request body
     const body = await request.json()
     const { status, concern, details, category, resolved_by } = body
     
-    console.log('🔍 PUT request body:', body)
 
     // Create database connection
     pool = new Pool(databaseConfig)
@@ -441,9 +425,6 @@ export async function PUT(
       }
 
       const ticket = ticketResult.rows[0]
-      console.log('🔍 Ticket user_id:', ticket.user_id, 'Ticket user_email:', ticket.user_email)
-      console.log('🔍 Request user.id:', user.id, 'Request user.email:', user.email)
-
       // Check if the current user is the ticket owner or has admin access
       // Compare by email since user.id might be in different format
       if (ticket.user_email !== user.email && user.role !== 'admin') {
@@ -503,10 +484,6 @@ export async function PUT(
         WHERE ticket_id = $${paramCount}
         RETURNING id, ticket_id, concern, details, status, resolved_by, updated_at
       `
-
-      console.log('🔍 Update query:', updateQuery)
-      console.log('🔍 Update values:', updateValues)
-
       const updateResult = await client.query(updateQuery, updateValues)
 
       if (updateResult.rows.length === 0) {
@@ -526,7 +503,6 @@ export async function PUT(
       const individualTicketCacheKey = cacheKeys.ticket(ticketId)
       await redisCache.del(userTicketsCacheKey)
       await redisCache.del(individualTicketCacheKey)
-      console.log('✅ Tickets cache invalidated after ticket update')
 
       return NextResponse.json({
         success: true,
@@ -550,7 +526,7 @@ export async function PUT(
 
     } catch (error) {
       await client.query('ROLLBACK')
-      console.error('❌ Error updating ticket:', error)
+      console.error('Error updating ticket:', error)
       return NextResponse.json(
         { 
           error: 'Failed to update ticket',
@@ -563,7 +539,7 @@ export async function PUT(
     }
 
   } catch (error) {
-    console.error('❌ Error in ticket PUT API:', error)
+    console.error('Error in ticket PUT API:', error)
     return NextResponse.json(
       { 
         error: 'Internal server error',
@@ -588,7 +564,6 @@ export async function PATCH(
   try {
     // Get user from request
     const user = getUserFromRequest(request)
-    console.log('🔍 PATCH - User from request:', user)
     
     if (!user) {
       return NextResponse.json(
@@ -598,16 +573,11 @@ export async function PATCH(
     }
 
     const ticketId = (await params).id
-    console.log('🔍 PATCH - Ticket ID:', ticketId)
 
     // Parse request body
     const body = await request.json()
     const { supporting_files, file_count } = body
     
-    console.log('🔍 PATCH request body:', body)
-    console.log('🔍 supporting_files:', supporting_files)
-    console.log('🔍 file_count:', file_count)
-
     // Use optimized database connection
     try {
       const client = await getOptimizedClient()
@@ -630,8 +600,6 @@ export async function PATCH(
       }
 
       const ticket = ticketResult.rows[0]
-      console.log('🔍 Ticket user_id:', ticket.user_id, 'Ticket user_email:', ticket.user_email)
-      console.log('🔍 Request user.id:', user.id, 'Request user.email:', user.email)
 
       // Check if the current user is the ticket owner or has admin access
       // Compare by email since user.id might be in different format
@@ -649,23 +617,15 @@ export async function PATCH(
         WHERE ticket_id = $3
         RETURNING id, ticket_id, supporting_files, file_count
       `
-
-      console.log('🔍 Update query parameters:', [supporting_files || [], file_count || 0, ticketId])
-
       // Ensure file_count matches the actual array length
       const actualFileCount = Array.isArray(supporting_files) ? supporting_files.length : 0
       const filesArray = Array.isArray(supporting_files) ? supporting_files : []
-      
-      console.log('🔍 Actual file count:', actualFileCount)
-      console.log('🔍 Files array:', filesArray)
       
       const updateResult = await client.query(updateQuery, [
         filesArray,
         actualFileCount,
         ticketId
       ])
-
-      console.log('🔍 Update result:', updateResult.rows[0])
 
       if (updateResult.rows.length === 0) {
         return NextResponse.json(
@@ -681,7 +641,6 @@ export async function PATCH(
       const individualTicketCacheKey = cacheKeys.ticket(ticketId)
       await redisCache.del(userTicketsCacheKey)
       await redisCache.del(individualTicketCacheKey)
-      console.log('✅ Tickets cache invalidated after ticket file update')
 
       return NextResponse.json({
         success: true,
@@ -693,7 +652,7 @@ export async function PATCH(
       })
 
     } catch (error) {
-      console.error('❌ Error updating ticket:', error)
+      console.error('Error updating ticket:', error)
       return NextResponse.json(
         { 
           error: 'Failed to update ticket',
@@ -705,7 +664,7 @@ export async function PATCH(
         client.release()
       }
     } catch (dbError) {
-      console.error('❌ Database connection error in ticket PATCH API:', dbError)
+      console.error('Database connection error in ticket PATCH API:', dbError)
       return NextResponse.json(
         { 
           error: 'Database connection failed',
@@ -715,7 +674,7 @@ export async function PATCH(
       )
     }
   } catch (error) {
-    console.error('❌ Error in ticket PATCH API:', error)
+    console.error('Error in ticket PATCH API:', error)
     return NextResponse.json(
       { 
         error: 'Internal server error',

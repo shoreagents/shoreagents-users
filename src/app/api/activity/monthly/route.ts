@@ -41,7 +41,6 @@ export async function POST(request: NextRequest) {
         const cachedData = await redisCache.get(cacheKey)
         
         if (cachedData) {
-          console.log('✅ Monthly activity served from Redis cache')
           return NextResponse.json(cachedData)
         }
 
@@ -84,7 +83,6 @@ export async function POST(request: NextRequest) {
 
         // Cache the result in Redis
         await redisCache.set(cacheKey, responseData, cacheTTL.monthlyActivity)
-        console.log('✅ Monthly activity cached in Redis')
 
         return NextResponse.json(responseData);
 
