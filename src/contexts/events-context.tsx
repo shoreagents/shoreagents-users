@@ -1,9 +1,11 @@
 "use client"
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react'
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react'
 import { useEvents, useMarkAsGoing, useMarkAsBack, type Event } from '@/hooks/use-events'
 import { getCurrentUserInfo } from '@/lib/user-profiles'
 import { useMeeting } from './meeting-context'
+import { useSocket } from './socket-context'
+import { getCurrentUser } from '@/lib/ticket-utils'
 
 interface EventsContextType {
   // Event state
@@ -57,13 +59,16 @@ export function EventsProvider({ children }: EventsProviderProps) {
   // Get meeting status to prevent joining events while in a meeting
   const { isInMeeting } = useMeeting()
   
+  // Socket context for real-time updates
+  const { socket, isConnected } = useSocket()
+  
   // React Query hooks
   const { events, isLoading, triggerRealtimeUpdate } = useEvents()
   const markAsGoingMutation = useMarkAsGoing()
   const markAsBackMutation = useMarkAsBack()
 
   // Helper function to check if an event has actually started
-  const hasEventStarted = (event: Event): boolean => {
+  const hasEventStarted = useCallback((event: Event): boolean => {
     if (!event || !event.start_time) return false
     
     try {
@@ -76,7 +81,7 @@ export function EventsProvider({ children }: EventsProviderProps) {
     } catch {
       return false
     }
-  }
+  }, [])
 
   // Update current event state when events data changes
   useEffect(() => {
@@ -127,7 +132,7 @@ export function EventsProvider({ children }: EventsProviderProps) {
         setHasLeftEvent(false)
       }
     }
-  }, [events])
+  }, [events, hasEventStarted])
 
   // Set up a timer to check periodically if an event has started (for real-time updates)
   useEffect(() => {
@@ -322,6 +327,19 @@ export function EventsProvider({ children }: EventsProviderProps) {
     
     return eventDate <= today
   }
+
+  // Emit event status updates when status changes
+  useEffect(() => {
+    if (!socket || !isConnected) return
+
+    const currentUser = getCurrentUser()
+    const email = currentUser?.email
+    
+    if (!email) return
+
+    // Emit current event status
+    socket.emit('updateEventStatus', isInEvent, currentEvent)
+  }, [socket, isConnected, isInEvent, currentEvent])
 
   // Determine if event joining is blocked by meeting
   const eventBlockedReason = isInMeeting ? 'Cannot join event while in a meeting. Please end the meeting first.' : null

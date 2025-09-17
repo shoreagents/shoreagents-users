@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import { useHealthCheckSocketContext } from '@/hooks/use-health-check-socket-context'
 import { getCurrentUser } from '@/lib/ticket-utils'
+import { useSocket } from './socket-context'
 
 interface HealthContextType {
   isGoingToClinic: boolean
@@ -22,6 +23,9 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
   const [isInClinic, setIsInClinic] = useState(false)
   const [currentHealthRequest, setCurrentHealthRequest] = useState<any | null>(null)
   const { userRequests } = useHealthCheckSocketContext(getCurrentUser()?.email || null)
+  
+  // Socket context for real-time updates
+  const { socket, isConnected } = useSocket()
 
   // Listen for real-time updates from user requests
   useEffect(() => {
@@ -120,6 +124,19 @@ export function HealthProvider({ children }: { children: React.ReactNode }) {
   const setInClinic = useCallback((inClinic: boolean) => {
     setIsInClinic(inClinic)
   }, [])
+
+  // Emit health status updates when status changes
+  useEffect(() => {
+    if (!socket || !isConnected) return
+
+    const currentUser = getCurrentUser()
+    const email = currentUser?.email
+    
+    if (!email) return
+
+    // Emit current health status
+    socket.emit('updateHealthStatus', isGoingToClinic, isInClinic, currentHealthRequest)
+  }, [socket, isConnected, isGoingToClinic, isInClinic, currentHealthRequest])
 
 
   const value = {

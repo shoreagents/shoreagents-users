@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -59,7 +59,7 @@ export default function WeeklyActivityDisplay({ currentUser }: WeeklyActivityDis
     });
   };
 
-  const fetchAllWeeklyData = async () => {
+  const fetchAllWeeklyData = useCallback(async () => {
     if (!currentUser?.email) return;
     
     setLoading(true);
@@ -95,10 +95,10 @@ export default function WeeklyActivityDisplay({ currentUser }: WeeklyActivityDis
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentUser?.email]);
 
   // Function to update weekly data from real-time updates
-  const updateWeeklyDataFromSocket = (socketData: any) => {
+  const updateWeeklyDataFromSocket = useCallback((socketData: any) => {
     if (!socketData || socketData.user_id !== currentUser?.id) return;
     
     setLastUpdate(new Date().toLocaleTimeString());
@@ -110,10 +110,10 @@ export default function WeeklyActivityDisplay({ currentUser }: WeeklyActivityDis
     // Don't make API calls on every socket event - this causes excessive requests
     // Instead, just update the timestamp to show we received the update
     // The data will be fetched on the next user interaction or page refresh
-  };
+  }, [currentUser?.id]);
 
   // Function to update monthly data from real-time updates
-  const updateMonthlyDataFromSocket = (socketData: any) => {
+  const updateMonthlyDataFromSocket = useCallback((socketData: any) => {
     if (!socketData || socketData.user_id !== currentUser?.id) return;
     
     setLastUpdate(new Date().toLocaleTimeString());
@@ -125,10 +125,10 @@ export default function WeeklyActivityDisplay({ currentUser }: WeeklyActivityDis
     // Don't make API calls on every socket event - this causes excessive requests
     // Instead, just update the timestamp to show we received the update
     // The data will be fetched on the next user interaction or page refresh
-  };
+  }, [currentUser?.id]);
 
   // Silent fetch for real-time updates (no loading state)
-  const fetchAllWeeklyDataSilently = async () => {
+  const fetchAllWeeklyDataSilently = useCallback(async () => {
     if (!currentUser?.email) return;
     
     try {
@@ -160,7 +160,7 @@ export default function WeeklyActivityDisplay({ currentUser }: WeeklyActivityDis
     } catch (error) {
       console.error('Error fetching weekly data silently:', error);
     }
-  };
+  }, [currentUser?.email]);
 
   useEffect(() => {
     if (currentUser?.email) {
@@ -168,7 +168,7 @@ export default function WeeklyActivityDisplay({ currentUser }: WeeklyActivityDis
       // Data now updates automatically via database triggers
       fetchAllWeeklyData();
     }
-  }, [currentUser?.email]);
+  }, [currentUser?.email, fetchAllWeeklyData]);
 
   // Periodic refresh only when user is active and not in break/meeting
   useEffect(() => {
@@ -180,7 +180,7 @@ export default function WeeklyActivityDisplay({ currentUser }: WeeklyActivityDis
     }, 120000); // 2 minutes
     
     return () => clearInterval(interval);
-  }, [currentUser?.email, isBreakActive, isInMeeting]);
+  }, [currentUser?.email, isBreakActive, isInMeeting, fetchAllWeeklyDataSilently]);
 
   // Refresh data when user returns to the tab
   useEffect(() => {
@@ -192,7 +192,7 @@ export default function WeeklyActivityDisplay({ currentUser }: WeeklyActivityDis
 
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
-  }, [currentUser?.email, isBreakActive, isInMeeting]);
+  }, [currentUser?.email, isBreakActive, isInMeeting, fetchAllWeeklyDataSilently]);
 
   // Listen for real-time weekly activity updates
   useEffect(() => {
@@ -215,7 +215,7 @@ export default function WeeklyActivityDisplay({ currentUser }: WeeklyActivityDis
       socket.off('weekly-activity-update', handleWeeklyActivityUpdate);
       socket.off('monthly-activity-update', handleMonthlyActivityUpdate);
     };
-  }, [socket, isConnected, currentUser?.id]);
+  }, [socket, isConnected, currentUser?.id, updateWeeklyDataFromSocket, updateMonthlyDataFromSocket]);
 
   // Calculate current week totals
   const currentWeekTotals = currentWeek?.currentWeek?.reduce((acc: any, day: any) => {

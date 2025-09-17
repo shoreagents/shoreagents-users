@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useEffect, useState, useRef } from 'react'
+import React, { useEffect, useState, useRef, useCallback } from 'react'
 import { useTutorial, TutorialStep } from '@/contexts/tutorial-context'
 import { Button } from '@/components/ui/button'
 import { X, ChevronLeft, ChevronRight, SkipForward } from 'lucide-react'
@@ -24,67 +24,11 @@ export function TutorialOverlay({ className }: TutorialOverlayProps) {
   const [targetElement, setTargetElement] = useState<HTMLElement | null>(null)
   const [tooltipPosition, setTooltipPosition] = useState({ top: 0, left: 0 })
   const [isVisible, setIsVisible] = useState(false)
-  const overlayRef = useRef<HTMLDivElement>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
 
   const currentStepData = steps[currentStep]
 
-  // Find and highlight the target element
-  useEffect(() => {
-    if (!isTutorialActive || !currentStepData) {
-      setTargetElement(null)
-      setIsVisible(false)
-      return
-    }
-
-    const element = document.querySelector(currentStepData.target) as HTMLElement
-    if (element && currentStepData.target !== 'body') {
-      setTargetElement(element)
-      setIsVisible(true)
-      updateTooltipPosition(element)
-    } else {
-      // If target element not found or is 'body', show in center
-      setTargetElement(null)
-      setIsVisible(true)
-      // Set initial center position - will be adjusted after render
-      setTooltipPosition({
-        top: window.innerHeight / 2,
-        left: window.innerWidth / 2
-      })
-    }
-  }, [isTutorialActive, currentStep, currentStepData])
-
-  // Adjust position after tooltip is rendered for center positioning
-  useEffect(() => {
-    if (isVisible && currentStepData?.position === 'center' && !targetElement && tooltipRef.current) {
-      const tooltipRect = tooltipRef.current.getBoundingClientRect()
-      setTooltipPosition({
-        top: (window.innerHeight - tooltipRect.height) / 2,
-        left: (window.innerWidth - tooltipRect.width) / 2
-      })
-    }
-  }, [isVisible, currentStepData, targetElement])
-
-  // Update tooltip position when window resizes
-  useEffect(() => {
-    const handleResize = () => {
-      if (targetElement) {
-        updateTooltipPosition(targetElement)
-      } else if (currentStepData?.position === 'center' && tooltipRef.current) {
-        // Re-center the tooltip on window resize
-        const tooltipRect = tooltipRef.current.getBoundingClientRect()
-        setTooltipPosition({
-          top: (window.innerHeight - tooltipRect.height) / 2,
-          left: (window.innerWidth - tooltipRect.width) / 2
-        })
-      }
-    }
-
-    window.addEventListener('resize', handleResize)
-    return () => window.removeEventListener('resize', handleResize)
-  }, [targetElement, currentStepData])
-
-  const updateTooltipPosition = (element: HTMLElement) => {
+  const updateTooltipPosition = useCallback((element: HTMLElement) => {
     if (!tooltipRef.current) return
 
     const rect = element.getBoundingClientRect()
@@ -131,7 +75,63 @@ export function TutorialOverlay({ className }: TutorialOverlayProps) {
     }
 
     setTooltipPosition({ top, left })
-  }
+  }, [currentStepData])
+
+  // Find and highlight the target element
+  useEffect(() => {
+    if (!isTutorialActive || !currentStepData) {
+      setTargetElement(null)
+      setIsVisible(false)
+      return
+    }
+
+    const element = document.querySelector(currentStepData.target) as HTMLElement
+    if (element && currentStepData.target !== 'body') {
+      setTargetElement(element)
+      setIsVisible(true)
+      updateTooltipPosition(element)
+    } else {
+      // If target element not found or is 'body', show in center
+      setTargetElement(null)
+      setIsVisible(true)
+      // Set initial center position - will be adjusted after render
+      setTooltipPosition({
+        top: window.innerHeight / 2,
+        left: window.innerWidth / 2
+      })
+    }
+  }, [isTutorialActive, currentStep, currentStepData, updateTooltipPosition])
+
+  // Adjust position after tooltip is rendered for center positioning
+  useEffect(() => {
+    if (isVisible && currentStepData?.position === 'center' && !targetElement && tooltipRef.current) {
+      const tooltipRect = tooltipRef.current.getBoundingClientRect()
+      setTooltipPosition({
+        top: (window.innerHeight - tooltipRect.height) / 2,
+        left: (window.innerWidth - tooltipRect.width) / 2
+      })
+    }
+  }, [isVisible, currentStepData, targetElement])
+
+  // Update tooltip position when window resizes
+  useEffect(() => {
+    const handleResize = () => {
+      if (targetElement) {
+        updateTooltipPosition(targetElement)
+      } else if (currentStepData?.position === 'center' && tooltipRef.current) {
+        // Re-center the tooltip on window resize
+        const tooltipRect = tooltipRef.current.getBoundingClientRect()
+        setTooltipPosition({
+          top: (window.innerHeight - tooltipRect.height) / 2,
+          left: (window.innerWidth - tooltipRect.width) / 2
+        })
+      }
+    }
+
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [targetElement, currentStepData, updateTooltipPosition])
+
 
   const handleNext = () => {
     // Don't automatically click elements - let users interact with them manually

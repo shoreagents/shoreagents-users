@@ -1,7 +1,9 @@
 "use client"
 
-import React, { createContext, useContext, useState, useCallback } from 'react'
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react'
 import { useEventsContext } from './events-context'
+import { useSocket } from './socket-context'
+import { getCurrentUser } from '@/lib/ticket-utils'
 
 interface BreakContextType {
   isBreakActive: boolean
@@ -22,6 +24,9 @@ export function BreakProvider({ children }: { children: React.ReactNode }) {
   
   // Check if user is in an event
   const { isInEvent, currentEvent } = useEventsContext()
+  
+  // Socket context for real-time updates
+  const { socket, isConnected } = useSocket()
 
   const setBreakActive = useCallback((active: boolean, breakId?: string) => {
     // Prevent starting a break if user is in an event
@@ -38,6 +43,19 @@ export function BreakProvider({ children }: { children: React.ReactNode }) {
     setIsBreakActive(active)
     setActiveBreakId(active ? breakId || null : null)
   }, [])
+
+  // Emit break status updates when status changes
+  useEffect(() => {
+    if (!socket || !isConnected) return
+
+    const currentUser = getCurrentUser()
+    const email = currentUser?.email
+    
+    if (!email) return
+
+    // Emit current break status
+    socket.emit('updateBreakStatus', isBreakActive, activeBreakId)
+  }, [socket, isConnected, isBreakActive, activeBreakId])
 
   // Determine if break can be started
   const canStartBreak = !isInEvent

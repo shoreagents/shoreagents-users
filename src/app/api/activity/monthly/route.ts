@@ -49,12 +49,8 @@ export async function POST(request: NextRequest) {
         const allMonthEnd = await getMonthEndDate(pool);
         
         // 1. Data is already aggregated automatically via database triggers
-        // 2. Cleanup old daily records (this still needs to happen periodically)
-        const allCleanupResult = await pool.query(
-          'SELECT cleanup_old_daily_activity_monthly($1) as deleted_count',
-          [monthsToKeep]
-        );
-        const allDeletedCount = allCleanupResult.rows[0].deleted_count;
+        // 2. Cleanup functions removed to preserve data
+        const allDeletedCount = 0; // No cleanup performed to preserve data
         
         // 3. Get monthly summary for the user
         const allSummaryResult = await pool.query(

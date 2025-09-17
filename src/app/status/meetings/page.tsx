@@ -288,10 +288,10 @@ export default function MeetingsPage() {
   } = useMeetings(7, itemsPerPage, offset)
   
   // Use context for status data to prevent duplicate calls
-  const statusData = {
+  const statusData = useMemo(() => ({
     isInMeeting: contextIsInMeeting,
     activeMeeting: contextCurrentMeeting
-  }
+  }), [contextIsInMeeting, contextCurrentMeeting])
   const statusLoading = contextLoading
   const statusError = null
 
@@ -1465,3 +1465,4 @@ export default function MeetingsPage() {
     </SidebarProvider>
   )
 }
+

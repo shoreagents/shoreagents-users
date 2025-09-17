@@ -140,6 +140,19 @@ export function MeetingProvider({ children }: MeetingProviderProps) {
     }
   }, [socket, isConnected, refreshMeetings])
 
+  // Emit meeting status updates when status changes
+  useEffect(() => {
+    if (!socket || !isConnected) return
+
+    const currentUser = getCurrentUser()
+    const email = currentUser?.email
+    
+    if (!email) return
+
+    // Emit current meeting status
+    socket.emit('updateMeetingStatus', isInMeeting)
+  }, [socket, isConnected, isInMeeting])
+
   const startNewMeeting = async (title: string, description?: string, scheduledTime?: string) => {
     try {
       const result = await createMeeting({

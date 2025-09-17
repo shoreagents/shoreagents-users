@@ -61,7 +61,7 @@ export function useDashboardTickets() {
         throw new Error('User not authenticated')
       }
       
-      const response = await fetch(`/api/tickets?email=${encodeURIComponent(currentUser.email)}`, {
+      const response = await fetch(`/api/tickets/?email=${encodeURIComponent(currentUser.email)}`, {
         credentials: 'include',
       })
       
@@ -100,7 +100,7 @@ export function useDashboardBreaks() {
         throw new Error('User not authenticated')
       }
       
-      const response = await fetch(`/api/breaks/history?agent_user_id=${encodeURIComponent(currentUser.id)}&days=7&include_active=true`, {
+      const response = await fetch(`/api/breaks/history/?agent_user_id=${encodeURIComponent(currentUser.id)}&days=7&include_active=true`, {
         credentials: 'include',
       })
       
@@ -139,7 +139,7 @@ export function useDashboardMeetings() {
         throw new Error('User not authenticated')
       }
       
-      const response = await fetch(`/api/meetings?agent_user_id=${encodeURIComponent(currentUser.id)}&days=7`, {
+      const response = await fetch(`/api/meetings/?agent_user_id=${encodeURIComponent(currentUser.id)}&days=7`, {
         credentials: 'include',
       })
       
@@ -171,7 +171,7 @@ export function useDashboardTaskStats() {
   return useQuery({
     queryKey: ['dashboard-task-stats'],
     queryFn: async (): Promise<{ statistics: TaskStatistics }> => {
-      const response = await fetch('/api/task-statistics', {
+      const response = await fetch('/api/task-statistics/', {
         credentials: 'include',
       })
       

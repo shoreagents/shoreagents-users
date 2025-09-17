@@ -23,3 +23,7 @@ ON public.agent_restroom_status(last_daily_reset);
 COMMENT ON COLUMN public.agent_restroom_status.restroom_count IS 'Total cumulative restroom visits since account creation';
 COMMENT ON COLUMN public.agent_restroom_status.daily_restroom_count IS 'Restroom visits for the current day (resets daily)';
 COMMENT ON COLUMN public.agent_restroom_status.last_daily_reset IS 'Date when daily_restroom_count was last reset';
+
+
+
+

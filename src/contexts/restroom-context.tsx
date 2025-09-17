@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import { getCurrentUser } from '@/lib/ticket-utils'
+import { useSocket } from './socket-context'
 
 interface RestroomStatus {
   id: number | null
@@ -34,6 +35,9 @@ export function RestroomProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(false)
   const [isUpdating, setIsUpdating] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  
+  // Socket context for real-time updates
+  const { socket, isConnected } = useSocket()
 
   // Derived state
   const isInRestroom = restroomStatus?.is_in_restroom || false
@@ -49,7 +53,7 @@ export function RestroomProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(true)
       setError(null)
       
-      const response = await fetch('/api/restroom')
+      const response = await fetch('/api/restroom/')
       
       if (!response.ok) {
         throw new Error('Failed to fetch restroom status')
@@ -74,7 +78,7 @@ export function RestroomProvider({ children }: { children: React.ReactNode }) {
     setIsUpdating(true)
 
     try {
-      const response = await fetch('/api/restroom', {
+      const response = await fetch('/api/restroom/', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -102,6 +106,19 @@ export function RestroomProvider({ children }: { children: React.ReactNode }) {
   const refreshStatus = useCallback(async () => {
     await fetchRestroomStatus()
   }, [fetchRestroomStatus])
+
+  // Emit restroom status updates when status changes
+  useEffect(() => {
+    if (!socket || !isConnected) return
+
+    const currentUser = getCurrentUser()
+    const email = currentUser?.email
+    
+    if (!email) return
+
+    // Emit current restroom status
+    socket.emit('updateRestroomStatus', isInRestroom)
+  }, [socket, isConnected, isInRestroom])
 
   // Initialize on mount
   useEffect(() => {

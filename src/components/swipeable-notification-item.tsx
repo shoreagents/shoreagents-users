@@ -205,7 +205,7 @@ export function SwipeableNotificationItem({
     if (actionUrl && onNavigate) {
       onNavigate(actionUrl)
     } 
-  }, [notification, onMarkAsRead, onNavigate, isDragging, isSwipeRevealed])
+  }, [notification, onMarkAsRead, onNavigate, isDragging, isSwipeRevealed, isDeletingAnimation])
 
   // Add global mouse event listeners
   React.useEffect(() => {

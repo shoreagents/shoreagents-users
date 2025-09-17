@@ -73,6 +73,81 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
   const { isGoingToClinic, isInClinic } = useHealth()
   const { isInRestroom } = useRestroom()
 
+  // Helper functions
+  const refreshBreakStatus = useCallback(async () => {
+    if (!currentUser?.id) return
+    
+    try {
+      const response = await fetch(`/api/breaks/status?agent_user_id=${currentUser.id}`)
+      const data = await response.json()
+      
+      if (data.success) {
+        setIsBreakActive(data.status.is_on_break)
+        setBreakStatus(data.status.active_break)
+      }
+    } catch (error) {
+      console.error('Error refreshing break status:', error)
+    }
+  }, [currentUser?.id])
+
+  // Refresh real-time activity data
+  const refreshRealtimeData = useCallback(async () => {
+    if (!currentUser?.id) return
+
+    try {
+      const response = await fetch(`/api/activity?userId=${currentUser.id}`)
+      if (response.ok) {
+        const data = await response.json()
+        setRealtimeActivityData(data)
+        setLastRealtimeUpdate(new Date())
+        setIsRealtimeConnected(true)
+        
+        // Update live counters
+        setLiveActiveSeconds(data.today_active_seconds || 0)
+        setLiveInactiveSeconds(data.today_inactive_seconds || 0)
+      }
+    } catch (error) {
+      console.error('Error refreshing real-time activity data:', error)
+      setIsRealtimeConnected(false)
+    }
+  }, [currentUser?.id])
+
+  // Helper function to validate if we should actually count inactive time
+  const validateInactiveState = useCallback((timerData: any, lastActivityState: boolean | null): boolean => {
+    // PRIORITY 1: If local state explicitly says inactive, trust it (from inactivity detection)
+    if (lastActivityState === false) {
+      return true
+    }
+    
+    // PRIORITY 2: If server explicitly says inactive, trust it
+    if (timerData && timerData.isActive === false) {
+      return true
+    }
+    
+    // PRIORITY 3: If local state says active, don't count inactive
+    if (lastActivityState === true) {
+      return false
+    }
+    
+    // If we have no clear indication, be conservative and don't count inactive
+    if (lastActivityState === null && !timerData) {
+      return false
+    }
+    
+    // MEETING END RESUME: Prevent inactive counting when meeting just ended
+    // This ensures the timer resumes active counting after meetings end
+    if (!isInMeeting && !isBreakActive && !isInEvent && !isGoingToClinic && !isInClinic && !isInRestroom) {
+      // If meeting just ended, prevent inactive counting
+      if (meetingJustEndedRef.current) {
+        return false
+      }
+      // Normal case: allow inactive counting if explicitly set
+    }
+    
+    // Default: don't count inactive unless explicitly set
+    return false
+  }, [isInMeeting, isBreakActive, isInEvent, isGoingToClinic, isInClinic, isInRestroom])
+
   // Get current user
   useEffect(() => {
     const user = getCurrentUser()
@@ -232,7 +307,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     }, 10000)
 
     return () => clearInterval(interval)
-  }, [currentUser?.id, breakStatus?.active_break, userProfile, availableBreaks])
+  }, [currentUser?.id, breakStatus?.active_break, userProfile, availableBreaks, refreshBreakStatus])
 
   // Fetch break status from API - only when user changes
   useEffect(() => {
@@ -317,14 +392,14 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         socket.off('disconnect')
       }
     }
-  }, [currentUser?.id, isAuthenticated])
+  }, [currentUser?.id, isAuthenticated, refreshRealtimeData])
 
   // Fetch initial activity data when component mounts
   useEffect(() => {
     if (currentUser?.id && isAuthenticated) {
       refreshRealtimeData()
     }
-  }, [currentUser?.id, isAuthenticated])
+  }, [currentUser?.id, isAuthenticated, refreshRealtimeData])
 
   // Update live counters when timer data changes from socket
   useEffect(() => {
@@ -374,7 +449,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         setFormattedTimeUntilReset(timerData.shiftInfo.formattedTimeUntilReset || '')
       }
     }
-  }, [timerData, isInitialized, liveActiveSeconds, liveInactiveSeconds])
+  }, [timerData, isInitialized, liveActiveSeconds, liveInactiveSeconds, currentUser?.email])
 
   // Force initialization after a timeout if timer data doesn't arrive
   useEffect(() => {
@@ -607,43 +682,8 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     }, 1000) // Changed back to 1000ms (1 second) for real-time updates
 
     return () => clearInterval(interval)
-  }, [timerData?.isActive, lastActivityState, isAuthenticated, hasLoggedIn, isBreakActive, breakStatus?.is_paused, isInMeeting, isInEvent, isGoingToClinic, isInClinic, isInRestroom, shiftInfo, userProfile])
+  }, [timerData?.isActive, lastActivityState, isAuthenticated, hasLoggedIn, isBreakActive, breakStatus?.is_paused, isInMeeting, isInEvent, isGoingToClinic, isInClinic, isInRestroom, shiftInfo, userProfile, liveActiveSeconds, liveInactiveSeconds, setActivityState, updateTimerData, validateInactiveState, timerData])
 
-  // Helper function to validate if we should actually count inactive time
-  const validateInactiveState = useCallback((timerData: any, lastActivityState: boolean | null): boolean => {
-    // PRIORITY 1: If local state explicitly says inactive, trust it (from inactivity detection)
-    if (lastActivityState === false) {
-      return true
-    }
-    
-    // PRIORITY 2: If server explicitly says inactive, trust it
-    if (timerData && timerData.isActive === false) {
-      return true
-    }
-    
-    // PRIORITY 3: If local state says active, don't count inactive
-    if (lastActivityState === true) {
-      return false
-    }
-    
-    // If we have no clear indication, be conservative and don't count inactive
-    if (lastActivityState === null && !timerData) {
-      return false
-    }
-    
-    // MEETING END RESUME: Prevent inactive counting when meeting just ended
-    // This ensures the timer resumes active counting after meetings end
-    if (!isInMeeting && !isBreakActive && !isInEvent && !isGoingToClinic && !isInClinic && !isInRestroom) {
-      // If meeting just ended, prevent inactive counting
-      if (meetingJustEndedRef.current) {
-        return false
-      }
-      // Normal case: allow inactive counting if explicitly set
-    }
-    
-    // Default: don't count inactive unless explicitly set
-    return false
-  }, [isInMeeting, isBreakActive, isInEvent, isGoingToClinic, isInClinic, isInRestroom])
 
   // Real-time countdown timer for shift reset
   useEffect(() => {
@@ -778,7 +818,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       socket.off('timerUpdated', handleTimerUpdated)
       socket.offAny()
     }
-  }, [isAuthenticated, hasLoggedIn, socket, isResetting])
+  }, [isAuthenticated, hasLoggedIn, socket, isResetting, timerData, setActivityState])
 
   // Handle shift reset countdown reaching zero (fallback for manual reset)
   useEffect(() => {
@@ -819,7 +859,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     return () => {
       window.removeEventListener('shiftResetCountdownZero', handleShiftResetCountdownZero)
     }
-  }, [isAuthenticated, hasLoggedIn])
+  }, [isAuthenticated, hasLoggedIn, isResetting, timerData])
 
   // Sync live timer values to Socket.IO server (less frequent to prevent flashing)
   useEffect(() => {
@@ -1024,44 +1064,6 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       }
     }
   }, [isAuthenticated, hasLoggedIn, setActivityState])
-
-  const refreshBreakStatus = async () => {
-    if (!currentUser?.id) return
-    
-    try {
-      const response = await fetch(`/api/breaks/status?agent_user_id=${currentUser.id}`)
-      const data = await response.json()
-      
-      if (data.success) {
-        setIsBreakActive(data.status.is_on_break)
-        setBreakStatus(data.status.active_break)
-      }
-    } catch (error) {
-      console.error('Error refreshing break status:', error)
-    }
-  }
-
-  // Refresh real-time activity data
-  const refreshRealtimeData = useCallback(async () => {
-    if (!currentUser?.id) return
-
-    try {
-      const response = await fetch(`/api/activity?userId=${currentUser.id}`)
-      if (response.ok) {
-        const data = await response.json()
-        setRealtimeActivityData(data)
-        setLastRealtimeUpdate(new Date())
-        setIsRealtimeConnected(true)
-        
-        // Update live counters
-        setLiveActiveSeconds(data.today_active_seconds || 0)
-        setLiveInactiveSeconds(data.today_inactive_seconds || 0)
-      }
-    } catch (error) {
-      console.error('Error refreshing real-time activity data:', error)
-      setIsRealtimeConnected(false)
-    }
-  }, [currentUser?.id])
 
   // Manual test function to check socket events
   const testSocketEvents = useCallback(() => {

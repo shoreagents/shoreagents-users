@@ -70,7 +70,7 @@ export const createMeeting = async (meetingData: {
     throw new Error('User not authenticated')
   }
 
-  const response = await fetch('/api/meetings', {
+  const response = await fetch('/api/meetings/', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -88,7 +88,7 @@ export const createMeeting = async (meetingData: {
 
 // Start a meeting
 export const startMeeting = async (meetingId: number): Promise<void> => {
-  const response = await fetch('/api/meetings/start', {
+  const response = await fetch('/api/meetings/start/', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ meetingId })
@@ -111,7 +111,7 @@ export const endMeeting = async (meetingId: number, agentUserId?: number): Promi
     userId = currentUser?.id
   }
 
-  const response = await fetch('/api/meetings/end', {
+  const response = await fetch('/api/meetings/end/', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ meetingId, agent_user_id: userId })
@@ -127,7 +127,7 @@ export const endMeeting = async (meetingId: number, agentUserId?: number): Promi
 
 // Cancel a meeting
 export const cancelMeeting = async (meetingId: number): Promise<void> => {
-  const response = await fetch('/api/meetings/cancel', {
+  const response = await fetch('/api/meetings/cancel/', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ meetingId })
@@ -148,7 +148,7 @@ export const getMeetingStatus = async (days: number = 7): Promise<MeetingStatus>
     throw new Error('User not authenticated')
   }
 
-  const response = await fetch(`/api/meetings/status?agent_user_id=${currentUser.id}&days=${days}`)
+  const response = await fetch(`/api/meetings/status/?agent_user_id=${currentUser.id}&days=${days}`)
   if (!response.ok) {
     throw new Error('Failed to fetch meeting status')
   }

@@ -123,7 +123,7 @@ export default function EventsPage() {
         setHighlightedEventId(eventId)
       }
     }
-  }, []) // Run only once on mount
+  }, [eventIdParam, tabParam]) // Added missing dependencies
   
   // Handle URL parameter changes
   useEffect(() => {

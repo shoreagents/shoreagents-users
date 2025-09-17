@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSocket } from '@/contexts/socket-context'
 
 export interface DbNotificationPayload {
@@ -18,6 +18,14 @@ export function useNotificationsSocketContext(email: string | null) {
   const { socket, isConnected } = useSocket()
   const [notifications, setNotifications] = useState<DbNotificationPayload[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
+  
+  // Use ref to access current notifications without causing infinite loop
+  const notificationsRef = useRef(notifications)
+  notificationsRef.current = notifications
+  
+  // Use ref to access current email without causing function recreation
+  const emailRef = useRef(email)
+  emailRef.current = email
 
   // Set up socket event listeners when socket is available
   useEffect(() => {
@@ -62,7 +70,7 @@ export function useNotificationsSocketContext(email: string | null) {
           setNotifications(prev => prev.filter(n => n.id !== notification_id))
           // Recalculate unread count
           setUnreadCount(prev => {
-            const deletedNotification = notifications.find(n => n.id === notification_id)
+            const deletedNotification = notificationsRef.current.find(n => n.id === notification_id)
             return deletedNotification && !deletedNotification.is_read ? Math.max(0, prev - 1) : prev
           })
         }
@@ -76,17 +84,17 @@ export function useNotificationsSocketContext(email: string | null) {
     return () => {
       socket.off('db-notification', handleNotificationUpdate)
     }
-  }, [socket, email, notifications])
+  }, [socket, email])
 
   // Fetch notifications from API
   const fetchNotifications = useCallback(async (userId: number, limit: number = 8, offset: number = 0) => {
     try {
-      if (!email) {
+      if (!emailRef.current) {
         console.error('Email is required to fetch notifications')
         return
       }
       
-      const response = await fetch(`/api/notifications?email=${encodeURIComponent(email)}&limit=${limit}`)
+      const response = await fetch(`/api/notifications?email=${encodeURIComponent(emailRef.current)}&limit=${limit}`)
       const data = await response.json()
       
       if (data.success) {
@@ -99,7 +107,7 @@ export function useNotificationsSocketContext(email: string | null) {
     } catch (error) {
       console.error('Error fetching notifications:', error)
     }
-  }, [email])
+  }, [])
 
   // Mark notification as read
   const markAsRead = useCallback(async (notificationId: number) => {
@@ -109,7 +117,7 @@ export function useNotificationsSocketContext(email: string | null) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           id: notificationId,
-          email: email 
+          email: emailRef.current 
         })
       })
       
@@ -124,7 +132,7 @@ export function useNotificationsSocketContext(email: string | null) {
         // Emit to socket server if connected
         if (socket && isConnected) {
           socket.emit('notification-read', {
-            email,
+            email: emailRef.current,
             notification_id: notificationId
           })
         }
@@ -132,7 +140,7 @@ export function useNotificationsSocketContext(email: string | null) {
     } catch (error) {
       console.error('Error marking notification as read:', error)
     }
-  }, [socket, isConnected, email])
+  }, [socket, isConnected])
 
   // Mark all notifications as read
   const markAllAsRead = useCallback(async (userId: number, notificationIds?: number[]) => {
@@ -144,7 +152,7 @@ export function useNotificationsSocketContext(email: string | null) {
         unreadIds = notificationIds
       } else {
         // Fetch ALL unread notification IDs from the database, not just the loaded ones
-        const response = await fetch(`/api/notifications?email=${encodeURIComponent(email || '')}&limit=1000&offset=0`, {
+        const response = await fetch(`/api/notifications?email=${encodeURIComponent(emailRef.current || '')}&limit=1000&offset=0`, {
           method: 'GET',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include'
@@ -157,7 +165,7 @@ export function useNotificationsSocketContext(email: string | null) {
             .map((n: any) => n.id)
         } else {
           // Fallback to loaded notifications if API fails
-          unreadIds = notifications
+          unreadIds = notificationsRef.current
             .filter(n => !n.is_read)
             .map(n => n.id)
         }
@@ -171,7 +179,7 @@ export function useNotificationsSocketContext(email: string | null) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           ids: unreadIds,
-          email: email 
+          email: emailRef.current 
         })
       })
       
@@ -184,7 +192,7 @@ export function useNotificationsSocketContext(email: string | null) {
         // Emit to socket server if connected
         if (socket && isConnected) {
           socket.emit('notifications-all-read', {
-            email,
+            email: emailRef.current,
             user_id: userId
           })
         }
@@ -194,7 +202,7 @@ export function useNotificationsSocketContext(email: string | null) {
     } catch (error) {
       console.error('Error marking all notifications as read:', error)
     }
-  }, [socket, isConnected, email, notifications])
+  }, [socket, isConnected])
 
   // Delete notification
   const deleteNotification = useCallback(async (notificationId: number) => {
@@ -204,14 +212,14 @@ export function useNotificationsSocketContext(email: string | null) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           id: notificationId,
-          email: email 
+          email: emailRef.current 
         })
       })
       
       const data = await response.json()
       
       if (data.success) {
-        const deletedNotification = notifications.find(n => n.id === notificationId)
+        const deletedNotification = notificationsRef.current.find(n => n.id === notificationId)
         setNotifications(prev => prev.filter(n => n.id !== notificationId))
         
         // Update unread count if deleted notification was unread
@@ -222,7 +230,7 @@ export function useNotificationsSocketContext(email: string | null) {
         // Emit to socket server if connected
         if (socket && isConnected) {
           socket.emit('notification-deleted', {
-            email,
+            email: emailRef.current,
             notification_id: notificationId
           })
         }
@@ -230,7 +238,7 @@ export function useNotificationsSocketContext(email: string | null) {
     } catch (error) {
       console.error('Error deleting notification:', error)
     }
-  }, [socket, isConnected, email, notifications])
+  }, [socket, isConnected])
 
   // Clear all notifications
   const clearAll = useCallback(async (notificationIds: number[]) => {
@@ -249,7 +257,7 @@ export function useNotificationsSocketContext(email: string | null) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           ids: notificationIds,
-          email: email 
+          email: emailRef.current 
         })
       })
       
@@ -259,7 +267,7 @@ export function useNotificationsSocketContext(email: string | null) {
         // Emit to socket server if connected
         if (socket && isConnected) {
           socket.emit('notifications-cleared', {
-            email,
+            email: emailRef.current,
             user_id: notificationIds.length > 0 ? notificationIds[0] : null // Use first ID as user reference
           })
         }
@@ -277,7 +285,7 @@ export function useNotificationsSocketContext(email: string | null) {
     } catch (error) {
       console.error('Error clearing all notifications:', error)
     }
-  }, [socket, isConnected, email])
+  }, [socket, isConnected])
 
   return {
     isConnected,

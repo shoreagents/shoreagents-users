@@ -85,7 +85,7 @@ export function useHealthCheckSocket(email: string | null) {
   useEffect(() => {
     if (!email) return
 
-    const socketServerUrl = (process.env.NEXT_PUBLIC_SOCKET_URL || process.env.SOCKET_SERVER_URL || 'http://localhost:3001') as string
+    const socketServerUrl = (process.env.NEXT_PUBLIC_SOCKET_URL || process.env.SOCKET_SERVER_URL || 'http://localhost:3004') as string
     const socket = io(socketServerUrl, {
       reconnection: true,
       transports: ['websocket', 'polling'],

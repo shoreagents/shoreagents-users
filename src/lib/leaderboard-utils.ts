@@ -14,7 +14,7 @@ export const getAllUsersLeaderboard = async (month?: string): Promise<Leaderboar
   
   try {
     // First, get team agents to filter by team
-    const teamAgentsResponse = await fetch('/api/agents/team')
+    const teamAgentsResponse = await fetch('/api/agents/team/')
     if (!teamAgentsResponse.ok) {
       console.error('Failed to fetch team agents:', teamAgentsResponse.statusText)
       return []

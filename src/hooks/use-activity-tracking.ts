@@ -340,7 +340,7 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean) => vo
         window.electronAPI.removeAllListeners('system-resume');
       }
     };
-  }, [handleActivityUpdate, handleInactivityAlert, handleActivityReset]);
+  }, [handleActivityUpdate, handleInactivityAlert, handleActivityReset, handleSystemSuspend, handleSystemResume]);
 
   // Get current activity status periodically
   useEffect(() => {

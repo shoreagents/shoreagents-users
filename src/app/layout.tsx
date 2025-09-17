@@ -37,7 +37,7 @@ const montserrat = Montserrat({
 });
 
 export const metadata: Metadata = {
-  title: "ShoreAgents Dashboard - User Form",
+  title: "ShoreAgents Dashboard",
   description: "Agent Support Ticket Form Dashboard for ShoreAgents",
 };
 

@@ -194,7 +194,7 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
   React.useEffect(() => {
     const loadTeamAgents = async () => {
       try {
-        const res = await fetch('/api/agents/team?limit=50', { credentials: 'include' })
+        const res = await fetch('/api/agents/team/?limit=50', { credentials: 'include' })
         if (!res.ok) return
         const data = await res.json()
         if (data?.success && Array.isArray(data.agents)) {
@@ -233,11 +233,13 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
   }, [task, peopleList])
 
   // Convert columns to status options with default colors
-  const statusOptions = columns && columns.length > 0 ? columns.map(column => ({
-    id: column.id,
-    label: column.title,
-    color: getStatusColor(column.id)
-  })) : []
+  const statusOptions = React.useMemo(() => {
+    return columns && columns.length > 0 ? columns.map(column => ({
+      id: column.id,
+      label: column.title,
+      color: getStatusColor(column.id)
+    })) : []
+  }, [columns])
 
   // Function to get appropriate status colors
   function getStatusColor(statusId: string) {
@@ -298,7 +300,7 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
     } else {
       setExistingAttachments([])
     }
-  }, [task, JSON.stringify((task as any)?.attachments)])
+  }, [task, task?.attachments])
 
   // Ensure unique custom fields by id to avoid duplicate React keys
   const uniqueCustomFields = React.useMemo((): Array<{ id: string; title: string; description: string }> => {
@@ -473,7 +475,7 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
     } else if (!task) {
       setCustomFields([])
     }
-  }, [task, JSON.stringify((task as any)?.custom_fields)])
+  }, [task, task?.custom_fields, customFields])
 
   // Initialize due date from task data
   React.useEffect(() => {
@@ -618,7 +620,7 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
       })
       setSelectedAssignees(mapped)
     }
-  }, [task, isOpen])
+  }, [task, isOpen, peopleList])
 
   // Subscribe to realtime activity events
   React.useEffect(() => {

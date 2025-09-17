@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import Image from "next/image"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -302,11 +303,12 @@ const TaskCard = ({
           {/* Cover Photo */}
             {task.attachments && (task.attachments as any).length > 0 && (
             <div className="relative w-full h-32 bg-muted">
-              <img
+              <Image
                 src={(task.attachments as any)[0].url}
                 alt={task.attachments[0].name}
-                className="w-full h-full object-cover"
-                draggable="false"
+                fill
+                className="object-cover"
+                draggable={false}
                 onDragStart={(e) => e.preventDefault()}
                 onError={(e) => {
                   // Fallback to a placeholder if image fails to load
@@ -853,7 +855,7 @@ export function KanbanBoard({ tasks, columns, onTaskMove, onTaskCreate, onTaskUp
     let cancelled = false
     const load = async () => {
       try {
-        const res = await fetch('/api/users?limit=500', { credentials: 'include' })
+        const res = await fetch('/api/users/?limit=500', { credentials: 'include' })
         if (!res.ok) return
         const data = await res.json()
         if (data?.success && Array.isArray(data.users)) {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -99,7 +99,7 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
     return 'Very Poor';
   };
 
-  const fetchAllProductivityData = async () => {
+  const fetchAllProductivityData = useCallback(async () => {
     if (!currentUser?.email) return;
     
     setLoading(true);
@@ -149,7 +149,7 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentUser?.email, currentUser?.id]);
 
   // Manual refresh function
   const handleManualRefresh = () => {
@@ -220,7 +220,7 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
       
       return () => clearInterval(interval);
     }
-  }, [currentUser?.email, isBreakActive, isInMeeting]);
+  }, [currentUser?.email, isBreakActive, isInMeeting, fetchAllProductivityData]);
 
   return (
     <div className="space-y-6">

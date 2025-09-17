@@ -38,7 +38,7 @@ const clientSessions = new Map<string, ClientSession>();
 export function initializeSocketServer(httpServer: HTTPServer) {
   const io = new SocketIOServer(httpServer, {
     cors: {
-      origin: process.env.NODE_ENV === 'production' ? false : "http://localhost:3000",
+      origin: process.env.NODE_ENV === 'production' ? false : "http://localhost:3005",
       methods: ["GET", "POST"]
     }
   });

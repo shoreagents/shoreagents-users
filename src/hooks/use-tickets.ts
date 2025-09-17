@@ -111,7 +111,7 @@ export function useCreateTicket() {
       details?: string
       files?: any[]
     }) => {
-      const response = await fetch('/api/tickets', {
+      const response = await fetch('/api/tickets/', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

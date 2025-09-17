@@ -90,7 +90,7 @@ export async function startBreak(breakType: BreakType): Promise<{ success: boole
     }
 
     // Start break in database
-    const response = await fetch('http://localhost:3000/api/breaks/start', {
+    const response = await fetch('/api/breaks/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include', // Include authentication cookies for Electron
@@ -139,7 +139,7 @@ export async function endBreak(): Promise<{ success: boolean; message?: string; 
     }
 
     // End break in database
-    const response = await fetch('http://localhost:3000/api/breaks/end', {
+    const response = await fetch('/api/breaks/end', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include', // Include authentication cookies for Electron
@@ -192,7 +192,7 @@ export async function pauseBreak(timeRemainingSeconds: number): Promise<{ succes
     }
 
     // Pause break in database
-    const response = await fetch('http://localhost:3000/api/breaks/pause', {
+    const response = await fetch('/api/breaks/pause', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include', // Include authentication cookies for Electron
@@ -254,7 +254,7 @@ export async function resumeBreak(): Promise<{ success: boolean; message?: strin
     }
 
     // Resume break in database
-    const response = await fetch('http://localhost:3000/api/breaks/resume', {
+    const response = await fetch('/api/breaks/resume', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include', // Include authentication cookies for Electron
@@ -303,7 +303,7 @@ export async function getBreakStatus(): Promise<{ success: boolean; status?: Bre
       return { success: false, message: 'User not authenticated' };
     }
 
-    const response = await fetch(`http://localhost:3000/api/breaks/status?agent_user_id=${currentUser.id}`, {
+    const response = await fetch(`/api/breaks/status?agent_user_id=${currentUser.id}`, {
       credentials: 'include' // Include authentication cookies for Electron
     });
     const result = await response.json();
@@ -331,7 +331,7 @@ export async function getBreakHistory(days: number = 7, includeActive: boolean =
       return { success: false, message: 'User not authenticated' };
     }
 
-    const response = await fetch(`http://localhost:3000/api/breaks/history?agent_user_id=${currentUser.id}&days=${days}&include_active=${includeActive}`, {
+    const response = await fetch(`/api/breaks/history?agent_user_id=${currentUser.id}&days=${days}&include_active=${includeActive}`, {
       credentials: 'include' // Include authentication cookies for Electron
     });
     const result = await response.json();

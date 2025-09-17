@@ -1067,54 +1067,37 @@ function playCustomNotificationSound(type = 'main') {
 
 
 // Function to create a red badge with count
-function createBadgeImage(count) {
+async function createBadgeImage(count) {
   try {
-    const { createCanvas } = require('canvas');
-    // Make the badge smaller - 24x24 instead of 32x32
-    const canvas = createCanvas(24, 24);
-    const ctx = canvas.getContext('2d');
+    const sharp = require('sharp');
     
-    // Clear canvas
-    ctx.clearRect(0, 0, 24, 24);
+    // Create a 24x24 red circle with white text
+    const countText = count > 9 ? '9+' : count.toString();
     
-    // Draw bright red circle background
-    ctx.fillStyle = '#dc2626'; // Brighter red color
-    ctx.beginPath();
-    ctx.arc(12, 12, 10, 0, 2 * Math.PI);
-    ctx.fill();
+    // Create SVG for the badge
+    const svg = `
+      <svg width="24" height="24" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="12" cy="12" r="10" fill="#dc2626" stroke="#ffffff" stroke-width="1"/>
+        <text x="12" y="12" text-anchor="middle" dominant-baseline="middle" 
+              font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="white">${countText}</text>
+      </svg>
+    `;
     
-    // Add a subtle white border for better visibility
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 1;
-    ctx.stroke();
+    const buffer = await sharp(Buffer.from(svg))
+      .png()
+      .toBuffer();
     
-    // Draw count text with smaller font
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 11px Arial, sans-serif'; // Smaller font size
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    
-    // Add text shadow for better readability
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-    ctx.shadowBlur = 1;
-    ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = 1;
-    
-    const countText = count > 99 ? '99+' : count.toString();
-    ctx.fillText(countText, 12, 12);
-    
-    const buffer = canvas.toBuffer('image/png');
     return buffer;
   } catch (error) {
-    console.error('Canvas not available, using fallback:', error);
+    console.error('Sharp not available, using fallback:', error);
     return null;
   }
 }
 
 // Function to save badge image to temp file
-function saveBadgeImage(count) {
+async function saveBadgeImage(count) {
   try {
-    const badgeBuffer = createBadgeImage(count);
+    const badgeBuffer = await createBadgeImage(count);
     if (!badgeBuffer) {
       return null;
     }
@@ -1136,25 +1119,20 @@ function saveBadgeImage(count) {
 }
 
 // Function to get a simple red dot badge (fallback)
-function getSimpleBadgePath() {
+async function getSimpleBadgePath() {
   try {
-    const { createCanvas } = require('canvas');
-    const canvas = createCanvas(20, 20); // Slightly larger for better visibility
-    const ctx = canvas.getContext('2d');
+    const sharp = require('sharp');
     
-    // Clear canvas
-    ctx.clearRect(0, 0, 20, 20);
+    // Create SVG for simple red dot
+    const svg = `
+      <svg width="20" height="20" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="10" cy="10" r="8" fill="#dc2626" stroke="#ffffff" stroke-width="1"/>
+      </svg>
+    `;
     
-    // Draw bright red circle background
-    ctx.fillStyle = '#dc2626'; // Brighter red color to match main badge
-    ctx.beginPath();
-    ctx.arc(10, 10, 8, 0, 2 * Math.PI);
-    ctx.fill();
-    
-    // Add white border for better visibility
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 1;
-    ctx.stroke();
+    const buffer = await sharp(Buffer.from(svg))
+      .png()
+      .toBuffer();
     
     const badgePath = path.join(__dirname, '../temp/red-dot.png');
     
@@ -1164,7 +1142,7 @@ function getSimpleBadgePath() {
       fs.mkdirSync(tempDir, { recursive: true });
     }
     
-    fs.writeFileSync(badgePath, canvas.toBuffer('image/png'));
+    fs.writeFileSync(badgePath, buffer);
     return badgePath;
   } catch (error) {
     console.error('Error creating simple badge:', error);
@@ -1206,33 +1184,19 @@ async function updateBadgeCount(count) {
   if (mainWindow && process.platform === 'win32') {
     if (finalCount > 0) {
       try {
-        // Force create and use our custom red badge
-        const badgePath = saveBadgeImage(finalCount);
+        // Force create and use our custom red badge with count
+        const badgePath = await saveBadgeImage(finalCount);
         
         if (badgePath && fs.existsSync(badgePath)) {
-          // Use our custom red badge image
+          // Use our custom red badge image with count
           mainWindow.setOverlayIcon(badgePath, `${finalCount} notifications`);
         } else {
           // If custom badge creation fails, try simple red dot
-          const simpleBadgePath = getSimpleBadgePath();
+          const simpleBadgePath = await getSimpleBadgePath();
           
           if (simpleBadgePath && fs.existsSync(simpleBadgePath)) {
             mainWindow.setOverlayIcon(simpleBadgePath, `${finalCount} notifications`);
           } 
-        }
-        
-        // Also try the built-in badge count (this might be overriding our custom icon)
-        // Comment this out to prevent Windows from using its default black badge
-        // app.setBadgeCount(finalCount);
-        
-        // Set window title as backup
-        try {
-          const originalTitle = mainWindow.getTitle();
-          if (!originalTitle.includes(`(${finalCount})`)) {
-            mainWindow.setTitle(`${originalTitle} (${finalCount})`);
-          }
-        } catch (titleError) {
-          // Failed to update window title
         }
         
       } catch (error) {
@@ -1242,19 +1206,12 @@ async function updateBadgeCount(count) {
       try {
         // Clear the overlay icon completely
         mainWindow.setOverlayIcon(null, '');
-        // Don't use app.setBadgeCount(0) as it might interfere
-        // app.setBadgeCount(0);
-        
-        // Reset window title
-        const currentTitle = mainWindow.getTitle();
-        const cleanTitle = currentTitle.replace(/\s*\(\d+\)$/, '');
-        mainWindow.setTitle(cleanTitle);
       } catch (error) {
         console.error('Error clearing Windows badge:', error);
       }
     }
   } else if (process.platform === 'darwin') {
-    // macOS badge
+    // macOS badge - show actual count
     try {
       app.setBadgeCount(finalCount);
     } catch (error) {
@@ -1275,8 +1232,8 @@ function showSystemNotification(notificationData) {
     return;
   }
   
-  // Use favicon for notifications
-  const notificationIcon = path.join(__dirname, '../src/app/favicon.ico');
+  // Use ShoreAgents logo for notifications
+  const notificationIcon = path.join(__dirname, '../public/ShoreAgents-Logo-only.png');
   
   const useCustom = hasCustomSoundAvailable('main');
   const notification = new Notification({
@@ -1396,7 +1353,7 @@ ipcMain.handle('show-inactivity-notification', async (event, data) => {
     inactivityNotification = await createNotificationWithSound(
       'Inactivity Detected',
       `You've been inactive for ${timeText}. Move your mouse to resume.`,
-      path.join(__dirname, '../src/app/favicon.ico'),
+      path.join(__dirname, '../public/ShoreAgents-Logo-only.png'),
       'inactivity'
     );
     
@@ -1433,7 +1390,7 @@ ipcMain.handle('update-inactivity-notification', async (event, data) => {
         inactivityNotification = await createNotificationWithSound(
           'Inactivity Detected',
           `You've been inactive for ${timeText}. Move your mouse to resume.`,
-          path.join(__dirname, '../src/app/favicon.ico'),
+          path.join(__dirname, '../public/ShoreAgents-Logo-only.png'),
           'inactivity'
         );
       }, 100); // Increased delay for better cleanup
@@ -1520,14 +1477,14 @@ function createWindow() {
       preload: preloadPath,
       webSecurity: true
     },
-    icon: path.join(__dirname, '../src/app/favicon.ico'),
+    icon: path.join(__dirname, '../public/ShoreAgents-Logo-only.png'),
     show: false, // Don't show until ready
     titleBarStyle: 'default',
     autoHideMenuBar: false
   });
 
   // Load the app - always use the Next.js server
-  const serverUrl = process.env.ELECTRON_APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+  const serverUrl = process.env.ELECTRON_APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3005';
   mainWindow.loadURL(serverUrl);
   
   // Open DevTools in development
@@ -1616,10 +1573,10 @@ function createWindow() {
 }
 
 // Create system tray
-function createTray() {
+async function createTray() {
   // Create initial tray icon with no notifications
-  const initialTrayIconPath = createTrayIconWithIndicator(0);
-  const trayIconPath = initialTrayIconPath || path.join(__dirname, '../src/app/favicon.ico');
+  const initialTrayIconPath = await createTrayIconWithIndicator(0);
+  const trayIconPath = initialTrayIconPath || path.join(__dirname, '../public/ShoreAgents-Logo-only.png');
   
   tray = new Tray(trayIconPath);
   
@@ -1686,56 +1643,66 @@ function createTray() {
 }
 
 // Function to create a tray icon with red indicator
-function createTrayIconWithIndicator(count) {
+async function createTrayIconWithIndicator(count) {
   try {
-    const { createCanvas } = require('canvas');
-    const canvas = createCanvas(32, 32);
-    const ctx = canvas.getContext('2d');
+    const sharp = require('sharp');
     
-    // Create a simple icon that looks like the favicon
-    // Clear canvas with transparent background
-    ctx.clearRect(0, 0, 32, 32);
+    // Load the ShoreAgents logo
+    const logoPath = path.join(__dirname, '../public/ShoreAgents-Logo-only.png');
     
-    // Draw a simple icon that resembles the favicon (Next.js logo style)
-    ctx.fillStyle = '#000000'; // Black background
-    ctx.fillRect(0, 0, 32, 32);
+    if (!fs.existsSync(logoPath)) {
+      console.error('ShoreAgents logo not found at:', logoPath);
+      return null;
+    }
     
-    // Draw the Next.js "N" shape in white
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(8, 8, 4, 16); // Left vertical line
-    ctx.fillRect(12, 8, 4, 4); // Top horizontal line
-    ctx.fillRect(16, 12, 4, 4); // Middle horizontal line
-    ctx.fillRect(20, 16, 4, 4); // Bottom horizontal line
-    ctx.fillRect(24, 20, 4, 4); // Right vertical line
+    // Load and resize the logo to 32x32 for tray icon
+    const logoBuffer = await sharp(logoPath)
+      .resize(32, 32)
+      .png()
+      .toBuffer();
     
-    // Add red badge with count if there are notifications
+    // If there are notifications, add a red dot overlay
     if (count > 0) {
-      // Draw red circle background
-      ctx.fillStyle = '#ef4444'; // Red color
-      ctx.beginPath();
-      ctx.arc(26, 6, 8, 0, 2 * Math.PI); // Top-right corner, larger size
-      ctx.fill();
+      // Create a red dot overlay (bigger size)
+      const redDotSvg = `
+        <svg width="32" height="32" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="26" cy="6" r="8" fill="#ef4444" stroke="#ffffff" stroke-width="1"/>
+        </svg>
+      `;
       
-      // Draw count text
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 10px Arial';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
+      const redDotBuffer = await sharp(Buffer.from(redDotSvg))
+        .png()
+        .toBuffer();
       
-      const countText = count > 99 ? '99+' : count.toString();
-      ctx.fillText(countText, 26, 6);
+      // Composite the red dot over the logo
+      const finalBuffer = await sharp(logoBuffer)
+        .composite([{ input: redDotBuffer, blend: 'over' }])
+        .png()
+        .toBuffer();
+      
+      const trayIconPath = path.join(__dirname, `../temp/tray-icon-${count}.png`);
+      
+      // Ensure temp directory exists
+      const tempDir = path.dirname(trayIconPath);
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
+      }
+      
+      fs.writeFileSync(trayIconPath, finalBuffer);
+      return trayIconPath;
+    } else {
+      // No notifications, just use the logo
+      const trayIconPath = path.join(__dirname, `../temp/tray-icon-${count}.png`);
+      
+      // Ensure temp directory exists
+      const tempDir = path.dirname(trayIconPath);
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
+      }
+      
+      fs.writeFileSync(trayIconPath, logoBuffer);
+      return trayIconPath;
     }
-    
-    const trayIconPath = path.join(__dirname, `../temp/tray-icon-${count}.png`);
-    
-    // Ensure temp directory exists
-    const tempDir = path.dirname(trayIconPath);
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-    }
-    
-    fs.writeFileSync(trayIconPath, canvas.toBuffer('image/png'));
-    return trayIconPath;
   } catch (error) {
     console.error('Error creating tray icon with indicator:', error);
     return null;
@@ -1743,12 +1710,12 @@ function createTrayIconWithIndicator(count) {
 }
 
 // Function to update tray with red indicator
-function updateTrayWithRedIndicator(count) {
+async function updateTrayWithRedIndicator(count) {
   if (!tray) return;
   
   try {
     // Create tray icon with red indicator
-    const trayIconPath = createTrayIconWithIndicator(count);
+    const trayIconPath = await createTrayIconWithIndicator(count);
     if (trayIconPath) {
       tray.setImage(trayIconPath);
     }
@@ -1809,7 +1776,7 @@ async function updateTrayWithActualCount() {
     const actualCount = notificationBadgeCount || 0;
     
     // Create tray icon with the actual count
-    const trayIconPath = createTrayIconWithIndicator(actualCount);
+    const trayIconPath = await createTrayIconWithIndicator(actualCount);
     if (trayIconPath) {
       tray.setImage(trayIconPath);
     }
@@ -2082,14 +2049,14 @@ async function updateTrayMenu() {
   // Add appropriate quit option based on login state
   if (isLoggedIn) {
     baseMenuItems.push({
-      label: 'Logout & Quit',
+      label: 'Logout && Quit',
       click: async () => {
         await handleLogoutAndQuit();
       }
     });
     
       // Update tooltip to show tracking is active and break status
-      let baseTooltip = 'ShoreAgents Dashboard - Activity Tracking Active';
+      let baseTooltip = 'ShoreAgents Dashboard';
       if (isOnBreak) {
         const timeText = breakState.timeRemaining 
           ? `${Math.floor(breakState.timeRemaining / 60)}m ${breakState.timeRemaining % 60}s remaining`
@@ -2130,13 +2097,13 @@ async function handleLogoutAndQuit() {
     // Show confirmation dialog
     const result = await dialog.showMessageBox(mainWindow, {
       type: 'question',
-      buttons: ['Logout & Quit', 'Cancel'],
+      buttons: ['Logout && Quit', 'Cancel'],
       defaultId: 0,
       cancelId: 1,
       title: 'Confirm Logout',
       message: 'Logout and quit ShoreAgents Dashboard?',
       detail: 'This will stop activity tracking and log you out. Are you sure?',
-      icon: path.join(__dirname, '../src/app/favicon.ico')
+      icon: path.join(__dirname, '../public/ShoreAgents-Logo-only.png')
     });
     
     if (result.response === 0) { // User clicked "Logout & Quit"
@@ -2265,7 +2232,7 @@ function createMenu() {
 app.whenReady().then(async () => {
   createWindow();
   createMenu();
-  createTray();
+  await createTray();
   
   // Check authentication state on app start and clear notifications if not logged in
   setTimeout(async () => {
@@ -2918,7 +2885,7 @@ ipcMain.on('show-notification', (event, data) => {
     const notification = new Notification({
       title: data.title || 'ShoreAgents Dashboard',
       body: data.body || 'Notification',
-      icon: data.icon || path.join(__dirname, '../src/app/favicon.ico'),
+      icon: data.icon || path.join(__dirname, '../public/ShoreAgents-Logo-only.png'),
       silent: useCustom
     });
     

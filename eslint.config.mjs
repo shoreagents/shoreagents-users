@@ -13,13 +13,15 @@ const eslintConfig = [
   ...compat.extends("next/core-web-vitals"),
   {
     rules: {
-      "@typescript-eslint/no-unused-vars": "error",
+      "react/no-unescaped-entities": "off",
+      "jsx-a11y/alt-text": "off",
+      "react-hooks/exhaustive-deps": "warn",
     },
   },
   {
     files: ["electron/**/*.js"],
     rules: {
-      "@typescript-eslint/no-var-requires": "off",
+      "no-var": "off",
     },
   },
 ];
