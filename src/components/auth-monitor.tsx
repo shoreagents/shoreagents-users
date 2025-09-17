@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useCallback } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { getCurrentUser, hasValidAuthTokens, forceLogout } from '@/lib/auth-utils'
 import { useLogout } from '@/contexts/logout-context'
@@ -58,7 +58,7 @@ export function AuthMonitor({ children }: AuthMonitorProps) {
   }
 
   // Function to check if user should be logged out
-  const checkAuthStatus = () => {
+  const checkAuthStatus = useCallback(() => {
     // Do not enforce auto-logout logic while on the login page to avoid double-login loops
     if (pathname === '/login') {
       return
@@ -100,10 +100,10 @@ export function AuthMonitor({ children }: AuthMonitorProps) {
 
     // Update last check state
     lastCheckRef.current = currentAuth
-  }
+  }, [pathname, startLogout])
 
   // Function to handle storage events (for cross-tab detection)
-  const handleStorageChange = (e: StorageEvent) => {
+  const handleStorageChange = useCallback((e: StorageEvent) => {
     if (e.key === 'shoreagents-auth' || e.key === 'sb-sanljwkkoawwdpaxrper-auth-token') {
       
       if (!e.newValue) {
@@ -113,7 +113,7 @@ export function AuthMonitor({ children }: AuthMonitorProps) {
         forceLogout()
       }
     }
-  }
+  }, [startLogout])
 
   useEffect(() => {
     // Initialize auth state
@@ -146,7 +146,7 @@ export function AuthMonitor({ children }: AuthMonitorProps) {
       window.removeEventListener('storage', handleStorageChange)
       window.removeEventListener('beforeunload', handleBeforeUnload)
     }
-  }, [router, pathname])
+  }, [router, pathname, checkAuthStatus, handleStorageChange])
 
   return <>{children}</>
 } 

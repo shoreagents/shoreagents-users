@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useSearchParams } from "next/navigation"
 import { CheckCircle, AlertCircle, Info, Clock, Trash2, Bell, CheckSquare, FileText, Filter, X, Search, RefreshCw, Check, Heart, Square, SquareCheck, Activity, Calendar } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -327,58 +327,7 @@ export default function NotificationsPage() {
     }
   }
 
-  const handleClearAll = async () => {
-    if (notifications.length === 0) return
-    
-    // Extract numeric IDs from db_ prefix
-    const numericIds = notifications.map((n: any) => {
-      const id = n.id.toString()
-      if (id.startsWith('db_')) {
-        return parseInt(id.slice(3))
-      }
-      return parseInt(id)
-    }).filter(id => !isNaN(id))
-    
-    // Use socket context to clear all notifications FIRST (this will update both DB and socket state)
-    if (socketConnected && clearAllSocket) {
-      await clearAllSocket(numericIds)
-    } else {
-      // Fallback to direct API call if socket is not connected
-      try {
-        const user = getCurrentUser()
-        if (user?.email && numericIds.length > 0) {
-          const response = await fetch('/api/notifications/delete', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ ids: numericIds, email: user.email })
-          })
-          
-          const data = await response.json()
-          if (!data.success) {
-            console.error('Failed to clear all notifications from database:', data.error)
-          }
-        }
-      } catch (error) {
-        console.error('Error clearing all notifications:', error)
-      }
-    }
-    
-    // Update in-memory AFTER socket context is updated
-    clearAllNotifications()
-    setNotifications([])
-    setUnreadCount(0)
-    setSelectedNotifications(new Set())
-    setIsSelectMode(false)
-    
-    // Dispatch custom event to notify app header of the change
-    window.dispatchEvent(new CustomEvent('notifications-cleared', {
-      detail: { unreadCount: 0 }
-    }))
-    
-    // Also dispatch the general update event
-    window.dispatchEvent(new CustomEvent('notifications-updated'))
-  }
+ 
 
   // Multi-select functions
   const toggleSelectMode = () => {
@@ -388,13 +337,6 @@ export default function NotificationsPage() {
     }
   }
 
-  const toggleSelectAll = () => {
-    if (selectedNotifications.size === currentNotifications.length) {
-      setSelectedNotifications(new Set())
-    } else {
-      setSelectedNotifications(new Set(currentNotifications.map(n => n.id)))
-    }
-  }
 
   const toggleSelectNotification = (notificationId: string) => {
     const newSelected = new Set(selectedNotifications)
@@ -475,7 +417,7 @@ export default function NotificationsPage() {
     }
   }
 
-  const handleBulkDelete = async () => {
+  const handleBulkDelete = useCallback(async () => {
     if (selectedNotifications.size === 0) return
     
     const selectedIds = Array.from(selectedNotifications)
@@ -535,38 +477,7 @@ export default function NotificationsPage() {
     } catch (error) {
       console.error('Error deleting selected notifications:', error)
     }
-  }
-
-  // Handle keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      // ESC key to cancel select mode
-      if (event.key === 'Escape' && isSelectMode) {
-        setIsSelectMode(false)
-        setSelectedNotifications(new Set())
-        return
-      }
-      
-      // Ctrl/Cmd + A to select all when in select mode
-      if ((event.ctrlKey || event.metaKey) && event.key === 'a' && isSelectMode) {
-        event.preventDefault()
-        toggleSelectAll()
-        return
-      }
-      
-      // Delete key to delete selected notifications when in select mode
-      if (event.key === 'Delete' && isSelectMode && selectedNotifications.size > 0) {
-        event.preventDefault()
-        handleBulkDelete()
-        return
-      }
-    }
-
-    document.addEventListener('keydown', handleKeyDown)
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [isSelectMode, selectedNotifications.size, toggleSelectAll, handleBulkDelete])
+  }, [selectedNotifications, socketConnected, clearAllSocket, currentUser?.id, fetchSocketNotifications])
 
   // Filter logic
   const filteredNotifications = notifications.filter(notification => {
@@ -605,6 +516,45 @@ export default function NotificationsPage() {
   const startIndex = (currentPage - 1) * notificationsPerPage
   const endIndex = startIndex + notificationsPerPage
   const currentNotifications = filteredNotifications.slice(startIndex, endIndex)
+
+  const toggleSelectAll = useCallback(() => {
+    if (selectedNotifications.size === currentNotifications.length) {
+      setSelectedNotifications(new Set())
+    } else {
+      setSelectedNotifications(new Set(currentNotifications.map(n => n.id)))
+    }
+  }, [selectedNotifications.size, currentNotifications])
+
+  // Handle keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // ESC key to cancel select mode
+      if (event.key === 'Escape' && isSelectMode) {
+        setIsSelectMode(false)
+        setSelectedNotifications(new Set())
+        return
+      }
+      
+      // Ctrl/Cmd + A to select all when in select mode
+      if ((event.ctrlKey || event.metaKey) && event.key === 'a' && isSelectMode) {
+        event.preventDefault()
+        toggleSelectAll()
+        return
+      }
+      
+      // Delete key to delete selected notifications when in select mode
+      if (event.key === 'Delete' && isSelectMode && selectedNotifications.size > 0) {
+        event.preventDefault()
+        handleBulkDelete()
+        return
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isSelectMode, selectedNotifications.size, toggleSelectAll, handleBulkDelete])
 
   // Get unique categories and types for filter options
   const availableCategories = [...new Set(notifications.map(n => n.category).filter(Boolean))]

@@ -32,10 +32,10 @@ export default function MyTicketsPage() {
 
   // Use React Query to fetch tickets
   const { data: ticketsData, isLoading: loading, error, refetch, triggerRealtimeUpdate } = useTickets()
-  const reactQueryTickets = ticketsData?.tickets || []
   
   // Convert React Query tickets to the expected Ticket format with useMemo to prevent re-renders
   const tickets: Ticket[] = useMemo(() => {
+    const reactQueryTickets = ticketsData?.tickets || []
     return reactQueryTickets.map((ticket: ReactQueryTicket) => ({
       id: ticket.id,
       name: ticket.name,
@@ -53,7 +53,7 @@ export default function MyTicketsPage() {
       userId: ticket.userId,
       userEmail: ticket.userEmail,
     }))
-  }, [reactQueryTickets])
+  }, [ticketsData?.tickets])
 
   // Extract unique categories from tickets for filter dropdown with useMemo
   const categories = useMemo(() => {
@@ -379,7 +379,7 @@ export default function MyTicketsPage() {
               </div>
               
               <Popover open={showFilters} onOpenChange={setShowFilters}>
-                <PopoverTrigger asChild>
+                <PopoverTrigger>
                   <Button variant="outline" size="sm" className="h-10">
                     <Filter className="h-4 w-4 mr-2" />
                     Filters
@@ -409,7 +409,7 @@ export default function MyTicketsPage() {
                     <div className="space-y-3">
                       <div>
                         <label className="text-sm font-medium mb-1 block">Status</label>
-                        <Select value={statusFilter} onValueChange={(value) => {
+                        <Select value={statusFilter} onValueChange={(value: string) => {
                           setStatusFilter(value)
                           setCurrentPage(1)
                         }}>
@@ -431,7 +431,7 @@ export default function MyTicketsPage() {
 
                       <div>
                         <label className="text-sm font-medium mb-1 block">Category</label>
-                        <Select value={categoryFilter} onValueChange={(value) => {
+                        <Select value={categoryFilter} onValueChange={(value: string) => {
                           setCategoryFilter(value)
                           setCurrentPage(1)
                         }}>
@@ -451,7 +451,7 @@ export default function MyTicketsPage() {
 
                       <div>
                         <label className="text-sm font-medium mb-1 block">Sort By</label>
-                        <Select value={sortBy} onValueChange={(value) => {
+                        <Select value={sortBy} onValueChange={(value: string) => {
                           setSortBy(value)
                           setCurrentPage(1)
                         }} key={sortBy}>

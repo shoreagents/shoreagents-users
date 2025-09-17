@@ -263,7 +263,7 @@ export default function BreaksPage() {
 
     // No continuous polling - break status will be updated when user takes actions
     // The page will refresh break status when user interacts with break buttons
-  }, [setBreakActive])
+  }, [setBreakActive, availableBreaks, currentTime, refreshBreakStatus, userProfile])
 
   // Check localStorage for active break (fallback for compatibility)
   useEffect(() => {
@@ -340,7 +340,7 @@ export default function BreaksPage() {
     const interval = setInterval(checkAndEndInvalidBreaks, 5000)
 
     return () => clearInterval(interval)
-  }, [breakStatus, currentTime, setBreakActive, refreshBreakStatus])
+  }, [breakStatus, currentTime, setBreakActive, refreshBreakStatus, availableBreaks, userProfile])
 
   // Real-time validation when current time changes
   useEffect(() => {
@@ -375,7 +375,7 @@ export default function BreaksPage() {
         })
       }
     }
-  }, [currentTime, breakStatus, setBreakActive, refreshBreakStatus])
+  }, [currentTime, breakStatus, setBreakActive, refreshBreakStatus, availableBreaks, userProfile])
 
   // Cleanup black screens when component unmounts or user navigates away
   useEffect(() => {

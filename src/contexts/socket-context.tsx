@@ -1,6 +1,6 @@
 "use client"
 
-import React, { createContext, useContext, useEffect, useState, useRef } from 'react'
+import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react'
 import { io, Socket } from 'socket.io-client'
 
 interface SocketContextType {
@@ -39,7 +39,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
-  const connect = () => {
+  const connect = useCallback(() => {
     if (!isActiveProvider) {
       return
     }
@@ -77,7 +77,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     isConnectingRef.current = true
 
     // Connect to Socket.IO server
-    const socketServerUrl = (process.env.NEXT_PUBLIC_SOCKET_URL || process.env.SOCKET_SERVER_URL || 'http://localhost:3001') as string
+    const socketServerUrl = (process.env.NEXT_PUBLIC_SOCKET_URL || process.env.SOCKET_SERVER_URL || 'http://localhost:3004') as string
     const newSocket = io(socketServerUrl, {
       reconnection: true,
       reconnectionAttempts: 3,
@@ -123,9 +123,9 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
     socketRef.current = newSocket
     setSocket(newSocket)
-  }
+  }, [isActiveProvider])
 
-  const disconnect = () => {
+  const disconnect = useCallback(() => {
     // Only disconnect if this is the active provider
     if (!isActiveProvider) {
       return
@@ -143,7 +143,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         (window as any)._saSocket = null
       }
     }
-  }
+  }, [isActiveProvider])
 
   useEffect(() => {
     // Connect when component mounts and becomes active
@@ -157,7 +157,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
         (window as any)._saProviderMounted = false
       }
     }
-  }, [isActiveProvider])
+  }, [isActiveProvider, connect])
 
   useEffect(() => {
     // Listen for logout events to disconnect socket
@@ -231,7 +231,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       // Don't disconnect on unmount - let the context handle it
       // This prevents issues with React HMR and component remounting
     }
-  }, [])
+  }, [disconnect])
 
   const value: SocketContextType = {
     socket,

@@ -10,7 +10,7 @@ class MeetingScheduler {
   constructor() {
     this.isRunning = false;
     this.intervalId = null;
-    this.checkInterval = 2 * 1000; // Check every 2 seconds for meeting starts
+    this.checkInterval = 500; // Check every 500ms (0.5 seconds) for meeting starts
     this.reminderInterval = 60 * 1000; // Check every 60 seconds for reminders
     this.reminderIntervalId = null;
     this.notificationIntervalId = null;
@@ -122,7 +122,7 @@ class MeetingScheduler {
       isRunning: !!this.intervalId,
       checkInterval: this.checkInterval / 1000,
       reminderInterval: this.reminderInterval / 1000,
-      notificationInterval: 60 // 1 minute in seconds
+      notificationInterval: 30 // 30 seconds
     };
   }
 
@@ -240,5 +240,5 @@ if (require.main === module) {
   console.log('This scheduler handles:');
   console.log('Automatically starting scheduled meetings');
   console.log('Sending meeting reminders (1 hour before)');
-  console.log('Checking every 2 seconds for starts, 60 seconds for reminders, 30 seconds for notifications');
+  console.log('Checking every 0.5 seconds for starts, 60 seconds for reminders, 30 seconds for notifications');
 }

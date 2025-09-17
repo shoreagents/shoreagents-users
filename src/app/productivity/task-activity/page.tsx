@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, useMemo } from "react"
+import { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import { AppSidebar } from "@/components/app-sidebar"
 import { AppHeader } from "@/components/app-header"
 import {
@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { TaskGroup, Task } from "@/lib/task-activity-utils"
+import { Task } from "@/lib/task-activity-utils"
 import { useTaskActivitySocketContext } from "@/hooks/use-task-activity-socket-context"
 import { 
   useTaskActivity, 
@@ -68,13 +68,13 @@ export default function TaskActivityPage() {
   const [zoomStep] = useState(10)
 
   // Zoom control functions
-  const handleZoomIn = () => {
+  const handleZoomIn = useCallback(() => {
     setZoomLevel(prev => Math.min(prev + zoomStep, maxZoom))
-  }
+  }, [zoomStep, maxZoom])
 
-  const handleZoomOut = () => {
+  const handleZoomOut = useCallback(() => {
     setZoomLevel(prev => Math.max(prev - zoomStep, minZoom))
-  }
+  }, [zoomStep, minZoom])
 
   const handleZoomReset = () => {
     setZoomLevel(100)
@@ -308,7 +308,7 @@ export default function TaskActivityPage() {
       document.removeEventListener('wheel', handleWheel)
       document.removeEventListener('keydown', handleKeyDown)
     }
-  }, [zoomStep, minZoom, maxZoom])
+  }, [zoomStep, minZoom, maxZoom, handleZoomIn, handleZoomOut])
 
   // Get socket instance from context or global fallback
   useEffect(() => {
@@ -350,6 +350,16 @@ export default function TaskActivityPage() {
       window.removeEventListener('socket-connected', handleSocketConnected)
     }
   }, [])
+
+  // Lightweight refresh that does not toggle the global loading spinner.
+  // Use this for real-time updates such as assignee changes to avoid UI flicker.
+  const refreshTaskDataSilently = useCallback(async () => {
+    try {
+      await triggerRealtimeUpdate()
+    } catch (error) {
+      console.error('Error silently refreshing task data:', error)
+    }
+  }, [triggerRealtimeUpdate])
 
   // Socket.IO event listeners for real-time updates
   useEffect(() => {
@@ -708,17 +718,8 @@ export default function TaskActivityPage() {
       s.off('task_relations')
       s.off('task_groups')
     }
-  }, [socketInstance, currentUser])
+  }, [socketInstance, currentUser, refreshTaskDataSilently, updateCacheOptimistically])
 
-  // Lightweight refresh that does not toggle the global loading spinner.
-  // Use this for real-time updates such as assignee changes to avoid UI flicker.
-  const refreshTaskDataSilently = async () => {
-    try {
-      await triggerRealtimeUpdate()
-    } catch (error) {
-      console.error('Error silently refreshing task data:', error)
-    }
-  }
 
   const handleTaskMove = async (taskId: string, newGroupId: string, targetPosition?: number) => {
     try {

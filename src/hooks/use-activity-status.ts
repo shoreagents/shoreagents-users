@@ -36,6 +36,32 @@ export function useActivityStatus() {
     }
   }, [shiftInfo?.time])
 
+  // Helper function to validate inactive state
+  const validateInactiveState = useCallback((
+    serverActivityState: boolean | undefined, 
+    localActivityState: boolean | null, 
+    isOnBreak: boolean, 
+    isInMeeting: boolean
+  ): boolean => {
+    // If server explicitly says inactive, trust it
+    if (serverActivityState === false) {
+      return true
+    }
+    
+    // If local state says inactive but server says active, don't trust local
+    if (localActivityState === false && serverActivityState === true) {
+      return false
+    }
+    
+    // If we have conflicting information, be conservative
+    if (localActivityState !== null && serverActivityState !== undefined && localActivityState !== serverActivityState) {
+      return false
+    }
+    
+    // Only trust inactive if we have consistent inactive state
+    return localActivityState === false
+  }, [])
+
   const checkActivityStatus = useCallback(() => {
     try {
       const currentUser = getCurrentUser()
@@ -114,33 +140,7 @@ export function useActivityStatus() {
     } finally {
       setIsLoading(false)
     }
-  }, [isInitialized, isBreakActive, isInMeeting, timerData?.isActive, breakStatus?.is_paused, lastActivityState, isShiftEnded])
-
-  // Helper function to validate inactive state
-  const validateInactiveState = useCallback((
-    serverActivityState: boolean | undefined, 
-    localActivityState: boolean | null, 
-    isOnBreak: boolean, 
-    isInMeeting: boolean
-  ): boolean => {
-    // If server explicitly says inactive, trust it
-    if (serverActivityState === false) {
-      return true
-    }
-    
-    // If local state says inactive but server says active, don't trust local
-    if (localActivityState === false && serverActivityState === true) {
-      return false
-    }
-    
-    // If we have conflicting information, be conservative
-    if (localActivityState !== null && serverActivityState !== undefined && localActivityState !== serverActivityState) {
-      return false
-    }
-    
-    // Only trust inactive if we have consistent inactive state
-    return localActivityState === false
-  }, [])
+  }, [isInitialized, isBreakActive, isInMeeting, timerData?.isActive, breakStatus?.is_paused, lastActivityState, isShiftEnded, validateInactiveState])
 
   useEffect(() => {
     // Check immediately

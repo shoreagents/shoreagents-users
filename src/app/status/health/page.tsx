@@ -177,7 +177,7 @@ export default function HealthPage() {
     if (currentApprovedRequest && !currentHealthRequest) {
       setCurrentHealthRequest(currentApprovedRequest)
     }
-  }, [currentApprovedRequest, currentHealthRequest])
+  }, [currentApprovedRequest, currentHealthRequest, setCurrentHealthRequest])
 
   // Reset requestSent state when request is no longer pending
   useEffect(() => {

@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Pool } from 'pg'
 
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+
 const databaseConfig = {
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
@@ -43,7 +46,7 @@ function getUserFromRequest(request: NextRequest) {
 // PUT /api/events/[id] - Update an event (admin only)
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   let pool: Pool | null = null
   try {
@@ -57,7 +60,8 @@ export async function PUT(
       return NextResponse.json({ success: false, message: 'Unauthorized - Admin access required' }, { status: 403 })
     }
 
-    const eventId = parseInt(params.id)
+    const resolvedParams = await params
+    const eventId = parseInt(resolvedParams.id)
     const body = await request.json()
     const { title, description, event_date, start_time, end_time, location, status, event_type, assigned_user_ids } = body
 
@@ -133,7 +137,7 @@ export async function PUT(
 // DELETE /api/events/[id] - Delete an event (admin only)
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   let pool: Pool | null = null
   try {
@@ -147,7 +151,8 @@ export async function DELETE(
       return NextResponse.json({ success: false, message: 'Unauthorized - Admin access required' }, { status: 403 })
     }
 
-    const eventId = parseInt(params.id)
+    const resolvedParams = await params
+    const eventId = parseInt(resolvedParams.id)
 
     pool = new Pool(databaseConfig)
     const client = await pool.connect()

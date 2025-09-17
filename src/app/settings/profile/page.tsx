@@ -1,5 +1,6 @@
 "use client"
 
+import Image from "next/image"
 import { AppSidebar } from "@/components/app-sidebar"
 import { AppHeader } from "@/components/app-header"
 
@@ -414,9 +415,11 @@ export default function ProfilePage() {
                   <div className="flex items-center justify-center">
                     <div className="relative">
                       {profile.profile_picture ? (
-                        <img 
+                        <Image 
                           src={profile.profile_picture} 
                           alt="Profile"
+                          width={96}
+                          height={96}
                           className="w-24 h-24 rounded-full object-cover"
                         />
                       ) : (
@@ -431,9 +434,11 @@ export default function ProfilePage() {
                   {profile.company_logo && (
                     <div className="text-center">
                       <p className="text-xs text-muted-foreground mb-2">Company Logo</p>
-                      <img 
+                      <Image 
                         src={profile.company_logo} 
                         alt="Company Logo"
+                        width={32}
+                        height={32}
                         className="h-8 mx-auto"
                       />
                     </div>

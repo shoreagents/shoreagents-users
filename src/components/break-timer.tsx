@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
+import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
@@ -536,8 +537,6 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
       // Call the database pause API - this should NOT end the break
       await onPause(timeLeft) // Pass remaining time in seconds to database
       
-      // Pause break via API
-      const pauseTime = Date.now()
       
       // Return to breaks page WITHOUT ending the break session  
       // The break should remain active but paused in database
@@ -549,7 +548,7 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
       setHasPaused(false)
       setIsRunning(true)
     }
-  }, [hasPaused, onPause, breakInfo.id, timeLeft, startTime, handleCloseBlackScreens])
+  }, [hasPaused, onPause, timeLeft, handleCloseBlackScreens, router])
 
   // Handle resume - this should restore the timer from where it was paused
   const handleResume = async () => {
@@ -685,10 +684,13 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
         <Card className="border-2 border-primary/20 w-full h-full max-w-none max-h-none m-0 rounded-none">
           <CardHeader className="text-center pt-8">
             <div className="flex justify-center mb-4">
-              <img
+              <Image
                 src="/shoreagents-logo.png"
                 alt="ShoreAgents"
+                width={64}
+                height={64}
                 className="h-12 sm:h-16 object-contain"
+                priority
               />
             </div>
             <div className="flex items-center justify-center gap-4 mb-4">

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useSocket } from '@/contexts/socket-context'
 import { getCurrentUser } from '@/lib/ticket-utils'
 import { getMeetingStatus } from '@/lib/meeting-utils'
@@ -12,7 +12,7 @@ export function useMeetingStatusContext() {
   const [isLoading, setIsLoading] = useState(true)
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'error'>('disconnected')
   
-  const checkMeetingStatus = async () => {
+  const checkMeetingStatus = useCallback(async () => {
     try {
       const currentUser = getCurrentUser()
       if (!currentUser?.id) {
@@ -38,7 +38,7 @@ export function useMeetingStatusContext() {
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [isInMeeting, isLoading])
 
   useEffect(() => {
     // Initial check
@@ -115,7 +115,7 @@ export function useMeetingStatusContext() {
         socket.off('agent-status-update', handleAgentStatusUpdate)
       }
     }
-  }, [socket, isConnected])
+  }, [socket, isConnected, checkMeetingStatus])
 
   // Check meeting status periodically - ONLY when user is in a meeting
   useEffect(() => {
@@ -126,7 +126,7 @@ export function useMeetingStatusContext() {
     
     const interval = setInterval(checkMeetingStatus, 30000) // Check every 30 seconds
     return () => clearInterval(interval)
-  }, [isInMeeting])
+  }, [isInMeeting, checkMeetingStatus])
 
   return {
     isInMeeting,

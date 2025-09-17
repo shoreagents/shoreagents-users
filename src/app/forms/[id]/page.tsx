@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import { useParams } from "next/navigation"
 import { AppSidebar } from "@/components/app-sidebar"
 import { AppHeader } from "@/components/app-header"
@@ -74,7 +74,9 @@ export default function TicketDetailsPage() {
   const ticket = ticketData?.ticket || null
   const loading = ticketLoading || commentsLoading
   const notFound = ticketError?.message === 'Ticket not found'
-  const comments = commentsData?.comments || []
+  
+  // Memoize comments to prevent unnecessary re-renders
+  const comments = useMemo(() => commentsData?.comments || [], [commentsData?.comments])
   const scrollCommentsToBottom = (behavior: ScrollBehavior = 'auto') => {
     try {
       commentsEndRef.current?.scrollIntoView({ behavior })
@@ -127,7 +129,7 @@ export default function TicketDetailsPage() {
       try { es.close() } catch {}
       if (debounce.timer) clearTimeout(debounce.timer)
     }
-  }, [ticketId, triggerRealtimeUpdate])
+  }, [ticketId, triggerRealtimeUpdate, triggerCommentsUpdate])
 
   // Initialize seen comment IDs when comments load
   useEffect(() => {
@@ -638,7 +640,8 @@ export default function TicketDetailsPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="flex flex-col h-80">
-                    <ScrollArea className="flex-1 pr-3">
+                     {/* @ts-ignore - ScrollArea children type issue */}
+                     <ScrollArea className="flex-1 pr-3">
                       <div className="space-y-3">
                         {comments.length === 0 ? (
                           <p className="text-sm text-muted-foreground">No comments yet.</p>
@@ -728,9 +731,9 @@ export default function TicketDetailsPage() {
                               )
                             })
                           )}
-                      </div>
-                       <div ref={commentsEndRef} />
-                    </ScrollArea>
+                       </div>
+                        <div ref={commentsEndRef} />
+                     </ScrollArea>
                     <div className="pt-3 mt-3 border-t">
                       <Textarea
                         id="new-comment"

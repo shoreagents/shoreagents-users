@@ -80,7 +80,7 @@ const fetchMeetings = async (
 }
 
 const fetchMeetingStatus = async (userId: string, days: number = 7): Promise<MeetingStatus> => {
-  const response = await fetch(`/api/meetings/status?agent_user_id=${encodeURIComponent(userId)}&days=${days}`, {
+  const response = await fetch(`/api/meetings/status/?agent_user_id=${encodeURIComponent(userId)}&days=${days}`, {
     credentials: 'include',
   })
   
@@ -119,7 +119,7 @@ const createMeeting = async (meetingData: CreateMeetingData): Promise<{ meeting:
     throw new Error('User not authenticated')
   }
 
-  const response = await fetch('/api/meetings', {
+  const response = await fetch('/api/meetings/', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -145,7 +145,7 @@ const startMeeting = async (meetingId: number): Promise<{ success: boolean }> =>
     throw new Error('User not authenticated')
   }
 
-  const response = await fetch('/api/meetings/start', {
+  const response = await fetch('/api/meetings/start/', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -171,7 +171,7 @@ const endMeeting = async (meetingId: number): Promise<{ success: boolean }> => {
     throw new Error('User not authenticated')
   }
 
-  const response = await fetch('/api/meetings/end', {
+  const response = await fetch('/api/meetings/end/', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -197,7 +197,7 @@ const cancelMeeting = async (meetingId: number): Promise<{ success: boolean }> =
     throw new Error('User not authenticated')
   }
 
-  const response = await fetch('/api/meetings/cancel', {
+  const response = await fetch('/api/meetings/cancel/', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

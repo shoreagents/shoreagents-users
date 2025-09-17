@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { getCurrentUserInfo } from '@/lib/user-profiles'
 import { useSocket } from '@/contexts/socket-context'
@@ -51,7 +51,7 @@ export function useEvents() {
         throw new Error('User not authenticated')
       }
       
-      const response = await fetch('/api/events', {
+      const response = await fetch('/api/events/', {
         credentials: 'include',
       })
       
@@ -72,7 +72,7 @@ export function useEvents() {
   })
   
   // Function to trigger real-time update with cache bypass
-  const triggerRealtimeUpdate = async () => {
+  const triggerRealtimeUpdate = useCallback(async () => {
     if (!currentUser?.email) return
     
     try {
@@ -90,7 +90,7 @@ export function useEvents() {
     } catch (error) {
       console.error('Error fetching fresh events data:', error)
     }
-  }
+  }, [currentUser?.email, queryClient])
   
   // Listen for real-time event updates
   useEffect(() => {
@@ -126,7 +126,7 @@ export function useEvents() {
     const handleEventAttendanceChange = async (data: any) => {
       try {
         // Fetch fresh data directly
-        const response = await fetch('/api/events?bypass_cache=true', {
+        const response = await fetch('/api/events/?bypass_cache=true', {
           credentials: 'include'
         })
         
@@ -155,7 +155,7 @@ export function useEvents() {
     const handleEventUpdated = async (data: any) => {
       try {
         // Fetch fresh data directly
-        const response = await fetch('/api/events?bypass_cache=true', {
+        const response = await fetch('/api/events/?bypass_cache=true', {
           credentials: 'include'
         })
         
@@ -199,7 +199,7 @@ export function useEvents() {
       socket.off('disconnect')
       clearInterval(refreshInterval)
     }
-  }, [socket, isConnected, currentUser?.email, queryClient])
+  }, [socket, isConnected, currentUser?.email, queryClient, triggerRealtimeUpdate])
 
   // Show loading state when client is not ready or user is not loaded yet
   return {
@@ -217,7 +217,7 @@ export function useMarkAsGoing() {
   
   return useMutation({
     mutationFn: async (eventId: number) => {
-      const response = await fetch('/api/events/going', {
+      const response = await fetch('/api/events/going/', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -255,7 +255,7 @@ export function useMarkAsBack() {
   
   return useMutation({
     mutationFn: async (eventId: number) => {
-      const response = await fetch('/api/events/back', {
+      const response = await fetch('/api/events/back/', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -299,7 +299,7 @@ export function useCreateEvent() {
       status: 'upcoming' | 'today' | 'cancelled' | 'ended'
       event_type?: 'event' | 'activity'
     }) => {
-      const response = await fetch('/api/events', {
+      const response = await fetch('/api/events/', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'

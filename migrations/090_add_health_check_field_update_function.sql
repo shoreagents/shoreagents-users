@@ -72,3 +72,7 @@ CREATE TRIGGER health_check_field_update_trigger
     AFTER UPDATE ON health_check_requests
     FOR EACH ROW
     EXECUTE FUNCTION trigger_health_check_field_update();
+
+
+
+

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -59,7 +59,7 @@ export default function MonthlyActivityDisplay({ currentUser }: MonthlyActivityD
     });
   };
 
-  const fetchAllMonthlyData = async () => {
+  const fetchAllMonthlyData = useCallback(async () => {
     if (!currentUser?.email) return;
     
     setLoading(true);
@@ -95,10 +95,10 @@ export default function MonthlyActivityDisplay({ currentUser }: MonthlyActivityD
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentUser?.email]);
 
   // Silent fetch for real-time updates (no loading state)
-  const fetchAllMonthlyDataSilently = async () => {
+  const fetchAllMonthlyDataSilently = useCallback(async () => {
     if (!currentUser?.email) return;
     
     try {
@@ -130,10 +130,10 @@ export default function MonthlyActivityDisplay({ currentUser }: MonthlyActivityD
     } catch (error) {
       console.error('Error fetching monthly data silently:', error);
     }
-  };
+  }, [currentUser?.email]);
 
   // Function to update monthly data from real-time updates
-  const updateMonthlyDataFromSocket = (socketData: any) => {
+  const updateMonthlyDataFromSocket = useCallback((socketData: any) => {
     if (!socketData || socketData.user_id !== currentUser?.id) return;
     
     setLastUpdate(new Date().toLocaleTimeString());
@@ -145,10 +145,10 @@ export default function MonthlyActivityDisplay({ currentUser }: MonthlyActivityD
     // Don't make API calls on every socket event - this causes excessive requests
     // Instead, just update the timestamp to show we received the update
     // The data will be fetched on the next user interaction or page refresh
-  };
+  }, [currentUser?.id]);
 
   // Function to update weekly data from real-time updates
-  const updateWeeklyDataFromSocket = (socketData: any) => {
+  const updateWeeklyDataFromSocket = useCallback((socketData: any) => {
     if (!socketData || socketData.user_id !== currentUser?.id) return;
     
     setLastUpdate(new Date().toLocaleTimeString());
@@ -160,7 +160,7 @@ export default function MonthlyActivityDisplay({ currentUser }: MonthlyActivityD
     // Don't make API calls on every socket event - this causes excessive requests
     // Instead, just update the timestamp to show we received the update
     // The data will be fetched on the next user interaction or page refresh
-  };
+  }, [currentUser?.id]);
 
   useEffect(() => {
     if (currentUser?.email) {
@@ -168,7 +168,7 @@ export default function MonthlyActivityDisplay({ currentUser }: MonthlyActivityD
       // Data now updates automatically via database triggers
       fetchAllMonthlyData();
     }
-  }, [currentUser?.email]);
+  }, [currentUser?.email, fetchAllMonthlyData]);
 
   // Periodic refresh only when user is active and not in break/meeting
   useEffect(() => {
@@ -180,7 +180,7 @@ export default function MonthlyActivityDisplay({ currentUser }: MonthlyActivityD
     }, 120000); // 2 minutes
     
     return () => clearInterval(interval);
-  }, [currentUser?.email, isBreakActive, isInMeeting]);
+  }, [currentUser?.email, isBreakActive, isInMeeting, fetchAllMonthlyDataSilently]);
 
   // Refresh data when user returns to the tab
   useEffect(() => {
@@ -192,7 +192,7 @@ export default function MonthlyActivityDisplay({ currentUser }: MonthlyActivityD
 
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
-  }, [currentUser?.email, isBreakActive, isInMeeting]);
+  }, [currentUser?.email, isBreakActive, isInMeeting, fetchAllMonthlyDataSilently]);
 
   // Listen for real-time monthly activity updates
   useEffect(() => {
@@ -215,7 +215,7 @@ export default function MonthlyActivityDisplay({ currentUser }: MonthlyActivityD
       socket.off('monthly-activity-update', handleMonthlyActivityUpdate);
       socket.off('weekly-activity-update', handleWeeklyActivityUpdate);
     };
-  }, [socket, isConnected, currentUser?.id]);
+  }, [socket, isConnected, currentUser?.id, updateMonthlyDataFromSocket, updateWeeklyDataFromSocket]);
 
   // Calculate current month totals
   const currentMonthTotals = currentMonth?.currentMonth?.reduce((acc: any, day: any) => {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useSocket } from '@/contexts/socket-context'
 import { AppSidebar } from '@/components/app-sidebar'
 import { AppHeader } from '@/components/app-header'
@@ -10,7 +10,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { Search, MoreVertical, Phone, Video, Users, Clock, Wifi, WifiOff } from 'lucide-react'
+import { Search, MoreVertical, Phone, Video, Users, Clock, Wifi, WifiOff, Coffee, Calendar, Heart } from 'lucide-react'
 // Team chat functionality removed - focusing on online/offline tracking only
 import { getCurrentUser } from '@/lib/auth-utils'
 import { useTeamAgents, useTeamAuthData, TeamAgent, UserAuthData } from '@/hooks/use-team-agents'
@@ -21,6 +21,19 @@ interface UserStatus {
   status: 'online' | 'offline'
   loginTime?: string
   lastSeen?: string
+  detailedStatus?: {
+    isInMeeting: boolean
+    isInBreak: boolean
+    isInRestroom: boolean
+    isInEvent: boolean
+    isGoingToClinic: boolean
+    isInClinic: boolean
+    currentMeeting: any | null
+    currentEvent: any | null
+    currentHealthRequest: any | null
+    activeBreakId: string | null
+    lastUpdated: string
+  }
 }
 
 interface TeamInfo {
@@ -48,7 +61,7 @@ export default function ConnectedUsersPage() {
     triggerRealtimeUpdate 
   } = useTeamAgents()
   
-  const teamAgents = teamData?.agents || []
+  const teamAgents = useMemo(() => teamData?.agents || [], [teamData?.agents])
   const teamInfo = teamData?.team || null
   
   // Get auth data for all team agents
@@ -175,16 +188,28 @@ export default function ConnectedUsersPage() {
       setLastUpdated(new Date().toLocaleString())
     }
 
+    // Listen for detailed status updates
+    const handleDetailedStatusUpdate = (user: UserStatus) => {
+      setUserStatuses(prev => {
+        const updated = new Map(prev)
+        updated.set(user.email, user)
+        return updated
+      })
+      setLastUpdated(new Date().toLocaleString())
+    }
+
     // Set up event listeners
     socket.on('connected-users-list', handleConnectedUsersList)
     socket.on('user-status-update', handleUserStatusUpdate)
     socket.on('user-logged-out', handleUserLoggedOut)
+    socket.on('user-detailed-status-update', handleDetailedStatusUpdate)
 
     // Cleanup
     return () => {
       socket.off('connected-users-list', handleConnectedUsersList)
       socket.off('user-status-update', handleUserStatusUpdate)
       socket.off('user-logged-out', handleUserLoggedOut)
+      socket.off('user-detailed-status-update', handleDetailedStatusUpdate)
     }
   }, [socket, isConnected])
 
@@ -219,6 +244,100 @@ export default function ConnectedUsersPage() {
     return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
   }
 
+  // Get status display information for a user
+  const getStatusDisplay = (agent: any) => {
+    const status = userStatuses.get(agent.email)
+    const detailedStatus = status?.detailedStatus
+
+    if (!detailedStatus) {
+      return {
+        status: status?.status || 'offline',
+        statusText: status?.status === 'online' ? 'Available' : 'Offline',
+        statusColor: status?.status === 'online' ? 'green' : 'gray',
+        statusIcon: status?.status === 'online' ? 'Wifi' : 'WifiOff',
+        subStatus: null,
+        subStatusColor: null
+      }
+    }
+
+    // Priority order: In Clinic > Going to Clinic > In Meeting > In Event > On Break > In Restroom > Available
+    if (detailedStatus.isInClinic) {
+      return {
+        status: 'online',
+        statusText: 'In Clinic',
+        statusColor: 'red',
+        statusIcon: 'Heart',
+        subStatus: 'Health Visit',
+        subStatusColor: 'red'
+      }
+    }
+    
+    if (detailedStatus.isGoingToClinic) {
+      return {
+        status: 'online',
+        statusText: 'Going to Clinic',
+        statusColor: 'red',
+        statusIcon: 'Heart',
+        subStatus: 'Health Visit',
+        subStatusColor: 'red'
+      }
+    }
+    
+    if (detailedStatus.isInMeeting) {
+      return {
+        status: 'online',
+        statusText: 'In Meeting',
+        statusColor: 'blue',
+        statusIcon: 'Video',
+        subStatus: detailedStatus.currentMeeting?.title || 'Meeting',
+        subStatusColor: 'blue'
+      }
+    }
+    
+    if (detailedStatus.isInEvent) {
+      return {
+        status: 'online',
+        statusText: 'In Event',
+        statusColor: 'purple',
+        statusIcon: 'Calendar',
+        subStatus: detailedStatus.currentEvent?.title || 'Event',
+        subStatusColor: 'purple'
+      }
+    }
+    
+    if (detailedStatus.isInBreak) {
+      return {
+        status: 'online',
+        statusText: 'On Break',
+        statusColor: 'orange',
+        statusIcon: 'Coffee',
+        subStatus: 'Taking a break',
+        subStatusColor: 'orange'
+      }
+    }
+    
+    if (detailedStatus.isInRestroom) {
+      return {
+        status: 'online',
+        statusText: 'In Restroom',
+        statusColor: 'orange',
+        statusIcon: 'Coffee',
+        subStatus: 'Restroom break',
+        subStatusColor: 'orange'
+      }
+    }
+
+    // Default to available
+    return {
+      status: 'online',
+      statusText: 'Available',
+      statusColor: 'green',
+      statusIcon: 'Wifi',
+      subStatus: null,
+      subStatusColor: null
+    }
+  }
+
   // Combine team agents with their online status
   const agentsWithStatus = teamAgents.map(agent => {
     const status = userStatuses.get(agent.email)
@@ -238,6 +357,28 @@ export default function ConnectedUsersPage() {
 
   const onlineAgents = filteredAgents.filter(agent => agent.status === 'online')
   const offlineAgents = filteredAgents.filter(agent => agent.status === 'offline')
+
+  // Calculate status counts
+  const statusCounts = {
+    inMeeting: 0,
+    onBreak: 0,
+    inRestroom: 0,
+    inEvent: 0,
+    goingToClinic: 0,
+    inClinic: 0,
+    available: 0
+  }
+
+  onlineAgents.forEach(agent => {
+    const statusDisplay = getStatusDisplay(agent)
+    if (statusDisplay.statusText === 'In Meeting') statusCounts.inMeeting++
+    else if (statusDisplay.statusText === 'On Break') statusCounts.onBreak++
+    else if (statusDisplay.statusText === 'In Restroom') statusCounts.inRestroom++
+    else if (statusDisplay.statusText === 'In Event') statusCounts.inEvent++
+    else if (statusDisplay.statusText === 'Going to Clinic') statusCounts.goingToClinic++
+    else if (statusDisplay.statusText === 'In Clinic') statusCounts.inClinic++
+    else if (statusDisplay.statusText === 'Available') statusCounts.available++
+  })
 
   // Combined loading state
   const loading = teamLoading || authLoading
@@ -306,6 +447,61 @@ export default function ConnectedUsersPage() {
               </div>
             </div>
           </div>
+
+          {/* Status Overview Cards */}
+          <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+              {/* In Meeting */}
+              <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3 text-center">
+                <Video className="w-6 h-6 text-blue-600 mx-auto mb-1" />
+                <div className="text-2xl font-bold text-blue-600">{statusCounts.inMeeting}</div>
+                <div className="text-xs text-blue-600 font-medium">In Meeting</div>
+              </div>
+
+              {/* On Break */}
+              <div className="bg-orange-50 dark:bg-orange-900/20 rounded-lg p-3 text-center">
+                <Coffee className="w-6 h-6 text-orange-600 mx-auto mb-1" />
+                <div className="text-2xl font-bold text-orange-600">{statusCounts.onBreak}</div>
+                <div className="text-xs text-orange-600 font-medium">On Break</div>
+              </div>
+
+              {/* In Restroom */}
+              <div className="bg-orange-50 dark:bg-orange-900/20 rounded-lg p-3 text-center">
+                <Coffee className="w-6 h-6 text-orange-600 mx-auto mb-1" />
+                <div className="text-2xl font-bold text-orange-600">{statusCounts.inRestroom}</div>
+                <div className="text-xs text-orange-600 font-medium">Restroom</div>
+              </div>
+
+              {/* In Event */}
+              <div className="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-3 text-center">
+                <Calendar className="w-6 h-6 text-purple-600 mx-auto mb-1" />
+                <div className="text-2xl font-bold text-purple-600">{statusCounts.inEvent}</div>
+                <div className="text-xs text-purple-600 font-medium">In Event</div>
+              </div>
+
+              {/* Going to Clinic */}
+              <div className="bg-red-50 dark:bg-red-900/20 rounded-lg p-3 text-center">
+                <Heart className="w-6 h-6 text-red-600 mx-auto mb-1" />
+                <div className="text-2xl font-bold text-red-600">{statusCounts.goingToClinic}</div>
+                <div className="text-xs text-red-600 font-medium">Going to Clinic</div>
+              </div>
+
+              {/* In Clinic */}
+              <div className="bg-red-50 dark:bg-red-900/20 rounded-lg p-3 text-center">
+                <Heart className="w-6 h-6 text-red-600 mx-auto mb-1" />
+                <div className="text-2xl font-bold text-red-600">{statusCounts.inClinic}</div>
+                <div className="text-xs text-red-600 font-medium">In Clinic</div>
+              </div>
+
+              {/* Available */}
+              <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-3 text-center">
+                <Wifi className="w-6 h-6 text-green-600 mx-auto mb-1" />
+                <div className="text-2xl font-bold text-green-600">{statusCounts.available}</div>
+                <div className="text-xs text-green-600 font-medium">Available</div>
+              </div>
+            </div>
+          </div>
+
           <div className="flex h-full">
             {/* Left Sidebar - User List */}
             <div className="w-80 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
@@ -351,48 +547,92 @@ export default function ConnectedUsersPage() {
                       </Badge>
                     </div>
                     <div className="space-y-2">
-                      {onlineAgents.map((agent) => (
-                        <div
-                          key={agent.email}
-                          onClick={() => {
-                            setSelectedUser(agent);
-                          }}
-                          className={`flex items-center space-x-3 p-3 rounded-lg transition-all duration-200 ${
-                            selectedUser?.email === agent.email
-                              ? 'bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 cursor-pointer shadow-sm'
-                              : 'hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer hover:shadow-sm'
-                          }`}
-                        >
-                          <div className="relative">
-                            <Avatar className="w-10 h-10 ring-2 ring-green-200 dark:ring-green-800">
-                              <AvatarImage src={agent.avatar} />
-                              <AvatarFallback className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
-                                {getInitials(agent.name)}
-                              </AvatarFallback>
-                            </Avatar>
-                            <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 border-2 border-white dark:border-gray-800 rounded-full animate-pulse"></div>
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center space-x-2">
-                              <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                                {agent.name || agent.email.split('@')[0]}
-                              </p>
-                              {currentUserId === agent.id && (
-                                <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">
-                                  You
-                                </Badge>
-                              )}
+                      {onlineAgents.map((agent) => {
+                        const statusDisplay = getStatusDisplay(agent)
+                        return (
+                          <div
+                            key={agent.email}
+                            onClick={() => {
+                              setSelectedUser(agent);
+                            }}
+                            className={`flex items-center space-x-3 p-3 rounded-lg transition-all duration-200 ${
+                              selectedUser?.email === agent.email
+                                ? 'bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 cursor-pointer shadow-sm'
+                                : 'hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer hover:shadow-sm'
+                            }`}
+                          >
+                            <div className="relative">
+                              <Avatar className={`w-10 h-10 ring-2 ${
+                                statusDisplay.statusColor === 'green' ? 'ring-green-200 dark:ring-green-800' :
+                                statusDisplay.statusColor === 'blue' ? 'ring-blue-200 dark:ring-blue-800' :
+                                statusDisplay.statusColor === 'orange' ? 'ring-orange-200 dark:ring-orange-800' :
+                                statusDisplay.statusColor === 'purple' ? 'ring-purple-200 dark:ring-purple-800' :
+                                statusDisplay.statusColor === 'red' ? 'ring-red-200 dark:ring-red-800' :
+                                'ring-gray-200 dark:ring-gray-800'
+                              }`}>
+                                <AvatarImage src={agent.avatar} />
+                                <AvatarFallback className={`${
+                                  statusDisplay.statusColor === 'green' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' :
+                                  statusDisplay.statusColor === 'blue' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' :
+                                  statusDisplay.statusColor === 'orange' ? 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200' :
+                                  statusDisplay.statusColor === 'purple' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200' :
+                                  statusDisplay.statusColor === 'red' ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200' :
+                                  'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
+                                }`}>
+                                  {getInitials(agent.name)}
+                                </AvatarFallback>
+                              </Avatar>
+                              <div className={`absolute -bottom-1 -right-1 w-4 h-4 border-2 border-white dark:border-gray-800 rounded-full ${
+                                statusDisplay.status === 'online' ? 'animate-pulse' : ''
+                              } ${
+                                statusDisplay.statusColor === 'green' ? 'bg-green-500' :
+                                statusDisplay.statusColor === 'blue' ? 'bg-blue-500' :
+                                statusDisplay.statusColor === 'orange' ? 'bg-orange-500' :
+                                statusDisplay.statusColor === 'purple' ? 'bg-purple-500' :
+                                statusDisplay.statusColor === 'red' ? 'bg-red-500' :
+                                'bg-gray-400'
+                              }`}></div>
                             </div>
-                            <div className="flex items-center space-x-2 mt-1">
-                              {agent.loginTime && (
-                                <span className="text-xs text-gray-500 dark:text-gray-400">
-                                  {formatRelativeTime(agent.loginTime)}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center space-x-2">
+                                <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                                  {agent.name || agent.email.split('@')[0]}
+                                </p>
+                                {currentUserId === agent.id && (
+                                  <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">
+                                    You
+                                  </Badge>
+                                )}
+                              </div>
+                              <div className="flex items-center space-x-2 mt-1">
+                                <div className={`w-2 h-2 rounded-full ${
+                                  statusDisplay.statusColor === 'green' ? 'bg-green-500' :
+                                  statusDisplay.statusColor === 'blue' ? 'bg-blue-500' :
+                                  statusDisplay.statusColor === 'orange' ? 'bg-orange-500' :
+                                  statusDisplay.statusColor === 'purple' ? 'bg-purple-500' :
+                                  statusDisplay.statusColor === 'red' ? 'bg-red-500' :
+                                  'bg-gray-400'
+                                }`}></div>
+                                <span className={`text-xs font-medium ${
+                                  statusDisplay.statusColor === 'green' ? 'text-green-600 dark:text-green-400' :
+                                  statusDisplay.statusColor === 'blue' ? 'text-blue-600 dark:text-blue-400' :
+                                  statusDisplay.statusColor === 'orange' ? 'text-orange-600 dark:text-orange-400' :
+                                  statusDisplay.statusColor === 'purple' ? 'text-purple-600 dark:text-purple-400' :
+                                  statusDisplay.statusColor === 'red' ? 'text-red-600 dark:text-red-400' :
+                                  'text-gray-500 dark:text-gray-400'
+                                }`}>
+                                  {statusDisplay.statusText}
                                 </span>
-                              )}
+                                {statusDisplay.subStatus && (
+                                  <span className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                                    • {statusDisplay.subStatus}
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   </div>
                 )}
@@ -515,77 +755,143 @@ export default function ConnectedUsersPage() {
 
                   {/* User Status Details */}
                   <div className="flex-1 p-6 space-y-6">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      {/* Online Status */}
-                      <Card>
-                        <CardHeader className="pb-3">
-                          <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                            Online Status
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="flex items-center space-x-2">
-                            <div className={`w-3 h-3 rounded-full ${
-                              userStatuses.get(selectedUser.email)?.status === 'online' 
-                                ? 'bg-green-500 animate-pulse' 
-                                : 'bg-gray-400'
-                            }`}></div>
-                            <span className="text-sm font-medium">
-                              {userStatuses.get(selectedUser.email)?.status === 'online' ? 'Currently Online' : 'Currently Offline'}
-                            </span>
-                          </div>
-                        </CardContent>
-                      </Card>
-
-                      {/* Last Activity */}
-                      <Card>
-                        <CardHeader className="pb-3">
-                          <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                            Last Activity
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="text-sm">
-                            {userStatuses.get(selectedUser.email)?.lastSeen ? (
-                              <span className="text-gray-900 dark:text-white">
-                                {formatRelativeTime(userStatuses.get(selectedUser.email)?.lastSeen || '')}
-                              </span>
-                            ) : (
-                              <span className="text-gray-500 dark:text-gray-400">Never online</span>
-                            )}
-                          </div>
-                        </CardContent>
-                      </Card>
-
-                      {/* Login Time */}
-                      <Card>
-                        <CardHeader className="pb-3">
-                          <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                            Last Sign In
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="text-sm">
-                            {userAuthDataMap.get(selectedUser.email)?.last_sign_in_at ? (
-                              <div className="space-y-1">
-                                <span className="text-gray-900 dark:text-white font-medium">
-                                  {formatRelativeTime(userAuthDataMap.get(selectedUser.email)?.last_sign_in_at || '')}
+                    {(() => {
+                      const statusDisplay = getStatusDisplay(selectedUser)
+                      const detailedStatus = userStatuses.get(selectedUser.email)?.detailedStatus
+                      
+                      return (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          {/* Current Status */}
+                          <Card>
+                            <CardHeader className="pb-3">
+                              <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                                Current Status
+                              </CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                              <div className="flex items-center space-x-2">
+                                <div className={`w-3 h-3 rounded-full ${
+                                  statusDisplay.statusColor === 'green' ? 'bg-green-500' :
+                                  statusDisplay.statusColor === 'blue' ? 'bg-blue-500' :
+                                  statusDisplay.statusColor === 'orange' ? 'bg-orange-500' :
+                                  statusDisplay.statusColor === 'purple' ? 'bg-purple-500' :
+                                  statusDisplay.statusColor === 'red' ? 'bg-red-500' :
+                                  'bg-gray-400'
+                                } ${statusDisplay.status === 'online' ? 'animate-pulse' : ''}`}></div>
+                                <span className={`text-sm font-medium ${
+                                  statusDisplay.statusColor === 'green' ? 'text-green-600 dark:text-green-400' :
+                                  statusDisplay.statusColor === 'blue' ? 'text-blue-600 dark:text-blue-400' :
+                                  statusDisplay.statusColor === 'orange' ? 'text-orange-600 dark:text-orange-400' :
+                                  statusDisplay.statusColor === 'purple' ? 'text-purple-600 dark:text-purple-400' :
+                                  statusDisplay.statusColor === 'red' ? 'text-red-600 dark:text-red-400' :
+                                  'text-gray-500 dark:text-gray-400'
+                                }`}>
+                                  {statusDisplay.statusText}
                                 </span>
                               </div>
-                            ) : userStatuses.get(selectedUser.email)?.loginTime ? (
-                              <div className="space-y-1">
-                                <span className="text-gray-900 dark:text-white font-medium">
-                                  {formatRelativeTime(userStatuses.get(selectedUser.email)?.loginTime || '')}
-                                </span>
-                                
+                              {statusDisplay.subStatus && (
+                                <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                                  {statusDisplay.subStatus}
+                                </div>
+                              )}
+                            </CardContent>
+                          </Card>
+
+                          {/* Last Activity */}
+                          <Card>
+                            <CardHeader className="pb-3">
+                              <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                                Last Activity
+                              </CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                              <div className="text-sm">
+                                {userStatuses.get(selectedUser.email)?.lastSeen ? (
+                                  <span className="text-gray-900 dark:text-white">
+                                    {formatRelativeTime(userStatuses.get(selectedUser.email)?.lastSeen || '')}
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-500 dark:text-gray-400">Never online</span>
+                                )}
                               </div>
-                            ) : (
-                              <span className="text-gray-500 dark:text-gray-400">Never signed in</span>
-                            )}
-                          </div>
-                        </CardContent>
-                      </Card>
-                    </div>
+                            </CardContent>
+                          </Card>
+
+                          {/* Login Time */}
+                          <Card>
+                            <CardHeader className="pb-3">
+                              <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                                Last Sign In
+                              </CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                              <div className="text-sm">
+                                {userAuthDataMap.get(selectedUser.email)?.last_sign_in_at ? (
+                                  <div className="space-y-1">
+                                    <span className="text-gray-900 dark:text-white font-medium">
+                                      {formatRelativeTime(userAuthDataMap.get(selectedUser.email)?.last_sign_in_at || '')}
+                                    </span>
+                                  </div>
+                                ) : userStatuses.get(selectedUser.email)?.loginTime ? (
+                                  <div className="space-y-1">
+                                    <span className="text-gray-900 dark:text-white font-medium">
+                                      {formatRelativeTime(userStatuses.get(selectedUser.email)?.loginTime || '')}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <span className="text-gray-500 dark:text-gray-400">Never signed in</span>
+                                )}
+                              </div>
+                            </CardContent>
+                          </Card>
+
+                          {/* Status Details */}
+                          {detailedStatus && (
+                            <Card>
+                              <CardHeader className="pb-3">
+                                <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                                  Status Details
+                                </CardTitle>
+                              </CardHeader>
+                              <CardContent>
+                                <div className="space-y-2 text-xs">
+                                  <div className="flex justify-between">
+                                    <span className="text-gray-500 dark:text-gray-400">In Meeting:</span>
+                                    <span className={detailedStatus.isInMeeting ? 'text-blue-600 dark:text-blue-400' : 'text-gray-500 dark:text-gray-400'}>
+                                      {detailedStatus.isInMeeting ? 'Yes' : 'No'}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-gray-500 dark:text-gray-400">On Break:</span>
+                                    <span className={detailedStatus.isInBreak ? 'text-orange-600 dark:text-orange-400' : 'text-gray-500 dark:text-gray-400'}>
+                                      {detailedStatus.isInBreak ? 'Yes' : 'No'}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-gray-500 dark:text-gray-400">In Restroom:</span>
+                                    <span className={detailedStatus.isInRestroom ? 'text-orange-600 dark:text-orange-400' : 'text-gray-500 dark:text-gray-400'}>
+                                      {detailedStatus.isInRestroom ? 'Yes' : 'No'}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-gray-500 dark:text-gray-400">In Event:</span>
+                                    <span className={detailedStatus.isInEvent ? 'text-purple-600 dark:text-purple-400' : 'text-gray-500 dark:text-gray-400'}>
+                                      {detailedStatus.isInEvent ? 'Yes' : 'No'}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-gray-500 dark:text-gray-400">Health Visit:</span>
+                                    <span className={detailedStatus.isGoingToClinic || detailedStatus.isInClinic ? 'text-red-600 dark:text-red-400' : 'text-gray-500 dark:text-gray-400'}>
+                                      {detailedStatus.isGoingToClinic || detailedStatus.isInClinic ? 'Yes' : 'No'}
+                                    </span>
+                                  </div>
+                                </div>
+                              </CardContent>
+                            </Card>
+                          )}
+                        </div>
+                      )
+                    })()}
                   </div>
                 </div>
               ) : (

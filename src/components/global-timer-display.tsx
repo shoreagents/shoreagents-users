@@ -123,7 +123,7 @@ export const GlobalTimerDisplay = React.memo(function GlobalTimerDisplay() {
     } catch (error) {
       return false
     }
-  }, [shiftInfo?.time, nowTick]) // Added nowTick dependency for real-time updates
+  }, [shiftInfo?.time]) // Removed unnecessary nowTick dependency
   
   // Check if shift hasn't started yet - OPTIMIZED: Memoized expensive calculations
   const shiftNotStarted = useMemo(() => {
@@ -147,7 +147,7 @@ export const GlobalTimerDisplay = React.memo(function GlobalTimerDisplay() {
     } catch (error) {
       return false
     }
-  }, [shiftInfo?.time, nowTick]) // Added nowTick dependency for real-time updates
+  }, [shiftInfo?.time]) // Removed unnecessary nowTick dependency
   
   // Debug logging for shift end state
   useEffect(() => {

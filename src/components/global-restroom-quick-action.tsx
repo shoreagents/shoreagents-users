@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { Toilet, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useRestroom } from '@/contexts/restroom-context'
 import { cn } from '@/lib/utils'
@@ -85,7 +85,7 @@ export function GlobalRestroomQuickAction() {
     }
   }
 
-  const handleMouseMove = (e: MouseEvent) => {
+  const handleMouseMove = useCallback((e: MouseEvent) => {
     if (!isDragging) return
 
     const deltaY = e.clientY - dragStart
@@ -96,7 +96,7 @@ export function GlobalRestroomQuickAction() {
     if (Math.abs(deltaY) > 5) {
       setHasDragged(true)
     }
-  }
+  }, [isDragging, dragStart, dragStartPosition])
 
   const handleMouseUp = () => {
     setIsDragging(false)
@@ -119,7 +119,7 @@ export function GlobalRestroomQuickAction() {
       document.removeEventListener('mouseup', handleMouseUp)
       document.body.style.userSelect = ''
     }
-  }, [isDragging, dragStart, dragStartPosition])
+  }, [isDragging, dragStart, dragStartPosition, handleMouseMove])
 
   // Don't show restroom button on login page, if not authenticated, during loading, or if agent is in restricted state
   if (pathname === '/login' || pathname === '/' || !currentUser || isLoading || shouldHideRestroom) {

@@ -32,7 +32,7 @@ app.get('/status', (req, res) => {
 const server = createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
+    origin: process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_APP_URL,
     methods: ["GET", "POST"]
   }
 });
@@ -618,6 +618,20 @@ const userConnections = new Map(); // Map<email, Set<socketId>>
 // Track user online/offline status (based on login/logout, not socket connections)
 const userStatus = new Map(); // Map<email, { status: 'online'|'offline', loginTime: Date, lastSeen: Date }>
 
+// Track detailed user status from all contexts
+const userDetailedStatus = new Map(); // Map<email, { 
+//   isInMeeting: boolean, 
+//   isInBreak: boolean, 
+//   isInRestroom: boolean, 
+//   isInEvent: boolean, 
+//   isGoingToClinic: boolean, 
+//   isInClinic: boolean,
+//   currentMeeting: object | null,
+//   currentEvent: object | null,
+//   currentHealthRequest: object | null,
+//   lastUpdated: Date
+// }>
+
 // Track ongoing authentication processes to prevent duplicates
 const authenticationInProgress = new Map(); // Map<email, Promise>
 
@@ -1025,24 +1039,31 @@ async function getConnectedUsersList() {
       
       if (socketStatus) {
         // User has socket status - use it
+        // Get detailed status for this user
+        const detailedStatus = getUserDetailedStatus(email);
+        
         users.push({
           id: userId,
           email: email,
           name: fullName,
           status: socketStatus.status,
           lastSeen: socketStatus.lastSeen?.toISOString(),
-          loginTime: socketStatus.loginTime?.toISOString()
+          loginTime: socketStatus.loginTime?.toISOString(),
+          detailedStatus: detailedStatus
         });
         console.log(`User ${email} has socket status: ${socketStatus.status}`);
       } else {
         // User doesn't have socket status - mark as offline
+        const detailedStatus = getUserDetailedStatus(email);
+        
         users.push({
           id: userId,
           email: email,
           name: fullName,
           status: 'offline',
           lastSeen: null,
-          loginTime: null
+          loginTime: null,
+          detailedStatus: detailedStatus
         });
         console.log(`User ${email} has no socket status - marked as offline`);
       }
@@ -1066,6 +1087,74 @@ function broadcastMeetingStatus(email, isInMeeting) {
     });
     // Broadcasted meeting status update;
   }
+}
+
+// Function to update detailed user status
+function updateUserDetailedStatus(email, statusUpdate) {
+  if (!userDetailedStatus.has(email)) {
+    userDetailedStatus.set(email, {
+      isInMeeting: false,
+      isInBreak: false,
+      isInRestroom: false,
+      isInEvent: false,
+      isGoingToClinic: false,
+      isInClinic: false,
+      currentMeeting: null,
+      currentEvent: null,
+      currentHealthRequest: null,
+      lastUpdated: new Date()
+    });
+  }
+  
+  const currentStatus = userDetailedStatus.get(email);
+  const updatedStatus = {
+    ...currentStatus,
+    ...statusUpdate,
+    lastUpdated: new Date()
+  };
+  
+  userDetailedStatus.set(email, updatedStatus);
+  console.log(`Updated detailed status for ${email}:`, updatedStatus);
+  
+  // Broadcast the detailed status update to all clients
+  broadcastDetailedStatusUpdate(email, updatedStatus);
+}
+
+// Function to broadcast detailed status update to all clients
+function broadcastDetailedStatusUpdate(email, detailedStatus) {
+  // Get user info for display
+  const userInfo = userData.get(email);
+  const userId = userInfo?.userId || email;
+  
+  // Broadcast to all clients
+  io.emit('user-detailed-status-update', {
+    id: userId,
+    email: email,
+    name: userInfo?.name || email,
+    status: userStatus.get(email)?.status || 'offline',
+    loginTime: userStatus.get(email)?.loginTime?.toISOString(),
+    lastSeen: userStatus.get(email)?.lastSeen?.toISOString(),
+    detailedStatus: detailedStatus,
+    timestamp: new Date().toISOString()
+  });
+  
+  console.log(`Broadcasted detailed status update for ${email}`);
+}
+
+// Function to get detailed status for a user
+function getUserDetailedStatus(email) {
+  return userDetailedStatus.get(email) || {
+    isInMeeting: false,
+    isInBreak: false,
+    isInRestroom: false,
+    isInEvent: false,
+    isGoingToClinic: false,
+    isInClinic: false,
+    currentMeeting: null,
+    currentEvent: null,
+    currentHealthRequest: null,
+    lastUpdated: new Date()
+  };
 }
 
 // Function to check if shift reset is needed for a user
@@ -2796,11 +2885,88 @@ io.on('connection', (socket) => {
       userMeetingStatus.set(userData.email, isInMeeting);
       console.log(`Meeting status updated for ${userData.email}: ${isInMeeting ? 'In Meeting' : 'Not in Meeting'}`);
       
+      // Update detailed status
+      updateUserDetailedStatus(userData.email, { isInMeeting });
+      
       // Broadcast to all user connections
       broadcastMeetingStatus(userData.email, isInMeeting);
       
     } catch (error) {
       console.error('Meeting status update error:', error);
+    }
+  });
+
+  // Handle break status updates
+  socket.on('updateBreakStatus', async (isInBreak, breakId = null) => {
+    try {
+      const userData = connectedUsers.get(socket.id);
+      if (!userData) return;
+
+      console.log(`Break status updated for ${userData.email}: ${isInBreak ? 'On Break' : 'Not on Break'}`);
+      
+      // Update detailed status
+      updateUserDetailedStatus(userData.email, { 
+        isInBreak,
+        activeBreakId: breakId
+      });
+      
+    } catch (error) {
+      console.error('Break status update error:', error);
+    }
+  });
+
+  // Handle restroom status updates
+  socket.on('updateRestroomStatus', async (isInRestroom) => {
+    try {
+      const userData = connectedUsers.get(socket.id);
+      if (!userData) return;
+
+      console.log(`Restroom status updated for ${userData.email}: ${isInRestroom ? 'In Restroom' : 'Not in Restroom'}`);
+      
+      // Update detailed status
+      updateUserDetailedStatus(userData.email, { isInRestroom });
+      
+    } catch (error) {
+      console.error('Restroom status update error:', error);
+    }
+  });
+
+  // Handle event status updates
+  socket.on('updateEventStatus', async (isInEvent, currentEvent = null) => {
+    try {
+      const userData = connectedUsers.get(socket.id);
+      if (!userData) return;
+
+      console.log(`Event status updated for ${userData.email}: ${isInEvent ? 'In Event' : 'Not in Event'}`);
+      
+      // Update detailed status
+      updateUserDetailedStatus(userData.email, { 
+        isInEvent,
+        currentEvent
+      });
+      
+    } catch (error) {
+      console.error('Event status update error:', error);
+    }
+  });
+
+  // Handle health status updates
+  socket.on('updateHealthStatus', async (isGoingToClinic, isInClinic, currentHealthRequest = null) => {
+    try {
+      const userData = connectedUsers.get(socket.id);
+      if (!userData) return;
+
+      console.log(`Health status updated for ${userData.email}: Going to Clinic: ${isGoingToClinic}, In Clinic: ${isInClinic}`);
+      
+      // Update detailed status
+      updateUserDetailedStatus(userData.email, { 
+        isGoingToClinic,
+        isInClinic,
+        currentHealthRequest
+      });
+      
+    } catch (error) {
+      console.error('Health status update error:', error);
     }
   });
 
@@ -3011,7 +3177,7 @@ io.on('connection', (socket) => {
    });
 });
 
-const PORT = process.env.SOCKET_PORT || 3001;
+const PORT = process.env.SOCKET_PORT || 3004;
 server.listen(PORT, () => {
   console.log(`Socket.IO server running on port ${PORT}`);
   console.log(`Break reminder scheduler: ${breakReminderScheduler.getStatus().isRunning ? 'Running' : 'Stopped'} (${breakReminderScheduler.getStatus().interval}s interval)`);

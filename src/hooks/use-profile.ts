@@ -78,7 +78,7 @@ export function useProfile() {
         throw new Error('No user email available')
       }
       
-      const apiUrl = `http://localhost:3000/api/profile/?email=${encodeURIComponent(currentUser.email)}`
+      const apiUrl = `/api/profile/?email=${encodeURIComponent(currentUser.email)}`
       
       const response = await fetch(apiUrl, {
         method: 'GET',
@@ -133,7 +133,7 @@ export function useProfileById(userId: number) {
   const profileQuery = useQuery({
     queryKey: ['profile', 'by-id', userId],
     queryFn: async (): Promise<ProfileResponse> => {
-      const apiUrl = `http://localhost:3000/api/profile/?userId=${userId}`
+      const apiUrl = `/api/profile/?userId=${userId}`
       
       const response = await fetch(apiUrl, {
         method: 'GET',
@@ -183,7 +183,7 @@ export function useUpdateProfile() {
 
   const updateProfile = async (updates: Partial<UserProfile>, userId?: number, email?: string) => {
     try {
-      const response = await fetch('/api/profile', {
+      const response = await fetch('/api/profile/', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

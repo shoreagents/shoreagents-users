@@ -1,6 +1,7 @@
 "use client"
 
 import React from 'react'
+import Image from 'next/image'
 import {
   Dialog,
   DialogContent,
@@ -156,16 +157,19 @@ export function ImageViewerDialog({ isOpen, onClose, imageUrl, fileName }: Image
           onWheel={handleWheel}
           style={{ cursor: isDragging ? 'grabbing' : scale !== 1 ? 'grab' : 'default' }}
         >
-          <img
+          <Image
             ref={imageRef}
             src={imageUrl}
             alt={fileName}
+            width={800}
+            height={600}
             className="max-w-none select-none"
             style={{
               transform: `scale(${scale}) rotate(${rotation}deg) translate(${position.x}px, ${position.y}px)`,
               transition: isDragging ? 'none' : 'transform 0.1s ease-out'
             }}
             draggable={false}
+            unoptimized
           />
         </div>
       </DialogContent>

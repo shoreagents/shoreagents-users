@@ -125,7 +125,7 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
       setInactivityThreshold(30000)
       startTracking()
     }
-  }, [hasLoggedIn, isTracking, isBreakActive, isInMeeting, isInEvent, isGoingToClinic, isInClinic, isInRestroom, shiftInfo, startTracking, setInactivityThreshold])
+  }, [hasLoggedIn, isTracking, isBreakActive, isInMeeting, isInEvent, isGoingToClinic, isInClinic, isInRestroom, shiftInfo, startTracking, setInactivityThreshold, checkIfShiftEnded, checkIfShiftNotStarted])
 
   // Pause/resume activity tracking based on various status conditions
   useEffect(() => {
@@ -339,7 +339,7 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
         })
       }
     }
-  }, [showInactivityDialog, notificationShown, inactivityData, isInMeeting, isInEvent])
+  }, [showInactivityDialog, notificationShown, inactivityData, isInMeeting, isInEvent, checkIfShiftEnded, checkIfShiftNotStarted, shiftInfo])
 
   // Close inactivity dialog and notification when meeting starts
   useEffect(() => {
@@ -368,7 +368,7 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
         notificationTimeoutRef.current = null
       }
     }
-  }, [isInMeeting, isInEvent, notificationShown])
+  }, [isInMeeting, isInEvent, notificationShown, setShowInactivityDialog])
 
   // Reset notification flag when dialog closes
   useEffect(() => {

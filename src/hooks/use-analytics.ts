@@ -136,7 +136,7 @@ export function useAnalyticsLeaderboard() {
     queryKey: ['analytics-leaderboard'],
     queryFn: async (): Promise<{ leaderboard: LeaderboardRow[], monthYear: string }> => {
       // First, get team agents to filter by team
-      const teamAgentsResponse = await fetch('/api/agents/team')
+      const teamAgentsResponse = await fetch('/api/agents/team/')
       if (!teamAgentsResponse.ok) {
         throw new Error(`Failed to fetch team agents: ${teamAgentsResponse.statusText}`)
       }
@@ -149,7 +149,7 @@ export function useAnalyticsLeaderboard() {
       }
       
       // Get all leaderboard data
-      const response = await fetch('/api/leaderboard?limit=100', {
+      const response = await fetch('/api/leaderboard/?limit=100', {
         credentials: 'include'
       })
       

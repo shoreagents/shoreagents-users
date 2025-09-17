@@ -61,7 +61,7 @@ export function useTeamAgents() {
         throw new Error('User not authenticated')
       }
       
-      const response = await fetch('/api/agents/team', {
+      const response = await fetch('/api/agents/team/', {
         credentials: 'include',
       })
       

@@ -25,7 +25,7 @@ export function useTaskActivitySocket(email: string | null): TaskActivitySocket 
     }
 
     // Connect to Socket.IO server
-    const socketServerUrl = (process.env.NEXT_PUBLIC_SOCKET_URL || process.env.SOCKET_SERVER_URL || 'http://localhost:3001') as string
+    const socketServerUrl = (process.env.NEXT_PUBLIC_SOCKET_URL || process.env.SOCKET_SERVER_URL || 'http://localhost:3004') as string
     socketRef.current = io(socketServerUrl)
 
     socketRef.current.on('connect', () => {

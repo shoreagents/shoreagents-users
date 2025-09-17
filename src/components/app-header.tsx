@@ -120,7 +120,8 @@ export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser =
     if (user?.email && socketConnected) {
       fetchNotifications(0, 8, 0) // userId parameter is not used anymore
     }
-  }, [user?.email, socketConnected, fetchNotifications])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.email, socketConnected])
 
   // Sync app-header notifications with socket context
   useEffect(() => {

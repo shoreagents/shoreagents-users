@@ -146,7 +146,7 @@ export function TutorialProvider({ children }: { children: React.ReactNode }) {
     }
 
     checkTutorialStatus()
-  }, [isLoading]) // Add isLoading as dependency
+  }, [isLoading, hasStartedTutorial]) // Add isLoading and hasStartedTutorial as dependencies
 
   const startTutorial = () => {
     setIsTutorialActive(true)

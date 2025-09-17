@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
+import Image from "next/image"
 import { FileText, Eye, EyeOff } from "lucide-react"
 
 import { cn } from "@/lib/utils"
@@ -155,10 +156,13 @@ export function LoginForm({
       <CardHeader className="space-y-1">
         <div className="flex flex-col items-center space-y-2">
           <div className="flex items-center justify-center">
-            <img 
+            <Image 
               src="https://www.shoreagents.com/wp-content/uploads/2023/04/ShoreAgents-Logo.png" 
               alt="ShoreAgents Logo" 
+              width={200}
+              height={64}
               className="h-16 w-auto"
+              priority
             />
               </div>
           <div className="space-y-1 text-center">
