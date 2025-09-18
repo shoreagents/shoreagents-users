@@ -102,23 +102,6 @@ export const executeQuery = async <T = any>(
     client.release();
   }
 };
-
-/**
- * Test database connection (server-side only)
- */
-export const testDatabaseConnection = async (): Promise<boolean> => {
-  try {
-    const result = await executeQuery('SELECT NOW() as current_time');
-    return true;
-  } catch (error) {
-    console.error('Database connection test failed:', error);
-    return false;
-  }
-};
-
-/**
- * Close database connection pool (server-side only)
- */
 export const closeDatabase = async (): Promise<void> => {
   if (pool) {
     await pool.end();

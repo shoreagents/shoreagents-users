@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 // import { startActiveSession, startInactiveSession, updateLastActivity, initializeUserActivity, pauseActivityForSystemSuspend, resumeActivityFromSystemSuspend } from '@/lib/activity-storage';
 import { getCurrentUser } from '@/lib/ticket-utils';
 
@@ -26,6 +26,9 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean) => vo
   const [showInactivityDialog, setShowInactivityDialog] = useState(false);
   const [inactivityData, setInactivityData] = useState<InactivityAlert | null>(null);
   const [activityStatus, setActivityStatus] = useState<ActivityStatus | null>(null);
+  
+  // Ref to track if listeners are already set up for this instance
+  const listenersSetupRef = useRef(false);
 
   // Start activity tracking
   const startTracking = useCallback(async () => {
@@ -309,7 +312,7 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean) => vo
     }
   }, [showInactivityDialog, inactivityData]);
 
-  // Set up event listeners
+  // Set up event listeners with proper cleanup
   useEffect(() => {
     // Check if electronAPI is available
     if (!window.electronAPI) {
@@ -317,30 +320,44 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean) => vo
       return;
     }
 
-    // Listen for activity updates
-    window.electronAPI.receive('activity-update', handleActivityUpdate);
-    
-    // Listen for inactivity alerts
-    window.electronAPI.receive('inactivity-alert', handleInactivityAlert);
-    
-    // Listen for activity resets
-    window.electronAPI.receive('activity-reset', handleActivityReset);
-    
-    // Listen for system suspend/resume events
-    window.electronAPI.receive('system-suspend', handleSystemSuspend);
-    window.electronAPI.receive('system-resume', handleSystemResume);
+    // Only initialize listeners once per instance
+    if (!listenersSetupRef.current) {
+      // Listen for activity updates
+      window.electronAPI.receive('activity-update', handleActivityUpdate);
+      
+      // Listen for inactivity alerts
+      window.electronAPI.receive('inactivity-alert', handleInactivityAlert);
+      
+      // Listen for activity resets
+      window.electronAPI.receive('activity-reset', handleActivityReset);
+      
+      // Listen for system suspend/resume events
+      window.electronAPI.receive('system-suspend', handleSystemSuspend);
+      window.electronAPI.receive('system-resume', handleSystemResume);
+
+      listenersSetupRef.current = true;
+    }
 
     // Cleanup listeners on unmount
     return () => {
-      if (window.electronAPI) {
-        window.electronAPI.removeAllListeners('activity-update');
-        window.electronAPI.removeAllListeners('inactivity-alert');
-        window.electronAPI.removeAllListeners('activity-reset');
-        window.electronAPI.removeAllListeners('system-suspend');
-        window.electronAPI.removeAllListeners('system-resume');
+      if (window.electronAPI && listenersSetupRef.current) {
+        // Use removeAllListeners as a fallback since removeListener might not exist
+        try {
+          if (typeof window.electronAPI.removeAllListeners === 'function') {
+            window.electronAPI.removeAllListeners('activity-update');
+            window.electronAPI.removeAllListeners('inactivity-alert');
+            window.electronAPI.removeAllListeners('activity-reset');
+            window.electronAPI.removeAllListeners('system-suspend');
+            window.electronAPI.removeAllListeners('system-resume');
+          }
+        } catch (error) {
+          console.warn('Error removing event listeners:', error);
+        }
+        listenersSetupRef.current = false;
       }
     };
-  }, [handleActivityUpdate, handleInactivityAlert, handleActivityReset, handleSystemSuspend, handleSystemResume]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Empty dependency array to run only once
 
   // Get current activity status periodically
   useEffect(() => {

@@ -28,7 +28,8 @@ import {
   Settings,
   AlertCircle,
   Loader2,
-  Search
+  Search,
+  X
 } from "lucide-react"
 import {
   SidebarInset,
@@ -59,6 +60,9 @@ export default function HealthPage() {
   const [showHistoryModal, setShowHistoryModal] = useState(false)
   const [isLoadingHistory, setIsLoadingHistory] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
+  const [isCanceling, setIsCanceling] = useState(false)
+  const [showCancelDialog, setShowCancelDialog] = useState(false)
+  const [requestToCancel, setRequestToCancel] = useState<number | null>(null)
 
   // Get current user
   useEffect(() => {
@@ -93,7 +97,8 @@ export default function HealthPage() {
     hasPendingRequest,
     updateGoingToClinic,
     updateInClinic,
-    updateDone
+    updateDone,
+    cancelRequest
   } = useHealthCheckSocketContext(currentUser?.email || null)
 
   // Use health context
@@ -106,14 +111,14 @@ export default function HealthPage() {
     handleBackToStation
   } = useHealth()
 
-  // Fetch data on mount (except user requests)
+  // Fetch data on mount
   useEffect(() => {
     if (currentUser?.id) {
       fetchRecords(currentUser.id, 10, 0)
       fetchAvailability(1) // Fetch nurse_id 1 availability
-      // Don't fetch user requests automatically
+      fetchUserRequests(currentUser.id) // Fetch user requests on mount
     }
-  }, [currentUser?.id, fetchRecords, fetchAvailability])
+  }, [currentUser?.id, fetchRecords, fetchAvailability, fetchUserRequests])
 
   // Function to handle fetching history
   const handleFetchHistory = async () => {
@@ -128,6 +133,42 @@ export default function HealthPage() {
       console.error('Error fetching history:', error)
     } finally {
       setIsLoadingHistory(false)
+    }
+  }
+
+  // Function to handle canceling a health check request
+  const handleCancelRequest = async (requestId: number) => {
+    setIsCanceling(true)
+    try {
+      await cancelRequest(requestId)
+      setShowCancelDialog(false)
+      setRequestToCancel(null)
+      
+      // Show success notification
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('health-check-notification', {
+          detail: {
+            type: 'success',
+            title: 'Request Canceled',
+            message: 'Your health check request has been canceled successfully.'
+          }
+        }))
+      }
+    } catch (error) {
+      console.error('Error canceling request:', error)
+      
+      // Show error notification
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('health-check-notification', {
+          detail: {
+            type: 'error',
+            title: 'Cancel Failed',
+            message: 'Failed to cancel the health check request. Please try again.'
+          }
+        }))
+      }
+    } finally {
+      setIsCanceling(false)
     }
   }
 
@@ -155,6 +196,7 @@ export default function HealthPage() {
     return () => clearInterval(interval)
   }, [currentUser?.id, fetchUserRequests])
 
+
   // Check nurse status
   const nurseStatus = isNurseOnDuty(1) // nurse_id 1
   const nurseOnDuty = nurseStatus && typeof nurseStatus === 'object' ? nurseStatus.onDuty : false
@@ -171,6 +213,7 @@ export default function HealthPage() {
   const currentApprovedRequest = userRequests.find(req => 
     req.user_id === currentUser?.id && (req.status === 'approved' || req.status === 'completed')
   )
+
 
   // Set current health request when approved
   useEffect(() => {
@@ -784,10 +827,34 @@ export default function HealthPage() {
                             </div>
                           </div>
                         ) : currentApprovedRequest.going_to_clinic && !currentApprovedRequest.in_clinic ? (
-                          <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                            <p className="text-sm text-yellow-800 text-center">
-                              <strong>Going to Clinic:</strong> You are on your way to the clinic. Please proceed to Unit 2.
-                            </p>
+                          <div className="space-y-3">
+                            <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                              <p className="text-sm text-yellow-800 text-center">
+                                <strong>Going to Clinic:</strong> You are on your way to the clinic. Please proceed to Unit 2.
+                              </p>
+                            </div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setRequestToCancel(currentApprovedRequest.id)
+                                setShowCancelDialog(true)
+                              }}
+                              disabled={isCanceling}
+                              className="w-full"
+                            >
+                              {isCanceling ? (
+                                <>
+                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  Canceling...
+                                </>
+                              ) : (
+                                <>
+                                  <X className="mr-2 h-4 w-4" />
+                                  Cancel Request
+                                </>
+                              )}
+                            </Button>
                           </div>
                         ) : null}
                       </div>
@@ -806,21 +873,82 @@ export default function HealthPage() {
                       </Button>
                     )}
 
-                    {(requestSent || userHasPendingRequest) && !currentApprovedRequest && (
-                      <p className="text-sm text-center text-muted-foreground">
+                    {/* Show status and cancel button for pending requests */}
+                    {userHasPendingRequest && (
+                      <div className="space-y-3">
+                        {/* Cancel button for pending requests - shown first */}
                         {(() => {
-                          // Get the latest request status
-                          const latestRequest = userRequests.find(req => req.user_id === currentUser?.id)
-                          if (latestRequest?.status === 'pending') {
-                            return "Your health check request has been submitted. Please wait for approval."
-                          } else if (latestRequest?.status === 'rejected') {
-                            return "Your health check request has been rejected. Please contact the nurse for more information."
-                          } else if (latestRequest?.status === 'cancelled') {
-                            return "Your health check request has been cancelled."
+                          // Find the most recent pending request for this user
+                          const userRequestsForUser = userRequests.filter(req => req.user_id === currentUser?.id)
+                          const latestPendingRequest = userRequestsForUser
+                            .filter(req => req.status === 'pending')
+                            .sort((a, b) => new Date(b.request_time).getTime() - new Date(a.request_time).getTime())[0]
+                          
+                          if (latestPendingRequest) {
+                            return (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setRequestToCancel(latestPendingRequest.id)
+                                  setShowCancelDialog(true)
+                                }}
+                                disabled={isCanceling}
+                                className="w-full"
+                              >
+                                {isCanceling ? (
+                                  <>
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    Canceling...
+                                  </>
+                                ) : (
+                                  <>
+                                    <X className="mr-2 h-4 w-4" />
+                                    Cancel Request
+                                  </>
+                                )}
+                              </Button>
+                            )
                           }
-                          return "Your health check request has been submitted. Please wait for approval."
+                          return null
                         })()}
-                      </p>
+                        
+                        <p className="text-sm text-center text-muted-foreground">
+                          {(() => {
+                            // Get the latest pending request for this user
+                            const userRequestsForUser = userRequests.filter(req => req.user_id === currentUser?.id)
+                            const latestPendingRequest = userRequestsForUser
+                              .filter(req => req.status === 'pending')
+                              .sort((a, b) => new Date(b.request_time).getTime() - new Date(a.request_time).getTime())[0]
+                            
+                            if (latestPendingRequest?.status === 'pending') {
+                              return "Your health check request has been submitted. Please wait for approval."
+                            }
+                            return "Your health check request has been submitted. Please wait for approval."
+                          })()}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Show status for non-pending requests when there's no approved request */}
+                    {(requestSent || userRequests.some(req => req.user_id === currentUser?.id && ['rejected', 'cancelled'].includes(req.status))) && !currentApprovedRequest && !userHasPendingRequest && (
+                      <div className="space-y-3">
+                        <p className="text-sm text-center text-muted-foreground">
+                          {(() => {
+                            // Get the latest request status (most recent by request_time)
+                            const userRequestsForUser = userRequests.filter(req => req.user_id === currentUser?.id)
+                            const latestRequest = userRequestsForUser.sort((a, b) => 
+                              new Date(b.request_time).getTime() - new Date(a.request_time).getTime()
+                            )[0]
+                            if (latestRequest?.status === 'rejected') {
+                              return "Your health check request has been rejected. Please contact the nurse for more information."
+                            } else if (latestRequest?.status === 'cancelled') {
+                              return "Your health check request has been cancelled."
+                            }
+                            return "Your health check request has been submitted. Please wait for approval."
+                          })()}
+                        </p>
+                      </div>
                     )}
                   </>
                 ) : (
@@ -1175,6 +1303,44 @@ export default function HealthPage() {
                 )}
               </div>
             )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Cancel Confirmation Dialog */}
+        <Dialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Cancel Health Check Request</DialogTitle>
+              <DialogDescription>
+                Are you sure you want to cancel your health check request? This action cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex justify-end space-x-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowCancelDialog(false)
+                  setRequestToCancel(null)
+                }}
+                disabled={isCanceling}
+              >
+                Keep Request
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => requestToCancel && handleCancelRequest(requestToCancel)}
+                disabled={isCanceling}
+              >
+                {isCanceling ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Canceling...
+                  </>
+                ) : (
+                  'Cancel Request'
+                )}
+              </Button>
+            </div>
           </DialogContent>
         </Dialog>
       </SidebarInset>

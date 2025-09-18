@@ -15,10 +15,7 @@ import { Badge } from "@/components/ui/badge"
 import { 
   HelpCircle, 
   Mail, 
-  Phone, 
-  MessageSquare,
   Clock,
-  AlertTriangle,
   FileText,
   Users,
   Globe
@@ -41,22 +38,6 @@ const supportChannels = [
     icon: Mail,
     action: "Send Email",
     href: "mailto:support@shoreagents.com",
-    priority: "medium"
-  },
-  {
-    title: "Phone Support",
-    description: "Call our support line for urgent issues that require immediate attention.",
-    icon: Phone,
-    action: "Call Now",
-    href: "tel:+1-555-123-4567",
-    priority: "high"
-  },
-  {
-    title: "Live Chat",
-    description: "Chat with our support team in real-time for quick questions and assistance.",
-    icon: MessageSquare,
-    action: "Start Chat",
-    href: "#",
     priority: "medium"
   }
 ]
@@ -103,8 +84,8 @@ export default function ContactSupportPage() {
               {/* Support Channels */}
               <div className="grid gap-4 md:grid-cols-2">
                 {supportChannels.map((channel, index) => (
-                  <Card key={index} className="relative">
-                    <CardHeader>
+                  <Card key={index} className="relative flex flex-col h-full">
+                    <CardHeader className="flex-1">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <channel.icon className="h-5 w-5 text-primary" />
@@ -120,7 +101,7 @@ export default function ContactSupportPage() {
                         {channel.description}
                       </CardDescription>
                     </CardHeader>
-                    <CardContent>
+                    <CardContent className="mt-auto">
                       <Link href={channel.href}>
                         <Button className="w-full">
                           {channel.action}
@@ -150,13 +131,6 @@ export default function ContactSupportPage() {
                         <span className="font-medium">Email</span>
                       </div>
                       <p className="text-sm text-muted-foreground">support@shoreagents.com</p>
-                    </div>
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <Phone className="h-4 w-4 text-muted-foreground" />
-                        <span className="font-medium">Phone</span>
-                      </div>
-                      <p className="text-sm text-muted-foreground">+1 (555) 123-4567</p>
                     </div>
                     <div className="space-y-2">
                       <div className="flex items-center gap-2">
@@ -222,27 +196,6 @@ export default function ContactSupportPage() {
                 </CardContent>
               </Card>
 
-              {/* Emergency Support */}
-              <Card className="border-orange-200 bg-orange-50">
-                <CardHeader>
-                  <CardTitle className="text-lg text-orange-800">Emergency Support</CardTitle>
-                  <CardDescription className="text-orange-700">
-                    For urgent issues outside business hours
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <AlertTriangle className="h-4 w-4 text-orange-600" />
-                    <span className="text-sm text-orange-800">24/7 Emergency Line</span>
-                  </div>
-                  <p className="text-xs text-orange-700">
-                    Call +1 (555) 123-4567 and press 9 for emergency support
-                  </p>
-                  <Button variant="outline" className="w-full border-orange-300 text-orange-800 hover:bg-orange-100">
-                    Emergency Contact
-                  </Button>
-                </CardContent>
-              </Card>
             </div>
           </div>
         </div>

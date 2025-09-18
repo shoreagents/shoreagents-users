@@ -69,13 +69,41 @@ export function RestroomProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
-  // Update restroom status
+  // Emit restroom status immediately when updating (for faster real-time updates)
+  const emitRestroomStatus = useCallback((isInRestroom: boolean) => {
+    if (!socket || !isConnected) return
+
+    const currentUser = getCurrentUser()
+    const email = currentUser?.email
+    
+    if (!email) return
+
+    // Emit immediately for faster updates
+    socket.emit('updateRestroomStatus', isInRestroom)
+  }, [socket, isConnected])
+
+  // Update restroom status with optimistic updates
   const updateRestroomStatus = useCallback(async (isInRestroom: boolean) => {
     const user = getCurrentUser()
     if (!user?.email) return
 
     setError(null)
     setIsUpdating(true)
+
+    // Optimistic update - immediately update UI
+    setRestroomStatus(prev => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        is_in_restroom: isInRestroom,
+        restroom_count: isInRestroom ? prev.restroom_count + 1 : prev.restroom_count,
+        daily_restroom_count: isInRestroom ? prev.daily_restroom_count + 1 : prev.daily_restroom_count,
+        updated_at: new Date().toISOString()
+      }
+    })
+
+    // Emit socket update immediately for faster real-time updates
+    emitRestroomStatus(isInRestroom)
 
     try {
       const response = await fetch('/api/restroom/', {
@@ -93,14 +121,26 @@ export function RestroomProvider({ children }: { children: React.ReactNode }) {
       }
       
       const data = await response.json()
+      // Update with actual server response
       setRestroomStatus(data)
     } catch (err) {
       console.error('Error updating restroom status:', err)
       setError(err instanceof Error ? err.message : 'Failed to update restroom status')
+      
+      // Revert optimistic update on error
+      setRestroomStatus(prev => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          is_in_restroom: !isInRestroom,
+          restroom_count: isInRestroom ? Math.max(0, prev.restroom_count - 1) : prev.restroom_count,
+          daily_restroom_count: isInRestroom ? Math.max(0, prev.daily_restroom_count - 1) : prev.daily_restroom_count,
+        }
+      })
     } finally {
       setIsUpdating(false)
     }
-  }, [])
+  }, [emitRestroomStatus])
 
   // Refresh status (alias for fetchRestroomStatus)
   const refreshStatus = useCallback(async () => {
@@ -116,7 +156,7 @@ export function RestroomProvider({ children }: { children: React.ReactNode }) {
     
     if (!email) return
 
-    // Emit current restroom status
+    // Emit current restroom status immediately
     socket.emit('updateRestroomStatus', isInRestroom)
   }, [socket, isConnected, isInRestroom])
 
