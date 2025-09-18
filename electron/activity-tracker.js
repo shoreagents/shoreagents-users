@@ -7,13 +7,13 @@ class ActivityTracker {
     }
     this.mainWindow = mainWindow;
     this.lastActivityTime = Date.now();
-    this.inactivityThreshold = 30000; // 30 seconds in milliseconds
+    this.inactivityThreshold = process.env.INACTIVITY_THRESHOLD ? parseInt(process.env.INACTIVITY_THRESHOLD, 10) : 30000; // Configurable threshold, default 30 seconds
     this.isTracking = false;
     this.activityCheckInterval = null;
     this.mousePosition = { x: 0, y: 0 };
     this.mouseTrackingInterval = null;
     this.isSystemSuspended = false;
-    this.systemIdleThreshold = 30000; // 1 minute for system idle detection
+    this.systemIdleThreshold = process.env.INACTIVITY_THRESHOLD ? Math.max(parseInt(process.env.INACTIVITY_THRESHOLD, 10) * 2, 60000) : 60000; // Double the inactivity threshold, minimum 1 minute
     this.systemIdleCheckInterval = null;
     
     // Bind methods

@@ -1042,9 +1042,9 @@ export function TaskActivitySkeleton() {
 
 export function ConnectedUsersSkeleton() {
   return (
-    <div className="flex-1 h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="flex-1 h-screen bg-background">
       {/* Header Skeleton */}
-      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
+      <div className="bg-card border-b border-border px-6 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-2">
@@ -1058,9 +1058,9 @@ export function ConnectedUsersSkeleton() {
       
       <div className="flex h-full">
         {/* Left Sidebar Skeleton */}
-        <div className="w-80 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
+        <div className="w-80 bg-card border-r border-border flex flex-col">
           {/* Search and Refresh Bar Skeleton */}
-          <div className="p-4 border-b border-gray-200 dark:border-gray-700 space-y-3">
+          <div className="p-4 border-b border-border space-y-3">
             <div className="relative">
               <Skeleton className="h-10 w-full" />
             </div>
@@ -1105,7 +1105,7 @@ export function ConnectedUsersSkeleton() {
         </div>
 
         {/* Right Content Area Skeleton */}
-        <div className="flex-1 bg-gray-50 dark:bg-gray-900">
+        <div className="flex-1 bg-background">
           <div className="h-full flex items-center justify-center">
             <div className="text-center space-y-4">
               <Skeleton className="h-16 w-16 rounded-full mx-auto" />

@@ -38,12 +38,13 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@/components/ui/pagination"
+import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious, PaginationEllipsis } from "@/components/ui/pagination"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Calendar24 } from "@/components/ui/date-picker"
 import { canCreateMeeting, type Meeting } from "@/lib/meeting-utils"
 import { useMeeting } from "@/contexts/meeting-context"
 import { useEventsContext } from "@/contexts/events-context"
+import { useSocket } from "@/contexts/socket-context"
 import { GlobalLoadingIndicator } from "@/components/global-loading-indicator"
 import { toast } from "sonner"
 import { 
@@ -247,6 +248,47 @@ function MeetingCardSkeleton() {
   )
 }
 
+// Helper function to generate pagination items with truncation
+const generatePaginationItems = (currentPage: number, totalPages: number) => {
+  const items = []
+  const maxVisiblePages = 7 // Show up to 7 page numbers
+  
+  if (totalPages <= maxVisiblePages) {
+    // Show all pages if total is small
+    for (let i = 1; i <= totalPages; i++) {
+      items.push(i)
+    }
+  } else {
+    // Always show first page
+    items.push(1)
+    
+    if (currentPage <= 4) {
+      // Near the beginning: 1, 2, 3, 4, 5, ..., last
+      for (let i = 2; i <= 5; i++) {
+        items.push(i)
+      }
+      items.push('ellipsis')
+      items.push(totalPages)
+    } else if (currentPage >= totalPages - 3) {
+      // Near the end: 1, ..., last-4, last-3, last-2, last-1, last
+      items.push('ellipsis')
+      for (let i = totalPages - 4; i <= totalPages; i++) {
+        items.push(i)
+      }
+    } else {
+      // In the middle: 1, ..., current-1, current, current+1, ..., last
+      items.push('ellipsis')
+      for (let i = currentPage - 1; i <= currentPage + 1; i++) {
+        items.push(i)
+      }
+      items.push('ellipsis')
+      items.push(totalPages)
+    }
+  }
+  
+  return items
+}
+
 export default function MeetingsPage() {
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1)
@@ -270,6 +312,9 @@ export default function MeetingsPage() {
   
   // Use events context for leave event functionality
   const { currentEvent, leaveEvent, isInEvent } = useEventsContext()
+  
+  // Use socket context for real-time updates
+  const { socket, isConnected } = useSocket()
   
   // Fetch ALL meetings for filtering (not paginated)
   const { 
@@ -327,6 +372,15 @@ export default function MeetingsPage() {
       is_in_meeting: meeting.status === 'in-progress'
     }))
   }, [meetingsData?.meetings])
+
+  // Immediate check for in-progress meetings when meetings data changes
+  useEffect(() => {
+    const hasInProgressMeetings = meetings.some(meeting => meeting.status === 'in-progress')
+    if (hasInProgressMeetings) {
+      console.log('Meetings data changed - found in-progress meetings, clearing loading state')
+      setIsScheduledMeetingLoading(false)
+    }
+  }, [meetings])
 
   // Extract pagination info
   const pagination = meetingsData?.pagination || {
@@ -479,12 +533,14 @@ export default function MeetingsPage() {
   useEffect(() => {
     const handleMeetingStarted = (event: CustomEvent) => {
       // Refresh both meeting data and context to ensure consistency
+      setIsScheduledMeetingLoading(false) // Clear loading state immediately
       refetchMeetings()
       contextRefreshMeetings()
     }
 
     const handleEventLeft = (event: CustomEvent) => {
       // Single refresh is sufficient - the database function will handle the rest
+      setIsScheduledMeetingLoading(false) // Clear loading state immediately
       refetchMeetings()
       contextRefreshMeetings()
     }
@@ -498,51 +554,147 @@ export default function MeetingsPage() {
     }
   }, [refetchMeetings, contextRefreshMeetings])
 
-  // Periodic refresh for scheduled meetings to catch automatic starts
-  // Only poll if user is NOT in an event to prevent unnecessary API calls
+  // Track if socket has cleared loading state to prevent polling from overriding
+  const [socketClearedLoading, setSocketClearedLoading] = useState(false)
+
+  // Listen for socket events for real-time meeting updates
   useEffect(() => {
-    const hasScheduledMeetings = meetings.some(meeting => meeting.status === 'scheduled')
-    
-    if (!hasScheduledMeetings || isInEvent) {
-      setIsScheduledMeetingLoading(false)
-      return // No need to poll if no scheduled meetings or user is in event
+    if (!socket || !isConnected) return
+
+    let refreshTimeout: NodeJS.Timeout | null = null
+
+    const debouncedRefresh = () => {
+      if (refreshTimeout) {
+        clearTimeout(refreshTimeout)
+      }
+      refreshTimeout = setTimeout(() => {
+        refetchMeetings()
+        contextRefreshMeetings()
+      }, 50) // Reduced to 50ms for faster response
     }
 
-    // Check if any scheduled meetings should have started
+    const handleMeetingStarted = () => {
+      // Immediate refresh when meeting starts via socket
+      setIsScheduledMeetingLoading(false) // Clear loading state immediately
+      setSocketClearedLoading(true) // Mark that socket cleared it
+      refetchMeetings()
+      contextRefreshMeetings()
+    }
+
+    const handleMeetingEnded = () => {
+      // Immediate refresh when meeting ends via socket
+      setIsScheduledMeetingLoading(false) // Clear loading state immediately
+      setSocketClearedLoading(true) // Mark that socket cleared it
+      refetchMeetings()
+      contextRefreshMeetings()
+    }
+
+    const handleMeetingStatusUpdate = () => {
+      // Debounced refresh for status updates
+      // Only clear loading state if we're not waiting for scheduled meetings
+      const now = new Date()
+      const hasScheduledMeetingsWaiting = meetings.some(meeting => {
+        if (meeting.status !== 'scheduled') return false
+        const meetingStartTime = new Date(meeting.start_time)
+        return meetingStartTime <= now
+      })
+      
+      if (!hasScheduledMeetingsWaiting) {
+        setIsScheduledMeetingLoading(false) // Clear loading state only if no scheduled meetings waiting
+      }
+      setSocketClearedLoading(true) // Mark that socket cleared it
+      debouncedRefresh()
+    }
+
+    // Add socket event listeners
+    socket.on('meeting_started', handleMeetingStarted)
+    socket.on('meeting_ended', handleMeetingEnded)
+    socket.on('meeting-status-update', handleMeetingStatusUpdate)
+    socket.on('meeting-update', handleMeetingStatusUpdate)
+
+    return () => {
+      // Clean up socket event listeners and timeout
+      if (refreshTimeout) {
+        clearTimeout(refreshTimeout)
+      }
+      socket.off('meeting_started', handleMeetingStarted)
+      socket.off('meeting_ended', handleMeetingEnded)
+      socket.off('meeting-status-update', handleMeetingStatusUpdate)
+      socket.off('meeting-update', handleMeetingStatusUpdate)
+    }
+  }, [socket, isConnected, refetchMeetings, contextRefreshMeetings, meetings])
+
+  // Reset socket cleared flag only when we have no scheduled meetings waiting
+  useEffect(() => {
     const now = new Date()
-    const shouldRefresh = meetings.some(meeting => {
+    const hasScheduledMeetingsWaiting = meetings.some(meeting => {
       if (meeting.status !== 'scheduled') return false
       const meetingStartTime = new Date(meeting.start_time)
       return meetingStartTime <= now
     })
 
-    if (shouldRefresh) {
-      setIsScheduledMeetingLoading(true)
+    // Only reset socket cleared flag if there are no scheduled meetings waiting
+    if (!hasScheduledMeetingsWaiting) {
+      setSocketClearedLoading(false)
+    }
+  }, [meetings])
+
+  // Periodic refresh for scheduled meetings to catch automatic starts
+  // Only poll if user is NOT in an event to prevent unnecessary API calls
+  useEffect(() => {
+    // Check if there are any scheduled meetings that should have started
+    const now = new Date()
+    const hasScheduledMeetingsWaiting = meetings.some(meeting => {
+      if (meeting.status !== 'scheduled') return false
+      const meetingStartTime = new Date(meeting.start_time)
+      return meetingStartTime <= now
+    })
+
+    // Check if any meetings have actually started (changed to in-progress)
+    const hasInProgressMeetings = meetings.some(meeting => meeting.status === 'in-progress')
+
+    if (!hasScheduledMeetingsWaiting || isInEvent || hasInProgressMeetings) {
+      // No scheduled meetings waiting, user is in event, or meetings have started
+      setIsScheduledMeetingLoading(false)
+      return
     }
 
+    // Set loading state when waiting for meetings to start
+    setIsScheduledMeetingLoading(true)
+
     const interval = setInterval(() => {
+      // Don't override if socket has already cleared the loading state
+      if (socketClearedLoading) {
+        return
+      }
+
       // Check if any scheduled meetings should have started
       const now = new Date()
-      const shouldRefresh = meetings.some(meeting => {
+      const hasScheduledMeetingsWaiting = meetings.some(meeting => {
         if (meeting.status !== 'scheduled') return false
         const meetingStartTime = new Date(meeting.start_time)
         return meetingStartTime <= now
       })
 
-      if (shouldRefresh) {
+      // Check if any meetings have actually started (changed to in-progress)
+      const hasInProgressMeetings = meetings.some(meeting => meeting.status === 'in-progress')
+
+      if (hasScheduledMeetingsWaiting && !hasInProgressMeetings) {
+        // Still waiting for meetings to start
         setIsScheduledMeetingLoading(true)
         refetchMeetings()
         contextRefreshMeetings()
       } else {
+        // No scheduled meetings waiting or meetings have started
         setIsScheduledMeetingLoading(false)
       }
-    }, 5000) // OPTIMIZED: Increased from 500ms to 5 seconds to reduce API spam
+    }, 500) // Check every 500ms for even faster response
 
     return () => {
       clearInterval(interval)
       setIsScheduledMeetingLoading(false)
     }
-  }, [meetings, refetchMeetings, contextRefreshMeetings, isInEvent])
+  }, [meetings, refetchMeetings, contextRefreshMeetings, isInEvent, socketClearedLoading])
 
   // Periodic sync check to ensure UI consistency
   useEffect(() => {
@@ -982,15 +1134,19 @@ export default function MeetingsPage() {
                         className={currentPage === 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
                       />
                     </PaginationItem>
-                    {Array.from({ length: pagination.totalPages }, (_, i) => i + 1).map((page) => (
-                      <PaginationItem key={page}>
-                        <PaginationLink
-                          onClick={() => handlePageChange(page)}
-                          isActive={currentPage === page}
-                          className="cursor-pointer"
-                        >
-                          {page}
-                        </PaginationLink>
+                    {generatePaginationItems(currentPage, pagination.totalPages).map((item, index) => (
+                      <PaginationItem key={index}>
+                        {item === 'ellipsis' ? (
+                          <PaginationEllipsis />
+                        ) : (
+                          <PaginationLink
+                            onClick={() => handlePageChange(item as number)}
+                            isActive={currentPage === item}
+                            className="cursor-pointer"
+                          >
+                            {item}
+                          </PaginationLink>
+                        )}
                       </PaginationItem>
                     ))}
                     <PaginationItem>
@@ -1029,15 +1185,19 @@ export default function MeetingsPage() {
                         className={filteredPagination.currentPage === 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
                       />
                     </PaginationItem>
-                    {Array.from({ length: filteredPagination.totalPages }, (_, i) => i + 1).map((page) => (
-                      <PaginationItem key={page}>
-                        <PaginationLink
-                          onClick={() => handleFilteredPageChange(page)}
-                          isActive={filteredPagination.currentPage === page}
-                          className="cursor-pointer"
-                        >
-                          {page}
-                        </PaginationLink>
+                    {generatePaginationItems(filteredPagination.currentPage, filteredPagination.totalPages).map((item, index) => (
+                      <PaginationItem key={index}>
+                        {item === 'ellipsis' ? (
+                          <PaginationEllipsis />
+                        ) : (
+                          <PaginationLink
+                            onClick={() => handleFilteredPageChange(item as number)}
+                            isActive={filteredPagination.currentPage === item}
+                            className="cursor-pointer"
+                          >
+                            {item}
+                          </PaginationLink>
+                        )}
                       </PaginationItem>
                     ))}
                     <PaginationItem>
@@ -1076,15 +1236,19 @@ export default function MeetingsPage() {
                         className={filteredPagination.currentPage === 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
                       />
                     </PaginationItem>
-                    {Array.from({ length: filteredPagination.totalPages }, (_, i) => i + 1).map((page) => (
-                      <PaginationItem key={page}>
-                        <PaginationLink
-                          onClick={() => handleFilteredPageChange(page)}
-                          isActive={filteredPagination.currentPage === page}
-                          className="cursor-pointer"
-                        >
-                          {page}
-                        </PaginationLink>
+                    {generatePaginationItems(filteredPagination.currentPage, filteredPagination.totalPages).map((item, index) => (
+                      <PaginationItem key={index}>
+                        {item === 'ellipsis' ? (
+                          <PaginationEllipsis />
+                        ) : (
+                          <PaginationLink
+                            onClick={() => handleFilteredPageChange(item as number)}
+                            isActive={filteredPagination.currentPage === item}
+                            className="cursor-pointer"
+                          >
+                            {item}
+                          </PaginationLink>
+                        )}
                       </PaginationItem>
                     ))}
                     <PaginationItem>
@@ -1123,15 +1287,19 @@ export default function MeetingsPage() {
                         className={filteredPagination.currentPage === 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
                       />
                     </PaginationItem>
-                    {Array.from({ length: filteredPagination.totalPages }, (_, i) => i + 1).map((page) => (
-                      <PaginationItem key={page}>
-                        <PaginationLink
-                          onClick={() => handleFilteredPageChange(page)}
-                          isActive={filteredPagination.currentPage === page}
-                          className="cursor-pointer"
-                        >
-                          {page}
-                        </PaginationLink>
+                    {generatePaginationItems(filteredPagination.currentPage, filteredPagination.totalPages).map((item, index) => (
+                      <PaginationItem key={index}>
+                        {item === 'ellipsis' ? (
+                          <PaginationEllipsis />
+                        ) : (
+                          <PaginationLink
+                            onClick={() => handleFilteredPageChange(item as number)}
+                            isActive={filteredPagination.currentPage === item}
+                            className="cursor-pointer"
+                          >
+                            {item}
+                          </PaginationLink>
+                        )}
                       </PaginationItem>
                     ))}
                     <PaginationItem>
@@ -1170,15 +1338,19 @@ export default function MeetingsPage() {
                         className={filteredPagination.currentPage === 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
                       />
                     </PaginationItem>
-                    {Array.from({ length: filteredPagination.totalPages }, (_, i) => i + 1).map((page) => (
-                      <PaginationItem key={page}>
-                        <PaginationLink
-                          onClick={() => handleFilteredPageChange(page)}
-                          isActive={filteredPagination.currentPage === page}
-                          className="cursor-pointer"
-                        >
-                          {page}
-                        </PaginationLink>
+                    {generatePaginationItems(filteredPagination.currentPage, filteredPagination.totalPages).map((item, index) => (
+                      <PaginationItem key={index}>
+                        {item === 'ellipsis' ? (
+                          <PaginationEllipsis />
+                        ) : (
+                          <PaginationLink
+                            onClick={() => handleFilteredPageChange(item as number)}
+                            isActive={filteredPagination.currentPage === item}
+                            className="cursor-pointer"
+                          >
+                            {item}
+                          </PaginationLink>
+                        )}
                       </PaginationItem>
                     ))}
                     <PaginationItem>

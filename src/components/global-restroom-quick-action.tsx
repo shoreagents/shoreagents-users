@@ -158,7 +158,16 @@ export function GlobalRestroomQuickAction() {
             {isVisible ? (
               <Toilet className="h-6 w-6 text-white" />
             ) : (
-              <ChevronLeft className="h-6 w-6 dark:text-white text-black" />
+              <div className={cn(
+                "relative",
+                isInRestroom && "animate-bounceLeft"
+              )}>
+                <ChevronLeft className="h-6 w-6 dark:text-white text-black relative" />
+                {/* Restroom status indicator */}
+                {isInRestroom && (
+                  <div className="absolute top-1.5 w-3 h-3 bg-red-500 rounded-full border-2 border-white dark:border-gray-900" />
+                )}
+              </div>
             )}
           </div>
           
@@ -169,7 +178,7 @@ export function GlobalRestroomQuickAction() {
             className="absolute inset-0 w-full h-full rounded-full focus:outline-none focus:ring-2 focus:ring-white/50"
             title={isVisible 
               ? (isInRestroom ? `Finish Restroom (${dailyRestroomCount} visits today, ${restroomCount} total)` : `Take Restroom (${dailyRestroomCount} visits today, ${restroomCount} total)`)
-              : "Show Restroom Button"
+              : (isInRestroom ? `Currently in Restroom - Click to finish (${dailyRestroomCount} visits today, ${restroomCount} total)` : "Show Restroom Button")
             }
           />
         </div>

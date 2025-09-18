@@ -687,6 +687,44 @@ export function useHealthCheckSocketContext(email: string | null) {
     }
   }, [])
 
+  // Cancel health check request
+  const cancelRequest = useCallback(async (requestId: number) => {
+    try {
+      const response = await fetch('/api/health-check/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ request_id: requestId })
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        // Update local state
+        setRequests(prev => 
+          prev.map(req => 
+            req.id === requestId 
+              ? { ...req, status: 'cancelled', updated_at: data.request.updated_at }
+              : req
+          )
+        )
+        setUserRequests(prev => 
+          prev.map(req => 
+            req.id === requestId 
+              ? { ...req, status: 'cancelled', updated_at: data.request.updated_at }
+              : req
+          )
+        )
+        
+        return data.request
+      } else {
+        throw new Error(data.error || 'Failed to cancel request')
+      }
+    } catch (error) {
+      console.error('Error canceling health check request:', error)
+      throw error
+    }
+  }, [])
+
   return {
     isConnected,
     requests,
@@ -704,6 +742,7 @@ export function useHealthCheckSocketContext(email: string | null) {
     hasPendingRequest,
     updateGoingToClinic,
     updateInClinic,
-    updateDone
+    updateDone,
+    cancelRequest
   }
 }

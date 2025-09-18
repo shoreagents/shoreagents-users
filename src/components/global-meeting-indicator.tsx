@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useMeeting } from '@/contexts/meeting-context'
 import { useMeetingStatus } from '@/hooks/use-meetings'
+import { useSocket } from '@/contexts/socket-context'
 import { Button } from '@/components/ui/button'
 import { 
   Video, 
@@ -22,6 +23,7 @@ interface GlobalMeetingIndicatorProps {
 
 export const GlobalMeetingIndicator = React.memo(function GlobalMeetingIndicator({ className }: GlobalMeetingIndicatorProps) {
   const { endCurrentMeeting } = useMeeting()
+  const { socket, isConnected } = useSocket()
   
   // Use direct hook instead of context to prevent duplicate requests
   const { 
@@ -130,11 +132,8 @@ export const GlobalMeetingIndicator = React.memo(function GlobalMeetingIndicator
   // Listen for event-left events to refresh meeting status
   useEffect(() => {
     const handleEventLeft = () => {
-      // Multiple refreshes to ensure we catch the meeting start quickly
+      // Single refresh is sufficient - socket events handle real-time updates
       refetchMeetingStatus()
-      setTimeout(() => refetchMeetingStatus(), 200)
-      setTimeout(() => refetchMeetingStatus(), 500)
-      setTimeout(() => refetchMeetingStatus(), 1000)
     }
 
     window.addEventListener('event-left', handleEventLeft)
@@ -143,6 +142,54 @@ export const GlobalMeetingIndicator = React.memo(function GlobalMeetingIndicator
       window.removeEventListener('event-left', handleEventLeft)
     }
   }, [refetchMeetingStatus])
+
+  // Listen for socket events for real-time meeting updates
+  useEffect(() => {
+    if (!socket || !isConnected) return
+
+    let refreshTimeout: NodeJS.Timeout | null = null
+
+    const debouncedRefresh = () => {
+      if (refreshTimeout) {
+        clearTimeout(refreshTimeout)
+      }
+      refreshTimeout = setTimeout(() => {
+        refetchMeetingStatus()
+      }, 100) // 100ms debounce to prevent excessive calls
+    }
+
+    const handleMeetingStarted = () => {
+      // Immediate refresh when meeting starts
+      refetchMeetingStatus()
+    }
+
+    const handleMeetingEnded = () => {
+      // Immediate refresh when meeting ends
+      refetchMeetingStatus()
+    }
+
+    const handleMeetingStatusUpdate = () => {
+      // Debounced refresh for status updates
+      debouncedRefresh()
+    }
+
+    // Add socket event listeners
+    socket.on('meeting_started', handleMeetingStarted)
+    socket.on('meeting_ended', handleMeetingEnded)
+    socket.on('meeting-status-update', handleMeetingStatusUpdate)
+    socket.on('meeting-update', handleMeetingStatusUpdate)
+
+    return () => {
+      // Clean up socket event listeners and timeout
+      if (refreshTimeout) {
+        clearTimeout(refreshTimeout)
+      }
+      socket.off('meeting_started', handleMeetingStarted)
+      socket.off('meeting_ended', handleMeetingEnded)
+      socket.off('meeting-status-update', handleMeetingStatusUpdate)
+      socket.off('meeting-update', handleMeetingStatusUpdate)
+    }
+  }, [socket, isConnected, refetchMeetingStatus])
 
   // Handle drag start
   const handleMouseDown = useCallback((e: React.MouseEvent) => {

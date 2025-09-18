@@ -101,7 +101,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST - Create or update restroom status
+// POST - Create or update restroom status (optimized)
 export async function POST(request: NextRequest) {
   try {
     await initializeDatabase()
@@ -120,67 +120,70 @@ export async function POST(request: NextRequest) {
       }, { status: 400 })
     }
 
-    // Get user ID from database using email
-    const userResult = await executeQuery<any>(
-      `SELECT id FROM users WHERE email = $1`,
-      [currentUser.email]
-    )
-
-    if (userResult.length === 0) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 })
-    }
-
-    const userId = userResult[0].id
-    
-    const existingResult = await executeQuery<any>(
-      `SELECT 
-         *,
-         CASE WHEN last_daily_reset < CURRENT_DATE THEN true ELSE false END as should_reset
-       FROM agent_restroom_status 
-       WHERE agent_user_id = $1`,
-      [userId]
-    )
-
-    // Get current status before update for debugging
-    const currentStatus = existingResult.length > 0 ? existingResult[0] : null
-
-    let shouldResetDailyCount = false
-    if (existingResult.length > 0) {
-      shouldResetDailyCount = currentStatus.should_reset || false
-    } else {
-      // If no existing record, it's a new day
-      shouldResetDailyCount = true
-    }
-    
-    // Use upsert to create or update the record
-    const upsertResult = await executeQuery<any>(
-      `INSERT INTO agent_restroom_status (agent_user_id, is_in_restroom, restroom_count, daily_restroom_count, last_daily_reset, created_at, updated_at)
-       VALUES ($1, $2, CASE WHEN $2 = true THEN 1 ELSE 0 END, CASE WHEN $2 = true THEN 1 ELSE 0 END, CURRENT_DATE, NOW(), NOW())
+    // Get user ID and update in a single query
+    const result = await executeQuery<any>(
+      `WITH user_lookup AS (
+         SELECT id FROM users WHERE email = $1
+       ),
+       existing_status AS (
+         SELECT 
+           ars.*,
+           CASE WHEN ars.last_daily_reset < CURRENT_DATE THEN true ELSE false END as should_reset
+         FROM agent_restroom_status ars
+         WHERE ars.agent_user_id = (SELECT id FROM user_lookup)
+       )
+       INSERT INTO agent_restroom_status (agent_user_id, is_in_restroom, restroom_count, daily_restroom_count, last_daily_reset, created_at, updated_at)
+       SELECT 
+         ul.id, 
+         $2, 
+         CASE WHEN $2 = true THEN 1 ELSE 0 END, 
+         CASE WHEN $2 = true THEN 1 ELSE 0 END, 
+         CURRENT_DATE, 
+         NOW(), 
+         NOW()
+       FROM user_lookup ul
+       WHERE NOT EXISTS (SELECT 1 FROM existing_status)
+       
+       UNION ALL
+       
+       SELECT 
+         es.agent_user_id,
+         $2,
+         CASE 
+           WHEN $2 = true AND es.is_in_restroom = false 
+           THEN es.restroom_count + 1
+           ELSE es.restroom_count
+         END,
+         CASE 
+           WHEN es.should_reset = true AND $2 = true THEN 1
+           WHEN $2 = true AND es.is_in_restroom = false 
+           THEN es.daily_restroom_count + 1
+           ELSE es.daily_restroom_count
+         END,
+         CASE 
+           WHEN es.should_reset = true THEN CURRENT_DATE
+           ELSE es.last_daily_reset
+         END,
+         es.created_at,
+         NOW()
+       FROM existing_status es
+       
        ON CONFLICT (agent_user_id) 
        DO UPDATE SET 
          is_in_restroom = EXCLUDED.is_in_restroom,
-         restroom_count = CASE 
-           WHEN EXCLUDED.is_in_restroom = true AND agent_restroom_status.is_in_restroom = false 
-           THEN agent_restroom_status.restroom_count + 1
-           ELSE agent_restroom_status.restroom_count
-         END,
-         daily_restroom_count = CASE 
-           WHEN $3 = true THEN 1  -- Reset and increment if new day and going to restroom
-           WHEN EXCLUDED.is_in_restroom = true AND agent_restroom_status.is_in_restroom = false 
-           THEN agent_restroom_status.daily_restroom_count + 1  -- Increment when going to restroom
-           ELSE agent_restroom_status.daily_restroom_count  -- Keep current count for all other cases (including leaving restroom)
-         END,
-         last_daily_reset = CASE 
-           WHEN $3 = true THEN CURRENT_DATE  -- Update reset date if it's a new day
-           ELSE agent_restroom_status.last_daily_reset
-         END,
-         updated_at = NOW()
+         restroom_count = EXCLUDED.restroom_count,
+         daily_restroom_count = EXCLUDED.daily_restroom_count,
+         last_daily_reset = EXCLUDED.last_daily_reset,
+         updated_at = EXCLUDED.updated_at
        RETURNING *`,
-      [userId, is_in_restroom, shouldResetDailyCount]
+      [currentUser.email, is_in_restroom]
     )
-    
 
-    return NextResponse.json(upsertResult[0])
+    if (result.length === 0) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 })
+    }
+
+    return NextResponse.json(result[0])
   } catch (error) {
     console.error('Error in POST /api/restroom:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

@@ -714,15 +714,23 @@ const KanbanColumn = ({
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.1 }}
             >
-              {/* Drop indicator */}
+              {/* Drop placeholder - shows before this task */}
               {isDragOver && dropPosition === index + 1 && (
                 <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 4 }}
-                  exit={{ opacity: 0, height: 0 }}
-                  className="bg-primary rounded-full my-1"
-                  style={{ height: '4px' }}
-                />
+                  initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                  transition={{ duration: 0.2, ease: "easeOut" }}
+                  className="mb-3"
+                >
+                  <div className="border-2 border-dashed border-primary/60 bg-primary/5 rounded-lg p-4 h-20 flex items-center justify-center">
+                    <div className="flex items-center gap-2 text-primary/70">
+                      <div className="w-2 h-2 bg-primary/40 rounded-full animate-pulse"></div>
+                      <span className="text-sm font-medium">Drop task here</span>
+                      <div className="w-2 h-2 bg-primary/40 rounded-full animate-pulse"></div>
+                    </div>
+                  </div>
+                </motion.div>
               )}
               <TaskCard
                 task={task}
@@ -736,15 +744,23 @@ const KanbanColumn = ({
               />
             </motion.div>
           ))}
-          {/* Drop indicator at the end */}
+          {/* Drop placeholder at the end */}
           {isDragOver && dropPosition === columnTasks.length + 1 && (
             <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 4 }}
-              exit={{ opacity: 0, height: 0 }}
-              className="bg-primary rounded-full my-1"
-              style={{ height: '4px' }}
-            />
+              initial={{ opacity: 0, scale: 0.95, y: -10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: -10 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
+              className="mb-3"
+            >
+              <div className="border-2 border-dashed border-primary/60 bg-primary/5 rounded-lg p-4 h-20 flex items-center justify-center">
+                <div className="flex items-center gap-2 text-primary/70">
+                  <div className="w-2 h-2 bg-primary/40 rounded-full animate-pulse"></div>
+                  <span className="text-sm font-medium">Drop task here</span>
+                  <div className="w-2 h-2 bg-primary/40 rounded-full animate-pulse"></div>
+                </div>
+              </div>
+            </motion.div>
           )}
         </AnimatePresence>
         
@@ -754,7 +770,22 @@ const KanbanColumn = ({
             animate={{ opacity: 1, y: 0 }}
             className="flex items-center justify-center h-32 text-muted-foreground text-sm"
           >
-            {isDragOver ? "Drop task here" : "No tasks"}
+            {isDragOver ? (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.2, ease: "easeOut" }}
+                className="border-2 border-dashed border-primary/60 bg-primary/5 rounded-lg p-6 h-24 w-full flex items-center justify-center"
+              >
+                <div className="flex items-center gap-2 text-primary/70">
+                  <div className="w-2 h-2 bg-primary/40 rounded-full animate-pulse"></div>
+                  <span className="text-sm font-medium">Drop task here</span>
+                  <div className="w-2 h-2 bg-primary/40 rounded-full animate-pulse"></div>
+                </div>
+              </motion.div>
+            ) : (
+              "No tasks"
+            )}
           </motion.div>
         )}
       </motion.div>

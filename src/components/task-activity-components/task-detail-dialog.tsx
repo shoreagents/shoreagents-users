@@ -450,32 +450,49 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
     }
   }, [task])
 
+  // Use ref to track previous custom fields to avoid infinite loop
+  const prevCustomFieldsRef = useRef<Array<{ id: string; title: string; description: string }>>([])
+  const taskRef = useRef(task)
+
+  // Update task ref when task changes
+  React.useEffect(() => {
+    taskRef.current = task
+  }, [task])
+
   // Initialize/sync custom fields from task, but do not clobber local state if order/content is unchanged
   React.useEffect(() => {
-    if (task && Array.isArray((task as any).custom_fields)) {
-      const incoming: Array<{ id: string; title: string; description: string }> = (task as any).custom_fields
-        .slice()
-        .sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0))
-        .map((f: any) => ({ id: String(f.id), title: f.title || '', description: f.description || '' }))
+    const currentTask = taskRef.current
+    if (!currentTask || !Array.isArray((currentTask as any).custom_fields)) {
+      if (prevCustomFieldsRef.current.length > 0) {
+        setCustomFields([])
+        prevCustomFieldsRef.current = []
+      }
+      return
+    }
 
-      const a = incoming
-      const b = customFields
-      let different = false
-      if (a.length !== b.length) {
-        different = true
-      } else {
-        for (let i = 0; i < a.length; i++) {
-          if (a[i].id !== b[i].id || a[i].title !== b[i].title || a[i].description !== b[i].description) {
-            different = true
-            break
-          }
+    const incoming: Array<{ id: string; title: string; description: string }> = (currentTask as any).custom_fields
+      .slice()
+      .sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0))
+      .map((f: any) => ({ id: String(f.id), title: f.title || '', description: f.description || '' }))
+
+    const a = incoming
+    const b = prevCustomFieldsRef.current
+    let different = false
+    if (a.length !== b.length) {
+      different = true
+    } else {
+      for (let i = 0; i < a.length; i++) {
+        if (a[i].id !== b[i].id || a[i].title !== b[i].title || a[i].description !== b[i].description) {
+          different = true
+          break
         }
       }
-      if (different) setCustomFields(incoming)
-    } else if (!task) {
-      setCustomFields([])
     }
-  }, [task, task?.custom_fields, customFields])
+    if (different) {
+      setCustomFields(incoming)
+      prevCustomFieldsRef.current = incoming
+    }
+  }, [task?.id, task?.custom_fields]) // Depend on specific properties, not the entire task object
 
   // Initialize due date from task data
   React.useEffect(() => {
