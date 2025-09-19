@@ -1479,8 +1479,9 @@ function createWindow() {
     },
     icon: path.join(__dirname, '../public/ShoreAgents-Logo-only.png'),
     show: false, // Don't show until ready
-    titleBarStyle: 'default',
-    autoHideMenuBar: false
+    titleBarStyle: 'hidden',
+    frame: false,
+    autoHideMenuBar: true
   });
 
   // Load the app - always use the Next.js server
@@ -1491,6 +1492,60 @@ function createWindow() {
   if (isDev) {
     mainWindow.webContents.openDevTools();
   }
+
+  // Add keyboard shortcuts for DevTools and other common shortcuts
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    // Ctrl+Shift+I for DevTools
+    if (input.control && input.shift && input.key.toLowerCase() === 'i') {
+      if (mainWindow.webContents.isDevToolsOpened()) {
+        mainWindow.webContents.closeDevTools();
+      } else {
+        mainWindow.webContents.openDevTools();
+      }
+      event.preventDefault();
+    }
+    
+    // F12 for DevTools (alternative)
+    if (input.key === 'F12') {
+      if (mainWindow.webContents.isDevToolsOpened()) {
+        mainWindow.webContents.closeDevTools();
+      } else {
+        mainWindow.webContents.openDevTools();
+      }
+      event.preventDefault();
+    }
+
+    // Ctrl+R for reload (only in development)
+    if (isDev && input.control && input.key.toLowerCase() === 'r') {
+      mainWindow.webContents.reload();
+      event.preventDefault();
+    }
+
+    // Ctrl+Shift+R for hard reload (only in development)
+    if (isDev && input.control && input.shift && input.key.toLowerCase() === 'r') {
+      mainWindow.webContents.reloadIgnoringCache();
+      event.preventDefault();
+    }
+
+    // Ctrl+Plus/Minus for zoom (only in development)
+    if (isDev && input.control && (input.key === '+' || input.key === '=')) {
+      const currentZoom = mainWindow.webContents.getZoomFactor();
+      mainWindow.webContents.setZoomFactor(Math.min(currentZoom + 0.1, 3.0));
+      event.preventDefault();
+    }
+
+    if (isDev && input.control && input.key === '-') {
+      const currentZoom = mainWindow.webContents.getZoomFactor();
+      mainWindow.webContents.setZoomFactor(Math.max(currentZoom - 0.1, 0.5));
+      event.preventDefault();
+    }
+
+    // Ctrl+0 to reset zoom (only in development)
+    if (isDev && input.control && input.key === '0') {
+      mainWindow.webContents.setZoomFactor(1.0);
+      event.preventDefault();
+    }
+  });
 
   // Show window when ready to prevent visual flash
   mainWindow.once('ready-to-show', () => {
@@ -2231,7 +2286,8 @@ function createMenu() {
 // App event handlers
 app.whenReady().then(async () => {
   createWindow();
-  createMenu();
+  // Remove menu completely
+  Menu.setApplicationMenu(null);
   await createTray();
   
   // Check authentication state on app start and clear notifications if not logged in
@@ -2749,6 +2805,50 @@ ipcMain.handle('emergency-escape', () => {
     return { success: false, error: error.message };
   }
 });
+
+// IPC handlers for window controls
+ipcMain.handle('window-minimize', () => {
+  try {
+    if (mainWindow) {
+      mainWindow.minimize()
+      return { success: true }
+    }
+    return { success: false, error: 'Main window not available' }
+  } catch (error) {
+    console.error('Error minimizing window:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('window-maximize', () => {
+  try {
+    if (mainWindow) {
+      if (mainWindow.isMaximized()) {
+        mainWindow.unmaximize()
+      } else {
+        mainWindow.maximize()
+      }
+      return { success: true, isMaximized: mainWindow.isMaximized() }
+    }
+    return { success: false, error: 'Main window not available' }
+  } catch (error) {
+    console.error('Error maximizing window:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('window-close', () => {
+  try {
+    if (mainWindow) {
+      mainWindow.close()
+      return { success: true }
+    }
+    return { success: false, error: 'Main window not available' }
+  } catch (error) {
+    console.error('Error closing window:', error)
+    return { success: false, error: error.message }
+  }
+})
 
 // IPC handlers for activity tracking
 ipcMain.handle('start-activity-tracking', () => {

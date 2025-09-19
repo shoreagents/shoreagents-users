@@ -73,6 +73,9 @@ declare global {
         disable: () => Promise<{ success: boolean; kioskMode?: boolean; error?: string }>;
         setActive: (enabled: boolean) => Promise<{ success: boolean; kioskMode?: boolean; error?: string }>;
       };
+      minimize: () => Promise<{ success: boolean; error?: string }>;
+      maximize: () => Promise<{ success: boolean; isMaximized?: boolean; error?: string }>;
+      close: () => Promise<{ success: boolean; error?: string }>;
       getVersion: () => string;
       platform: string;
     };

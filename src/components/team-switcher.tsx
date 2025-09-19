@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { FileText } from "lucide-react"
+import Image from "next/image"
 
 import {
   SidebarMenu,
@@ -31,12 +31,18 @@ export function TeamSwitcher({
           size="lg"
           className="cursor-default"
         >
-          <div className="bg-sidebar-primary text-sidebar-primary-foreground flex aspect-square size-8 items-center justify-center rounded-lg">
-            <FileText className="size-4" />
+          <div className="flex aspect-square size-8 items-center justify-center rounded-lg overflow-hidden">
+            <Image
+              src="/ShoreAgents-Logo-only.png"
+              alt="ShoreAgents Logo"
+              width={40}
+              height={40}
+              className="size-8 object-contain"
+            />
           </div>
           <div className="grid flex-1 text-left text-sm leading-tight">
             <span className="truncate font-medium">{activeTeam.name}</span>
-            <span className="truncate text-xs">{activeTeam.plan}</span>
+            <span className="truncate text-xs text-muted-foreground">{activeTeam.plan}</span>
           </div>
         </SidebarMenuButton>
       </SidebarMenuItem>

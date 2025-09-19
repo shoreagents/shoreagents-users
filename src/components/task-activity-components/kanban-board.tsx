@@ -571,18 +571,40 @@ const KanbanColumn = ({
     if (taskElements.length === 0) {
       targetPosition = 1
     } else {
+      // Create more precise drop zones with better sensitivity
+      const DROP_ZONE_HEIGHT = 20 // Height of the drop zone between tasks
+      const EDGE_SENSITIVITY = 15 // How close to edges to trigger drops
+      
       for (let i = 0; i < taskElements.length; i++) {
         const taskElement = taskElements[i] as HTMLElement
         const taskRect = taskElement.getBoundingClientRect()
         const taskTop = taskRect.top - dropRect.top
         const taskBottom = taskRect.bottom - dropRect.top
-        const taskCenter = (taskTop + taskBottom) / 2
         
-        if (dropY < taskCenter) {
+        // Create a drop zone above this task
+        const dropZoneTop = Math.max(0, taskTop - DROP_ZONE_HEIGHT)
+        const dropZoneBottom = taskTop + EDGE_SENSITIVITY
+        
+        // Create a drop zone below this task (for the last task)
+        const nextTaskBottom = i === taskElements.length - 1 
+          ? taskBottom + DROP_ZONE_HEIGHT 
+          : taskBottom + EDGE_SENSITIVITY
+        
+        // Check if mouse is in the drop zone above this task
+        if (dropY >= dropZoneTop && dropY <= dropZoneBottom) {
           targetPosition = i + 1
           break
         }
-        targetPosition = i + 2
+        // Check if mouse is in the drop zone below this task
+        else if (dropY > taskBottom - EDGE_SENSITIVITY && dropY <= nextTaskBottom) {
+          targetPosition = i + 2
+          break
+        }
+        // If this is the last task and mouse is below it
+        else if (i === taskElements.length - 1 && dropY > taskBottom) {
+          targetPosition = i + 2
+          break
+        }
       }
     }
     
@@ -600,34 +622,46 @@ const KanbanColumn = ({
     setDropPosition(null)
     const taskId = e.dataTransfer.getData("taskId")
     if (taskId) {
-      // Calculate target position based on drop location
+      // Use the same precise logic as handleDragOver for consistency
       const dropZone = e.currentTarget as HTMLElement
       const dropRect = dropZone.getBoundingClientRect()
       const dropY = e.clientY - dropRect.top
       
-      // Find the target position based on drop location
       const taskElements = dropZone.querySelectorAll('[data-task-id]')
-      let targetPosition = 1 // Default to first position
+      let targetPosition = 1
       
-      // If no tasks in the column, position will be 1
       if (taskElements.length === 0) {
         targetPosition = 1
       } else {
-        // Check each task element to find the correct insertion point
+        // Use the same precise drop zone logic
+        const DROP_ZONE_HEIGHT = 20
+        const EDGE_SENSITIVITY = 15
+        
         for (let i = 0; i < taskElements.length; i++) {
           const taskElement = taskElements[i] as HTMLElement
           const taskRect = taskElement.getBoundingClientRect()
           const taskTop = taskRect.top - dropRect.top
           const taskBottom = taskRect.bottom - dropRect.top
-          const taskCenter = (taskTop + taskBottom) / 2
           
-          // If drop is above the middle of this task, insert before it
-          if (dropY < taskCenter) {
+          const dropZoneTop = Math.max(0, taskTop - DROP_ZONE_HEIGHT)
+          const dropZoneBottom = taskTop + EDGE_SENSITIVITY
+          
+          const nextTaskBottom = i === taskElements.length - 1 
+            ? taskBottom + DROP_ZONE_HEIGHT 
+            : taskBottom + EDGE_SENSITIVITY
+          
+          if (dropY >= dropZoneTop && dropY <= dropZoneBottom) {
             targetPosition = i + 1
             break
           }
-          // If drop is below this task, continue to next task
-          targetPosition = i + 2
+          else if (dropY > taskBottom - EDGE_SENSITIVITY && dropY <= nextTaskBottom) {
+            targetPosition = i + 2
+            break
+          }
+          else if (i === taskElements.length - 1 && dropY > taskBottom) {
+            targetPosition = i + 2
+            break
+          }
         }
       }
       onTaskMove(taskId, column.id, targetPosition)
@@ -696,8 +730,8 @@ const KanbanColumn = ({
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         className={cn(
-          "flex-1 overflow-y-auto overflow-x-hidden transition-colors rounded-md kanban-scrollbar",
-          isDragOver && "bg-primary/10 border-2 border-dashed border-primary"
+          "flex-1 overflow-y-auto overflow-x-hidden transition-all duration-200 rounded-md kanban-scrollbar",
+          isDragOver && "bg-primary/10 border-2 border-dashed border-primary shadow-inner"
         )}
         transition={{ 
           layout: { duration: 0.2, ease: "easeInOut" },
@@ -714,24 +748,18 @@ const KanbanColumn = ({
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.1 }}
             >
-              {/* Drop placeholder - shows before this task */}
-              {isDragOver && dropPosition === index + 1 && (
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.95, y: -10 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.95, y: -10 }}
-                  transition={{ duration: 0.2, ease: "easeOut" }}
-                  className="mb-3"
-                >
-                  <div className="border-2 border-dashed border-primary/60 bg-primary/5 rounded-lg p-4 h-20 flex items-center justify-center">
-                    <div className="flex items-center gap-2 text-primary/70">
-                      <div className="w-2 h-2 bg-primary/40 rounded-full animate-pulse"></div>
-                      <span className="text-sm font-medium">Drop task here</span>
-                      <div className="w-2 h-2 bg-primary/40 rounded-full animate-pulse"></div>
-                    </div>
-                  </div>
-                </motion.div>
-              )}
+                {/* Drop placeholder - shows before this task */}
+                {isDragOver && dropPosition === index + 1 && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 4 }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.2, ease: "easeOut" }}
+                    className="mb-3 flex items-center justify-center"
+                  >
+                    <div className="w-full h-1 bg-primary border border-primary rounded-full shadow-lg"></div>
+                  </motion.div>
+                )}
               <TaskCard
                 task={task}
                 onMove={(newStatus) => onTaskMove(task.id, newStatus)}
@@ -744,48 +772,27 @@ const KanbanColumn = ({
               />
             </motion.div>
           ))}
-          {/* Drop placeholder at the end */}
-          {isDragOver && dropPosition === columnTasks.length + 1 && (
+          {/* Drop placeholder at the end - only show if no tasks or if dropping at the very end */}
+          {isDragOver && (columnTasks.length === 0 || dropPosition === columnTasks.length + 1) && (
             <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: -10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: -10 }}
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 4 }}
+              exit={{ opacity: 0, height: 0 }}
               transition={{ duration: 0.2, ease: "easeOut" }}
-              className="mb-3"
+              className="mb-3 flex items-center justify-center"
             >
-              <div className="border-2 border-dashed border-primary/60 bg-primary/5 rounded-lg p-4 h-20 flex items-center justify-center">
-                <div className="flex items-center gap-2 text-primary/70">
-                  <div className="w-2 h-2 bg-primary/40 rounded-full animate-pulse"></div>
-                  <span className="text-sm font-medium">Drop task here</span>
-                  <div className="w-2 h-2 bg-primary/40 rounded-full animate-pulse"></div>
-                </div>
-              </div>
+              <div className="w-full h-1 bg-primary border-2 border-primary rounded-full shadow-lg"></div>
             </motion.div>
           )}
         </AnimatePresence>
         
-        {columnTasks.length === 0 && (
+        {columnTasks.length === 0 && !isDragOver && (
           <motion.div 
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             className="flex items-center justify-center h-32 text-muted-foreground text-sm"
           >
-            {isDragOver ? (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ duration: 0.2, ease: "easeOut" }}
-                className="border-2 border-dashed border-primary/60 bg-primary/5 rounded-lg p-6 h-24 w-full flex items-center justify-center"
-              >
-                <div className="flex items-center gap-2 text-primary/70">
-                  <div className="w-2 h-2 bg-primary/40 rounded-full animate-pulse"></div>
-                  <span className="text-sm font-medium">Drop task here</span>
-                  <div className="w-2 h-2 bg-primary/40 rounded-full animate-pulse"></div>
-                </div>
-              </motion.div>
-            ) : (
-              "No tasks"
-            )}
+            No tasks
           </motion.div>
         )}
       </motion.div>

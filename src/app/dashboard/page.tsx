@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import { AppSidebar } from "@/components/app-sidebar"
 import { AppHeader } from "@/components/app-header"
 import { DashboardSkeleton } from "@/components/skeleton-loaders"
@@ -28,7 +28,6 @@ import {
   CheckSquare
 } from "lucide-react"
 import Link from "next/link"
-import { Ticket, getCurrentUser } from "@/lib/ticket-utils"
 import {
   AreaChart,
   Area,
@@ -44,47 +43,13 @@ import {
   Cell,
 } from "recharts"
 
-type BreakSession = {
-  id: number
-  break_type: string
-  start_time: string
-  end_time: string | null
-  duration_minutes: number | null
-  break_date: string
-}
-
-type MeetingItem = any
-
-type TaskStatistics = {
-  groups: Array<{
-    id: number
-    group_title: string
-    group_color: string
-    position: number
-    task_count: string
-    urgent_count: string
-    high_count: string
-    normal_count: string
-    low_count: string
-  }>
-  priorities: Array<{
-    priority: string
-    count: string
-  }>
-  overdue: {
-    overdue_count: string
-    very_overdue_count: string
-  }
-  recentActivity: Array<{
-    date: string
-    count: number
-  }>
-  totalTasks: number
-}
-
 export default function DashboardPage() {
   // Track user activity to prevent away status
   useActivityTracker()
+
+  // State for time period selection
+  const [selectedPeriod, setSelectedPeriod] = useState<'7D' | '30D'>('7D')
+  const days = selectedPeriod === '7D' ? 7 : 30
 
   // Use React Query hooks for all dashboard data
   const {
@@ -95,23 +60,14 @@ export default function DashboardPage() {
     taskStats,
     isLoading,
     hasError
-  } = useDashboardData()
+  } = useDashboardData(days)
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
       year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
     })
   }
-
-  const statusCounts = useMemo(() => {
-    return allTickets.reduce<Record<string, number>>((acc, t) => {
-      acc[t.status] = (acc[t.status] || 0) + 1
-      return acc
-    }, {})
-  }, [allTickets])
-
-  const getStatusCount = (status: string) => statusCounts[status] || 0
-
+  
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'For Approval':
@@ -173,7 +129,7 @@ export default function DashboardPage() {
     }
   }
 
-  // Build 7-day series for breaks using only break_date and duration_minutes
+  // Build series for breaks using only break_date and duration_minutes
   const breakSeries = useMemo(() => {
     const map = new Map<string, number>()
     breaks.forEach((s) => {
@@ -183,30 +139,36 @@ export default function DashboardPage() {
       if (!Number.isFinite(minutes) || minutes <= 0) return
       map.set(dateKey, (map.get(dateKey) || 0) + minutes)
     })
-    const days: string[] = []
-    for (let i = 6; i >= 0; i--) {
+    const dayKeys: string[] = []
+    for (let i = days - 1; i >= 0; i--) {
       const d = new Date()
       d.setDate(d.getDate() - i)
-      days.push(d.toLocaleDateString('en-CA'))
+      dayKeys.push(d.toLocaleDateString('en-CA'))
     }
-    return days.map((d) => ({ date: d, minutes: map.get(d) || 0 }))
-  }, [breaks])
+    return dayKeys.map((d) => ({ 
+      date: selectedPeriod === '30D' ? d.slice(5) : d, // Remove year for 30D (YYYY-MM-DD -> MM-DD)
+      minutes: map.get(d) || 0 
+    }))
+  }, [breaks, days, selectedPeriod])
 
-  // Build 7-day series for meetings (count per day)
+  // Build series for meetings (count per day)
   const meetingSeries = useMemo(() => {
     const map = new Map<string, number>()
     meetings.forEach((m: any) => {
       const dateKey = new Date(m.start_time || m.created_at || Date.now()).toLocaleDateString('en-CA')
       map.set(dateKey, (map.get(dateKey) || 0) + 1)
     })
-    const days: string[] = []
-    for (let i = 6; i >= 0; i--) {
+    const dayKeys: string[] = []
+    for (let i = days - 1; i >= 0; i--) {
       const d = new Date()
       d.setDate(d.getDate() - i)
-      days.push(d.toLocaleDateString('en-CA'))
+      dayKeys.push(d.toLocaleDateString('en-CA'))
     }
-    return days.map((d) => ({ date: d, count: map.get(d) || 0 }))
-  }, [meetings])
+    return dayKeys.map((d) => ({ 
+      date: selectedPeriod === '30D' ? d.slice(5) : d, // Remove year for 30D (YYYY-MM-DD -> MM-DD)
+      count: map.get(d) || 0 
+    }))
+  }, [meetings, days, selectedPeriod])
 
   // Prepare task data for charts
   const taskGroupData = useMemo(() => {
@@ -257,6 +219,30 @@ export default function DashboardPage() {
               <p className="text-muted-foreground">Your activity, tasks, meetings, and recent tickets at a glance</p>
             </div>
             <div className="flex gap-2">
+              <div className="flex items-center gap-2">
+                <div className="flex bg-muted rounded-lg p-1">
+                  <button
+                    onClick={() => setSelectedPeriod('7D')}
+                    className={`px-3 py-1 text-sm rounded-md transition-colors ${
+                      selectedPeriod === '7D'
+                        ? 'bg-background text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    7D
+                  </button>
+                  <button
+                    onClick={() => setSelectedPeriod('30D')}
+                    className={`px-3 py-1 text-sm rounded-md transition-colors ${
+                      selectedPeriod === '30D'
+                        ? 'bg-background text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    30D
+                  </button>
+                </div>
+              </div>
               <Link href="/productivity/task-activity">
                 <Button variant="outline">
                   <Target className="mr-2 h-4 w-4" />
@@ -308,7 +294,7 @@ export default function DashboardPage() {
 
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Meetings (7d)</CardTitle>
+                <CardTitle className="text-sm font-medium">Meetings ({selectedPeriod})</CardTitle>
                 <Calendar className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
@@ -322,7 +308,13 @@ export default function DashboardPage() {
           <div className="grid gap-4 lg:grid-cols-2">
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">Break Time (last 7 days)</CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-lg">Break Time</CardTitle>
+                  <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                    <Calendar className="h-4 w-4" />
+                    <span>{selectedPeriod}</span>
+                  </div>
+                </div>
                 <CardDescription>Total minutes per day</CardDescription>
               </CardHeader>
               <CardContent className="h-64">
@@ -358,7 +350,13 @@ export default function DashboardPage() {
 
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">Meetings (last 7 days)</CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-lg">Meetings</CardTitle>
+                  <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                    <Calendar className="h-4 w-4" />
+                    <span>{selectedPeriod}</span>
+                  </div>
+                </div>
                 <CardDescription>Count per day</CardDescription>
               </CardHeader>
               <CardContent className="h-64">

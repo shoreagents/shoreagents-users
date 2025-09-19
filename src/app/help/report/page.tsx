@@ -23,6 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { HelpReportSkeleton } from "@/components/skeleton-loaders"
 
 export default function ReportPage() {
   const router = useRouter()
@@ -30,6 +31,7 @@ export default function ReportPage() {
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState("")
+  const [isInitializing, setIsInitializing] = useState(true)
   
   // Form state
   const [reportType, setReportType] = useState("")
@@ -40,6 +42,11 @@ export default function ReportPage() {
   useEffect(() => {
     const user = getCurrentUser()
     setCurrentUser(user)
+    // Simulate initial loading
+    const timer = setTimeout(() => {
+      setIsInitializing(false)
+    }, 1000)
+    return () => clearTimeout(timer)
   }, [])
 
   const reportTypes = [
@@ -117,6 +124,18 @@ export default function ReportPage() {
     setDescription("")
     setError("")
     setSuccess(false)
+  }
+
+  if (isInitializing) {
+    return (
+      <SidebarProvider>
+        <AppSidebar />
+        <SidebarInset>
+          <AppHeader />
+          <HelpReportSkeleton />
+        </SidebarInset>
+      </SidebarProvider>
+    )
   }
 
   if (success) {

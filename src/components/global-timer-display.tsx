@@ -41,21 +41,7 @@ export const GlobalTimerDisplay = React.memo(function GlobalTimerDisplay() {
     error: shiftError
   } = useShiftResetTimer()
 
-  // Real-time ticker to force shift status recalculation when time changes
-  const [nowTick, setNowTick] = useState<number>(() => Date.now())
-
-  // Real-time ticker to force shift status recalculation when time changes
-  useEffect(() => {
-    const interval = setInterval(() => setNowTick(Date.now()), 1000) // Update every second for real-time shift status
-    const onVisibility = () => setNowTick(Date.now())
-    document.addEventListener('visibilitychange', onVisibility)
-    window.addEventListener('focus', onVisibility)
-    return () => {
-      clearInterval(interval)
-      document.removeEventListener('visibilitychange', onVisibility)
-      window.removeEventListener('focus', onVisibility)
-    }
-  }, [])
+  // Note: Removed unused nowTick state that was causing unnecessary re-renders
 
   // Persist expand/collapse state in localStorage
   useEffect(() => {

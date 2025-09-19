@@ -547,66 +547,211 @@ export function HelpFaqSkeleton() {
 export function HelpContactSkeleton() {
   return (
     <div className="flex flex-1 flex-col gap-6 p-6 pt-2">
+      {/* Header */}
       <div className="flex items-center gap-4">
-        <div className="space-y-2">
-          <Skeleton className="h-8 w-64" />
+        <div>
+          <Skeleton className="h-9 w-64 mb-2" />
           <Skeleton className="h-4 w-96" />
         </div>
       </div>
+
       <div className="grid gap-6 lg:grid-cols-3">
+        {/* Main Content - Left Side */}
         <div className="lg:col-span-2 space-y-6">
+          {/* Support Channels Grid */}
           <div className="grid gap-4 md:grid-cols-2">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Card key={i}>
-                <CardHeader>
-                  <Skeleton className="h-6 w-32 mb-2" />
+            {Array.from({ length: 2 }).map((_, i) => (
+              <Card key={i} className="relative flex flex-col h-full">
+                <CardHeader className="flex-1">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <Skeleton className="h-5 w-5" />
+                      <Skeleton className="h-6 w-40" />
+                    </div>
+                    {i === 0 && <Skeleton className="h-5 w-16 rounded-full" />}
+                  </div>
+                  <Skeleton className="h-4 w-full mb-1" />
+                  <Skeleton className="h-4 w-3/4" />
                 </CardHeader>
-                <CardContent>
-                  <Skeleton className="h-4 w-24 mb-2" />
-                  <Skeleton className="h-4 w-32" />
+                <CardContent className="mt-auto">
+                  <Skeleton className="h-10 w-full" />
                 </CardContent>
               </Card>
             ))}
           </div>
+
+          {/* Contact Information Card */}
           <Card>
             <CardHeader>
-              <Skeleton className="h-6 w-32 mb-2" />
+              <div className="flex items-center gap-2 mb-2">
+                <Skeleton className="h-5 w-5" />
+                <Skeleton className="h-6 w-48" />
+              </div>
+              <Skeleton className="h-4 w-64" />
             </CardHeader>
-            <CardContent>
-              <Skeleton className="h-4 w-24 mb-2" />
-              <Skeleton className="h-4 w-32" />
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Skeleton className="h-4 w-4" />
+                      <Skeleton className="h-4 w-20" />
+                    </div>
+                    <Skeleton className="h-4 w-32" />
+                  </div>
+                ))}
+              </div>
             </CardContent>
           </Card>
         </div>
+
+        {/* Sidebar - Right Side */}
         <div className="space-y-6">
+          {/* Support Hours Card */}
           <Card>
             <CardHeader>
               <Skeleton className="h-6 w-32 mb-2" />
+              <Skeleton className="h-4 w-48" />
             </CardHeader>
-            <CardContent>
-              <Skeleton className="h-10 w-full mb-2" />
-              <Skeleton className="h-10 w-full" />
+            <CardContent className="space-y-3">
+              <div className="flex justify-between items-center">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-4 w-32" />
+              </div>
             </CardContent>
           </Card>
+
+          {/* Quick Actions Card */}
           <Card>
             <CardHeader>
-              <Skeleton className="h-6 w-32 mb-2" />
+              <Skeleton className="h-6 w-28 mb-2" />
+              <Skeleton className="h-4 w-40" />
             </CardHeader>
-            <CardContent>
-              <Skeleton className="h-10 w-full mb-2" />
+            <CardContent className="space-y-3">
               <Skeleton className="h-10 w-full" />
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <Skeleton className="h-6 w-32 mb-2" />
-            </CardHeader>
-            <CardContent>
-              <Skeleton className="h-10 w-full mb-2" />
               <Skeleton className="h-10 w-full" />
             </CardContent>
           </Card>
         </div>
+      </div>
+    </div>
+  )
+}
+
+export function HelpReportSkeleton() {
+  return (
+    <div className="flex flex-1 flex-col gap-8 p-8 pt-4 min-h-screen bg-background">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <Skeleton className="h-9 w-64 mb-2" />
+          <Skeleton className="h-4 w-96" />
+        </div>
+      </div>
+
+      {/* Main Form Card */}
+      <div className="flex items-start">
+        <Card className="w-full bg-card">
+          <CardHeader>
+            <div className="flex items-center gap-3">
+              <Skeleton className="h-10 w-10 rounded-full" />
+              <div>
+                <Skeleton className="h-8 w-48 mb-2" />
+                <Skeleton className="h-4 w-80" />
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-6">
+              {/* Report Type Select */}
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+
+              {/* Title Input */}
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-16" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+
+              {/* Description Textarea */}
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-20" />
+                <Skeleton className="h-24 w-full" />
+              </div>
+
+              {/* Submit Button */}
+              <div className="flex gap-3 pt-4">
+                <Skeleton className="h-10 w-full" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  )
+}
+
+export function PasswordSettingsSkeleton() {
+  return (
+    <div className="flex flex-1 flex-col gap-8 p-8 pt-4 min-h-screen bg-background">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <Skeleton className="h-9 w-64 mb-2" />
+          <Skeleton className="h-4 w-96" />
+        </div>
+      </div>
+
+      {/* Main Form Card */}
+      <div className="flex items-center justify-center">
+        <Card className="w-full max-w-md bg-card">
+          <CardHeader className="text-center">
+            <Skeleton className="mx-auto mb-4 h-12 w-12 rounded-full" />
+            <Skeleton className="h-8 w-48 mx-auto mb-2" />
+            <Skeleton className="h-4 w-80 mx-auto" />
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {/* Current Password */}
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+
+              {/* New Password */}
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-28" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+
+              {/* Confirm Password */}
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-36" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+
+              {/* Password Requirements */}
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-40" />
+                <div className="space-y-1">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <Skeleton className="h-3 w-3 rounded-full" />
+                      <Skeleton className="h-3 w-48" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Submit Button */}
+              <div className="pt-4">
+                <Skeleton className="h-10 w-full" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   )

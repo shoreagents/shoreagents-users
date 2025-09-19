@@ -10,6 +10,7 @@ const BreakReminderScheduler = require('./scripts/break-reminder-scheduler');
 const TaskNotificationScheduler = require('./scripts/task-notification-scheduler');
 const MeetingScheduler = require('./scripts/meeting-scheduler');
 const EventReminderScheduler = require('./scripts/event-reminder-scheduler');
+const AnnouncementScheduler = require('./scripts/announcement-scheduler');
 
 const app = express();
 app.use(cors());
@@ -23,7 +24,8 @@ app.get('/status', (req, res) => {
       breakReminder: breakReminderScheduler.getStatus(),
       taskNotification: taskNotificationScheduler.getStatus(),
       meeting: meetingScheduler.getStatus(),
-      eventReminder: eventReminderScheduler.getStatus()
+      eventReminder: eventReminderScheduler.getStatus(),
+      announcement: announcementScheduler.getStatus()
     },
     uptime: process.uptime()
   });
@@ -125,6 +127,7 @@ const breakReminderScheduler = new BreakReminderScheduler();
 const taskNotificationScheduler = new TaskNotificationScheduler();
 const meetingScheduler = new MeetingScheduler();
 const eventReminderScheduler = new EventReminderScheduler();
+const announcementScheduler = new AnnouncementScheduler();
 
 console.log('Initializing break reminder scheduler...');
 breakReminderScheduler.start();
@@ -137,6 +140,9 @@ meetingScheduler.start();
 
 console.log('Initializing event reminder scheduler...');
 eventReminderScheduler.start();
+
+console.log('Initializing announcement scheduler...');
+announcementScheduler.start();
 
 // Initialize global notification listener
 let globalNotificationClient = null;
@@ -159,6 +165,7 @@ async function initializeGlobalNotificationListener() {
     await globalNotificationClient.query('LISTEN health_check_events');
     await globalNotificationClient.query('LISTEN event_changes');
     await globalNotificationClient.query('LISTEN event_attendance_changes');
+    await globalNotificationClient.query('LISTEN announcements');
     
     console.log('Global notification listener initialized');
     
@@ -527,6 +534,79 @@ async function initializeGlobalNotificationListener() {
             console.log('🗑️ Cleared events cache after attendance change');
           } catch (error) {
             console.error('Error clearing events cache:', error);
+          }
+        } else if (msg.channel === 'announcements') {
+          const payload = JSON.parse(msg.payload);
+          console.log(`Announcement notification received:`, payload.type, `Announcement ID: ${payload.announcement_id}`);
+          
+          if (payload.type === 'announcement_sent' && payload.user_id) {
+            // Send to specific user
+            let targetEmail = null;
+            for (const [socketId, userData] of connectedUsers.entries()) {
+              if (userData.userId === payload.user_id) {
+                targetEmail = userData.email;
+                break;
+              }
+            }
+            
+            if (targetEmail) {
+              const userSockets = userConnections.get(targetEmail);
+              if (userSockets && userSockets.size > 0) {
+                console.log(`Broadcasting announcement to ${userSockets.size} connections for user ${payload.user_id} (${targetEmail})`);
+                userSockets.forEach(socketId => {
+                  io.to(socketId).emit('announcement', payload);
+                });
+              } else {
+                console.log(`No active connections found for user ${payload.user_id} (${targetEmail})`);
+              }
+            } else {
+              console.log(`User ${payload.user_id} not found in connected users`);
+            }
+          } else if (payload.type === 'announcement_expired' && payload.user_id) {
+            // Send expiration notification to specific user
+            let targetEmail = null;
+            for (const [socketId, userData] of connectedUsers.entries()) {
+              if (userData.userId === payload.user_id) {
+                targetEmail = userData.email;
+                break;
+              }
+            }
+            
+            if (targetEmail) {
+              const userSockets = userConnections.get(targetEmail);
+              if (userSockets && userSockets.size > 0) {
+                console.log(`Broadcasting announcement expiration to ${userSockets.size} connections for user ${payload.user_id} (${targetEmail})`);
+                userSockets.forEach(socketId => {
+                  io.to(socketId).emit('announcement', payload);
+                });
+              } else {
+                console.log(`No active connections found for user ${payload.user_id} (${targetEmail})`);
+              }
+            } else {
+              console.log(`User ${payload.user_id} not found in connected users`);
+            }
+          } else if (payload.type === 'announcement_dismissed' && payload.user_id) {
+            // Send dismissal confirmation to specific user
+            let targetEmail = null;
+            for (const [socketId, userData] of connectedUsers.entries()) {
+              if (userData.userId === payload.user_id) {
+                targetEmail = userData.email;
+                break;
+              }
+            }
+            
+            if (targetEmail) {
+              const userSockets = userConnections.get(targetEmail);
+              if (userSockets && userSockets.size > 0) {
+                userSockets.forEach(socketId => {
+                  io.to(socketId).emit('announcement', payload);
+                });
+              }
+            }
+          } else if (payload.type === 'announcement_change') {
+            // Broadcast announcement changes to all users (for admin updates)
+            console.log(`Broadcasting announcement change to all ${connectedUsers.size} connected users`);
+            io.emit('announcement', payload);
           }
         }
       } catch (error) {
@@ -3184,5 +3264,6 @@ server.listen(PORT, () => {
   console.log(`Task notification scheduler: ${taskNotificationScheduler.getStatus().isRunning ? 'Running' : 'Stopped'} (${taskNotificationScheduler.getStatus().interval}s interval)`);
   console.log(`Meeting scheduler: ${meetingScheduler.getStatus().isRunning ? 'Running' : 'Stopped'} (${meetingScheduler.getStatus().interval}s interval)`);
   console.log(`Event reminder scheduler: ${eventReminderScheduler.getStatus().isRunning ? 'Running' : 'Stopped'} (${eventReminderScheduler.getStatus().interval}s interval)`);
+  console.log(`Announcement scheduler: ${announcementScheduler.getStatus().isRunning ? 'Running' : 'Stopped'} (${announcementScheduler.getStatus().interval}s interval)`);
   console.log(`All schedulers are now active and monitoring for notifications`);
 });
