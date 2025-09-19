@@ -81,7 +81,7 @@ export function useDashboardTickets() {
 }
 
 // Hook to fetch breaks history
-export function useDashboardBreaks() {
+export function useDashboardBreaks(days: number = 7) {
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [isClient, setIsClient] = useState(false)
   
@@ -94,13 +94,13 @@ export function useDashboardBreaks() {
   }, [isClient])
 
   return useQuery({
-    queryKey: ['dashboard-breaks', currentUser?.id || 'loading'],
+    queryKey: ['dashboard-breaks', currentUser?.id || 'loading', days],
     queryFn: async (): Promise<{ data: { completed_breaks: BreakSession[]; active_breaks: BreakSession[] } }> => {
       if (!currentUser?.id) {
         throw new Error('User not authenticated')
       }
       
-      const response = await fetch(`/api/breaks/history/?agent_user_id=${encodeURIComponent(currentUser.id)}&days=7&include_active=true`, {
+      const response = await fetch(`/api/breaks/history/?agent_user_id=${encodeURIComponent(currentUser.id)}&days=${days}&include_active=true`, {
         credentials: 'include',
       })
       
@@ -120,7 +120,7 @@ export function useDashboardBreaks() {
 }
 
 // Hook to fetch meetings
-export function useDashboardMeetings() {
+export function useDashboardMeetings(days: number = 7) {
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [isClient, setIsClient] = useState(false)
   
@@ -133,13 +133,13 @@ export function useDashboardMeetings() {
   }, [isClient])
 
   return useQuery({
-    queryKey: ['dashboard-meetings', currentUser?.id || 'loading'],
+    queryKey: ['dashboard-meetings', currentUser?.id || 'loading', days],
     queryFn: async (): Promise<{ meetings: MeetingItem[] }> => {
       if (!currentUser?.id) {
         throw new Error('User not authenticated')
       }
       
-      const response = await fetch(`/api/meetings/?agent_user_id=${encodeURIComponent(currentUser.id)}&days=7`, {
+      const response = await fetch(`/api/meetings/?agent_user_id=${encodeURIComponent(currentUser.id)}&days=${days}`, {
         credentials: 'include',
       })
       
@@ -191,10 +191,10 @@ export function useDashboardTaskStats() {
 }
 
 // Combined hook for all dashboard data
-export function useDashboardData() {
+export function useDashboardData(days: number = 7) {
   const ticketsQuery = useDashboardTickets()
-  const breaksQuery = useDashboardBreaks()
-  const meetingsQuery = useDashboardMeetings()
+  const breaksQuery = useDashboardBreaks(days)
+  const meetingsQuery = useDashboardMeetings(days)
   const taskStatsQuery = useDashboardTaskStats()
 
   // Check if any query is still loading or if we're in the initial state

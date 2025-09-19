@@ -1,20 +1,22 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useSocket } from '@/contexts/socket-context'
 import { AppSidebar } from '@/components/app-sidebar'
 import { AppHeader } from '@/components/app-header'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent} from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { Search, MoreVertical, Phone, Video, Users, Clock, Wifi, WifiOff, Coffee, Calendar, Heart, Check, X, Toilet, Menu, X as XIcon } from 'lucide-react'
+import { Search, Video, Users, Clock, Wifi, Coffee, Calendar, Heart, Check, X, Toilet, Menu, X as XIcon } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { BentoGrid, BentoGridItem } from '@/components/ui/bento-grid'
+import { AnimatedBeam } from '@/components/ui/animated-beam'
 // Team chat functionality removed - focusing on online/offline tracking only
 import { getCurrentUser } from '@/lib/auth-utils'
-import { useTeamAgents, useTeamAuthData, TeamAgent, UserAuthData } from '@/hooks/use-team-agents'
+import { useTeamAgents, useTeamAuthData, TeamAgent } from '@/hooks/use-team-agents'
 import { ConnectedUsersSkeleton } from '@/components/skeleton-loaders'
 
 interface UserStatus {
@@ -55,6 +57,15 @@ export default function ConnectedUsersPage() {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
   const [isAvatarOnlyMode, setIsAvatarOnlyMode] = useState(false)
   const { socket, isConnected } = useSocket()
+
+  // Refs for animated beam
+  const containerRef = useRef<HTMLDivElement>(null)
+  const avatarRef = useRef<HTMLDivElement>(null)
+  const meetingRef = useRef<HTMLDivElement>(null)
+  const breakRef = useRef<HTMLDivElement>(null)
+  const restroomRef = useRef<HTMLDivElement>(null)
+  const eventRef = useRef<HTMLDivElement>(null)
+  const healthRef = useRef<HTMLDivElement>(null)
 
   // Use React Query hooks
   const { 
@@ -438,7 +449,7 @@ export default function ConnectedUsersPage() {
           <AppHeader />
           <div className="flex-1 h-screen bg-background">
           {/* Header */}
-          <div className="bg-card border-b border-border px-4 sm:px-6 py-4">
+          <div className="bg-card border-b border-border px-2 sm:px-2 py-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2 sm:space-x-4">
                 <Button
@@ -453,9 +464,6 @@ export default function ConnectedUsersPage() {
                   <Users className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600" />
                   <h1 className="text-lg sm:text-2xl font-bold text-gray-900 dark:text-white">Team Status</h1>
                 </div>
-                <Badge variant="secondary" className="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 text-xs sm:text-sm">
-                  {teamInfo?.company || 'Team'}
-                </Badge>
               </div>
             </div>
           </div>
@@ -832,7 +840,7 @@ export default function ConnectedUsersPage() {
               {selectedUser ? (
                 <div className="h-full flex flex-col">
                   {/* User Details Header */}
-                  <div className="p-4 sm:p-6 border-b border-border">
+                  <div className="p-4 border-b border-border">
                     <div className="flex items-center space-x-3 sm:space-x-4">
                       <Avatar className="w-12 h-12 sm:w-16 sm:h-16">
                         <AvatarImage src={selectedUser.avatar} />
@@ -854,159 +862,381 @@ export default function ConnectedUsersPage() {
                     </div>
                   </div>
 
-                  {/* User Status Details */}
-                  <div className="flex-1 p-4 sm:p-6 space-y-4 sm:space-y-6">
+                  {/* User Status Details - Bento Grid */}
+                  <div className="flex-1 p-4 sm:p-6">
                     {(() => {
                       const statusDisplay = getStatusDisplay(selectedUser)
                       const detailedStatus = userStatuses.get(selectedUser.email)?.detailedStatus
                       
                       return (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
-                          {/* Current Status */}
-                          <Card>
-                            <CardHeader className="pb-3">
-                              <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                                Current Status
-                              </CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                              <div className="flex items-center space-x-2">
-                                <div className={`w-3 h-3 rounded-full ${
-                                  statusDisplay.statusColor === 'green' ? 'bg-green-500' :
-                                  statusDisplay.statusColor === 'blue' ? 'bg-blue-500' :
-                                  statusDisplay.statusColor === 'orange' ? 'bg-orange-500' :
-                                  statusDisplay.statusColor === 'purple' ? 'bg-purple-500' :
-                                  statusDisplay.statusColor === 'red' ? 'bg-red-500' :
-                                  'bg-gray-400'
-                                } ${statusDisplay.status === 'online' ? 'animate-pulse' : ''}`}></div>
-                                <span className={`text-sm font-medium ${
-                                  statusDisplay.statusColor === 'green' ? 'text-green-600 dark:text-green-400' :
-                                  statusDisplay.statusColor === 'blue' ? 'text-blue-600 dark:text-blue-400' :
-                                  statusDisplay.statusColor === 'orange' ? 'text-orange-600 dark:text-orange-400' :
-                                  statusDisplay.statusColor === 'purple' ? 'text-purple-600 dark:text-purple-400' :
-                                  statusDisplay.statusColor === 'red' ? 'text-red-600 dark:text-red-400' :
-                                  'text-gray-500 dark:text-gray-400'
-                                }`}>
-                                  {statusDisplay.statusText}
-                                </span>
-                              </div>
-                              
-                            </CardContent>
-                          </Card>
-
-                          {/* Last Activity */}
-                          <Card>
-                            <CardHeader className="pb-3">
-                              <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                                Last Activity
-                              </CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                              <div className="text-sm">
-                                {userStatuses.get(selectedUser.email)?.lastSeen ? (
-                                  <span className="text-gray-900 dark:text-white">
-                                    {formatRelativeTime(userStatuses.get(selectedUser.email)?.lastSeen || '')}
-                                  </span>
-                                ) : (
-                                  <span className="text-gray-500 dark:text-gray-400">Never online</span>
-                                )}
-                              </div>
-                            </CardContent>
-                          </Card>
-
-                          {/* Login Time */}
-                          <Card>
-                            <CardHeader className="pb-3">
-                              <CardTitle className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                                Last Sign In
-                              </CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                              <div className="text-sm">
-                                {userAuthDataMap.get(selectedUser.email)?.last_sign_in_at ? (
-                                  <div className="space-y-1">
-                                    <span className="text-gray-900 dark:text-white font-medium">
-                                      {formatRelativeTime(userAuthDataMap.get(selectedUser.email)?.last_sign_in_at || '')}
-                                    </span>
-                                  </div>
-                                ) : userStatuses.get(selectedUser.email)?.loginTime ? (
-                                  <div className="space-y-1">
-                                    <span className="text-gray-900 dark:text-white font-medium">
-                                      {formatRelativeTime(userStatuses.get(selectedUser.email)?.loginTime || '')}
-                                    </span>
-                                  </div>
-                                ) : (
-                                  <span className="text-gray-500 dark:text-gray-400">Never signed in</span>
-                                )}
-                              </div>
-                            </CardContent>
-                          </Card>
-
-                          {/* Status Details */}
+                        <BentoGrid className="max-w-7xl mx-auto">
+                          {/* Status Details - Wide card with animated beam */}
                           {detailedStatus && (
-                            <Card>
-                              <CardHeader className="pb-3">
-                                <CardTitle className="text-sm font-medium text-muted-foreground">
-                                  Status Details
-                                </CardTitle>
-                              </CardHeader>
-                              <CardContent>
-                                <div className="space-y-2 text-xs">
-                                  <div className="flex justify-between items-center">
-                                    <span className="text-muted-foreground">In Meeting:</span>
-                                    <div className={detailedStatus.isInMeeting ? 'text-blue-600 dark:text-blue-400' : 'text-muted-foreground'}>
-                                      {detailedStatus.isInMeeting ? (
-                                        <Check className="h-4 w-4" />
-                                      ) : (
-                                        <X className="h-4 w-4" />
-                                      )}
+                            <BentoGridItem
+                              title="Status Details"
+                              description="Detailed activity status"
+                              header={
+                                <div ref={containerRef} className="relative flex items-center justify-center h-full w-full">
+                                  {/* Center Avatar */}
+                                  <div 
+                                    ref={avatarRef}
+                                    className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10"
+                                  >
+                                    <Avatar className="w-16 h-16 ring-4 ring-primary/20">
+                                      <AvatarImage src={selectedUser.avatar} />
+                                      <AvatarFallback className="text-lg">
+                                        {getInitials(selectedUser.name)}
+                                      </AvatarFallback>
+                                    </Avatar>
+                                  </div>
+
+                                  {/* Status Items positioned around the avatar */}
+                                  <div className="absolute -top-3 left-1/2 transform -translate-x-1/2">
+                                    <div 
+                                      ref={meetingRef}
+                                      className="flex flex-col items-center space-y-2"
+                                    >
+                                      <span className="text-xs text-center text-muted-foreground">Meeting</span>
+
+                                      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                                        detailedStatus.isInMeeting ? 'bg-blue-100 dark:bg-blue-900/20' : 'bg-gray-100 dark:bg-gray-800'
+                                      }`}>
+                                        {detailedStatus.isInMeeting ? (
+                                          <Check className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                                        ) : (
+                                          <X className="h-4 w-4 text-gray-400" />
+                                        )}
+                                      </div>
                                     </div>
                                   </div>
-                                  <div className="flex justify-between items-center">
-                                    <span className="text-muted-foreground">On Break:</span>
-                                    <div className={detailedStatus.isInBreak ? 'text-orange-600 dark:text-orange-400' : 'text-muted-foreground'}>
-                                      {detailedStatus.isInBreak ? (
-                                        <Check className="h-4 w-4" />
-                                      ) : (
-                                        <X className="h-4 w-4" />
-                                      )}
+
+                                  <div className="absolute top-[55%] -right-1 transform -translate-y-1/2">
+                                    <div 
+                                      ref={breakRef}
+                                      className="flex flex-col items-center space-y-2"
+                                    >
+                                      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                                        detailedStatus.isInBreak ? 'bg-orange-100 dark:bg-orange-900/20' : 'bg-gray-100 dark:bg-gray-800'
+                                      }`}>
+                                        {detailedStatus.isInBreak ? (
+                                          <Check className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                                        ) : (
+                                          <X className="h-4 w-4 text-gray-400" />
+                                        )}
+                                      </div>
+                                      <span className="text-xs text-center text-muted-foreground">Break</span>
                                     </div>
                                   </div>
-                                  <div className="flex justify-between items-center">
-                                    <span className="text-muted-foreground">In Restroom:</span>
-                                    <div className={detailedStatus.isInRestroom ? 'text-orange-600 dark:text-orange-400' : 'text-muted-foreground'}>
-                                      {detailedStatus.isInRestroom ? (
-                                        <Check className="h-4 w-4" />
-                                      ) : (
-                                        <X className="h-4 w-4" />
-                                      )}
+
+                                  <div className="absolute -bottom-3 right-[24%] transform translate-x-1/2">
+                                    <div 
+                                      ref={restroomRef}
+                                      className="flex flex-col items-center space-y-2"
+                                    >
+                                      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                                        detailedStatus.isInRestroom ? 'bg-orange-100 dark:bg-orange-900/20' : 'bg-gray-100 dark:bg-gray-800'
+                                      }`}>
+                                        {detailedStatus.isInRestroom ? (
+                                          <Check className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                                        ) : (
+                                          <X className="h-4 w-4 text-gray-400" />
+                                        )}
+                                      </div>
+                                      <span className="text-xs text-center text-muted-foreground">Restroom</span>
                                     </div>
                                   </div>
-                                  <div className="flex justify-between items-center">
-                                    <span className="text-muted-foreground">In Event:</span>
-                                    <div className={detailedStatus.isInEvent ? 'text-purple-600 dark:text-purple-400' : 'text-muted-foreground'}>
-                                      {detailedStatus.isInEvent ? (
-                                        <Check className="h-4 w-4" />
-                                      ) : (
-                                        <X className="h-4 w-4" />
-                                      )}
+
+                                  <div className="absolute -bottom-3 left-[24%] transform -translate-x-1/2">
+                                    <div 
+                                      ref={eventRef}
+                                      className="flex flex-col items-center space-y-2"
+                                    >
+                                      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                                        detailedStatus.isInEvent ? 'bg-purple-100 dark:bg-purple-900/20' : 'bg-gray-100 dark:bg-gray-800'
+                                      }`}>
+                                        {detailedStatus.isInEvent ? (
+                                          <Check className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                                        ) : (
+                                          <X className="h-4 w-4 text-gray-400" />
+                                        )}
+                                      </div>
+                                      <span className="text-xs text-center text-muted-foreground">Event</span>
                                     </div>
                                   </div>
-                                  <div className="flex justify-between items-center">
-                                    <span className="text-muted-foreground">Health Visit:</span>
-                                    <div className={detailedStatus.isGoingToClinic || detailedStatus.isInClinic ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground'}>
-                                      {detailedStatus.isGoingToClinic || detailedStatus.isInClinic ? (
-                                        <Check className="h-4 w-4" />
-                                      ) : (
-                                        <X className="h-4 w-4" />
-                                      )}
+
+                                  <div className="absolute top-[53%] -left-1 transform -translate-y-1/2">
+                                    <div 
+                                      ref={healthRef}
+                                      className="flex flex-col items-center space-y-2"
+                                    >
+                                      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                                        detailedStatus.isGoingToClinic || detailedStatus.isInClinic ? 'bg-red-100 dark:bg-red-900/20' : 'bg-gray-100 dark:bg-gray-800'
+                                      }`}>
+                                        {detailedStatus.isGoingToClinic || detailedStatus.isInClinic ? (
+                                          <Check className="h-4 w-4 text-red-600 dark:text-red-400" />
+                                        ) : (
+                                          <X className="h-4 w-4 text-gray-400" />
+                                        )}
+                                      </div>
+                                      <span className="text-xs text-center text-muted-foreground">Health</span>
                                     </div>
                                   </div>
+
+                                  {/* Static Lines - All connections */}
+                                  {containerRef.current && avatarRef.current && meetingRef.current && (
+                                    <AnimatedBeam
+                                      containerRef={containerRef}
+                                      fromRef={avatarRef}
+                                      toRef={meetingRef}
+                                      curvature={20}
+                                      duration={0}
+                                      delay={0}
+                                      pathColor="#6b7280"
+                                      gradientStartColor="#6b7280"
+                                      gradientStopColor="#6b7280"
+                                      pathOpacity={0.3}
+                                      pathWidth={1}
+                                    />
+                                  )}
+                                  {containerRef.current && avatarRef.current && breakRef.current && (
+                                    <AnimatedBeam
+                                      containerRef={containerRef}
+                                      fromRef={avatarRef}
+                                      toRef={breakRef}
+                                      curvature={20}
+                                      duration={0}
+                                      delay={0}
+                                      pathColor="#6b7280"
+                                      gradientStartColor="#6b7280"
+                                      gradientStopColor="#6b7280"
+                                      pathOpacity={0.3}
+                                      pathWidth={1}
+                                    />
+                                  )}
+                                  {containerRef.current && avatarRef.current && restroomRef.current && (
+                                    <AnimatedBeam
+                                      containerRef={containerRef}
+                                      fromRef={avatarRef}
+                                      toRef={restroomRef}
+                                      curvature={20}
+                                      duration={0}
+                                      delay={0}
+                                      pathColor="#6b7280"
+                                      gradientStartColor="#6b7280"
+                                      gradientStopColor="#6b7280"
+                                      pathOpacity={0.3}
+                                      pathWidth={1}
+                                    />
+                                  )}
+                                  {containerRef.current && avatarRef.current && eventRef.current && (
+                                    <AnimatedBeam
+                                      containerRef={containerRef}
+                                      fromRef={avatarRef}
+                                      toRef={eventRef}
+                                      curvature={20}
+                                      duration={0}
+                                      delay={0}
+                                      pathColor="#6b7280"
+                                      gradientStartColor="#6b7280"
+                                      gradientStopColor="#6b7280"
+                                      pathOpacity={0.3}
+                                      pathWidth={1}
+                                    />
+                                  )}
+                                  {containerRef.current && avatarRef.current && healthRef.current && (
+                                    <AnimatedBeam
+                                      containerRef={containerRef}
+                                      fromRef={avatarRef}
+                                      toRef={healthRef}
+                                      curvature={20}
+                                      duration={0}
+                                      delay={0}
+                                      pathColor="#6b7280"
+                                      gradientStartColor="#6b7280"
+                                      gradientStopColor="#6b7280"
+                                      pathOpacity={0.3}
+                                      pathWidth={1}
+                                    />
+                                  )}
+
+                                  {/* Animated Beams - Only for active statuses */}
+                                  {detailedStatus.isInMeeting && containerRef.current && avatarRef.current && meetingRef.current && (
+                                    <AnimatedBeam
+                                      containerRef={containerRef}
+                                      fromRef={avatarRef}
+                                      toRef={meetingRef}
+                                      curvature={20}
+                                      duration={3}
+                                      delay={0}
+                                      pathColor="#3b82f6"
+                                      gradientStartColor="#3b82f6"
+                                      gradientStopColor="#1d4ed8"
+                                    />
+                                  )}
+                                  {detailedStatus.isInBreak && containerRef.current && avatarRef.current && breakRef.current && (
+                                    <AnimatedBeam
+                                      containerRef={containerRef}
+                                      fromRef={avatarRef}
+                                      toRef={breakRef}
+                                      curvature={20}
+                                      duration={3}
+                                      delay={0.5}
+                                      pathColor="#f97316"
+                                      gradientStartColor="#f97316"
+                                      gradientStopColor="#ea580c"
+                                    />
+                                  )}
+                                  {detailedStatus.isInRestroom && containerRef.current && avatarRef.current && restroomRef.current && (
+                                    <AnimatedBeam
+                                      containerRef={containerRef}
+                                      fromRef={avatarRef}
+                                      toRef={restroomRef}
+                                      curvature={20}
+                                      duration={3}
+                                      delay={1}
+                                      pathColor="#f97316"
+                                      gradientStartColor="#f97316"
+                                      gradientStopColor="#ea580c"
+                                    />
+                                  )}
+                                  {detailedStatus.isInEvent && containerRef.current && avatarRef.current && eventRef.current && (
+                                    <AnimatedBeam
+                                      containerRef={containerRef}
+                                      fromRef={avatarRef}
+                                      toRef={eventRef}
+                                      curvature={20}
+                                      duration={3}
+                                      delay={1.5}
+                                      pathColor="#a855f7"
+                                      gradientStartColor="#a855f7"
+                                      gradientStopColor="#9333ea"
+                                    />
+                                  )}
+                                  {(detailedStatus.isGoingToClinic || detailedStatus.isInClinic) && containerRef.current && avatarRef.current && healthRef.current && (
+                                    <AnimatedBeam
+                                      containerRef={containerRef}
+                                      fromRef={avatarRef}
+                                      toRef={healthRef}
+                                      curvature={20}
+                                      duration={3}
+                                      delay={2}
+                                      pathColor="#ef4444"
+                                      gradientStartColor="#ef4444"
+                                      gradientStopColor="#dc2626"
+                                    />
+                                  )}
                                 </div>
-                              </CardContent>
-                            </Card>
+                              }
+                              className="md:col-span-2 md:row-span-2"
+                            />
                           )}
-                        </div>
+
+                          {/* Current Status - Large card */}
+                          <BentoGridItem
+                            title="Current Status"
+                            description={statusDisplay.statusText}
+                            header={
+                              <div className="flex items-center justify-center h-full">
+                                <div className="flex flex-col items-center space-y-3">
+                                  <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
+                                    statusDisplay.statusColor === 'green' ? 'bg-green-100 dark:bg-green-900/20' :
+                                    statusDisplay.statusColor === 'blue' ? 'bg-blue-100 dark:bg-blue-900/20' :
+                                    statusDisplay.statusColor === 'orange' ? 'bg-orange-100 dark:bg-orange-900/20' :
+                                    statusDisplay.statusColor === 'purple' ? 'bg-purple-100 dark:bg-purple-900/20' :
+                                    statusDisplay.statusColor === 'red' ? 'bg-red-100 dark:bg-red-900/20' :
+                                    'bg-gray-100 dark:bg-gray-800'
+                                  }`}>
+                                    <div className={`w-6 h-6 rounded-full ${
+                                      statusDisplay.statusColor === 'green' ? 'bg-green-500' :
+                                      statusDisplay.statusColor === 'blue' ? 'bg-blue-500' :
+                                      statusDisplay.statusColor === 'orange' ? 'bg-orange-500' :
+                                      statusDisplay.statusColor === 'purple' ? 'bg-purple-500' :
+                                      statusDisplay.statusColor === 'red' ? 'bg-red-500' :
+                                      'bg-gray-400'
+                                    } ${statusDisplay.status === 'online' ? 'animate-pulse' : ''}`}></div>
+                                  </div>
+                                  <span className={`text-xl font-bold ${
+                                    statusDisplay.statusColor === 'green' ? 'text-green-600 dark:text-green-400' :
+                                    statusDisplay.statusColor === 'blue' ? 'text-blue-600 dark:text-blue-400' :
+                                    statusDisplay.statusColor === 'orange' ? 'text-orange-600 dark:text-orange-400' :
+                                    statusDisplay.statusColor === 'purple' ? 'text-purple-600 dark:text-purple-400' :
+                                    statusDisplay.statusColor === 'red' ? 'text-red-600 dark:text-red-400' :
+                                    'text-gray-500 dark:text-gray-400'
+                                  }`}>
+                                    {statusDisplay.statusText}
+                                  </span>
+                                </div>
+                              </div>
+                            }
+                            className="md:col-span-1 md:row-span-1"
+                          />
+
+                          {/* Last Activity - Medium card */}
+                          <BentoGridItem
+                            title="Last Activity"
+                            description={userStatuses.get(selectedUser.email)?.lastSeen ? 
+                              formatRelativeTime(userStatuses.get(selectedUser.email)?.lastSeen || '') : 
+                              'Never online'
+                            }
+                            header={
+                              <div className="flex items-center justify-center h-full">
+                                <div className="flex flex-col items-center space-y-2">
+                                  <Clock className={`w-10 h-10 ${
+                                    userStatuses.get(selectedUser.email)?.lastSeen ? 
+                                      'text-blue-600 dark:text-blue-400' : 
+                                      'text-gray-400 dark:text-gray-500'
+                                  }`} />
+                                  <span className={`text-lg font-semibold ${
+                                    userStatuses.get(selectedUser.email)?.lastSeen ? 
+                                      'text-gray-900 dark:text-white' : 
+                                      'text-gray-500 dark:text-gray-400'
+                                  }`}>
+                                    {userStatuses.get(selectedUser.email)?.lastSeen ? 
+                                      formatRelativeTime(userStatuses.get(selectedUser.email)?.lastSeen || '') : 
+                                      'Never online'
+                                    }
+                                  </span>
+                                </div>
+                              </div>
+                            }
+                            className="md:col-span-1"
+                          />
+
+                          {/* Last Sign In - Medium card */}
+                          <BentoGridItem
+                            title="Last Sign In"
+                            description={userAuthDataMap.get(selectedUser.email)?.last_sign_in_at ? 
+                              formatRelativeTime(userAuthDataMap.get(selectedUser.email)?.last_sign_in_at || '') :
+                              userStatuses.get(selectedUser.email)?.loginTime ?
+                                formatRelativeTime(userStatuses.get(selectedUser.email)?.loginTime || '') :
+                                'Never signed in'
+                            }
+                            header={
+                              <div className="flex items-center justify-center h-full">
+                                <div className="flex flex-col items-center space-y-2">
+                                  <Wifi className={`w-10 h-10 ${
+                                    userAuthDataMap.get(selectedUser.email)?.last_sign_in_at || userStatuses.get(selectedUser.email)?.loginTime ? 
+                                      'text-green-600 dark:text-green-400' : 
+                                      'text-gray-400 dark:text-gray-500'
+                                  }`} />
+                                  <span className={`text-lg font-semibold ${
+                                    userAuthDataMap.get(selectedUser.email)?.last_sign_in_at || userStatuses.get(selectedUser.email)?.loginTime ? 
+                                      'text-gray-900 dark:text-white' : 
+                                      'text-gray-500 dark:text-gray-400'
+                                  }`}>
+                                    {userAuthDataMap.get(selectedUser.email)?.last_sign_in_at ? 
+                                      formatRelativeTime(userAuthDataMap.get(selectedUser.email)?.last_sign_in_at || '') :
+                                      userStatuses.get(selectedUser.email)?.loginTime ?
+                                        formatRelativeTime(userStatuses.get(selectedUser.email)?.loginTime || '') :
+                                        'Never signed in'
+                                    }
+                                  </span>
+                                </div>
+                              </div>
+                            }
+                            className="md:col-span-3"
+                          />
+                        </BentoGrid>
                       )
                     })()}
                   </div>
@@ -1035,3 +1265,5 @@ export default function ConnectedUsersPage() {
     </TooltipProvider>
   )
 }
+
+

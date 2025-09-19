@@ -47,6 +47,7 @@ import {
 } from "@/components/ui/tooltip"
 import { GlobalSearch } from "@/components/global-search"
 import { SwipeableNotificationItem } from "@/components/swipeable-notification-item"
+import { WindowControls } from "@/components/window-controls"
 
 interface BreadcrumbItem {
   title: string
@@ -412,6 +413,11 @@ export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser =
           title: 'Contact Support',
           href: '/help/contact'
         })
+      } else if (pathSegments[1] === 'report') {
+        generatedBreadcrumbs.push({
+          title: 'Report Issues',
+          href: '/help/report'
+        })
       } else if (pathSegments.length === 1) {
         // Help home page - make it clickable
         generatedBreadcrumbs[0].href = '/help'
@@ -479,6 +485,11 @@ export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser =
         generatedBreadcrumbs.push({
           title: 'Profile',
           href: '/settings/profile'
+        })
+      } else if (pathSegments[1] === 'password') {
+        generatedBreadcrumbs.push({
+          title: 'Password Settings',
+          href: '/settings/password'
         })
       } else if (pathSegments.length === 1) {
         // Settings home page - make it clickable
@@ -618,7 +629,7 @@ export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser =
   const { isLoading: teamStatusLoading, onlineTeamCount, totalTeamCount } = useTeamStatus()
 
   return (
-    <header className="sticky top-0 z-50 flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12 bg-background/95 backdrop-blur-sm supports-[backdrop-filter]:bg-background/80 border-b border-border/40 shadow-sm">
+    <header className="sticky top-0 z-40 flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12 bg-background/95 backdrop-blur-sm supports-[backdrop-filter]:bg-background/80 border-b border-border/40 shadow-sm">
       <div className="flex items-center gap-2 px-4">
         <SidebarTrigger className="-ml-1" />
         <Separator
@@ -689,7 +700,7 @@ export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser =
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8"
+            className="h-8 w-8 hover:!bg-transparent dark:hover:text-white hover:text-black focus:!outline-none focus:!ring-0 focus:!ring-offset-0"
             onClick={() => {
               const root = document.documentElement
               const isDark = root.classList.contains('dark')
@@ -713,14 +724,14 @@ export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser =
               <Button
                 variant="ghost"
                 size="icon"
-                className="relative h-8 w-8"
+                className="relative h-8 w-8 hover:!bg-transparent dark:hover:text-white hover:text-black focus:!outline-none focus:!ring-0 focus:!ring-offset-0"
                 data-notifications-trigger
               >
                 <Bell className="h-4 w-4" />
                                   {socketUnreadCount > 0 && (
                     <Badge 
                       variant="destructive" 
-                      className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 text-xs font-medium bg-red-500 text-white border-2 border-white shadow-sm"
+                      className="absolute -top-1 -right-1 w-5 h-5 rounded-full p-0 text-[10px] font-medium bg-red-500 text-white border-2 border-background shadow-sm flex items-center justify-center"
                     >
                       {socketUnreadCount > 9 ? '9+' : socketUnreadCount}
                     </Badge>
@@ -893,6 +904,9 @@ export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser =
           ) : (
           <HeaderUser user={user} />
           )}
+          
+          {/* Custom Window Controls */}
+          <WindowControls />
         </div>
       )}
     </header>

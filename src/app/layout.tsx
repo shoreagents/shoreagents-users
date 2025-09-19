@@ -28,6 +28,8 @@ import AuthNormalizer from "@/components/auth-normalizer";
 import { LogoutLoadingOverlay } from "@/components/logout-loading-overlay";
 import { AppWrapper } from "@/components/app-wrapper";
 import { TutorialOverlay } from "@/components/tutorial-overlay";
+import { AnnouncementsLayoutWrapper } from "@/components/announcements/announcements-layout-wrapper";
+import { AnnouncementsProvider } from '@/contexts/announcements-context';
 import { Toaster } from "sonner";
 
 
@@ -69,6 +71,9 @@ export default function RootLayout({
                 <AuthMonitor>
                   <AuthProvider>
                     <SocketProvider>
+                      <AnnouncementsProvider>
+                        <AnnouncementsLayoutWrapper />
+                      </AnnouncementsProvider>
                       <MeetingProvider>
                         <EventsProvider>
                           <BreakProvider>

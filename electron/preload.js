@@ -115,6 +115,11 @@ try {
     setActive: (enabled) => ipcRenderer.invoke('set-kiosk-mode', enabled)
   },
   
+  // Window control methods
+  minimize: () => ipcRenderer.invoke('window-minimize'),
+  maximize: () => ipcRenderer.invoke('window-maximize'),
+  close: () => ipcRenderer.invoke('window-close'),
+  
   // Get app version
   getVersion: () => process.versions.electron,
   

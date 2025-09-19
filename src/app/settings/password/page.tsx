@@ -16,6 +16,7 @@ import {
   SidebarInset,
   SidebarProvider,
 } from "@/components/ui/sidebar"
+import { PasswordSettingsSkeleton } from "@/components/skeleton-loaders"
 
 export default function ChangePasswordPage() {
   const router = useRouter()
@@ -29,11 +30,17 @@ export default function ChangePasswordPage() {
   const [error, setError] = useState("")
   const [success, setSuccess] = useState(false)
   const [currentUser, setCurrentUser] = useState<any>(null)
+  const [isInitializing, setIsInitializing] = useState(true)
 
   // Get current user on component mount
   useEffect(() => {
     const user = getCurrentUser()
     setCurrentUser(user)
+    // Simulate initial loading
+    const timer = setTimeout(() => {
+      setIsInitializing(false)
+    }, 1000)
+    return () => clearTimeout(timer)
   }, [])
 
   const validatePassword = (password: string) => {
@@ -115,6 +122,18 @@ export default function ChangePasswordPage() {
   }
 
   const passwordValidation = validatePassword(newPassword)
+
+  if (isInitializing) {
+    return (
+      <SidebarProvider>
+        <AppSidebar />
+        <SidebarInset>
+          <AppHeader />
+          <PasswordSettingsSkeleton />
+        </SidebarInset>
+      </SidebarProvider>
+    )
+  }
 
   if (success) {
     return (

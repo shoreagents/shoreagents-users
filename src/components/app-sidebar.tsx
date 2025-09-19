@@ -111,16 +111,6 @@ export const AppSidebar = React.memo(function AppSidebar({ ...props }: React.Com
     </div>
   )
 
-  // Task notification indicator component
-  const TaskNotificationIndicator = () => (
-    <div className="flex items-center">
-      <div 
-        className="w-2 h-2 rounded-full bg-red-500"
-        title={`${notStartedTaskCount} tasks not started`}
-      />
-    </div>
-  )
-
   // Going to clinic status indicator component
   const GoingToClinicStatusIndicator = () => (
     <div className="flex items-center">
@@ -202,7 +192,7 @@ export const AppSidebar = React.memo(function AppSidebar({ ...props }: React.Com
       {
         name: "ShoreAgents",
         logo: FileText,
-        plan: "Agent",
+        plan: "Agent Dashboard",
       },
     ],
     navMain: [
