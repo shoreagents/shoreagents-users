@@ -3258,8 +3258,17 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.SOCKET_PORT || 3004;
-server.listen(PORT, () => {
-  console.log(`Socket.IO server running on port ${PORT}`);
+
+// Add error handling for server startup
+server.on('error', (err) => {
+  console.error('Server error:', err);
+  process.exit(1);
+});
+
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Socket.IO server running on port ${PORT}`);
+  console.log(`🌐 Server accessible at http://0.0.0.0:${PORT}`);
+  console.log(`📊 Status endpoint: http://0.0.0.0:${PORT}/status`);
   console.log(`Break reminder scheduler: ${breakReminderScheduler.getStatus().isRunning ? 'Running' : 'Stopped'} (${breakReminderScheduler.getStatus().interval}s interval)`);
   console.log(`Task notification scheduler: ${taskNotificationScheduler.getStatus().isRunning ? 'Running' : 'Stopped'} (${taskNotificationScheduler.getStatus().interval}s interval)`);
   console.log(`Meeting scheduler: ${meetingScheduler.getStatus().isRunning ? 'Running' : 'Stopped'} (${meetingScheduler.getStatus().interval}s interval)`);

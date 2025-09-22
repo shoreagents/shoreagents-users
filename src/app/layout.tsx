@@ -17,7 +17,6 @@ import { TutorialProvider } from "@/contexts/tutorial-context";
 import { QueryProvider } from "@/providers/query-provider";
 
 import ElectronLogoutHandler from "@/components/electron-logout-handler";
-import DatabaseInitializer from "@/components/database-initializer";
 import { GlobalTimerDisplay } from "@/components/global-timer-display";
 import { GlobalMeetingIndicator } from "@/components/global-meeting-indicator";
 import { GlobalEventIndicator } from "@/components/global-event-indicator";
@@ -84,7 +83,6 @@ export default function RootLayout({
                                   <TeamStatusProvider>
                                   {/* Keep auth stores in sync as early as possible */}
                                     <AuthNormalizer />
-                                    <DatabaseInitializer />
                                     <ElectronLogoutHandler />
                                     <AppWrapper>
                                       {children}
