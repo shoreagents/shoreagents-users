@@ -2133,6 +2133,7 @@ io.on('connection', (socket) => {
         });
         console.log(`AUTHENTICATION COMPLETED: Socket ${socket.id} now associated with user ${emailString}`);
         console.log(`Connected users map now contains:`, Array.from(connectedUsers.entries()).map(([id, data]) => `${id} -> ${data.email}`));
+        console.log(`✅ User ${emailString} (ID: ${userInfo.userId}) successfully added to connected users`);
         // User authentication completed with data
         
         // Clean up any temporary user data that might exist
@@ -2311,7 +2312,8 @@ io.on('connection', (socket) => {
         // REMOVED: Online status broadcast
       } catch (error) {
         // Even if hydration fails, send authenticated event
-        console.log(`Authentication hydration failed for ${emailString}:`, error.message);
+        console.log(`❌ Authentication hydration failed for ${emailString}:`, error.message);
+        console.log(`❌ Full error:`, error);
         try {
           socket.emit('authenticated', {
             email: emailString, // Include email for frontend user matching
