@@ -1,12 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+// Server-side Supabase client with service role key
+let supabaseAdmin: any = null
 
-const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: { autoRefreshToken: false, persistSession: false },
-})
+function getSupabaseAdmin() {
+  if (supabaseAdmin) return supabaseAdmin
+  
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  if (!supabaseUrl || !supabaseServiceKey) {
+    throw new Error('Missing Supabase environment variables')
+  }
+
+  supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  })
+  
+  return supabaseAdmin
+}
 
 function getUserIdFromCookie(req: NextRequest): number | null {
   try {
@@ -61,7 +74,8 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
 
     // Delete from storage first (ignore if missing)
     if (path) {
-      await supabaseAdmin.storage.from('tasks').remove([path])
+      const admin = getSupabaseAdmin()
+      await admin.storage.from('tasks').remove([path])
     }
 
     // Delete DB row
