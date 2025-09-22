@@ -561,17 +561,30 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
           return // Skip counting until shift start
         }
         
-        // Stop counting after shift end
+        // Stop counting after shift end - but only if it's actually the same day
         if (shiftEndDate && nowPH > shiftEndDate) {
-          console.log('⏸️ Timer paused - after shift end:', { nowPH, shiftEndDate })
-          // Automatically set user to inactive when shift ends
-          // This will be handled by the activity state determination below
-          return // Skip counting after shift end
+          // Check if the shift end date is from today or yesterday
+          const today = new Date(nowPH)
+          today.setHours(0, 0, 0, 0)
+          const shiftEndDay = new Date(shiftEndDate)
+          shiftEndDay.setHours(0, 0, 0, 0)
+          
+          // Only pause if the shift ended today (not yesterday)
+          if (shiftEndDay.getTime() === today.getTime()) {
+            console.log('⏸️ Timer paused - after shift end (same day):', { nowPH, shiftEndDate })
+            // Automatically set user to inactive when shift ends
+            // This will be handled by the activity state determination below
+            return // Skip counting after shift end
+          } else {
+            console.log('🔄 Timer continuing - shift end was yesterday, allowing counting:', { nowPH, shiftEndDate, today, shiftEndDay })
+          }
         }
         
         // Within shift hours - no logging needed
+        console.log('✅ Timer continuing - within shift hours')
       } catch (error) {
         console.error('Error in shift time validation:', error)
+        console.log('🔄 Timer continuing - shift validation failed, allowing counting as fallback')
         // ignore guard errors; fallback to counting rules below
       }
 
