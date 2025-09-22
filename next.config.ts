@@ -23,6 +23,18 @@ const nextConfig: NextConfig = {
     // Remove console.logs in production
     removeConsole: process.env.NODE_ENV === 'production',
   },
+  // Ensure TypeScript path mapping works
+  typescript: {
+    ignoreBuildErrors: false,
+  },
+  // Webpack configuration for path resolution
+  webpack: (config) => {
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      '@': require('path').resolve(__dirname, 'src'),
+    };
+    return config;
+  },
 };
 
 export default nextConfig;
