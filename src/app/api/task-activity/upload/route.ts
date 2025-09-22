@@ -1,20 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-
-if (!supabaseUrl || !supabaseServiceKey) {
-  throw new Error('Missing Supabase environment variables')
-}
-
 // Server-side Supabase client with service role key
-const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: {
-    autoRefreshToken: false,
-    persistSession: false,
-  },
-})
+let supabaseAdmin: any = null
+
+function getSupabaseAdmin() {
+  if (supabaseAdmin) return supabaseAdmin
+  
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  if (!supabaseUrl || !supabaseServiceKey) {
+    throw new Error('Missing Supabase environment variables')
+  }
+
+  supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  })
+  
+  return supabaseAdmin
+}
 
 function getUserFromRequest(request: NextRequest) {
   const authCookie = request.cookies.get('shoreagents-auth')
@@ -75,7 +83,8 @@ export async function POST(request: NextRequest) {
         const arrayBuffer = await file.arrayBuffer()
         const buffer = Buffer.from(arrayBuffer)
 
-        const { error } = await supabaseAdmin.storage
+        const admin = getSupabaseAdmin()
+        const { error } = await admin.storage
           .from('tasks')
           .upload(filePath, buffer, {
             contentType: file.type || 'application/octet-stream',
@@ -88,7 +97,7 @@ export async function POST(request: NextRequest) {
           continue
         }
 
-        const { data: urlData } = supabaseAdmin.storage
+        const { data: urlData } = admin.storage
           .from('tasks')
           .getPublicUrl(filePath)
 
