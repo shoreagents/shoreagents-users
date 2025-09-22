@@ -79,6 +79,9 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     // Connect to Socket.IO server
     const socketServerUrl = process.env.NEXT_PUBLIC_SOCKET_URL || process.env.SOCKET_SERVER_URL || 
       (process.env.NODE_ENV === 'production' ? 'https://shoreagents-users-production.up.railway.app' : 'http://localhost:3004')
+    
+    console.log('🔌 Socket connecting to:', socketServerUrl, 'NODE_ENV:', process.env.NODE_ENV)
+    
     const newSocket = io(socketServerUrl, {
       reconnection: true,
       reconnectionAttempts: 3,

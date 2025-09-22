@@ -811,7 +811,10 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
 
     // Listen for Socket.IO events
     socket.on('shiftReset', handleShiftReset)
-    socket.on('timerUpdated', handleTimerUpdated)
+    socket.on('timerUpdated', (data) => {
+      console.log('📊 Timer update received from server:', data)
+      handleTimerUpdated(data)
+    })
     
     return () => {
       socket.off('shiftReset', handleShiftReset)
