@@ -459,10 +459,28 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     }
   }, [currentUser?.email, isInitialized, isAuthenticated, refreshRealtimeData])
 
+  // Use refs to access current values without causing re-renders
+  const liveActiveSecondsRef = useRef(liveActiveSeconds)
+  const liveInactiveSecondsRef = useRef(liveInactiveSeconds)
+  
+  // Update refs when values change
+  useEffect(() => {
+    liveActiveSecondsRef.current = liveActiveSeconds
+  }, [liveActiveSeconds])
+  
+  useEffect(() => {
+    liveInactiveSecondsRef.current = liveInactiveSeconds
+  }, [liveInactiveSeconds])
+
   // Real-time stopwatch effect - only when authenticated and logged in
   useEffect(() => {
-    if (!isAuthenticated || !hasLoggedIn) return
+    if (!isAuthenticated || !hasLoggedIn) {
+      console.log('⏸️ Timer counting paused - not authenticated or not logged in:', { isAuthenticated, hasLoggedIn })
+      return
+    }
 
+    console.log('▶️ Starting timer counting effect')
+    
     // Start real-time counting immediately - Changed back to 1s intervals for real-time updates
     const interval = setInterval(() => {
       // Guard: do not count before shift start or after shift end (Philippines time)
@@ -656,6 +674,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       if (isActive) {
         setLiveActiveSeconds(prev => {
           const newValue = prev + 1 // Changed back to 1 second increments for real-time updates
+          console.log('⏱️ Active timer tick:', newValue)
           return newValue
         })
       } else {
@@ -676,7 +695,8 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     }, 1000) // Changed back to 1000ms (1 second) for real-time updates
 
     return () => clearInterval(interval)
-  }, [timerData?.isActive, lastActivityState, isAuthenticated, hasLoggedIn, isBreakActive, breakStatus?.is_paused, isInMeeting, isInEvent, isGoingToClinic, isInClinic, isInRestroom, shiftInfo, userProfile, liveActiveSeconds, liveInactiveSeconds, setActivityState, updateTimerData, validateInactiveState, timerData])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timerData?.isActive, lastActivityState, isAuthenticated, hasLoggedIn, isBreakActive, breakStatus?.is_paused, isInMeeting, isInEvent, isGoingToClinic, isInClinic, isInRestroom, shiftInfo, userProfile, setActivityState, updateTimerData, validateInactiveState, timerData])
 
 
   // Real-time countdown timer for shift reset
