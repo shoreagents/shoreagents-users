@@ -409,9 +409,17 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       return
     }
     
-    // Only process socket timer data if we haven't already initialized from direct API fetch
-    if (timerData && !isInitialized) {
-      // Initialize with server data (now includes proper database hydration)
+    // CRITICAL: Always process timer data when it changes, regardless of initialization state
+    // This ensures the timer starts immediately after authentication in production
+    if (timerData) {
+      console.log('🔄 Processing timer data update:', {
+        isActive: timerData.isActive,
+        activeSeconds: timerData.activeSeconds,
+        inactiveSeconds: timerData.inactiveSeconds,
+        isInitialized: isInitialized
+      })
+      
+      // Initialize or update with server data
       setLiveActiveSeconds(timerData.activeSeconds || 0)
       setLiveInactiveSeconds(timerData.inactiveSeconds || 0)
       setLastActivityState(timerData.isActive)
@@ -423,47 +431,33 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         setFormattedTimeUntilReset(timerData.shiftInfo.formattedTimeUntilReset || '')
       }
       
-      setIsInitialized(true)
-    } else if (timerData && isInitialized) {
-      // After initialization, accept counter updates from server if they're significantly higher
-      // This allows for database hydration updates and server corrections
-      const serverActive = timerData.activeSeconds || 0
-      const serverInactive = timerData.inactiveSeconds || 0
-      
-      // Update counters if server values are significantly higher (database sync)
-      if (serverActive > liveActiveSeconds && (serverActive - liveActiveSeconds) > 5) {
-        setLiveActiveSeconds(serverActive)
-      }
-      
-      if (serverInactive > liveInactiveSeconds && (serverInactive - liveInactiveSeconds) > 5) {
-        setLiveInactiveSeconds(serverInactive)
-      }
-      
-      // Always update activity state
-      setLastActivityState(timerData.isActive)
-      
-      // Update shift information if it changes
-      if (timerData.shiftInfo) {
-        setShiftInfo(timerData.shiftInfo)
-        setTimeUntilReset(timerData.shiftInfo.timeUntilReset || 0)
-        setFormattedTimeUntilReset(timerData.shiftInfo.formattedTimeUntilReset || '')
+      // Mark as initialized if not already
+      if (!isInitialized) {
+        setIsInitialized(true)
+        console.log('✅ Timer initialized from socket data')
       }
     }
-  }, [timerData, isInitialized, liveActiveSeconds, liveInactiveSeconds, currentUser?.email])
+  }, [timerData, isInitialized, currentUser?.email])
 
   // Force initialization after a timeout if timer data doesn't arrive
   useEffect(() => {
     if (currentUser?.email && !isInitialized && isAuthenticated) {
+      console.log('⏰ Setting up timer initialization timeout for:', currentUser.email)
+      
       const timeout = setTimeout(() => {
         if (!isInitialized) {
+          console.log('⚠️ Timer initialization timeout reached, forcing initialization')
           setIsInitialized(true)
           setLastActivityState(false) // Default to inactive
+          
+          // Also try to fetch initial data from API as fallback
+          refreshRealtimeData()
         }
-      }, 5000) // 5 second timeout
+      }, 10000) // Increased to 10 second timeout for production
 
       return () => clearTimeout(timeout)
     }
-  }, [currentUser?.email, isInitialized, isAuthenticated])
+  }, [currentUser?.email, isInitialized, isAuthenticated, refreshRealtimeData])
 
   // Real-time stopwatch effect - only when authenticated and logged in
   useEffect(() => {

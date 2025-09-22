@@ -115,11 +115,19 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     })
 
     newSocket.on('authenticated', (data) => {
+      console.log('🔐 Socket authenticated with data:', {
+        email: data?.email,
+        isActive: data?.isActive,
+        activeSeconds: data?.activeSeconds,
+        inactiveSeconds: data?.inactiveSeconds,
+        hasShiftInfo: !!data?.shiftInfo
+      })
       
       // Dispatch connection event for UI updates
       const event = new CustomEvent('socket-connected', { 
         detail: { 
-          timestamp: new Date().toISOString() 
+          timestamp: new Date().toISOString(),
+          timerData: data
         } 
       });
       window.dispatchEvent(event);

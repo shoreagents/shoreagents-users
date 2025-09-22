@@ -89,6 +89,25 @@ export const useSocketTimerContext = (email: string | null): UseSocketTimerConte
       if (data.email === email) {
         setIsAuthenticated(true)
         setError(null)
+        
+        // CRITICAL: Initialize timer data from authentication response
+        // This ensures the timer starts immediately after authentication
+        setTimerData({
+          isActive: data.isActive || false,
+          activeSeconds: data.activeSeconds || 0,
+          inactiveSeconds: data.inactiveSeconds || 0,
+          sessionStart: data.sessionStart,
+          email: data.email,
+          userId: data.userId,
+          shiftInfo: data.shiftInfo
+        })
+        
+        console.log('🔐 Timer initialized from authentication:', {
+          isActive: data.isActive,
+          activeSeconds: data.activeSeconds,
+          inactiveSeconds: data.inactiveSeconds,
+          email: data.email
+        })
       }
     }
 
