@@ -1102,32 +1102,25 @@ async function createBadgeImage(count) {
   }
 }
 
-// Function to save badge image to temp file
-async function saveBadgeImage(count) {
+// Function to create badge image in memory (no temp files)
+async function createBadgeNativeImage(count) {
   try {
     const badgeBuffer = await createBadgeImage(count);
     if (!badgeBuffer) {
       return null;
     }
     
-    const badgePath = path.join(__dirname, `../temp/badge-${count}.png`);
-    
-    // Ensure temp directory exists
-    const tempDir = path.dirname(badgePath);
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-    }
-    
-    fs.writeFileSync(badgePath, badgeBuffer);
-    return badgePath;
+    // Create NativeImage from buffer - no temp file needed!
+    const { nativeImage } = require('electron');
+    return nativeImage.createFromBuffer(badgeBuffer);
   } catch (error) {
     console.error('Error creating badge image:', error);
     return null;
   }
 }
 
-// Function to get a simple red dot badge (fallback)
-async function getSimpleBadgePath() {
+// Function to get a simple red dot badge (fallback) - in memory
+async function getSimpleBadgeNativeImage() {
   try {
     const sharp = require('sharp');
     
@@ -1142,16 +1135,9 @@ async function getSimpleBadgePath() {
       .png()
       .toBuffer();
     
-    const badgePath = path.join(__dirname, '../temp/red-dot.png');
-    
-    // Ensure temp directory exists
-    const tempDir = path.dirname(badgePath);
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-    }
-    
-    fs.writeFileSync(badgePath, buffer);
-    return badgePath;
+    // Create NativeImage from buffer - no temp file needed!
+    const { nativeImage } = require('electron');
+    return nativeImage.createFromBuffer(buffer);
   } catch (error) {
     console.error('Error creating simple badge:', error);
     return null;
@@ -1192,18 +1178,18 @@ async function updateBadgeCount(count) {
   if (mainWindow && process.platform === 'win32') {
     if (finalCount > 0) {
       try {
-        // Force create and use our custom red badge with count
-        const badgePath = await saveBadgeImage(finalCount);
+        // Create badge in memory - no temp files!
+        const badgeImage = await createBadgeNativeImage(finalCount);
         
-        if (badgePath && fs.existsSync(badgePath)) {
+        if (badgeImage) {
           // Use our custom red badge image with count
-          mainWindow.setOverlayIcon(badgePath, `${finalCount} notifications`);
+          mainWindow.setOverlayIcon(badgeImage, `${finalCount} notifications`);
         } else {
           // If custom badge creation fails, try simple red dot
-          const simpleBadgePath = await getSimpleBadgePath();
+          const simpleBadgeImage = await getSimpleBadgeNativeImage();
           
-          if (simpleBadgePath && fs.existsSync(simpleBadgePath)) {
-            mainWindow.setOverlayIcon(simpleBadgePath, `${finalCount} notifications`);
+          if (simpleBadgeImage) {
+            mainWindow.setOverlayIcon(simpleBadgeImage, `${finalCount} notifications`);
           } 
         }
         
@@ -1650,11 +1636,11 @@ function createWindow() {
 
 // Create system tray
 async function createTray() {
-  // Create initial tray icon with no notifications
-  const initialTrayIconPath = await createTrayIconWithIndicator(0);
-  const trayIconPath = initialTrayIconPath || path.join(__dirname, '../public/ShoreAgents-Logo-only.png');
+  // Create initial tray icon with no notifications - in memory
+  const initialTrayIcon = await createTrayIconWithIndicator(0);
+  const trayIcon = initialTrayIcon || path.join(__dirname, '../public/ShoreAgents-Logo-only.png');
   
-  tray = new Tray(trayIconPath);
+  tray = new Tray(trayIcon);
   
   // Initial context menu
   updateTrayMenu();
@@ -1680,10 +1666,10 @@ async function createTray() {
           app.setBadgeCount(0);
         }
         
-        // Update tray icon
-        const noNotificationIconPath = await createTrayIconWithIndicator(0);
-        if (noNotificationIconPath) {
-          tray.setImage(noNotificationIconPath);
+        // Update tray icon - in memory
+        const noNotificationIcon = await createTrayIconWithIndicator(0);
+        if (noNotificationIcon) {
+          tray.setImage(noNotificationIcon);
         } else {
           // Fallback to the original logo if createTrayIconWithIndicator fails
           const fallbackIconPath = path.join(__dirname, '../public/ShoreAgents-Logo-only.png');
@@ -1724,10 +1710,11 @@ async function createTray() {
   });
 }
 
-// Function to create a tray icon with red indicator
+// Function to create a tray icon with red indicator - in memory
 async function createTrayIconWithIndicator(count) {
   try {
     const sharp = require('sharp');
+    const { nativeImage } = require('electron');
     
     // Load the ShoreAgents logo
     const logoPath = path.join(__dirname, '../public/ShoreAgents-Logo-only.png');
@@ -1762,28 +1749,12 @@ async function createTrayIconWithIndicator(count) {
         .png()
         .toBuffer();
       
-      const trayIconPath = path.join(__dirname, `../temp/tray-icon-${count}.png`);
-      
-      // Ensure temp directory exists
-      const tempDir = path.dirname(trayIconPath);
-      if (!fs.existsSync(tempDir)) {
-        fs.mkdirSync(tempDir, { recursive: true });
-      }
-      
-      fs.writeFileSync(trayIconPath, finalBuffer);
-      return trayIconPath;
+      // Create NativeImage from buffer - no temp file needed!
+      return nativeImage.createFromBuffer(finalBuffer);
     } else {
       // No notifications, just use the logo
-      const trayIconPath = path.join(__dirname, `../temp/tray-icon-${count}.png`);
-      
-      // Ensure temp directory exists
-      const tempDir = path.dirname(trayIconPath);
-      if (!fs.existsSync(tempDir)) {
-        fs.mkdirSync(tempDir, { recursive: true });
-      }
-      
-      fs.writeFileSync(trayIconPath, logoBuffer);
-      return trayIconPath;
+      // Create NativeImage from buffer - no temp file needed!
+      return nativeImage.createFromBuffer(logoBuffer);
     }
   } catch (error) {
     console.error('Error creating tray icon with indicator:', error);
@@ -1791,63 +1762,7 @@ async function createTrayIconWithIndicator(count) {
   }
 }
 
-// Function to update tray with red indicator
-async function updateTrayWithRedIndicator(count) {
-  if (!tray) return;
-  
-  try {
-    // Create tray icon with red indicator
-    const trayIconPath = await createTrayIconWithIndicator(count);
-    if (trayIconPath) {
-      tray.setImage(trayIconPath);
-    }
-    
-    // Update tooltip
-    const baseTooltip = 'ShoreAgents Dashboard';
-    const tooltip = count > 0 ? `${baseTooltip} (${count} notifications)` : baseTooltip;
-    tray.setToolTip(tooltip);
-  } catch (error) {
-    console.error('Error updating tray with red indicator:', error);
-  }
-}
 
-// Function to get actual notification count from app
-async function getActualNotificationCount() {
-  try {
-    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
-      // Get the actual unread notification count from the app
-      const result = await mainWindow.webContents.executeJavaScript(`
-        (() => {
-          try {
-            // Check if we have the notification service available in the global scope
-            if (typeof window !== 'undefined' && window.getUnreadCount) {
-              return window.getUnreadCount();
-            }
-            
-            // Fallback to localStorage check
-            const user = JSON.parse(localStorage.getItem('shoreagents-auth') || '{}')?.user;
-            if (!user) return 0;
-            
-            const key = 'shoreagents-notifications-' + user.email;
-            const stored = localStorage.getItem(key);
-            if (!stored) return 0;
-            
-            const data = JSON.parse(stored);
-            return data.notifications ? data.notifications.filter(n => !n.read).length : 0;
-          } catch (error) {
-            console.error('Error getting notification count from browser:', error);
-            return 0;
-          }
-        })()
-      `);
-      return result || 0;
-    }
-    return 0;
-  } catch (error) {
-    console.error('Error getting actual notification count:', error);
-    return 0;
-  }
-}
 
 // Function to update tray with actual notification count
 async function updateTrayWithActualCount() {
@@ -1857,10 +1772,10 @@ async function updateTrayWithActualCount() {
     // Use the stored notification count instead of trying to get it from browser
     const actualCount = notificationBadgeCount || 0;
     
-    // Create tray icon with the actual count
-    const trayIconPath = await createTrayIconWithIndicator(actualCount);
-    if (trayIconPath) {
-      tray.setImage(trayIconPath);
+    // Create tray icon with the actual count - in memory
+    const trayIcon = await createTrayIconWithIndicator(actualCount);
+    if (trayIcon) {
+      tray.setImage(trayIcon);
     }
     
     // Update tooltip with actual count
