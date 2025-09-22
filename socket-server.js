@@ -2704,8 +2704,16 @@ io.on('connection', (socket) => {
       const oldActive = userInfo.activeSeconds;
       const oldInactive = userInfo.inactiveSeconds;
       
-      userInfo.activeSeconds = timerData.activeSeconds;
-      userInfo.inactiveSeconds = timerData.inactiveSeconds;
+      // FIXED: Ignore 0s values from frontend to prevent overwriting correct server values
+      // Only update if the frontend values are greater than 0 or if we're in a reset scenario
+      if (timerData.activeSeconds > 0 || timerData.inactiveSeconds > 0 || 
+          (timerData.activeSeconds === 0 && timerData.inactiveSeconds === 0 && oldActive === 0 && oldInactive === 0)) {
+        userInfo.activeSeconds = timerData.activeSeconds;
+        userInfo.inactiveSeconds = timerData.inactiveSeconds;
+      } else {
+        console.log(`⚠️ Ignoring timer update with 0s values for ${userData.email} - keeping server values: ${oldActive}s active, ${oldInactive}s inactive`);
+        return; // Skip processing this update
+      }
       
       // Throttle: only log significant changes (every 30 seconds or more)
       const activeDiff = Math.abs(userInfo.activeSeconds - oldActive);
