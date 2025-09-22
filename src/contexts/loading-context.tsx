@@ -17,6 +17,9 @@ export function LoadingProvider({ children }: { children: ReactNode }) {
 
   // Check if we're coming from a logout navigation
   useEffect(() => {
+    // Only run on client side
+    if (typeof window === 'undefined') return
+    
     // Check if this is a logout navigation by looking for a special flag
     const isLogoutNav = localStorage.getItem('shoreagents-logout-navigation') === 'true'
     if (isLogoutNav) {

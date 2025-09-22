@@ -4,7 +4,6 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { getCurrentUser } from '@/lib/ticket-utils'
 import { useActivityTracking } from '@/hooks/use-activity-tracking'
 import { InactivityDialog } from '@/components/inactivity-dialog'
-// import { initializeUserActivity, markUserAsLoggedOut, markUserAsAppClosed, pauseActivityForBreak, resumeActivityFromBreak, cleanupDuplicateSessions, forceSaveAndReload } from '@/lib/activity-storage'
 import { useRouter } from 'next/navigation'
 import { useBreak } from './break-context'
 import { useMeeting } from './meeting-context'
@@ -201,44 +200,7 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
         console.error('Error in aggressive stop:', error)
       }
       
-      // Mark any active session as ended due to logout
-      const authData = localStorage.getItem("shoreagents-auth")
-      if (!authData) {
-        // No auth data means user logged out, find last known user and end their session
-        const allKeys = Object.keys(localStorage)
-        const activityKeys = allKeys.filter(key => key.startsWith('shoreagents-activity-'))
-        
-        activityKeys.forEach(key => {
-          const userData = localStorage.getItem(key)
-          if (userData) {
-            try {
-              const parsed = JSON.parse(userData)
-              if (parsed.isCurrentlyActive && parsed.currentSessionStart) {
-                const now = Date.now()
-                const activeDuration = now - parsed.currentSessionStart
-                parsed.totalActiveTime += activeDuration
-                
-                // End the session
-                if (parsed.activitySessions && parsed.activitySessions.length > 0) {
-                  const lastSession = parsed.activitySessions[parsed.activitySessions.length - 1]
-                  if (lastSession && lastSession.type === 'active' && !lastSession.endTime) {
-                    lastSession.endTime = now
-                    lastSession.duration = activeDuration
-                    lastSession.endReason = 'logout'
-                  }
-                }
-                
-                parsed.isCurrentlyActive = false
-                parsed.currentSessionStart = 0
-                parsed.lastActivityTime = now
-                localStorage.setItem(key, JSON.stringify(parsed))
-              }
-            } catch (error) {
-              console.error('Error cleaning up activity data:', error)
-            }
-          }
-        })
-      }
+      // Activity tracking is now database-driven, no localStorage cleanup needed
     }
   }, [hasLoggedIn, isTracking, stopTracking])
 
@@ -452,16 +414,7 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
       console.error('Error stopping tracking before logout:', error)
     }
     
-    // SECOND: Clear any remaining localStorage activity data
-    const allKeys = Object.keys(localStorage)
-    const activityKeys = allKeys.filter(key => key.startsWith('shoreagents-activity-'))
-    activityKeys.forEach(key => {
-      try {
-        localStorage.removeItem(key)
-      } catch (error) {
-        console.error('Error removing activity data:', error)
-      }
-    })
+    // Activity tracking is now database-driven, no localStorage cleanup needed
     
     // THIRD: Set logged out state via auth context
     setUserLoggedOut()

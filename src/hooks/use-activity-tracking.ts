@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-// import { startActiveSession, startInactiveSession, updateLastActivity, initializeUserActivity, pauseActivityForSystemSuspend, resumeActivityFromSystemSuspend } from '@/lib/activity-storage';
 import { getCurrentUser } from '@/lib/ticket-utils';
 
 interface ActivityData {

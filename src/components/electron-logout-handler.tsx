@@ -2,7 +2,6 @@
 
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-// import { forceSaveAndReload } from '@/lib/activity-storage'
 import { getCurrentUser } from '@/lib/ticket-utils'
 import { hasOngoingMeeting, endMeeting } from '@/lib/meeting-utils'
 

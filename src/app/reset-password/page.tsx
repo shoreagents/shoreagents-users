@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Loader2, Eye, EyeOff, CheckCircle, XCircle } from "lucide-react"
 import { createClient } from '@supabase/supabase-js'
+import { WindowControls } from "@/components/window-controls"
+import Image from "next/image"
 
 // Initialize Supabase client
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://sanljwkkoawwdpaxrper.supabase.co'
@@ -129,13 +131,23 @@ export default function ResetPasswordPage() {
   // Show loading while checking for token
   if (isCheckingToken) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-        <Card className="w-full max-w-md">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4 relative">
+        <div className="absolute top-4 left-4 z-50">
+          <Image 
+            src="/shoreagents-logo.png" 
+            alt="ShoreAgents Logo" 
+            width={200}
+            height={64}
+            className="h-16 w-auto"
+            priority
+          />
+        </div>
+        <Card className="w-full max-w-md bg-transparent border-none shadow-none">
           <CardHeader className="text-center">
             <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-blue-100">
               <Loader2 className="h-6 w-6 text-blue-600 animate-spin" />
             </div>
-            <CardTitle className="text-xl">Checking Reset Link</CardTitle>
+            <CardTitle className="text-xl text-gray-500">Checking Reset Link</CardTitle>
             <CardDescription>
               Verifying your password reset link...
             </CardDescription>
@@ -147,13 +159,23 @@ export default function ResetPasswordPage() {
 
   if (success) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-        <Card className="w-full max-w-md">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-50 to-green-100 px-4 relative">
+        <div className="absolute top-4 left-4 z-50">
+          <Image 
+            src="/shoreagents-logo.png" 
+            alt="ShoreAgents Logo" 
+            width={200}
+            height={64}
+            className="h-16 w-auto"
+            priority
+          />
+        </div>
+        <Card className="w-full max-w-md bg-transparent border-none shadow-none">
           <CardHeader className="text-center">
             <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-green-100">
               <CheckCircle className="h-6 w-6 text-green-600" />
             </div>
-            <CardTitle className="text-xl">Password Reset Successful</CardTitle>
+            <CardTitle className="text-xl text-gray-500">Password Reset Successful</CardTitle>
             <CardDescription>
               Your password has been successfully reset. You will be redirected to the login page shortly.
             </CardDescription>
@@ -173,13 +195,23 @@ export default function ResetPasswordPage() {
 
   if (!hasValidToken) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-        <Card className="w-full max-w-md">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-50 to-green-100 px-4 relative">
+        <div className="absolute top-4 left-4 z-50">
+          <Image 
+            src="/shoreagents-logo.png" 
+            alt="ShoreAgents Logo" 
+            width={200}
+            height={64}
+            className="h-16 w-auto"
+            priority
+          />
+        </div>
+        <Card className="w-full max-w-md bg-transparent border-none shadow-none">
           <CardHeader className="text-center">
             <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-100">
               <XCircle className="h-6 w-6 text-red-600" />
             </div>
-            <CardTitle className="text-xl">Invalid Reset Link</CardTitle>
+            <CardTitle className="text-xl text-gray-500">Invalid Reset Link</CardTitle>
             <CardDescription>
               {error || "This reset link is invalid or has expired. Please request a new password reset."}
             </CardDescription>
@@ -205,10 +237,20 @@ export default function ResetPasswordPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-      <Card className="w-full max-w-md">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-50 to-green-100 px-4 relative">
+      <div className="absolute top-4 left-4 z-50">
+          <Image 
+            src="/shoreagents-logo.png" 
+            alt="ShoreAgents Logo" 
+            width={200}
+            height={64}
+            className="h-16 w-auto"
+            priority
+          />
+        </div>
+      <Card className="w-full max-w-md bg-transparent border-none shadow-none">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl">Reset Password</CardTitle>
+          <CardTitle className="text-2xl text-gray-500">Reset Password</CardTitle>
           <CardDescription>
             Enter your new password below
           </CardDescription>
@@ -222,7 +264,7 @@ export default function ResetPasswordPage() {
             )}
 
             <div className="space-y-2">
-              <Label htmlFor="password">New Password</Label>
+              <Label htmlFor="password" className="text-gray-500">New Password</Label>
               <div className="relative">
                 <Input
                   id="password"
@@ -230,7 +272,7 @@ export default function ResetPasswordPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Enter your new password"
-                  className="pr-10"
+                  className="pr-10 border-none bg-gray-200/50 dark:bg-gray-200/50 text-gray-500"
                 />
                 <Button
                   type="button"
@@ -240,16 +282,16 @@ export default function ResetPasswordPage() {
                   onClick={() => setShowPassword(!showPassword)}
                 >
                   {showPassword ? (
-                    <EyeOff className="h-4 w-4" />
+                    <EyeOff className="h-4 w-4 text-gray-500" />
                   ) : (
-                    <Eye className="h-4 w-4" />
+                    <Eye className="h-4 w-4 text-gray-500" />
                   )}
                 </Button>
               </div>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="confirmPassword">Confirm Password</Label>
+              <Label htmlFor="confirmPassword" className="text-gray-500">Confirm Password</Label>
               <div className="relative">
                 <Input
                   id="confirmPassword"
@@ -257,7 +299,7 @@ export default function ResetPasswordPage() {
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="Confirm your new password"
-                  className="pr-10"
+                  className="pr-10 border-none bg-gray-200/50 dark:bg-gray-200/50 text-gray-500"
                 />
                 <Button
                   type="button"
@@ -267,9 +309,9 @@ export default function ResetPasswordPage() {
                   onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                 >
                   {showConfirmPassword ? (
-                    <EyeOff className="h-4 w-4" />
+                    <EyeOff className="h-4 w-4 text-gray-500" />
                   ) : (
-                    <Eye className="h-4 w-4" />
+                    <Eye className="h-4 w-4 text-gray-500" />
                   )}
                 </Button>
               </div>
@@ -277,7 +319,7 @@ export default function ResetPasswordPage() {
 
             {/* Password Requirements */}
             <div className="space-y-2">
-              <Label className="text-sm font-medium">Password Requirements:</Label>
+              <Label className="text-sm font-medium text-gray-500">Password Requirements:</Label>
               <div className="space-y-1 text-xs">
                 <div className={`flex items-center gap-2 ${passwordValidation.minLength ? 'text-green-600' : 'text-gray-500'}`}>
                   {passwordValidation.minLength ? <CheckCircle className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}

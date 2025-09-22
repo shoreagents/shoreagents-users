@@ -2,6 +2,14 @@ const { app, BrowserWindow, Menu, Tray, shell, ipcMain, Notification, dialog, sc
 const path = require('path');
 const fs = require('fs');
 const isDev = process.env.NODE_ENV === 'development';
+
+// Set the application name IMMEDIATELY - must be before any app events
+app.setName('ShoreAgents Dashboard');
+
+// Set app user model ID for Windows (helps with notifications and taskbar)
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.shoreagents.dashboard');
+}
 // Optional sound library (not required at runtime if unavailable)
 let soundPlay = null;
 try {
@@ -1241,7 +1249,8 @@ function showSystemNotification(notificationData) {
     body: notificationData.message || 'You have a new notification',
     icon: notificationIcon,
     silent: useCustom,
-    timeoutType: 'default'
+    timeoutType: 'default',
+    urgency: 'normal'
   });
   
   // Store notification data for click handling
@@ -1470,6 +1479,7 @@ function createWindow() {
     height: 800,
     minWidth: 800,
     minHeight: 600,
+    title: 'ShoreAgents Dashboard',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -1493,59 +1503,62 @@ function createWindow() {
     mainWindow.webContents.openDevTools();
   }
 
-  // Add keyboard shortcuts for DevTools and other common shortcuts
-  mainWindow.webContents.on('before-input-event', (event, input) => {
+  // Register global shortcuts for better reliability
+  try {
     // Ctrl+Shift+I for DevTools
-    if (input.control && input.shift && input.key.toLowerCase() === 'i') {
+    globalShortcut.register('CommandOrControl+Shift+I', () => {
       if (mainWindow.webContents.isDevToolsOpened()) {
         mainWindow.webContents.closeDevTools();
       } else {
         mainWindow.webContents.openDevTools();
       }
-      event.preventDefault();
-    }
-    
-    // F12 for DevTools (alternative)
-    if (input.key === 'F12') {
-      if (mainWindow.webContents.isDevToolsOpened()) {
-        mainWindow.webContents.closeDevTools();
-      } else {
-        mainWindow.webContents.openDevTools();
-      }
-      event.preventDefault();
-    }
+    });
 
-    // Ctrl+R for reload (only in development)
-    if (isDev && input.control && input.key.toLowerCase() === 'r') {
+    // F12 for DevTools
+    globalShortcut.register('F12', () => {
+      if (mainWindow.webContents.isDevToolsOpened()) {
+        mainWindow.webContents.closeDevTools();
+      } else {
+        mainWindow.webContents.openDevTools();
+      }
+    });
+
+    // Ctrl+R for reload
+    globalShortcut.register('CommandOrControl+R', () => {
+      console.log('Ctrl+R pressed - reloading page');
       mainWindow.webContents.reload();
-      event.preventDefault();
-    }
+    });
 
-    // Ctrl+Shift+R for hard reload (only in development)
-    if (isDev && input.control && input.shift && input.key.toLowerCase() === 'r') {
+    // Ctrl+Shift+R for hard reload
+    globalShortcut.register('CommandOrControl+Shift+R', () => {
+      console.log('Ctrl+Shift+R pressed - hard reloading page');
       mainWindow.webContents.reloadIgnoringCache();
-      event.preventDefault();
-    }
+    });
 
-    // Ctrl+Plus/Minus for zoom (only in development)
-    if (isDev && input.control && (input.key === '+' || input.key === '=')) {
-      const currentZoom = mainWindow.webContents.getZoomFactor();
-      mainWindow.webContents.setZoomFactor(Math.min(currentZoom + 0.1, 3.0));
-      event.preventDefault();
-    }
+    // Zoom shortcuts (development only)
+    if (isDev) {
+      globalShortcut.register('CommandOrControl+Plus', () => {
+        const currentZoom = mainWindow.webContents.getZoomFactor();
+        mainWindow.webContents.setZoomFactor(Math.min(currentZoom + 0.1, 3.0));
+      });
 
-    if (isDev && input.control && input.key === '-') {
-      const currentZoom = mainWindow.webContents.getZoomFactor();
-      mainWindow.webContents.setZoomFactor(Math.max(currentZoom - 0.1, 0.5));
-      event.preventDefault();
-    }
+      globalShortcut.register('CommandOrControl+Equal', () => {
+        const currentZoom = mainWindow.webContents.getZoomFactor();
+        mainWindow.webContents.setZoomFactor(Math.min(currentZoom + 0.1, 3.0));
+      });
 
-    // Ctrl+0 to reset zoom (only in development)
-    if (isDev && input.control && input.key === '0') {
-      mainWindow.webContents.setZoomFactor(1.0);
-      event.preventDefault();
+      globalShortcut.register('CommandOrControl+-', () => {
+        const currentZoom = mainWindow.webContents.getZoomFactor();
+        mainWindow.webContents.setZoomFactor(Math.max(currentZoom - 0.1, 0.5));
+      });
+
+      globalShortcut.register('CommandOrControl+0', () => {
+        mainWindow.webContents.setZoomFactor(1.0);
+      });
     }
-  });
+  } catch (error) {
+    console.error('Error registering global shortcuts:', error);
+  }
 
   // Show window when ready to prevent visual flash
   mainWindow.once('ready-to-show', () => {
@@ -1585,11 +1598,13 @@ function createWindow() {
       
       // Show tray notification on first minimize
       if (tray && process.platform === 'win32') {
-        tray.displayBalloon({
-          iconType: 'info',
+        const minimizeNotification = new Notification({
           title: 'ShoreAgents Dashboard',
-          content: 'App was minimized to tray. Activity tracking continues in background.'
+          body: 'App was minimized to tray. Click the tray icon to restore.',
+          icon: path.join(__dirname, '../public/ShoreAgents-Logo-only.png'),
+          silent: false
         });
+        minimizeNotification.show();
       }
     }
   });
@@ -1614,9 +1629,15 @@ function createWindow() {
         
         // Update tray icon
         if (tray) {
-          const noNotificationIconPath = createTrayIconWithIndicator(0);
+          const noNotificationIconPath = await createTrayIconWithIndicator(0);
           if (noNotificationIconPath) {
             tray.setImage(noNotificationIconPath);
+          } else {
+            // Fallback to the original logo if createTrayIconWithIndicator fails
+            const fallbackIconPath = path.join(__dirname, '../public/ShoreAgents-Logo-only.png');
+            if (fs.existsSync(fallbackIconPath)) {
+              tray.setImage(fallbackIconPath);
+            }
           }
           tray.setToolTip('ShoreAgents Dashboard');
         }
@@ -1660,9 +1681,15 @@ async function createTray() {
         }
         
         // Update tray icon
-        const noNotificationIconPath = createTrayIconWithIndicator(0);
+        const noNotificationIconPath = await createTrayIconWithIndicator(0);
         if (noNotificationIconPath) {
           tray.setImage(noNotificationIconPath);
+        } else {
+          // Fallback to the original logo if createTrayIconWithIndicator fails
+          const fallbackIconPath = path.join(__dirname, '../public/ShoreAgents-Logo-only.png');
+          if (fs.existsSync(fallbackIconPath)) {
+            tray.setImage(fallbackIconPath);
+          }
         }
         tray.setToolTip('ShoreAgents Dashboard');
       }
@@ -1962,9 +1989,15 @@ async function updateTrayMenu() {
       
       // Update tray icon to remove notification indicator
       if (tray) {
-        const initialTrayIconPath = createTrayIconWithIndicator(0);
+        const initialTrayIconPath = await createTrayIconWithIndicator(0);
         if (initialTrayIconPath) {
           tray.setImage(initialTrayIconPath);
+        } else {
+          // Fallback to the original logo if createTrayIconWithIndicator fails
+          const fallbackIconPath = path.join(__dirname, '../public/ShoreAgents-Logo-only.png');
+          if (fs.existsSync(fallbackIconPath)) {
+            tray.setImage(fallbackIconPath);
+          }
         }
         tray.setToolTip('ShoreAgents Dashboard');
       }
@@ -2285,6 +2318,9 @@ function createMenu() {
 
 // App event handlers
 app.whenReady().then(async () => {
+  // Ensure app name is set
+  app.setName('ShoreAgents Dashboard');
+  
   createWindow();
   // Remove menu completely
   Menu.setApplicationMenu(null);
@@ -2310,9 +2346,15 @@ app.whenReady().then(async () => {
         
         // Update tray icon
         if (tray) {
-          const noNotificationIconPath = createTrayIconWithIndicator(0);
+          const noNotificationIconPath = await createTrayIconWithIndicator(0);
           if (noNotificationIconPath) {
             tray.setImage(noNotificationIconPath);
+          } else {
+            // Fallback to the original logo if createTrayIconWithIndicator fails
+            const fallbackIconPath = path.join(__dirname, '../public/ShoreAgents-Logo-only.png');
+            if (fs.existsSync(fallbackIconPath)) {
+              tray.setImage(fallbackIconPath);
+            }
           }
           tray.setToolTip('ShoreAgents Dashboard');
         }
@@ -2340,6 +2382,13 @@ app.on('window-all-closed', () => {
 // Handle app quit event
 app.on('before-quit', () => {
   isQuitting = true;
+  
+  // Unregister all global shortcuts
+  try {
+    globalShortcut.unregisterAll();
+  } catch (error) {
+    console.error('Error unregistering global shortcuts:', error);
+  }
   
   // Clean up tray
   if (tray) {
@@ -2392,7 +2441,7 @@ ipcMain.handle('confirm-logout-and-quit', async () => {
   }
 });
 
-ipcMain.handle('logout-completed', () => {
+ipcMain.handle('logout-completed', async () => {
   
   // Stop activity tracking on logout completion
   if (activityTracker) {
@@ -2417,9 +2466,15 @@ ipcMain.handle('logout-completed', () => {
   
   // Update tray icon to remove notification indicator
   if (tray) {
-    const initialTrayIconPath = createTrayIconWithIndicator(0);
+    const initialTrayIconPath = await createTrayIconWithIndicator(0);
     if (initialTrayIconPath) {
       tray.setImage(initialTrayIconPath);
+    } else {
+      // Fallback to the original logo if createTrayIconWithIndicator fails
+      const fallbackIconPath = path.join(__dirname, '../public/ShoreAgents-Logo-only.png');
+      if (fs.existsSync(fallbackIconPath)) {
+        tray.setImage(fallbackIconPath);
+      }
     }
     tray.setToolTip('ShoreAgents Dashboard');
   }
@@ -2472,9 +2527,15 @@ ipcMain.handle('user-logged-out', async () => {
     
     // Update tray icon to remove notification indicator
     if (tray) {
-      const initialTrayIconPath = createTrayIconWithIndicator(0);
+      const initialTrayIconPath = await createTrayIconWithIndicator(0);
       if (initialTrayIconPath) {
         tray.setImage(initialTrayIconPath);
+      } else {
+        // Fallback to the original logo if createTrayIconWithIndicator fails
+        const fallbackIconPath = path.join(__dirname, '../public/ShoreAgents-Logo-only.png');
+        if (fs.existsSync(fallbackIconPath)) {
+          tray.setImage(fallbackIconPath);
+        }
       }
       tray.setToolTip('ShoreAgents Dashboard');
     }

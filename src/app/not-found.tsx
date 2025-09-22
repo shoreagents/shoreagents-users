@@ -13,12 +13,17 @@ import {
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
+import { WindowControls } from '@/components/window-controls'
 
 export default function NotFound() {
   const router = useRouter()
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background to-muted/20 flex flex-col items-center justify-center p-8">
+    <div className="min-h-screen bg-gradient-to-br from-background to-muted/20 flex flex-col items-center justify-center p-8 relative">
+      {/* Window Controls - Fixed to top right */}
+      <div className="absolute top-4 right-4 z-50">
+        <WindowControls />
+      </div>
       {/* Hero Section */}
       <div className="text-center space-y-8 max-w-4xl mx-auto">
         {/* GIF */}

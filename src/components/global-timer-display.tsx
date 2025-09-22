@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react'
 import { useTimer } from '@/contexts/timer-context'
 import { Button } from '@/components/ui/button'
-import { ChevronUp, ChevronDown, Pause, Clock, RotateCcw } from 'lucide-react'
+import { ChevronUp, ChevronDown, Pause, Clock, RotateCcw, Minimize2, ArrowDown } from 'lucide-react'
 import { getCurrentUser } from '@/lib/ticket-utils'
 import { usePathname } from 'next/navigation'
 import { useMeeting } from '@/contexts/meeting-context'
@@ -45,6 +45,9 @@ export const GlobalTimerDisplay = React.memo(function GlobalTimerDisplay() {
 
   // Persist expand/collapse state in localStorage
   useEffect(() => {
+    // Only run on client side
+    if (typeof window === 'undefined') return
+    
     try {
       const stored = localStorage.getItem('sa-global-timer-visible')
       if (stored !== null) {
@@ -54,6 +57,9 @@ export const GlobalTimerDisplay = React.memo(function GlobalTimerDisplay() {
   }, [])
 
   useEffect(() => {
+    // Only run on client side
+    if (typeof window === 'undefined') return
+    
     try {
       localStorage.setItem('sa-global-timer-visible', isVisible ? 'true' : 'false')
     } catch {}
@@ -168,51 +174,21 @@ export const GlobalTimerDisplay = React.memo(function GlobalTimerDisplay() {
 
   return (
     <>
-      {/* Toggle Button - Always visible */}
-      <div className="fixed bottom-4 right-4 z-50">
-        <Button
-          onClick={() => setIsVisible(!isVisible)}
-          variant="outline"
-          size="sm"
-          className={`backdrop-blur-sm shadow-lg border rounded-full w-10 h-10 p-0 ${
-            isVisible
-              ? 'bg-card border-border text-foreground'
-              : isEmergencyPaused
-                ? 'bg-green-100 dark:bg-green-950/20 border-green-300 dark:border-green-900/40'
-                : isInEvent
-                  ? 'bg-purple-100 dark:bg-purple-950/20 border-purple-300 dark:border-purple-900/40'
-                : isBreakActive
-                  ? 'bg-yellow-100 dark:bg-yellow-950/20 border-yellow-300 dark:border-yellow-900/40'
-                  : timerData?.isActive
-                    ? 'bg-green-100 dark:bg-green-950/20 border-green-300 dark:border-green-900/40'
-                    : 'bg-red-100 dark:bg-red-950/20 border-red-300 dark:border-red-900/40'
-          }`}
-          title={isVisible ? "Collapse Timer" : "Expand Timer"}
-        >
-          {isVisible ? (
-            <ChevronDown className="w-4 h-4" />
-          ) : (
-            <div className="relative">
-              <ChevronUp className="w-4 h-4" />
-              <div className={`absolute -top-1 -right-1 w-2 h-2 rounded-full ${
-                isEmergencyPaused
-                  ? 'bg-green-500'
-                  : isInEvent
-                    ? 'bg-purple-500'
-                  : isBreakActive 
-                    ? 'bg-yellow-500' 
-                    : timerData?.isActive 
-                      ? 'bg-green-500' 
-                      : 'bg-red-500'
-              } animate-pulse`}></div>
-            </div>
-          )}
-        </Button>
-      </div>
-
       {/* Timer Display - Conditionally visible */}
       {isVisible && (
-        <div className="fixed bottom-4 right-16 bg-card text-foreground rounded-lg shadow-lg border border-border p-4 min-w-[300px] z-50" data-activity-timer>
+        <div className="fixed bottom-4 right-4 bg-card text-foreground rounded-lg shadow-lg border border-border p-4 min-w-[300px] z-50" data-activity-timer>
+          {/* Toggle Button - Integrated with card */}
+          <div className="absolute -top-2 -right-2 z-10">
+            <Button
+              onClick={() => setIsVisible(false)}
+              variant="outline"
+              size="sm"
+              className="backdrop-blur-sm shadow-lg border rounded-full w-8 h-8 p-0 bg-card border-border text-foreground hover:bg-muted"
+              title="Collapse Timer"
+            >
+              <ChevronDown className="w-4 h-4" />
+            </Button>
+          </div>
           {connectionStatus === 'connecting' && (
             <div className="absolute inset-0 bg-background/90 rounded-lg flex items-center justify-center z-10">
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -222,7 +198,18 @@ export const GlobalTimerDisplay = React.memo(function GlobalTimerDisplay() {
             </div>
           )}
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold">Activity Timer</h3>
+            <div className="flex items-center gap-2 relative">
+              <Button
+                onClick={() => setIsVisible(false)}
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0 hover:!bg-transparent hover:scale-110 dark:hover:text-white hover:text-black absolute -top-5 -left-5 "
+                title="Minimize Timer"
+              >
+                <Minimize2 className="h-3 w-3 -rotate-90" />
+              </Button>
+              <h3 className="text-sm font-semibold">Activity Timer</h3>
+            </div>
             <div className="flex items-center gap-2">
               <span className={`w-2 h-2 rounded-full ${getConnectionStatusColor()}`}></span>
               <span className="text-xs text-muted-foreground">{getConnectionStatusText()}</span>
@@ -235,7 +222,7 @@ export const GlobalTimerDisplay = React.memo(function GlobalTimerDisplay() {
               {shiftNotStarted && (
                 <div className="bg-blue-100 dark:bg-blue-900/20 border border-blue-300 dark:border-blue-700 rounded p-2 text-center">
                   <div className="text-xs font-medium text-blue-700 dark:text-blue-300">
-                    ⏰ Shift Not Started Yet - Timer Paused
+                    Shift Not Started Yet - Timer Paused
                   </div>
                 </div>
               )}
@@ -243,7 +230,7 @@ export const GlobalTimerDisplay = React.memo(function GlobalTimerDisplay() {
               {shiftEnded && (
                 <div className="bg-gray-100 dark:bg-gray-900/20 border border-gray-300 dark:border-gray-700 rounded p-2 text-center">
                   <div className="text-xs font-medium text-gray-700 dark:text-gray-300">
-                    ⏰ Shift Has Ended - Timer Reset to 0s
+                    Shift Has Ended - Timer Reset to 0s
                   </div>
                 </div>
               )}
@@ -457,6 +444,44 @@ export const GlobalTimerDisplay = React.memo(function GlobalTimerDisplay() {
               Error: {error}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Floating Toggle Button - Only visible when timer is collapsed */}
+      {!isVisible && (
+        <div className="fixed bottom-4 right-4 z-50">
+          <Button
+            onClick={() => setIsVisible(true)}
+            variant="outline"
+            size="sm"
+            className={`backdrop-blur-sm shadow-lg border rounded-full w-10 h-10 p-0 ${
+              isEmergencyPaused
+                ? 'bg-green-100 dark:bg-green-950/20 border-green-300 dark:border-green-900/40'
+                : isInEvent
+                  ? 'bg-purple-100 dark:bg-purple-950/20 border-purple-300 dark:border-purple-900/40'
+                  : isBreakActive
+                    ? 'bg-yellow-100 dark:bg-yellow-950/20 border-yellow-300 dark:border-yellow-900/40'
+                    : timerData?.isActive
+                      ? 'bg-green-100 dark:bg-green-950/20 border-green-300 dark:border-green-900/40'
+                      : 'bg-red-100 dark:bg-red-950/20 border-red-300 dark:border-red-900/40'
+            }`}
+            title="Expand Timer"
+          >
+            <div className="relative">
+              <ChevronUp className="w-4 h-4" />
+              <div className={`absolute -top-1 -right-1 w-2 h-2 rounded-full ${
+                isEmergencyPaused
+                  ? 'bg-green-500'
+                  : isInEvent
+                    ? 'bg-purple-500'
+                  : isBreakActive 
+                    ? 'bg-yellow-500' 
+                    : timerData?.isActive 
+                      ? 'bg-green-500' 
+                      : 'bg-red-500'
+              } animate-pulse`}></div>
+            </div>
+          </Button>
         </div>
       )}
     </>

@@ -28,7 +28,7 @@ export function WindowControls() {
       <Button
         variant="ghost"
         size="icon"
-        className="h-8 w-8 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-none transition-colors"
+        className="h-8 w-8 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-none transition-colors text-gray-500 hover:text-gray-900 dark:hover:text-white "
         onClick={handleMinimize}
         aria-label="Minimize"
       >
@@ -37,7 +37,7 @@ export function WindowControls() {
       <Button
         variant="ghost"
         size="icon"
-        className="h-8 w-8 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-none transition-colors"
+        className="h-8 w-8 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-none transition-colors text-gray-500 hover:text-gray-900 dark:hover:text-white "
         onClick={handleMaximize}
         aria-label="Maximize"
       >
@@ -46,7 +46,7 @@ export function WindowControls() {
       <Button
         variant="ghost"
         size="icon"
-        className="h-8 w-8 hover:bg-red-500 hover:text-white rounded-none transition-colors"
+        className="h-8 w-8 hover:!bg-red-500 rounded-none transition-colors text-gray-500 hover:text-white "
         onClick={handleClose}
         aria-label="Close"
       >

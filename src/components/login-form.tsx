@@ -152,23 +152,14 @@ export function LoginForm({
   }
 
   return (
-    <Card className={cn("w-full max-w-md", className)} {...props}>
+    <Card className={cn("w-full max-w-md bg-transparent border-none shadow-none", className)} {...props}>
       <CardHeader className="space-y-1">
         <div className="flex flex-col items-center space-y-2">
-          <div className="flex items-center justify-center">
-            <Image 
-              src="https://www.shoreagents.com/wp-content/uploads/2023/04/ShoreAgents-Logo.png" 
-              alt="ShoreAgents Logo" 
-              width={200}
-              height={64}
-              className="h-16 w-auto"
-              priority
-            />
-              </div>
+          
           <div className="space-y-1 text-center">
-            <CardTitle className="text-2xl font-bold">Welcome to ShoreAgents</CardTitle>
+            <CardTitle className="text-2xl font-bold text-gray-500">Welcome to ShoreAgents</CardTitle>
             <CardDescription>
-              Sign in to your agent dashboard
+              Sign in to your dashboard
             </CardDescription>
           </div>
         </div>
@@ -176,7 +167,7 @@ export function LoginForm({
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email" className="text-gray-500">Email</Label>
               <Input
                 id="email"
                 type="email"
@@ -185,10 +176,21 @@ export function LoginForm({
               onChange={(e) => setEmail(e.target.value)}
               required
               disabled={isLoading}
+              className="border-none bg-gray-200/50 dark:bg-gray-200/50 text-gray-500"
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="password">Password</Label>
+            <div className="flex items-center justify-between">
+            <Label htmlFor="password" className="text-gray-500">Password</Label>
+            <Button 
+              type="button" 
+              variant="link" 
+              onClick={() => router.push('/forgot-password')}
+              className="text-sm text-gray-500 hover:text-gray-500 pr-0"
+            >
+              Forgot your password?
+            </Button>
+          </div>
             <div className="relative">
               <Input
                 id="password"
@@ -198,6 +200,7 @@ export function LoginForm({
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 disabled={isLoading}
+                className="border-none bg-gray-200/50 dark:bg-gray-200/50 text-gray-500"
               />
               <Button
                 type="button"
@@ -208,9 +211,9 @@ export function LoginForm({
                 disabled={isLoading}
               >
                 {showPassword ? (
-                  <EyeOff className="h-4 w-4" />
+                  <EyeOff className="h-4 w-4 text-gray-500" />
                 ) : (
-                  <Eye className="h-4 w-4" />
+                  <Eye className="h-4 w-4 text-gray-500" />
                 )}
                 <span className="sr-only">
                   {showPassword ? "Hide password" : "Show password"}
@@ -229,6 +232,7 @@ export function LoginForm({
                       checked={rememberMe}
                       onCheckedChange={handleRememberMeChange}
                       disabled={isLoading}
+                      className="text-gray-500"
                     />
                   </TooltipTrigger>
                   <TooltipContent>
@@ -242,7 +246,7 @@ export function LoginForm({
                   <TooltipTrigger asChild>
                     <Label
                       htmlFor="remember-me"
-                      className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-help"
+                      className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-help text-gray-500"
                     >
                       Remember me
                     </Label>
@@ -268,16 +272,7 @@ export function LoginForm({
             {isLoading ? "Signing in..." : "Sign In"}
             </Button>
           
-          <div className="text-center mt-4">
-            <Button 
-              type="button" 
-              variant="link" 
-              onClick={() => router.push('/forgot-password')}
-              className="text-sm text-gray-600 hover:text-gray-800"
-            >
-              Forgot your password?
-            </Button>
-          </div>
+          
       </form>
       </CardContent>
     </Card>

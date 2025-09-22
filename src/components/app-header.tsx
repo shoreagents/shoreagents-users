@@ -288,6 +288,9 @@ export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser =
   useEffect(() => {
     const loadUserData = async () => {
       try {
+        // Only run on client side
+        if (typeof window === 'undefined') return
+        
         // First get user data from localStorage
     const currentUser = getCurrentUser()
     if (currentUser) {
@@ -702,6 +705,9 @@ export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser =
             size="icon"
             className="h-8 w-8 hover:!bg-transparent dark:hover:text-white hover:text-black focus:!outline-none focus:!ring-0 focus:!ring-offset-0"
             onClick={() => {
+              // Only run on client side
+              if (typeof window === 'undefined') return
+              
               const root = document.documentElement
               const isDark = root.classList.contains('dark')
               if (isDark) {
@@ -730,8 +736,7 @@ export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser =
                 <Bell className="h-4 w-4" />
                                   {socketUnreadCount > 0 && (
                     <Badge 
-                      variant="destructive" 
-                      className="absolute -top-1 -right-1 w-5 h-5 rounded-full p-0 text-[10px] font-medium bg-red-500 text-white border-2 border-background shadow-sm flex items-center justify-center"
+                      className="absolute -top-0.5 -right-0.5 w-5 h-5 rounded-full p-0 text-[10px] font-medium bg-red-500 text-white border-2 border-background shadow-sm flex items-center justify-center"
                     >
                       {socketUnreadCount > 9 ? '9+' : socketUnreadCount}
                     </Badge>

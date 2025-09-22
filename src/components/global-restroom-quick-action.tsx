@@ -38,6 +38,9 @@ export function GlobalRestroomQuickAction() {
 
   // Load position and visibility from localStorage on mount
   useEffect(() => {
+    // Only run on client side
+    if (typeof window === 'undefined') return
+    
     const savedPosition = localStorage.getItem('restroom-quick-action-position')
     if (savedPosition) {
       setPosition(parseFloat(savedPosition))
@@ -51,11 +54,17 @@ export function GlobalRestroomQuickAction() {
 
   // Save position to localStorage when it changes
   useEffect(() => {
+    // Only run on client side
+    if (typeof window === 'undefined') return
+    
     localStorage.setItem('restroom-quick-action-position', position.toString())
   }, [position])
 
   // Save visibility to localStorage when it changes
   useEffect(() => {
+    // Only run on client side
+    if (typeof window === 'undefined') return
+    
     localStorage.setItem('restroom-quick-action-visible', isVisible.toString())
   }, [isVisible])
 

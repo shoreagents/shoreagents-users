@@ -1,6 +1,7 @@
 'use client'
 
-import React from 'react'
+import React, { useState, useEffect } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { AnnouncementBanner } from './announcement-banner'
 import { useAnnouncementsContext } from '@/contexts/announcements-context'
 import { useAnnouncementsSocket } from '@/hooks/use-announcements-socket'
@@ -101,33 +102,107 @@ export function AnnouncementsContainer({
 // Top banner version for app header
 export function AnnouncementsTopBanner() {
   const { announcements, dismissAnnouncement } = useAnnouncementsContext()
+  const [isScrolled, setIsScrolled] = useState(false)
 
   // Show all announcements at the top (urgent, high, medium, and low)
   const topAnnouncements = announcements
+
+  // Handle scroll events
+  useEffect(() => {
+    const handleScroll = () => {
+      const scrollY = window.scrollY
+      setIsScrolled(scrollY > 50) // Start shrinking after 50px scroll
+    }
+
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    return () => window.removeEventListener('scroll', handleScroll)
+  }, [])
 
   if (topAnnouncements.length === 0) {
     return null
   }
 
   return (
-    <div className="sticky top-0 z-50 ">
+    <motion.div 
+      className="sticky z-50 px-4"
+      animate={{
+        top: isScrolled ? "0.5rem" : "0rem" // top-1 when scrolled, top-0 when at top
+      }}
+      transition={{
+        type: "spring",
+        stiffness: 300,
+        damping: 30,
+        mass: 0.8
+      }}
+    >
       <div className="flex">
         {/* Sidebar spacer - matches sidebar width */}
         <div className="w-64 flex-shrink-0" />
-        {/* Main content area */}
-        <div className="flex-1">
-          <div className="space-y-0">
-            {topAnnouncements.map((announcement) => (
-              <AnnouncementBanner
-                key={announcement.announcement_id}
-                announcement={announcement}
-                onDismiss={dismissAnnouncement}
-                className="w-full rounded-none border-0"
-              />
-            ))}
-          </div>
-        </div>
+        {/* Main content area with Framer Motion animations */}
+        <motion.div 
+          className="flex-1"
+          animate={{
+            maxWidth: isScrolled ? "42rem" : "100%", // 42rem = max-w-2xl
+            margin: isScrolled ? "0 auto" : "0",
+            scale: isScrolled ? 0.95 : 1,
+            opacity: isScrolled ? 0.9 : 1
+          }}
+          transition={{
+            type: "spring",
+            stiffness: 300,
+            damping: 30,
+            mass: 0.8
+          }}
+        >
+          <motion.div 
+            className="space-y-0"
+            animate={{
+              gap: isScrolled ? "0.25rem" : "0rem"
+            }}
+            transition={{
+              type: "spring",
+              stiffness: 300,
+              damping: 30
+            }}
+          >
+            <AnimatePresence mode="popLayout">
+              {topAnnouncements.map((announcement, index) => (
+                <motion.div
+                  key={announcement.announcement_id}
+                  initial={{ opacity: 0, y: -20, scale: 0.9 }}
+                  animate={{ 
+                    opacity: 1, 
+                    y: 0, 
+                    scale: 1,
+                    transition: {
+                      delay: isScrolled ? index * 0.1 : 0,
+                      type: "spring",
+                      stiffness: 400,
+                      damping: 25
+                    }
+                  }}
+                  exit={{ 
+                    opacity: 0, 
+                    y: -20, 
+                    scale: 0.9,
+                    transition: {
+                      delay: (topAnnouncements.length - index - 1) * 0.05
+                    }
+                  }}
+                  layout
+                  className="w-full"
+                >
+                  <AnnouncementBanner
+                    announcement={announcement}
+                    onDismiss={dismissAnnouncement}
+                    className="w-full rounded-full border-0"
+                  />
+                </motion.div>
+              ))}
+            </AnimatePresence>
+          </motion.div>
+        </motion.div>
       </div>
-    </div>
+    </motion.div>
   )
 }

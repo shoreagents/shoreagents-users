@@ -13,6 +13,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { 
   FileText, 
   Clock, 
@@ -520,39 +521,69 @@ export default function DashboardPage() {
                   </Link>
                 </div>
               ) : (
-                <div className="grid gap-2">
-                  {recentTickets.map((ticket) => (
-                    <div key={ticket.id} className="group relative p-3 rounded-lg border border-border/50 hover:border-border hover:bg-muted/30 transition-all duration-200">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="font-mono text-sm font-medium text-primary">{ticket.id}</span>
-                            {getStatusBadge(ticket.status)}
-                          </div>
-                          <p className="text-sm font-medium text-foreground mb-1 line-clamp-1">{ticket.concern}</p>
-                          <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                            <div className="flex items-center gap-1">
-                              <Calendar className="h-3 w-3" />
-                              <span>{formatDate(ticket.createdAt || ticket.date)}</span>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-[100px]">ID</TableHead>
+                        <TableHead>Subject</TableHead>
+                        <TableHead className="hidden sm:table-cell">Status</TableHead>
+                        <TableHead className="hidden md:table-cell">Category</TableHead>
+                        <TableHead className="hidden lg:table-cell">Date</TableHead>
+                        <TableHead className="w-[50px]">Action</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {recentTickets.map((ticket) => (
+                        <TableRow key={ticket.id} className="group">
+                          <TableCell className="font-mono text-sm font-medium text-primary">
+                            {ticket.id}
+                          </TableCell>
+                          <TableCell className="max-w-[200px]">
+                            <div className="space-y-1">
+                              <p className="text-sm font-medium text-foreground truncate" title={ticket.concern}>
+                                {ticket.concern}
+                              </p>
+                              {/* Show status and category on mobile */}
+                              <div className="flex items-center gap-2 sm:hidden">
+                                {getStatusBadge(ticket.status)}
+                                <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                  <Tag className="h-3 w-3" />
+                                  <span>{ticket.category}</span>
+                                </div>
+                              </div>
                             </div>
-                            <div className="flex items-center gap-1">
+                          </TableCell>
+                          <TableCell className="hidden sm:table-cell">
+                            {getStatusBadge(ticket.status)}
+                          </TableCell>
+                          <TableCell className="hidden md:table-cell">
+                            <div className="flex items-center gap-1 text-xs text-muted-foreground">
                               <Tag className="h-3 w-3" />
                               <span>{ticket.category}</span>
                             </div>
-                          </div>
-                        </div>
-                        <Link href={`/forms/${ticket.id}`}>
-                          <Button 
-                            variant="ghost" 
-                            size="sm" 
-                            className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 h-8 w-8 p-0"
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                        </Link>
-                      </div>
-                    </div>
-                  ))}
+                          </TableCell>
+                          <TableCell className="hidden lg:table-cell">
+                            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                              <Calendar className="h-3 w-3" />
+                              <span>{formatDate(ticket.createdAt || ticket.date)}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Link href={`/forms/${ticket.id}`}>
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 h-8 w-8 p-0"
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                            </Link>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
                 </div>
               )}
             </CardContent>

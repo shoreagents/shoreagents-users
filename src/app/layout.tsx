@@ -1,3 +1,8 @@
+// Runtime polyfill for server-side compatibility
+if (typeof globalThis !== 'undefined' && typeof (globalThis as any).self === 'undefined') {
+  (globalThis as any).self = globalThis;
+}
+
 import type { Metadata } from "next";
 import { Montserrat } from "next/font/google";
 import "./globals.css";

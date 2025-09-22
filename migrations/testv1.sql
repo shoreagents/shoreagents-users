@@ -4104,75 +4104,75 @@ $function$
 
 -- DROP FUNCTION public.get_activity_date_for_shift(int4, timestamp);
 
-CREATE OR REPLACE FUNCTION public.get_activity_date_for_shift(p_user_id integer, p_current_time timestamp without time zone DEFAULT NULL::timestamp without time zone)
- RETURNS date
- LANGUAGE plpgsql
-AS $function$
-      DECLARE
-          shift_info RECORD;
-          current_time_manila TIMESTAMP;
-          shift_start_time TIME;
-          shift_end_time TIME;
-          is_night_shift BOOLEAN;
-          current_time_only TIME;
-          activity_date DATE;
-      BEGIN
-          -- Get current Manila time using manual calculation (+8 hours from UTC)
-          IF p_current_time IS NULL THEN
-              current_time_manila := CURRENT_TIMESTAMP + INTERVAL '8 hours';
-          ELSE
-              current_time_manila := p_current_time + INTERVAL '8 hours';
-          END IF;
+-- CREATE OR REPLACE FUNCTION public.get_activity_date_for_shift(p_user_id integer, p_current_time timestamp without time zone DEFAULT NULL::timestamp without time zone)
+--  RETURNS date
+--  LANGUAGE plpgsql
+-- AS $function$
+--       DECLARE
+--           shift_info RECORD;
+--           current_time_manila TIMESTAMP;
+--           shift_start_time TIME;
+--           shift_end_time TIME;
+--           is_night_shift BOOLEAN;
+--           current_time_only TIME;
+--           activity_date DATE;
+--       BEGIN
+--           -- Get current Manila time using manual calculation (+8 hours from UTC)
+--           IF p_current_time IS NULL THEN
+--               current_time_manila := CURRENT_TIMESTAMP + INTERVAL '8 hours';
+--           ELSE
+--               current_time_manila := p_current_time + INTERVAL '8 hours';
+--           END IF;
           
-          current_time_only := current_time_manila::TIME;
+--           current_time_only := current_time_manila::TIME;
           
-          -- Get agent's shift information
-          SELECT * INTO shift_info FROM get_agent_shift_info(p_user_id) LIMIT 1;
+--           -- Get agent's shift information
+--           SELECT * INTO shift_info FROM get_agent_shift_info(p_user_id) LIMIT 1;
           
-          IF NOT FOUND OR shift_info.shift_time IS NULL THEN
-              -- No shift configured, use current date
-              RETURN current_time_manila::DATE;
-          END IF;
+--           IF NOT FOUND OR shift_info.shift_time IS NULL THEN
+--               -- No shift configured, use current date
+--               RETURN current_time_manila::DATE;
+--           END IF;
           
-          -- Parse shift time
-          shift_start_time := CASE 
-              WHEN split_part(shift_info.shift_time, ' - ', 1) LIKE '%PM' AND 
-                   NOT split_part(shift_info.shift_time, ' - ', 1) LIKE '12:%PM' THEN
-                  (split_part(split_part(shift_info.shift_time, ' - ', 1), ' ', 1)::TIME + INTERVAL '12 hours')::TIME
-              WHEN split_part(shift_info.shift_time, ' - ', 1) LIKE '12:%AM' THEN
-                  replace(split_part(shift_info.shift_time, ' - ', 1), '12:', '00:')::TIME
-              ELSE
-                  split_part(split_part(shift_info.shift_time, ' - ', 1), ' ', 1)::TIME
-          END;
+--           -- Parse shift time
+--           shift_start_time := CASE 
+--               WHEN split_part(shift_info.shift_time, ' - ', 1) LIKE '%PM' AND 
+--                    NOT split_part(shift_info.shift_time, ' - ', 1) LIKE '12:%PM' THEN
+--                   (split_part(split_part(shift_info.shift_time, ' - ', 1), ' ', 1)::TIME + INTERVAL '12 hours')::TIME
+--               WHEN split_part(shift_info.shift_time, ' - ', 1) LIKE '12:%AM' THEN
+--                   replace(split_part(shift_info.shift_time, ' - ', 1), '12:', '00:')::TIME
+--               ELSE
+--                   split_part(split_part(shift_info.shift_time, ' - ', 1), ' ', 1)::TIME
+--           END;
           
-          shift_end_time := CASE 
-              WHEN split_part(shift_info.shift_time, ' - ', 2) LIKE '%PM' AND 
-                   NOT split_part(shift_info.shift_time, ' - ', 2) LIKE '12:%PM' THEN
-                  (split_part(split_part(shift_info.shift_time, ' - ', 2), ' ', 1)::TIME + INTERVAL '12 hours')::TIME
-              WHEN split_part(shift_info.shift_time, ' - ', 2) LIKE '12:%PM' THEN
-                  (split_part(split_part(shift_info.shift_time, ' - ', 2), ' ', 1)::TIME + INTERVAL '12 hours')::TIME
-              ELSE
-                  split_part(split_part(shift_info.shift_time, ' - ', 2), ' ', 1)::TIME
-          END;
+--           shift_end_time := CASE 
+--               WHEN split_part(shift_info.shift_time, ' - ', 2) LIKE '%PM' AND 
+--                    NOT split_part(shift_info.shift_time, ' - ', 2) LIKE '12:%PM' THEN
+--                   (split_part(split_part(shift_info.shift_time, ' - ', 2), ' ', 1)::TIME + INTERVAL '12 hours')::TIME
+--               WHEN split_part(shift_info.shift_time, ' - ', 2) LIKE '12:%PM' THEN
+--                   (split_part(split_part(shift_info.shift_time, ' - ', 2), ' ', 1)::TIME + INTERVAL '12 hours')::TIME
+--               ELSE
+--                   split_part(split_part(shift_info.shift_time, ' - ', 2), ' ', 1)::TIME
+--           END;
           
-          -- Determine if it's a night shift (crosses midnight)
-          is_night_shift := shift_start_time > shift_end_time;
+--           -- Determine if it's a night shift (crosses midnight)
+--           is_night_shift := shift_start_time > shift_end_time;
           
-          IF is_night_shift THEN
-              -- FIXED NIGHT SHIFT LOGIC: Use current calendar date for all night shift activity
-              -- This ensures that activity at 5:30 AM on 2025-09-05 is recorded as 2025-09-05
-              -- not 2025-09-04, which makes more sense from a user perspective
-              activity_date := current_time_manila::DATE;
-          ELSE
-              -- DAY SHIFT LOGIC: Activity date is the current day
-              -- For day shifts, activity resets each day at shift start time
-              activity_date := current_time_manila::DATE;
-          END IF;
+--           IF is_night_shift THEN
+--               -- FIXED NIGHT SHIFT LOGIC: Use current calendar date for all night shift activity
+--               -- This ensures that activity at 5:30 AM on 2025-09-05 is recorded as 2025-09-05
+--               -- not 2025-09-04, which makes more sense from a user perspective
+--               activity_date := current_time_manila::DATE;
+--           ELSE
+--               -- DAY SHIFT LOGIC: Activity date is the current day
+--               -- For day shifts, activity resets each day at shift start time
+--               activity_date := current_time_manila::DATE;
+--           END IF;
           
-          RETURN activity_date;
-      END;
-      $function$
-;
+--           RETURN activity_date;
+--       END;
+--       $function$
+-- ;
 
 -- DROP FUNCTION public.get_activity_date_for_shift_simple(int4);
 

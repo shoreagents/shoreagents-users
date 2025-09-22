@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Loader2, ArrowLeft, CheckCircle, XCircle } from "lucide-react"
 import { createClient } from '@supabase/supabase-js'
+import { WindowControls } from "@/components/window-controls"
+import Image from "next/image"
 
 // Initialize Supabase client
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://sanljwkkoawwdpaxrper.supabase.co'
@@ -61,20 +63,34 @@ export default function ForgotPasswordPage() {
 
   if (success) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-        <Card className="w-full max-w-md">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-50 to-green-100 px-4 relative">
+        <div className="absolute top-4 left-4 z-50">
+          <Image 
+            src="/shoreagents-logo.png" 
+            alt="ShoreAgents Logo" 
+            width={200}
+            height={64}
+            className="h-16 w-auto"
+            priority
+          />
+        </div>
+        {/* Window Controls - Fixed to top right */}
+        <div className="absolute top-4 right-4 z-50">
+          <WindowControls />
+        </div>
+        <Card className="w-full max-w-md bg-transparent border-none shadow-none">
           <CardHeader className="text-center">
             <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-green-100">
               <CheckCircle className="h-6 w-6 text-green-600" />
             </div>
-            <CardTitle className="text-xl">Check Your Email</CardTitle>
+            <CardTitle className="text-xl text-gray-500">Check Your Email</CardTitle>
             <CardDescription>
               We've sent a password reset link to <strong>{email}</strong>. 
               Please check your email and click the link to reset your password.
             </CardDescription>
           </CardHeader>
           <CardContent className="text-center space-y-4">
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-gray-500">
               Didn't receive the email? Check your spam folder or try again.
             </p>
             <div className="space-y-2">
@@ -90,7 +106,7 @@ export default function ForgotPasswordPage() {
               <Button 
                 variant="outline"
                 onClick={() => router.push('/login')}
-                className="w-full"
+                className="w-full border-none bg-gray-200/50 dark:bg-gray-200/50 text-gray-500"
               >
                 Back to Login
               </Button>
@@ -102,10 +118,24 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-      <Card className="w-full max-w-md">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-50 to-green-100 px-4 relative">
+      {/* Window Controls - Fixed to top right */}
+      <div className="absolute top-4 left-4 z-50">
+        <Image 
+          src="/shoreagents-logo.png" 
+          alt="ShoreAgents Logo" 
+          width={200}
+          height={64}
+          className="h-16 w-auto"
+          priority
+        />
+      </div>
+      <div className="absolute top-4 right-4 z-50">
+        <WindowControls />
+      </div>
+      <Card className="w-full max-w-md bg-transparent border-none shadow-none">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl">Forgot Password</CardTitle>
+          <CardTitle className="text-2xl text-gray-500">Forgot Password</CardTitle>
           <CardDescription>
             Enter your email address and we'll send you a link to reset your password.
           </CardDescription>
@@ -113,13 +143,13 @@ export default function ForgotPasswordPage() {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             {error && (
-              <div className="relative w-full rounded-lg border border-red-500/50 text-red-600 p-4">
+              <div className="relative w-full rounded-lg border border-red-500/50 text-red-600 p-4 bg-red-500/10">
                 <div className="text-sm">{error}</div>
               </div>
             )}
 
             <div className="space-y-2">
-              <Label htmlFor="email">Email Address</Label>
+              <Label htmlFor="email" className="text-gray-500">Email Address</Label>
               <Input
                 id="email"
                 type="email"
@@ -127,6 +157,7 @@ export default function ForgotPasswordPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="Enter your email address"
                 required
+                className="border-none bg-gray-200/50 dark:bg-gray-200/50 text-gray-500"
               />
             </div>
 

@@ -4,6 +4,31 @@
   "private": true,
   "main": "electron/main.js",
   "homepage": "./",
+  "build": {
+    "appId": "com.shoreagents.dashboard",
+    "productName": "ShoreAgents Dashboard",
+    "icon": "public/ShoreAgents-Logo-only.png",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "public/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "icon": "public/ShoreAgents-Logo-only.png"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "public/ShoreAgents-Logo-only.png"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "public/ShoreAgents-Logo-only.png"
+    }
+  },
   "scripts": {
     "dev": "next dev --turbo --port 3005",
     "dev:webpack": "next dev --port 3005",
@@ -63,6 +88,7 @@
     "next": "15.3.5",
     "pg": "^8.16.3",
     "postgres": "^3.4.7",
+    "process": "^0.11.10",
     "react": "^19.0.0",
     "react-day-picker": "^9.10.0",
     "react-dom": "^19.0.0",
@@ -85,42 +111,16 @@
     "@types/react-dom": "^19.1.9",
     "autoprefixer": "^10.4.21",
     "concurrently": "^8.2.2",
+    "cross-env": "^10.0.0",
     "electron": "^28.0.0",
     "electron-builder": "^24.9.1",
     "eslint": "^9.35.0",
     "eslint-config-next": "15.3.5",
-    "global": "^4.4.0",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.17",
     "tailwindcss-animate": "^1.0.7",
     "typescript": "^5.9.2",
     "wait-on": "^7.2.0",
     "webpack": "^5.101.3"
-  },
-  "build": {
-    "appId": "com.shoreagents.dashboard",
-    "productName": "ShoreAgents Dashboard",
-    "directories": {
-      "output": "dist"
-    },
-    "files": [
-      "electron/**/*",
-      "out/**/*",
-      "node_modules/**/*",
-      "package.json"
-    ],
-    "icon": "public/ShoreAgents-Logo-only.png",
-    "mac": {
-      "category": "public.app-category.productivity",
-      "icon": "public/ShoreAgents-Logo-only.png"
-    },
-    "win": {
-      "target": "nsis",
-      "icon": "public/ShoreAgents-Logo-only.png"
-    },
-    "linux": {
-      "target": "AppImage",
-      "icon": "public/ShoreAgents-Logo-only.png"
-    }
   }
 }

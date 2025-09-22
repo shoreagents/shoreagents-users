@@ -1,4 +1,9 @@
 import type { NextConfig } from "next";
+import webpack from "webpack";
+
+// Set up global environment before Next.js processes anything
+// Load our custom globalThis polyfill
+require('./src/lib/globalthis-polyfill.js');
 
 const nextConfig: NextConfig = {
   trailingSlash: true,
@@ -24,15 +29,61 @@ const nextConfig: NextConfig = {
   },
   // Webpack configuration for production builds only
   webpack: (config, { isServer, dev }) => {
-    // Only include pg on the server side
-    if (!isServer) {
-      config.resolve.fallback = {
-        ...config.resolve.fallback,
+    // Set up global environment for server-side compatibility
+    if (isServer) {
+      // Ensure self is available in the global scope for server-side builds
+      if (typeof global !== 'undefined' && typeof (global as any).self === 'undefined') {
+        (global as any).self = global;
+      }
+    }
+    // Provide fallbacks for both server and browser
+    config.resolve.fallback = {
+      ...config.resolve.fallback,
+      ...(isServer ? {} : {
         fs: false,
         net: false,
         tls: false,
+        process: false,
+      }),
+    };
+
+    // Handle Supabase Edge Runtime warnings by providing process polyfill
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      'process/browser': require.resolve('process/browser'),
+      // Block all globalThis polyfill files that use dynamic code evaluation
+      'globalThis/implementation.browser.js': false,
+      'globalThis/index.js': false,
+      'globalThis': false,
+    };
+
+    // Add specific handling for Supabase modules
+    if (!isServer) {
+      config.resolve.alias = {
+        ...config.resolve.alias,
+        '@supabase/node-fetch': false,
       };
     }
+
+    // Define global variables for both server and browser compatibility
+    config.plugins = config.plugins || [];
+    
+    // Define globals to prevent "self is not defined" errors
+    config.plugins.push(
+      new webpack.DefinePlugin({
+        'self': isServer ? 'global' : 'self',
+        'window': isServer ? 'undefined' : 'window',
+        'global': 'global',
+        'globalThis': isServer ? 'global' : 'globalThis',
+      })
+    );
+    
+    // Block the problematic globalThis module entirely
+    config.plugins.push(
+      new webpack.IgnorePlugin({
+        resourceRegExp: /^globalThis$/,
+      })
+    );
     
     // PERFORMANCE: Optimize bundle splitting
     if (!dev) {

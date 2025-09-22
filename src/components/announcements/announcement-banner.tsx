@@ -13,10 +13,10 @@ interface AnnouncementBannerProps {
 
 // Priority-based styles
 const priorityStyles = {
-  low: 'bg-green-900 text-white',
-  medium: 'bg-blue-900 text-white', 
-  high: 'bg-yellow-600 text-white',
-  urgent: 'bg-red-900 text-white'
+  low: 'bg-emerald-50 border-emerald-200 text-emerald-800',
+  medium: 'bg-blue-50 border-blue-200 text-blue-800', 
+  high: 'bg-amber-50 border-amber-200 text-amber-800',
+  urgent: 'bg-red-50 border-red-200 text-red-800'
 } 
 
 export function AnnouncementBanner({ announcement, onDismiss, className }: AnnouncementBannerProps) {
@@ -68,7 +68,7 @@ export function AnnouncementBanner({ announcement, onDismiss, className }: Annou
     <div
       className={cn(
         'relative overflow-hidden transition-all duration-300 ease-in-out',
-        'border-t-2 px-4 py-2',
+        'border-t-4 px-4 py-3',
         priorityStyle,
         isDismissing && 'opacity-0 scale-95',
         className
@@ -99,11 +99,12 @@ export function AnnouncementBanner({ announcement, onDismiss, className }: Annou
             onClick={handleDismiss}
             disabled={isDismissing}
             className={cn(
-              'absolute right-0 top-1/2 -translate-y-1/2 p-1 rounded-md transition-colors',
+              'absolute right-0 top-1/2 -translate-y-1/2 p-1.5 rounded-md transition-colors',
               'hover:bg-black/10 focus:outline-none focus:ring-2 focus:ring-black/20',
-              'disabled:opacity-50 disabled:cursor-not-allowed'
+              'disabled:opacity-50 disabled:cursor-not-allowed text-gray-600 hover:text-gray-800'
             )}
             aria-label="Dismiss announcement"
+            title="Dismiss announcement"
           >
             <X className="h-4 w-4" />
           </button>
