@@ -483,6 +483,8 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     
     // Start real-time counting immediately - Changed back to 1s intervals for real-time updates
     const interval = setInterval(() => {
+      console.log('🔄 Timer interval tick - checking conditions...')
+      
       // Guard: do not count before shift start or after shift end (Philippines time)
       try {
         const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
@@ -555,11 +557,13 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         
         // Stop counting before shift start
         if (shiftStartDate && nowPH < shiftStartDate) {
+          console.log('⏸️ Timer paused - before shift start:', { nowPH, shiftStartDate })
           return // Skip counting until shift start
         }
         
         // Stop counting after shift end
         if (shiftEndDate && nowPH > shiftEndDate) {
+          console.log('⏸️ Timer paused - after shift end:', { nowPH, shiftEndDate })
           // Automatically set user to inactive when shift ends
           // This will be handled by the activity state determination below
           return // Skip counting after shift end
@@ -576,26 +580,31 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       
       // Pause counting when on break AND break is not paused (emergency pause)
       if (isBreakActive && !isBreakPaused) {
+        console.log('⏸️ Timer paused - on break:', { isBreakActive, isBreakPaused })
         return // Don't increment counters when on break (but resume when paused)
       }
       
       // Pause counting when in a meeting
       if (isInMeeting) {
+        console.log('⏸️ Timer paused - in meeting:', { isInMeeting })
         return // Don't increment counters when in a meeting
       }
       
       // Pause counting when in an event
       if (isInEvent) {
+        console.log('⏸️ Timer paused - in event:', { isInEvent })
         return // Don't increment counters when in an event
       }
       
       // Pause counting when going to clinic or in clinic
       if (isGoingToClinic || isInClinic) {
+        console.log('⏸️ Timer paused - in clinic:', { isGoingToClinic, isInClinic })
         return // Don't increment counters when in health check
       }
       
       // Pause counting when in restroom
       if (isInRestroom) {
+        console.log('⏸️ Timer paused - in restroom:', { isInRestroom })
         return // Don't increment counters when in restroom
       }
       
@@ -606,16 +615,20 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       // PRIORITY 1: If we have recent local activity, trust it over server state
       if (lastActivityState === true) {
         isActive = true
+        console.log('✅ Activity state: LOCAL ACTIVE')
       } else if (timerData && timerData.isActive !== undefined) {
         // PRIORITY 2: Use server state if no recent local activity
         isActive = timerData.isActive
+        console.log('✅ Activity state: SERVER STATE', { isActive, timerDataIsActive: timerData.isActive })
       } else if (lastActivityState === false) {
         // PRIORITY 3: Use local inactive state if no server data
         isActive = false
+        console.log('✅ Activity state: LOCAL INACTIVE')
       } else {
         // PRIORITY 4: Default fallback: assume active if we can't determine
         // This prevents false inactive counting
         isActive = true
+        console.log('✅ Activity state: DEFAULT ACTIVE')
       }
       
       // ADDITIONAL SAFETY CHECKS
