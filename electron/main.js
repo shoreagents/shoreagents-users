@@ -1,7 +1,7 @@
 const { app, BrowserWindow, Menu, Tray, shell, ipcMain, Notification, dialog, screen, globalShortcut } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const isDev = process.env.NODE_ENV === 'development';
+const isDev = process.env.NODE_ENV === 'development' || process.env.ELECTRON_IS_DEV === '1' || !app.isPackaged;
 
 // Set the application name IMMEDIATELY - must be before any app events
 app.setName('ShoreAgents Dashboard');
@@ -1480,8 +1480,9 @@ function createWindow() {
     autoHideMenuBar: true
   });
 
-  // Load the app - always use the Next.js server
-  const serverUrl = process.env.ELECTRON_APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3005';
+  // Load the app - prioritize development mode, then environment variables
+  const serverUrl = isDev ? 'http://localhost:3005' : 
+    (process.env.ELECTRON_APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://shoreagents-users.vercel.app');
   mainWindow.loadURL(serverUrl);
   
   // Open DevTools in development
