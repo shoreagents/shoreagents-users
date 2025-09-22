@@ -1,0 +1,67 @@
+# Node modules
+node_modules
+npm-debug.log*
+
+# Next.js
+.next
+out
+
+# Production build
+dist
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE files
+.vscode
+.idea
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Git
+.git
+.gitignore
+
+# Documentation
+README.md
+*.md
+
+# Test files
+__tests__
+*.test.js
+*.test.ts
+*.spec.js
+*.spec.ts
+
+# Electron files
+electron/
+build/
+
+# Source files (not needed for socket server)
+src/
+public/
+components.json
+tailwind.config.js
+postcss.config.js
+next.config.ts
+tsconfig.json
+eslint.config.mjs
+
+# Vercel
+vercel.json
+
+# Package files (we use socket-server-package.json)
+package.json
+package-lock.json
+
+# Temp files
+temp/
+
+# Other config files
+*.txt
