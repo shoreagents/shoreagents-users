@@ -17,7 +17,8 @@ export const storageHelpers = {
       const fileName = `${ticketId}/${timestamp}-${file.name}`
       
       // Upload file to Supabase storage
-      const { data, error } = await supabase.storage
+      const client = supabase()
+      const { data, error } = await client.storage
         .from('tickets')
         .upload(`supporting-files/${fileName}`, file, {
           cacheControl: '3600',
@@ -30,7 +31,7 @@ export const storageHelpers = {
       }
 
       // Get the public URL
-      const { data: urlData } = supabase.storage
+      const { data: urlData } = client.storage
         .from('tickets')
         .getPublicUrl(`supporting-files/${fileName}`)
 
@@ -63,7 +64,8 @@ export const storageHelpers = {
   // Delete a file from Supabase storage
   async deleteFile(filePath: string): Promise<boolean> {
     try {
-      const { error } = await supabase.storage
+      const client = supabase()
+      const { error } = await client.storage
         .from('tickets')
         .remove([filePath])
 
@@ -81,7 +83,8 @@ export const storageHelpers = {
 
   // Get file URL
   getFileUrl(filePath: string): string {
-    const { data } = supabase.storage
+    const client = supabase()
+    const { data } = client.storage
       .from('tickets')
       .getPublicUrl(filePath)
     
