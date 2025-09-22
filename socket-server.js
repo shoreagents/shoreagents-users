@@ -698,61 +698,6 @@ const userConnections = new Map(); // Map<email, Set<socketId>>
 // Track user online/offline status (based on login/logout, not socket connections)
 const userStatus = new Map(); // Map<email, { status: 'online'|'offline', loginTime: Date, lastSeen: Date }>
 
-// Timer counting mechanism
-let timerInterval = null;
-
-// Function to start timer counting
-function startTimerCounting() {
-  if (timerInterval) {
-    clearInterval(timerInterval);
-  }
-  
-  timerInterval = setInterval(() => {
-    const currentTime = new Date();
-    
-    // Update timer for all connected users
-    for (const [email, userData] of userData.entries()) {
-      const userInfo = userData.userInfo;
-      if (!userInfo) continue;
-      
-      // Check if user is within shift window
-      const shiftInfo = userShiftInfo.get(email);
-      if (shiftInfo) {
-        const withinShift = isWithinShiftWindow(currentTime, shiftInfo);
-        if (!withinShift) continue; // Skip if outside shift window
-      }
-      
-      // Increment timer based on activity state
-      if (userInfo.isActive) {
-        userInfo.activeSeconds++;
-      } else {
-        userInfo.inactiveSeconds++;
-      }
-      
-      // Update last activity time
-      userInfo.lastActivityTime = currentTime;
-    }
-  }, 1000); // Update every second
-}
-
-// Function to check if current time is within shift window
-function isWithinShiftWindow(currentTime, shiftInfo) {
-  if (!shiftInfo || !shiftInfo.time) return true;
-  
-  try {
-    const nowPH = new Date(currentTime.getTime() + (8 * 60 * 60 * 1000));
-    const parsed = parseShiftTime(shiftInfo.time, nowPH);
-    
-    if (parsed && parsed.startTime && parsed.endTime) {
-      return nowPH >= parsed.startTime && nowPH <= parsed.endTime;
-    }
-  } catch (error) {
-    console.error('Error checking shift window:', error);
-  }
-  
-  return true; // Default to true if check fails
-}
-
 // Track detailed user status from all contexts
 const userDetailedStatus = new Map(); // Map<email, { 
 //   isInMeeting: boolean, 
@@ -2188,7 +2133,6 @@ io.on('connection', (socket) => {
         });
         console.log(`AUTHENTICATION COMPLETED: Socket ${socket.id} now associated with user ${emailString}`);
         console.log(`Connected users map now contains:`, Array.from(connectedUsers.entries()).map(([id, data]) => `${id} -> ${data.email}`));
-        console.log(`✅ User ${emailString} (ID: ${userInfo.userId}) successfully added to connected users`);
         // User authentication completed with data
         
         // Clean up any temporary user data that might exist
@@ -2367,8 +2311,7 @@ io.on('connection', (socket) => {
         // REMOVED: Online status broadcast
       } catch (error) {
         // Even if hydration fails, send authenticated event
-        console.log(`❌ Authentication hydration failed for ${emailString}:`, error.message);
-        console.log(`❌ Full error:`, error);
+        console.log(`Authentication hydration failed for ${emailString}:`, error.message);
         try {
           socket.emit('authenticated', {
             email: emailString, // Include email for frontend user matching
@@ -2759,16 +2702,8 @@ io.on('connection', (socket) => {
       const oldActive = userInfo.activeSeconds;
       const oldInactive = userInfo.inactiveSeconds;
       
-      // FIXED: Ignore 0s values from frontend to prevent overwriting correct server values
-      // Only update if the frontend values are greater than 0 or if we're in a reset scenario
-      if (timerData.activeSeconds > 0 || timerData.inactiveSeconds > 0 || 
-          (timerData.activeSeconds === 0 && timerData.inactiveSeconds === 0 && oldActive === 0 && oldInactive === 0)) {
-        userInfo.activeSeconds = timerData.activeSeconds;
-        userInfo.inactiveSeconds = timerData.inactiveSeconds;
-      } else {
-        console.log(`⚠️ Ignoring timer update with 0s values for ${userData.email} - keeping server values: ${oldActive}s active, ${oldInactive}s inactive`);
-        return; // Skip processing this update
-      }
+      userInfo.activeSeconds = timerData.activeSeconds;
+      userInfo.inactiveSeconds = timerData.inactiveSeconds;
       
       // Throttle: only log significant changes (every 30 seconds or more)
       const activeDiff = Math.abs(userInfo.activeSeconds - oldActive);
@@ -3341,8 +3276,4 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`Announcement scheduler: ${announcementScheduler.getStatus().isRunning ? 'Running' : 'Stopped'} (${announcementScheduler.getStatus().interval}s interval)`);
   console.log(`All schedulers are now active and monitoring for notifications`);
   console.log(`✅ Server is ready and accepting connections!`);
-  
-  // Start timer counting
-  startTimerCounting();
-  console.log(`⏱️ Timer counting started`);
 });
