@@ -3275,4 +3275,5 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`Event reminder scheduler: ${eventReminderScheduler.getStatus().isRunning ? 'Running' : 'Stopped'} (${eventReminderScheduler.getStatus().interval}s interval)`);
   console.log(`Announcement scheduler: ${announcementScheduler.getStatus().isRunning ? 'Running' : 'Stopped'} (${announcementScheduler.getStatus().interval}s interval)`);
   console.log(`All schedulers are now active and monitoring for notifications`);
+  console.log(`✅ Server is ready and accepting connections!`);
 });

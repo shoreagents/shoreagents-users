@@ -23,9 +23,7 @@ USER nextjs
 # Expose port
 EXPOSE 3004
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
-  CMD node -e "require('http').get('http://localhost:3004/status', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"
+# Health check will be handled by Railway after deployment
 
 # Start only the socket server
 CMD ["node", "socket-server.js"]
