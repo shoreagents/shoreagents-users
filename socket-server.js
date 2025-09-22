@@ -698,6 +698,61 @@ const userConnections = new Map(); // Map<email, Set<socketId>>
 // Track user online/offline status (based on login/logout, not socket connections)
 const userStatus = new Map(); // Map<email, { status: 'online'|'offline', loginTime: Date, lastSeen: Date }>
 
+// Timer counting mechanism
+let timerInterval = null;
+
+// Function to start timer counting
+function startTimerCounting() {
+  if (timerInterval) {
+    clearInterval(timerInterval);
+  }
+  
+  timerInterval = setInterval(() => {
+    const currentTime = new Date();
+    
+    // Update timer for all connected users
+    for (const [email, userData] of userData.entries()) {
+      const userInfo = userData.userInfo;
+      if (!userInfo) continue;
+      
+      // Check if user is within shift window
+      const shiftInfo = userShiftInfo.get(email);
+      if (shiftInfo) {
+        const withinShift = isWithinShiftWindow(currentTime, shiftInfo);
+        if (!withinShift) continue; // Skip if outside shift window
+      }
+      
+      // Increment timer based on activity state
+      if (userInfo.isActive) {
+        userInfo.activeSeconds++;
+      } else {
+        userInfo.inactiveSeconds++;
+      }
+      
+      // Update last activity time
+      userInfo.lastActivityTime = currentTime;
+    }
+  }, 1000); // Update every second
+}
+
+// Function to check if current time is within shift window
+function isWithinShiftWindow(currentTime, shiftInfo) {
+  if (!shiftInfo || !shiftInfo.time) return true;
+  
+  try {
+    const nowPH = new Date(currentTime.getTime() + (8 * 60 * 60 * 1000));
+    const parsed = parseShiftTime(shiftInfo.time, nowPH);
+    
+    if (parsed && parsed.startTime && parsed.endTime) {
+      return nowPH >= parsed.startTime && nowPH <= parsed.endTime;
+    }
+  } catch (error) {
+    console.error('Error checking shift window:', error);
+  }
+  
+  return true; // Default to true if check fails
+}
+
 // Track detailed user status from all contexts
 const userDetailedStatus = new Map(); // Map<email, { 
 //   isInMeeting: boolean, 
@@ -3286,4 +3341,8 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`Announcement scheduler: ${announcementScheduler.getStatus().isRunning ? 'Running' : 'Stopped'} (${announcementScheduler.getStatus().interval}s interval)`);
   console.log(`All schedulers are now active and monitoring for notifications`);
   console.log(`✅ Server is ready and accepting connections!`);
+  
+  // Start timer counting
+  startTimerCounting();
+  console.log(`⏱️ Timer counting started`);
 });
