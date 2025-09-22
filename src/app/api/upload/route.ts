@@ -1,20 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-
-if (!supabaseUrl || !supabaseServiceKey) {
-  throw new Error('Missing Supabase environment variables')
-}
-
 // Server-side Supabase client with service role key
-const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: {
-    autoRefreshToken: false,
-    persistSession: false
+let supabaseAdmin: any = null
+
+function getSupabaseAdmin() {
+  if (supabaseAdmin) return supabaseAdmin
+  
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  if (!supabaseUrl || !supabaseServiceKey) {
+    throw new Error('Missing Supabase environment variables')
   }
-})
+
+  supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
+  })
+  
+  return supabaseAdmin
+}
 
 // Helper function to get user from request
 function getUserFromRequest(request: NextRequest) {
@@ -89,7 +97,8 @@ export async function POST(request: NextRequest) {
         const buffer = Buffer.from(arrayBuffer)
 
         // Upload file using service role key
-        const { data, error } = await supabaseAdmin.storage
+        const admin = getSupabaseAdmin()
+        const { data, error } = await admin.storage
           .from('tickets')
           .upload(filePath, buffer, {
             contentType: file.type,
@@ -103,7 +112,7 @@ export async function POST(request: NextRequest) {
         }
 
         // Get the public URL
-        const { data: urlData } = supabaseAdmin.storage
+        const { data: urlData } = admin.storage
           .from('tickets')
           .getPublicUrl(filePath)
 
