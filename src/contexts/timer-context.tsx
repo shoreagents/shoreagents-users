@@ -790,13 +790,22 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     }
 
     const handleTimerUpdated = (timerData: any) => {
+      console.log('🔄 Timer context handleTimerUpdated called:', timerData, 'isResetting:', isResetting)
+      
       // CRITICAL: Always allow server reset events (when both values are 0)
       const isServerReset = timerData.activeSeconds === 0 && timerData.inactiveSeconds === 0
       
       // Only block non-reset updates during reset to prevent conflicts
       if (isResetting && !isServerReset) {
+        console.log('❌ Timer update blocked - reset in progress')
         return
       }
+      
+      console.log('✅ Updating timer values:', { 
+        activeSeconds: timerData.activeSeconds || 0, 
+        inactiveSeconds: timerData.inactiveSeconds || 0,
+        isActive: timerData.isActive 
+      })
       
       // Update local timers to match server data
       setLiveActiveSeconds(timerData.activeSeconds || 0)
