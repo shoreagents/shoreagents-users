@@ -3257,7 +3257,7 @@ io.on('connection', (socket) => {
    });
 });
 
-const PORT = process.env.SOCKET_PORT || 3004;
+const PORT = process.env.PORT || 3004;
 server.listen(PORT, () => {
   console.log(`Socket.IO server running on port ${PORT}`);
   console.log(`Break reminder scheduler: ${breakReminderScheduler.getStatus().isRunning ? 'Running' : 'Stopped'} (${breakReminderScheduler.getStatus().interval}s interval)`);
