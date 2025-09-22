@@ -170,8 +170,9 @@ export async function POST(request: NextRequest) {
       return resFallback
     }
 
-    // If Supabase is not configured, use Railway only
-    if (!supabaseAdmin) {
+    // Get Supabase admin client
+    const admin = supabaseAdmin()
+    if (!admin) {
       return NextResponse.json(
         { success: false, error: 'Authentication service not configured. Please contact administrator.' },
         { status: 500 }
@@ -179,7 +180,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Step 1: Authenticate with Supabase
-    const { data, error } = await supabaseAdmin.auth.signInWithPassword({
+    const { data, error } = await admin.auth.signInWithPassword({
       email,
       password
     })
@@ -216,7 +217,7 @@ export async function POST(request: NextRequest) {
 
     if (railwayResult.length === 0) {
       // Email exists in Supabase but not in Railway - sign them out
-      await supabaseAdmin.auth.admin.signOut(data.session.access_token)
+      await admin.auth.admin.signOut(data.session.access_token)
       return NextResponse.json(
         { 
           success: false, 
@@ -231,7 +232,7 @@ export async function POST(request: NextRequest) {
     // Step 3: Verify email matches between Supabase and Railway
     if (railwayUser.email.toLowerCase() !== data.user.email!.toLowerCase()) {
       // Email mismatch - security issue
-      await supabaseAdmin.auth.admin.signOut(data.session.access_token)
+      await admin.auth.admin.signOut(data.session.access_token)
       return NextResponse.json(
         { 
           success: false, 
@@ -244,7 +245,7 @@ export async function POST(request: NextRequest) {
     // Step 4: Check if user is an Agent in Railway database
     if (railwayUser.user_type !== 'Agent') {
       // Sign out from Supabase since they're not an agent
-      await supabaseAdmin.auth.admin.signOut(data.session.access_token)
+      await admin.auth.admin.signOut(data.session.access_token)
       return NextResponse.json(
         { 
           success: false, 

@@ -1,36 +1,55 @@
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+// Client-side Supabase client
+let supabase: any = null
+let supabaseAdmin: any = null
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error(`Missing Supabase environment variables. Please add to your .env.local file:
+function getSupabase() {
+  if (supabase) return supabase
+  
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error(`Missing Supabase environment variables. Please add to your .env.local file:
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-here`)
+  }
+
+  supabase = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      autoRefreshToken: true,
+      persistSession: true,
+      detectSessionInUrl: true
+    }
+  })
+  
+  return supabase
 }
 
-// Client-side Supabase client
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    autoRefreshToken: true,
-    persistSession: true,
-    detectSessionInUrl: true
-  }
-})
+function getSupabaseAdmin() {
+  if (supabaseAdmin) return supabaseAdmin
+  
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
-// Server-side Supabase client for admin operations (only create if service key is available)
-export const supabaseAdmin = supabaseServiceKey ? createClient(
-  supabaseUrl,
-  supabaseServiceKey,
-  {
+  if (!supabaseUrl || !supabaseServiceKey) {
+    return null
+  }
+
+  supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
     auth: {
       autoRefreshToken: false,
       persistSession: false
     }
-  }
-) : null
+  })
+  
+  return supabaseAdmin
+}
+
+// Export functions instead of direct clients
+export { getSupabase as supabase, getSupabaseAdmin as supabaseAdmin }
 
 // User profile type for our agents
 export interface AgentProfile {
@@ -52,7 +71,8 @@ export interface AgentProfile {
 // Supabase auth helper functions
 export const authHelpers = {
   async signInWithEmail(email: string, password: string) {
-    const { data, error } = await supabase.auth.signInWithPassword({
+    const client = getSupabase()
+    const { data, error } = await client.auth.signInWithPassword({
       email,
       password
     })
@@ -60,22 +80,26 @@ export const authHelpers = {
   },
 
   async signOut() {
-    const { error } = await supabase.auth.signOut()
+    const client = getSupabase()
+    const { error } = await client.auth.signOut()
     return { error }
   },
 
   async getSession() {
-    const { data: { session } } = await supabase.auth.getSession()
+    const client = getSupabase()
+    const { data: { session } } = await client.auth.getSession()
     return session
   },
 
   async getUser() {
-    const { data: { user } } = await supabase.auth.getUser()
+    const client = getSupabase()
+    const { data: { user } } = await client.auth.getUser()
     return user
   },
 
   async updateUser(updates: { password?: string; email?: string }) {
-    const { data, error } = await supabase.auth.updateUser(updates)
+    const client = getSupabase()
+    const { data, error } = await client.auth.updateUser(updates)
     return { data, error }
   },
 
