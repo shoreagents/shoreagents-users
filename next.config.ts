@@ -21,8 +21,7 @@ const nextConfig: NextConfig = {
   },
   compiler: {
     // Remove console.logs in production
-    // removeConsole: process.env.NODE_ENV === 'production',
-    removeConsole: false,
+    removeConsole: process.env.NODE_ENV === 'production',
   },
   // Ensure TypeScript path mapping works
   typescript: {

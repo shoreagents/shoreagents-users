@@ -1529,6 +1529,11 @@ function createWindow() {
         mainWindow.webContents.setZoomFactor(Math.min(currentZoom + 0.1, 3.0));
       });
 
+      globalShortcut.register('CommandOrControl+Equal', () => {
+        const currentZoom = mainWindow.webContents.getZoomFactor();
+        mainWindow.webContents.setZoomFactor(Math.min(currentZoom + 0.1, 3.0));
+      });
+
       globalShortcut.register('CommandOrControl+-', () => {
         const currentZoom = mainWindow.webContents.getZoomFactor();
         mainWindow.webContents.setZoomFactor(Math.max(currentZoom - 0.1, 0.5));

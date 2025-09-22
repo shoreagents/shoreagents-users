@@ -77,11 +77,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     isConnectingRef.current = true
 
     // Connect to Socket.IO server
-    const socketServerUrl = process.env.NEXT_PUBLIC_SOCKET_URL || process.env.SOCKET_SERVER_URL || 
-      (process.env.NODE_ENV === 'production' ? 'https://shoreagents-users-production.up.railway.app' : 'http://localhost:3004')
-    
-    console.log('🔌 Socket connecting to:', socketServerUrl, 'NODE_ENV:', process.env.NODE_ENV)
-    
+    const socketServerUrl = (process.env.NEXT_PUBLIC_SOCKET_URL || process.env.SOCKET_SERVER_URL || 'http://localhost:3004') as string
     const newSocket = io(socketServerUrl, {
       reconnection: true,
       reconnectionAttempts: 3,
@@ -115,19 +111,11 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     })
 
     newSocket.on('authenticated', (data) => {
-      console.log('🔐 Socket authenticated with data:', {
-        email: data?.email,
-        isActive: data?.isActive,
-        activeSeconds: data?.activeSeconds,
-        inactiveSeconds: data?.inactiveSeconds,
-        hasShiftInfo: !!data?.shiftInfo
-      })
       
       // Dispatch connection event for UI updates
       const event = new CustomEvent('socket-connected', { 
         detail: { 
-          timestamp: new Date().toISOString(),
-          timerData: data
+          timestamp: new Date().toISOString() 
         } 
       });
       window.dispatchEvent(event);

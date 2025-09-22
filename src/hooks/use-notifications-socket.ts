@@ -21,8 +21,7 @@ export function useNotificationsSocket(email: string | null) {
   useEffect(() => {
     if (!email) return
 
-    const socketServerUrl = process.env.NEXT_PUBLIC_SOCKET_URL || process.env.SOCKET_SERVER_URL || 
-      (process.env.NODE_ENV === 'production' ? 'https://shoreagents-users-production.up.railway.app' : 'http://localhost:3004')
+    const socketServerUrl = (process.env.NEXT_PUBLIC_SOCKET_URL || process.env.SOCKET_SERVER_URL || 'http://localhost:3004') as string
       const socket = io(socketServerUrl, {
       reconnection: true,
       transports: ['websocket', 'polling'],

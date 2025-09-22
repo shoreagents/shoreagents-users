@@ -409,17 +409,9 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       return
     }
     
-    // CRITICAL: Always process timer data when it changes, regardless of initialization state
-    // This ensures the timer starts immediately after authentication in production
-    if (timerData) {
-      console.log('🔄 Processing timer data update:', {
-        isActive: timerData.isActive,
-        activeSeconds: timerData.activeSeconds,
-        inactiveSeconds: timerData.inactiveSeconds,
-        isInitialized: isInitialized
-      })
-      
-      // Initialize or update with server data
+    // Only process socket timer data if we haven't already initialized from direct API fetch
+    if (timerData && !isInitialized) {
+      // Initialize with server data (now includes proper database hydration)
       setLiveActiveSeconds(timerData.activeSeconds || 0)
       setLiveInactiveSeconds(timerData.inactiveSeconds || 0)
       setLastActivityState(timerData.isActive)
@@ -431,60 +423,54 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         setFormattedTimeUntilReset(timerData.shiftInfo.formattedTimeUntilReset || '')
       }
       
-      // Mark as initialized if not already
-      if (!isInitialized) {
-        setIsInitialized(true)
-        console.log('✅ Timer initialized from socket data')
+      setIsInitialized(true)
+    } else if (timerData && isInitialized) {
+      // After initialization, accept counter updates from server if they're significantly higher
+      // This allows for database hydration updates and server corrections
+      const serverActive = timerData.activeSeconds || 0
+      const serverInactive = timerData.inactiveSeconds || 0
+      
+      // Update counters if server values are significantly higher (database sync)
+      if (serverActive > liveActiveSeconds && (serverActive - liveActiveSeconds) > 5) {
+        setLiveActiveSeconds(serverActive)
+      }
+      
+      if (serverInactive > liveInactiveSeconds && (serverInactive - liveInactiveSeconds) > 5) {
+        setLiveInactiveSeconds(serverInactive)
+      }
+      
+      // Always update activity state
+      setLastActivityState(timerData.isActive)
+      
+      // Update shift information if it changes
+      if (timerData.shiftInfo) {
+        setShiftInfo(timerData.shiftInfo)
+        setTimeUntilReset(timerData.shiftInfo.timeUntilReset || 0)
+        setFormattedTimeUntilReset(timerData.shiftInfo.formattedTimeUntilReset || '')
       }
     }
-  }, [timerData, isInitialized, currentUser?.email])
+  }, [timerData, isInitialized, liveActiveSeconds, liveInactiveSeconds, currentUser?.email])
 
   // Force initialization after a timeout if timer data doesn't arrive
   useEffect(() => {
     if (currentUser?.email && !isInitialized && isAuthenticated) {
-      console.log('⏰ Setting up timer initialization timeout for:', currentUser.email)
-      
       const timeout = setTimeout(() => {
         if (!isInitialized) {
-          console.log('⚠️ Timer initialization timeout reached, forcing initialization')
           setIsInitialized(true)
           setLastActivityState(false) // Default to inactive
-          
-          // Also try to fetch initial data from API as fallback
-          refreshRealtimeData()
         }
-      }, 10000) // Increased to 10 second timeout for production
+      }, 5000) // 5 second timeout
 
       return () => clearTimeout(timeout)
     }
-  }, [currentUser?.email, isInitialized, isAuthenticated, refreshRealtimeData])
-
-  // Use refs to access current values without causing re-renders
-  const liveActiveSecondsRef = useRef(liveActiveSeconds)
-  const liveInactiveSecondsRef = useRef(liveInactiveSeconds)
-  
-  // Update refs when values change
-  useEffect(() => {
-    liveActiveSecondsRef.current = liveActiveSeconds
-  }, [liveActiveSeconds])
-  
-  useEffect(() => {
-    liveInactiveSecondsRef.current = liveInactiveSeconds
-  }, [liveInactiveSeconds])
+  }, [currentUser?.email, isInitialized, isAuthenticated])
 
   // Real-time stopwatch effect - only when authenticated and logged in
   useEffect(() => {
-    if (!isAuthenticated || !hasLoggedIn) {
-      console.log('⏸️ Timer counting paused - not authenticated or not logged in:', { isAuthenticated, hasLoggedIn })
-      return
-    }
+    if (!isAuthenticated || !hasLoggedIn) return
 
-    console.log('▶️ Starting timer counting effect')
-    
     // Start real-time counting immediately - Changed back to 1s intervals for real-time updates
     const interval = setInterval(() => {
-      console.log('🔄 Timer interval tick - checking conditions...')
-      
       // Guard: do not count before shift start or after shift end (Philippines time)
       try {
         const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
@@ -557,34 +543,19 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         
         // Stop counting before shift start
         if (shiftStartDate && nowPH < shiftStartDate) {
-          console.log('⏸️ Timer paused - before shift start:', { nowPH, shiftStartDate })
           return // Skip counting until shift start
         }
         
-        // Stop counting after shift end - but only if it's actually the same day
+        // Stop counting after shift end
         if (shiftEndDate && nowPH > shiftEndDate) {
-          // Check if the shift end date is from today or yesterday
-          const today = new Date(nowPH)
-          today.setHours(0, 0, 0, 0)
-          const shiftEndDay = new Date(shiftEndDate)
-          shiftEndDay.setHours(0, 0, 0, 0)
-          
-          // Only pause if the shift ended today (not yesterday)
-          if (shiftEndDay.getTime() === today.getTime()) {
-            console.log('⏸️ Timer paused - after shift end (same day):', { nowPH, shiftEndDate })
-            // Automatically set user to inactive when shift ends
-            // This will be handled by the activity state determination below
-            return // Skip counting after shift end
-          } else {
-            console.log('🔄 Timer continuing - shift end was yesterday, allowing counting:', { nowPH, shiftEndDate, today, shiftEndDay })
-          }
+          // Automatically set user to inactive when shift ends
+          // This will be handled by the activity state determination below
+          return // Skip counting after shift end
         }
         
         // Within shift hours - no logging needed
-        console.log('✅ Timer continuing - within shift hours')
       } catch (error) {
         console.error('Error in shift time validation:', error)
-        console.log('🔄 Timer continuing - shift validation failed, allowing counting as fallback')
         // ignore guard errors; fallback to counting rules below
       }
 
@@ -593,31 +564,26 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       
       // Pause counting when on break AND break is not paused (emergency pause)
       if (isBreakActive && !isBreakPaused) {
-        console.log('⏸️ Timer paused - on break:', { isBreakActive, isBreakPaused })
         return // Don't increment counters when on break (but resume when paused)
       }
       
       // Pause counting when in a meeting
       if (isInMeeting) {
-        console.log('⏸️ Timer paused - in meeting:', { isInMeeting })
         return // Don't increment counters when in a meeting
       }
       
       // Pause counting when in an event
       if (isInEvent) {
-        console.log('⏸️ Timer paused - in event:', { isInEvent })
         return // Don't increment counters when in an event
       }
       
       // Pause counting when going to clinic or in clinic
       if (isGoingToClinic || isInClinic) {
-        console.log('⏸️ Timer paused - in clinic:', { isGoingToClinic, isInClinic })
         return // Don't increment counters when in health check
       }
       
       // Pause counting when in restroom
       if (isInRestroom) {
-        console.log('⏸️ Timer paused - in restroom:', { isInRestroom })
         return // Don't increment counters when in restroom
       }
       
@@ -628,20 +594,16 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       // PRIORITY 1: If we have recent local activity, trust it over server state
       if (lastActivityState === true) {
         isActive = true
-        console.log('✅ Activity state: LOCAL ACTIVE')
       } else if (timerData && timerData.isActive !== undefined) {
         // PRIORITY 2: Use server state if no recent local activity
         isActive = timerData.isActive
-        console.log('✅ Activity state: SERVER STATE', { isActive, timerDataIsActive: timerData.isActive })
       } else if (lastActivityState === false) {
         // PRIORITY 3: Use local inactive state if no server data
         isActive = false
-        console.log('✅ Activity state: LOCAL INACTIVE')
       } else {
         // PRIORITY 4: Default fallback: assume active if we can't determine
         // This prevents false inactive counting
         isActive = true
-        console.log('✅ Activity state: DEFAULT ACTIVE')
       }
       
       // ADDITIONAL SAFETY CHECKS
@@ -700,7 +662,6 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       if (isActive) {
         setLiveActiveSeconds(prev => {
           const newValue = prev + 1 // Changed back to 1 second increments for real-time updates
-          console.log('⏱️ Active timer tick:', newValue)
           return newValue
         })
       } else {
@@ -721,8 +682,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     }, 1000) // Changed back to 1000ms (1 second) for real-time updates
 
     return () => clearInterval(interval)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timerData?.isActive, lastActivityState, isAuthenticated, hasLoggedIn, isBreakActive, breakStatus?.is_paused, isInMeeting, isInEvent, isGoingToClinic, isInClinic, isInRestroom, shiftInfo, userProfile, setActivityState, updateTimerData, validateInactiveState, timerData])
+  }, [timerData?.isActive, lastActivityState, isAuthenticated, hasLoggedIn, isBreakActive, breakStatus?.is_paused, isInMeeting, isInEvent, isGoingToClinic, isInClinic, isInRestroom, shiftInfo, userProfile, liveActiveSeconds, liveInactiveSeconds, setActivityState, updateTimerData, validateInactiveState, timerData])
 
 
   // Real-time countdown timer for shift reset
@@ -830,22 +790,13 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     }
 
     const handleTimerUpdated = (timerData: any) => {
-      console.log('🔄 Timer context handleTimerUpdated called:', timerData, 'isResetting:', isResetting)
-      
       // CRITICAL: Always allow server reset events (when both values are 0)
       const isServerReset = timerData.activeSeconds === 0 && timerData.inactiveSeconds === 0
       
       // Only block non-reset updates during reset to prevent conflicts
       if (isResetting && !isServerReset) {
-        console.log('❌ Timer update blocked - reset in progress')
         return
       }
-      
-      console.log('✅ Updating timer values:', { 
-        activeSeconds: timerData.activeSeconds || 0, 
-        inactiveSeconds: timerData.inactiveSeconds || 0,
-        isActive: timerData.isActive 
-      })
       
       // Update local timers to match server data
       setLiveActiveSeconds(timerData.activeSeconds || 0)
@@ -860,10 +811,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
 
     // Listen for Socket.IO events
     socket.on('shiftReset', handleShiftReset)
-    socket.on('timerUpdated', (data) => {
-      console.log('📊 Timer update received from server:', data)
-      handleTimerUpdated(data)
-    })
+    socket.on('timerUpdated', handleTimerUpdated)
     
     return () => {
       socket.off('shiftReset', handleShiftReset)
