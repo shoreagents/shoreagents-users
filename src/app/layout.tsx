@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Montserrat } from "next/font/google";
+// import { Montserrat } from "next/font/google";
 import "./globals.css";
 import { ActivityProvider } from "@/contexts/activity-context";
 import { BreakProvider } from "@/contexts/break-context";
@@ -33,10 +33,10 @@ import { AnnouncementsProvider } from '@/contexts/announcements-context';
 import { Toaster } from "sonner";
 
 
-const montserrat = Montserrat({
-  subsets: ["latin"],
-  variable: "--font-montserrat",
-});
+// const montserrat = Montserrat({
+//   subsets: ["latin"],
+//   variable: "--font-montserrat",
+// });
 
 export const metadata: Metadata = {
   title: "ShoreAgents Dashboard",
@@ -50,7 +50,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${montserrat.variable} antialiased overflow-x-hidden`}>
+      <body className="antialiased overflow-x-hidden">
         {/* Persist theme across reloads */}
         <script
           dangerouslySetInnerHTML={{
