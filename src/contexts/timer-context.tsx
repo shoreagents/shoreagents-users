@@ -477,12 +477,8 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         let shiftStartDate: Date | null = null
         let shiftEndDate: Date | null = null
         
-        if (shiftInfo?.startTime && shiftInfo?.endTime) {
-          // Use shift info from server if available
-          shiftStartDate = new Date(shiftInfo.startTime)
-          shiftEndDate = new Date(shiftInfo.endTime)
-        } else if (userProfile?.shift_time) {
-          // Parse shift time using the consistent parseShiftTime function
+        // Always use parseShiftTime function for consistent shift parsing
+        if (userProfile?.shift_time) {
           const parsed = parseShiftTime(userProfile.shift_time, nowPH)
           if (parsed?.startTime && parsed?.endTime) {
             // Use the parsed times directly for both day and night shifts
@@ -490,6 +486,10 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
             shiftStartDate = parsed.startTime
             shiftEndDate = parsed.endTime
           }
+        } else if (shiftInfo?.startTime && shiftInfo?.endTime) {
+          // Fallback to server shift info if no user profile shift time
+          shiftStartDate = new Date(shiftInfo.startTime)
+          shiftEndDate = new Date(shiftInfo.endTime)
         }
         
         // Stop counting before shift start
@@ -590,13 +590,15 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
         let shiftEndDate: Date | null = null
         
-        if (shiftInfo?.endTime) {
-          shiftEndDate = new Date(shiftInfo.endTime)
-        } else if (userProfile?.shift_time) {
+        // Always use parseShiftTime function for consistent shift parsing
+        if (userProfile?.shift_time) {
           const parsed = parseShiftTime(userProfile.shift_time, nowPH)
           if (parsed?.endTime) {
             shiftEndDate = parsed.endTime
           }
+        } else if (shiftInfo?.endTime) {
+          // Fallback to server shift info if no user profile shift time
+          shiftEndDate = new Date(shiftInfo.endTime)
         }
         
         if (shiftEndDate && nowPH > shiftEndDate && isActive) {
