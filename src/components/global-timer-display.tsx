@@ -111,9 +111,8 @@ export const GlobalTimerDisplay = React.memo(function GlobalTimerDisplay() {
       const currentUser = getCurrentUser()
       if (!currentUser) return false
 
-      // Get current Philippines time - more reliable conversion
-      const nowUTC = new Date(currentTime)
-      const nowPH = new Date(nowUTC.getTime() + (8 * 60 * 60 * 1000)) // UTC+8 for Philippines
+      // Get current Philippines time - use toLocaleString for proper timezone conversion
+      const nowPH = new Date(currentTime.toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
       
       // Parse shift time to get dynamic start/end times
       if (shiftInfo?.time) {
@@ -137,9 +136,8 @@ export const GlobalTimerDisplay = React.memo(function GlobalTimerDisplay() {
       const currentUser = getCurrentUser()
       if (!currentUser) return false
 
-      // Get current Philippines time - more reliable conversion
-      const nowUTC = new Date(currentTime)
-      const nowPH = new Date(nowUTC.getTime() + (8 * 60 * 60 * 1000)) // UTC+8 for Philippines
+      // Get current Philippines time - use toLocaleString for proper timezone conversion
+      const nowPH = new Date(currentTime.toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
       
       // Parse shift time to get dynamic start/end times
       if (shiftInfo?.time) {

@@ -90,13 +90,14 @@ export function parseShiftTime(shiftTimeString: string, referenceDate = new Date
       }
     }
 
+    // Day shift - simple same-day logic
     return {
-      period: isNightShift ? "Night Shift" : "Day Shift",
+      period: "Day Shift",
       schedule: "", // We don't parse schedule from time string
       time: shiftTimeString,
       startTime,
       endTime,
-      isNightShift
+      isNightShift: false
     };
   } catch (error) {
     console.error('Error parsing shift time:', error);
