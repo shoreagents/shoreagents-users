@@ -90,3 +90,4 @@ function createElectronV32Icons() {
 }
 
 createElectronV32Icons();
+
