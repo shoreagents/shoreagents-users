@@ -379,7 +379,7 @@ export default function MyTicketsPage() {
               </div>
               
               <Popover open={showFilters} onOpenChange={setShowFilters}>
-                <PopoverTrigger>
+                <PopoverTrigger asChild>
                   <Button variant="outline" size="sm" className="h-10">
                     <Filter className="h-4 w-4 mr-2" />
                     Filters

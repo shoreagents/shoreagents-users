@@ -1,7 +1,7 @@
 const { app, BrowserWindow, Menu, Tray, shell, ipcMain, Notification, dialog, screen, globalShortcut } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const isDev = process.env.NODE_ENV === 'development' || process.env.ELECTRON_IS_DEV === '1' || !app.isPackaged;
+const isDev = process.env.NODE_ENV === 'development' ;
 
 // Set the application name IMMEDIATELY - must be before any app events
 app.setName('ShoreAgents Dashboard');
@@ -1526,11 +1526,6 @@ function createWindow() {
     // Zoom shortcuts (development only)
     if (isDev) {
       globalShortcut.register('CommandOrControl+Plus', () => {
-        const currentZoom = mainWindow.webContents.getZoomFactor();
-        mainWindow.webContents.setZoomFactor(Math.min(currentZoom + 0.1, 3.0));
-      });
-
-      globalShortcut.register('CommandOrControl+Equal', () => {
         const currentZoom = mainWindow.webContents.getZoomFactor();
         mainWindow.webContents.setZoomFactor(Math.min(currentZoom + 0.1, 3.0));
       });

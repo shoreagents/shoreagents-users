@@ -342,7 +342,7 @@ export function useTicketComments(ticketId: string) {
           'Content-Type': 'application/json',
         },
         credentials: 'include',
-        body: JSON.stringify(commentData),
+        body: JSON.stringify({ comment: commentData.content }),
       })
       
       if (!response.ok) {
