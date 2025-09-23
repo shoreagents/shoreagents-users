@@ -2823,6 +2823,22 @@ ipcMain.handle('window-close', () => {
   }
 })
 
+// IPC handler for window dragging - simplified approach
+ipcMain.handle('window-start-drag', (event, data) => {
+  try {
+    if (mainWindow) {
+      // Use Electron's built-in drag functionality
+      // This is handled by the CSS WebkitAppRegion: 'drag' property
+      // No need for manual mouse tracking
+      return { success: true }
+    }
+    return { success: false, error: 'Main window not available' }
+  } catch (error) {
+    console.error('Error starting window drag:', error)
+    return { success: false, error: error.message }
+  }
+})
+
 // IPC handlers for activity tracking
 ipcMain.handle('start-activity-tracking', () => {
   try {

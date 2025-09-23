@@ -119,6 +119,7 @@ try {
   minimize: () => ipcRenderer.invoke('window-minimize'),
   maximize: () => ipcRenderer.invoke('window-maximize'),
   close: () => ipcRenderer.invoke('window-close'),
+  startDrag: () => ipcRenderer.invoke('window-start-drag'),
   
   // Get app version
   getVersion: () => process.versions.electron,

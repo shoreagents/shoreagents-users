@@ -76,6 +76,7 @@ declare global {
       minimize: () => Promise<{ success: boolean; error?: string }>;
       maximize: () => Promise<{ success: boolean; isMaximized?: boolean; error?: string }>;
       close: () => Promise<{ success: boolean; error?: string }>;
+      startDrag: () => Promise<{ success: boolean; error?: string }>;
       getVersion: () => string;
       platform: string;
     };

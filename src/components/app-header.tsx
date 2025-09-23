@@ -631,15 +631,23 @@ export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser =
   // Get team status for the badge
   const { isLoading: teamStatusLoading, onlineTeamCount, totalTeamCount } = useTeamStatus()
 
+  // Window dragging is handled automatically by CSS WebkitAppRegion: 'drag'
+  // No need for manual drag handlers
+
   return (
-    <header className="sticky top-0 z-40 flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12 bg-background/95 backdrop-blur-sm supports-[backdrop-filter]:bg-background/80 border-b border-border/40 shadow-sm">
-      <div className="flex items-center gap-2 px-4">
+    <header 
+      className="sticky top-0 z-40 flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12 bg-background/95 backdrop-blur-sm supports-[backdrop-filter]:bg-background/80 border-b border-border/40 shadow-sm"
+      style={{ 
+        WebkitAppRegion: 'drag' as any
+      } as React.CSSProperties}
+    >
+      <div className="flex items-center gap-2 px-4" style={{ WebkitAppRegion: 'no-drag' as any } as React.CSSProperties}>
         <SidebarTrigger className="-ml-1" />
         <Separator
           orientation="vertical"
           className="mr-2 data-[orientation=vertical]:h-4"
         />
-        <Breadcrumb>
+        <Breadcrumb style={{ WebkitAppRegion: 'no-drag' as any } as React.CSSProperties}>
           <BreadcrumbList>
             {currentBreadcrumbs.map((item, index) => (
               <div key={index} className="flex items-center">
@@ -660,7 +668,7 @@ export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser =
       </div>
       
       {showUser && (
-        <div className="ml-auto flex items-center gap-2 px-4">
+        <div className="ml-auto flex items-center gap-2 px-4" style={{ WebkitAppRegion: 'no-drag' as any } as React.CSSProperties}>
           {/* Team Status Badge */}
           <TooltipProvider>
             <Tooltip>
