@@ -860,9 +860,13 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       const serverActive = timerData.activeSeconds || 0
       const serverInactive = timerData.inactiveSeconds || 0
       
-      // Sync if there's a difference (reduced from 5 seconds to 1 second for more frequent updates)
-      // This ensures the database gets updated regularly
-      if (Math.abs(liveActiveSeconds - serverActive) > 1 || Math.abs(liveInactiveSeconds - serverInactive) > 1) {
+      // Sync if there's a difference OR if local timer is counting but server is at 0
+      // This ensures the database gets updated regularly and handles stuck server values
+      const hasLocalProgress = liveActiveSeconds > 0 || liveInactiveSeconds > 0;
+      const serverStuck = (serverActive === 0 && serverInactive === 0) && hasLocalProgress;
+      const hasDifference = Math.abs(liveActiveSeconds - serverActive) > 1 || Math.abs(liveInactiveSeconds - serverInactive) > 1;
+      
+      if (hasDifference || serverStuck) {
         updateTimerData(liveActiveSeconds, liveInactiveSeconds);
       }
     }
@@ -915,7 +919,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
 
       // Force sync current timer values to database
       updateTimerData(liveActiveSeconds, liveInactiveSeconds);
-    }, 30000); // OPTIMIZED: Every 30 seconds instead of 10
+    }, 10000); // Every 10 seconds to ensure updates are sent
 
     return () => clearInterval(periodicSync);
   }, [isAuthenticated, hasLoggedIn, timerData, liveActiveSeconds, liveInactiveSeconds, updateTimerData, shiftInfo, userProfile]);
