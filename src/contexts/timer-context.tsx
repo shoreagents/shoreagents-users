@@ -860,13 +860,9 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       const serverActive = timerData.activeSeconds || 0
       const serverInactive = timerData.inactiveSeconds || 0
       
-      // Sync if there's a difference OR if local timer is counting but server is at 0
-      // This ensures the database gets updated regularly and handles stuck server values
-      const hasLocalProgress = liveActiveSeconds > 0 || liveInactiveSeconds > 0;
-      const serverStuck = (serverActive === 0 && serverInactive === 0) && hasLocalProgress;
-      const hasDifference = Math.abs(liveActiveSeconds - serverActive) > 1 || Math.abs(liveInactiveSeconds - serverInactive) > 1;
-      
-      if (hasDifference || serverStuck) {
+      // Sync if there's a difference (reduced from 5 seconds to 1 second for more frequent updates)
+      // This ensures the database gets updated regularly
+      if (Math.abs(liveActiveSeconds - serverActive) > 1 || Math.abs(liveInactiveSeconds - serverInactive) > 1) {
         updateTimerData(liveActiveSeconds, liveInactiveSeconds);
       }
     }
@@ -883,25 +879,19 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         let shiftStartDate: Date | null = null
         let shiftEndDate: Date | null = null
         
-        if (shiftInfo?.startTime && shiftInfo?.endTime) {
-          shiftStartDate = new Date(shiftInfo.startTime)
-          shiftEndDate = new Date(shiftInfo.endTime)
-        } else if (userProfile?.shift_time) {
+        // Always use parseShiftTime function for consistent shift parsing
+        if (userProfile?.shift_time) {
           const parsed = parseShiftTime(userProfile.shift_time, nowPH)
           if (parsed?.startTime && parsed?.endTime) {
-            if (parsed.isNightShift && nowPH < parsed.startTime) {
-              // Anchor night shift to previous day when before today's start
-              const adjustedStart = new Date(parsed.startTime)
-              adjustedStart.setDate(adjustedStart.getDate() - 1)
-              const adjustedEnd = new Date(parsed.endTime)
-              adjustedEnd.setDate(adjustedEnd.getDate() - 1)
-              shiftStartDate = adjustedStart
-              shiftEndDate = adjustedEnd
-            } else {
-              shiftStartDate = parsed.startTime
-              shiftEndDate = parsed.endTime
-            }
+            // Use the parsed times directly for both day and night shifts
+            // The parseShiftTime function now handles both cases correctly
+            shiftStartDate = parsed.startTime
+            shiftEndDate = parsed.endTime
           }
+        } else if (shiftInfo?.startTime && shiftInfo?.endTime) {
+          // Fallback to server shift info if no user profile shift time
+          shiftStartDate = new Date(shiftInfo.startTime)
+          shiftEndDate = new Date(shiftInfo.endTime)
         }
         
         // Stop syncing before shift start
@@ -919,7 +909,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
 
       // Force sync current timer values to database
       updateTimerData(liveActiveSeconds, liveInactiveSeconds);
-    }, 10000); // Every 10 seconds to ensure updates are sent
+    }, 30000); // OPTIMIZED: Every 30 seconds instead of 10
 
     return () => clearInterval(periodicSync);
   }, [isAuthenticated, hasLoggedIn, timerData, liveActiveSeconds, liveInactiveSeconds, updateTimerData, shiftInfo, userProfile]);
