@@ -2776,52 +2776,36 @@ io.on('connection', (socket) => {
           }
           
         } catch (dbError) {
-          console.error('Database function failed, falling back to manual calculation:', dbError.message);
+          console.error('Database function failed, falling back to parseShiftTime calculation:', dbError.message);
           
-          // Fallback to original logic if database functions fail
-          let shiftStartMinutes = null;
-          let hasShiftStart = false;
-          let shiftEndMinutes = null;
-          let hasShiftEnd = false;
-          
+          // Fallback to parseShiftTime function if database functions fail
           try {
             const shiftRes = await pool.query(
               `SELECT ji.shift_time FROM job_info ji WHERE ji.agent_user_id = $1 LIMIT 1`,
               [userId]
             );
             const shiftText = (shiftRes.rows[0]?.shift_time || '').toString();
-            const both = shiftText.match(/(\d{1,2}:\d{2}\s*(?:AM|PM))\s*-\s*(\d{1,2}:\d{2}\s*(?:AM|PM))/i);
             
-            if (both) {
-              const start = both[1].trim().toUpperCase();
-              const end = both[2].trim().toUpperCase();
-              const parseToMinutes = (token) => {
-                const [hhmm, ampm] = token.split(/\s+/);
-                const [hhStr, mmStr] = hhmm.split(':');
-                let hh = parseInt(hhStr, 10);
-                const mm = parseInt(mmStr, 10);
-                if (ampm === 'AM') { if (hh === 12) hh = 0; } 
-                else if (ampm === 'PM') { if (hh !== 12) hh += 12; }
-                return (hh * 60) + mm;
-              };
-              shiftStartMinutes = parseToMinutes(start);
-              shiftEndMinutes = parseToMinutes(end);
-              hasShiftStart = true;
-              hasShiftEnd = true;
-            }
-          } catch (_) {}
-
-          // Get current Manila time correctly
-          const now = new Date();
-          const philippinesNow = new Date(now.getTime() + (8 * 60 * 60 * 1000));
-          const currentMinutesLocal = philippinesNow.getUTCHours() * 60 + philippinesNow.getUTCMinutes();
-
-          if (hasShiftStart && hasShiftEnd && shiftStartMinutes !== null && shiftEndMinutes !== null) {
-            if (shiftEndMinutes > shiftStartMinutes) {
-              withinShift = currentMinutesLocal >= shiftStartMinutes && currentMinutesLocal < shiftEndMinutes;
+            if (shiftText) {
+              // Use the same parseShiftTime function that we fixed
+              const now = new Date();
+              const nowPH = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+              const parsed = parseShiftTime(shiftText, nowPH);
+              
+              if (parsed?.startTime && parsed?.endTime) {
+                withinShift = nowPH >= parsed.startTime && nowPH <= parsed.endTime;
+                console.log(`Fallback shift calculation using parseShiftTime: start=${parsed.startTime.toISOString()}, end=${parsed.endTime.toISOString()}, current=${nowPH.toISOString()}, withinShift=${withinShift}`);
+              } else {
+                withinShift = true;
+                console.log(`Fallback: Could not parse shift time, defaulting to withinShift=true`);
+              }
             } else {
-              withinShift = (currentMinutesLocal >= shiftStartMinutes) || (currentMinutesLocal < shiftEndMinutes);
+              withinShift = true;
+              console.log(`Fallback: No shift time found, defaulting to withinShift=true`);
             }
+          } catch (fallbackError) {
+            console.error('Fallback shift calculation failed:', fallbackError.message);
+            withinShift = true; // be permissive on errors so counting still saves
           }
 
           const manilaYMD = (d) => {
