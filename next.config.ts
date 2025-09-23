@@ -15,6 +15,9 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: true
   },
+  env: {
+    NEXT_PUBLIC_APP_VERSION: require('./package.json').version,
+  },
   // PERFORMANCE OPTIMIZATIONS
   experimental: {
     optimizePackageImports: ['lucide-react', '@radix-ui/react-accordion', '@radix-ui/react-avatar'],

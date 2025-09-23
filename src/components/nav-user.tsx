@@ -5,9 +5,8 @@ import {
   BadgeCheck,
   Bell,
   ChevronsUpDown,
-  CreditCard,
   LogOut,
-  Sparkles,
+  Info,
 } from "lucide-react"
 
 import {
@@ -35,6 +34,7 @@ import { useLogout } from "@/contexts/logout-context"
 import { getCurrentUser } from "@/lib/ticket-utils"
 import { hasOngoingMeeting, endMeeting } from "@/lib/meeting-utils"
 import { forceLogout } from "@/lib/auth-utils"
+import { VersionInfoDialog } from "@/components/version-info-dialog"
 
 export function NavUser({
   user,
@@ -154,6 +154,12 @@ export function NavUser({
                 <Bell />
                 Notifications
               </DropdownMenuItem>
+              <VersionInfoDialog>
+                <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                  <Info />
+                  App Version
+                </DropdownMenuItem>
+              </VersionInfoDialog>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={handleLogout}>

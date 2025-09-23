@@ -6,6 +6,7 @@ import {
   Bell,
   ChevronsUpDown,
   LogOut,
+  Info,
 } from "lucide-react"
 
 import {
@@ -28,6 +29,7 @@ import { useLogout } from "@/contexts/logout-context"
 import { getCurrentUser } from "@/lib/ticket-utils"
 import { hasOngoingMeeting, endMeeting } from "@/lib/meeting-utils"
 import { forceLogout } from "@/lib/auth-utils"
+import { VersionInfoDialog } from "@/components/version-info-dialog"
 
 export function HeaderUser({
   user,
@@ -124,6 +126,12 @@ export function HeaderUser({
             <Bell className="mr-2 h-4 w-4" />
             <span>Notifications</span>
           </DropdownMenuItem>
+          <VersionInfoDialog>
+            <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="cursor-pointer">
+              <Info className="mr-2 h-4 w-4" />
+              <span>App Version</span>
+            </DropdownMenuItem>
+          </VersionInfoDialog>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={handleLogout} className="cursor-pointer">

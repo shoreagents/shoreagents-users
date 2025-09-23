@@ -25,7 +25,8 @@
     },
     "win": {
       "target": "dir",
-      "icon": "public/ShoreAgents-Logo-only.ico"
+      "icon": "public/ShoreAgents-Logo-only-256.ico",
+      "requestedExecutionLevel": "asInvoker"
     },
     "linux": {
       "target": "AppImage",

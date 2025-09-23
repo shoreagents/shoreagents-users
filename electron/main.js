@@ -1707,13 +1707,31 @@ async function createTray() {
   });
 }
 
-// Function to create a tray icon with red indicator - in memory
+// Function to create a tray icon with red indicator - production safe
 async function createTrayIconWithIndicator(count) {
   try {
-    const sharp = require('sharp');
     const { nativeImage } = require('electron');
     
-    // Load the ShoreAgents logo
+    // First, try to use pre-made tray icons (most reliable for production)
+    const trayIconsDir = path.join(__dirname, '../public/tray-icons');
+    const logoWithDotPath = path.join(trayIconsDir, 'logo-with-dot-32.png');
+    const logoWithoutDotPath = path.join(trayIconsDir, 'logo-32.png');
+    
+    if (count > 0 && fs.existsSync(logoWithDotPath)) {
+      // Use pre-made icon with red dot
+      const iconImage = nativeImage.createFromPath(logoWithDotPath);
+      if (!iconImage.isEmpty()) {
+        return iconImage;
+      }
+    } else if (count === 0 && fs.existsSync(logoWithoutDotPath)) {
+      // Use pre-made icon without red dot
+      const iconImage = nativeImage.createFromPath(logoWithoutDotPath);
+      if (!iconImage.isEmpty()) {
+        return iconImage;
+      }
+    }
+    
+    // Fallback: try to create dynamically with sharp
     const logoPath = path.join(__dirname, '../public/ShoreAgents-Logo-only-256.png');
     
     if (!fs.existsSync(logoPath)) {
@@ -1721,38 +1739,53 @@ async function createTrayIconWithIndicator(count) {
       return null;
     }
     
-    // Load and resize the logo to 32x32 for tray icon
-    const logoBuffer = await sharp(logoPath)
-      .resize(32, 32)
-      .png()
-      .toBuffer();
-    
-    // If there are notifications, add a red dot overlay
     if (count > 0) {
-      // Create a red dot overlay (bigger size)
-      const redDotSvg = `
-        <svg width="32" height="32" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="26" cy="6" r="8" fill="#ef4444" stroke="#ffffff" stroke-width="1"/>
-        </svg>
-      `;
-      
-      const redDotBuffer = await sharp(Buffer.from(redDotSvg))
-        .png()
-        .toBuffer();
-      
-      // Composite the red dot over the logo
-      const finalBuffer = await sharp(logoBuffer)
-        .composite([{ input: redDotBuffer, blend: 'over' }])
-        .png()
-        .toBuffer();
-      
-      // Create NativeImage from buffer - no temp file needed!
-      return nativeImage.createFromBuffer(finalBuffer);
+      // Try to use sharp if available (development)
+      try {
+        const sharp = require('sharp');
+        
+        // Load and resize the logo to 32x32 for tray icon
+        const logoBuffer = await sharp(logoPath)
+          .resize(32, 32)
+          .png()
+          .toBuffer();
+        
+        // Create a red dot overlay
+        const redDotSvg = `
+          <svg width="32" height="32" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="26" cy="6" r="8" fill="#ef4444" stroke="#ffffff"/>
+          </svg>
+        `;
+        
+        const redDotBuffer = await sharp(Buffer.from(redDotSvg))
+          .png()
+          .toBuffer();
+        
+        // Composite the red dot over the logo
+        const finalBuffer = await sharp(logoBuffer)
+          .composite([{ input: redDotBuffer, blend: 'over' }])
+          .png()
+          .toBuffer();
+        
+        return nativeImage.createFromBuffer(finalBuffer);
+      } catch (sharpError) {
+        console.log('Sharp not available, using original logo as fallback');
+        
+        // Final fallback: use original logo
+        const logoImage = nativeImage.createFromPath(logoPath);
+        if (!logoImage.isEmpty()) {
+          return logoImage;
+        }
+      }
     } else {
       // No notifications, just use the logo
-      // Create NativeImage from buffer - no temp file needed!
-      return nativeImage.createFromBuffer(logoBuffer);
+      const logoImage = nativeImage.createFromPath(logoPath);
+      if (!logoImage.isEmpty()) {
+        return logoImage;
+      }
     }
+    
+    return null;
   } catch (error) {
     console.error('Error creating tray icon with indicator:', error);
     return null;
