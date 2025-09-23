@@ -2,12 +2,14 @@
   "name": "shoreagents-dashboard-user-form-electron",
   "version": "0.1.0",
   "private": true,
+  "description": "ShoreAgents Dashboard - Employee productivity and task management application",
+  "author": "ShoreAgents",
   "main": "electron/main.js",
   "homepage": "./",
   "build": {
     "appId": "com.shoreagents.dashboard",
     "productName": "ShoreAgents Dashboard",
-    "icon": "public/ShoreAgents-Logo-only.png",
+    "icon": "public/ShoreAgents-Logo-only-256.png",
     "forceCodeSigning": false,
     "directories": {
       "output": "dist"
@@ -19,7 +21,7 @@
     ],
     "mac": {
       "category": "public.app-category.productivity",
-      "icon": "public/ShoreAgents-Logo-only.png"
+      "icon": "public/ShoreAgents-Logo-only-256.png"
     },
     "win": {
       "target": "dir",
@@ -27,7 +29,7 @@
     },
     "linux": {
       "target": "AppImage",
-      "icon": "public/ShoreAgents-Logo-only.png"
+      "icon": "public/ShoreAgents-Logo-only-256.png"
     }
   },
   "scripts": {

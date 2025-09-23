@@ -1227,7 +1227,7 @@ function showSystemNotification(notificationData) {
   }
   
   // Use ShoreAgents logo for notifications
-  const notificationIcon = path.join(__dirname, '../public/ShoreAgents-Logo-only.png');
+  const notificationIcon = path.join(__dirname, '../public/ShoreAgents-Logo-only-256.png');
   
   const useCustom = hasCustomSoundAvailable('main');
   const notification = new Notification({
@@ -1348,7 +1348,7 @@ ipcMain.handle('show-inactivity-notification', async (event, data) => {
     inactivityNotification = await createNotificationWithSound(
       'Inactivity Detected',
       `You've been inactive for ${timeText}. Move your mouse to resume.`,
-      path.join(__dirname, '../public/ShoreAgents-Logo-only.png'),
+      path.join(__dirname, '../public/ShoreAgents-Logo-only-256.png'),
       'inactivity'
     );
     
@@ -1385,7 +1385,7 @@ ipcMain.handle('update-inactivity-notification', async (event, data) => {
         inactivityNotification = await createNotificationWithSound(
           'Inactivity Detected',
           `You've been inactive for ${timeText}. Move your mouse to resume.`,
-          path.join(__dirname, '../public/ShoreAgents-Logo-only.png'),
+          path.join(__dirname, '../public/ShoreAgents-Logo-only-256.png'),
           'inactivity'
         );
       }, 100); // Increased delay for better cleanup
@@ -1473,7 +1473,7 @@ function createWindow() {
       preload: preloadPath,
       webSecurity: true
     },
-    icon: path.join(__dirname, '../public/ShoreAgents-Logo-only.png'),
+    icon: path.join(__dirname, '../public/ShoreAgents-Logo-only-256.png'),
     show: false, // Don't show until ready
     titleBarStyle: 'hidden',
     frame: false,
@@ -1584,7 +1584,7 @@ function createWindow() {
         const minimizeNotification = new Notification({
           title: 'ShoreAgents Dashboard',
           body: 'App was minimized to tray. Click the tray icon to restore.',
-          icon: path.join(__dirname, '../public/ShoreAgents-Logo-only.png'),
+          icon: path.join(__dirname, '../public/ShoreAgents-Logo-only-256.png'),
           silent: false
         });
         minimizeNotification.show();
@@ -1617,7 +1617,7 @@ function createWindow() {
             tray.setImage(noNotificationIconPath);
           } else {
             // Fallback to the original logo if createTrayIconWithIndicator fails
-            const fallbackIconPath = path.join(__dirname, '../public/ShoreAgents-Logo-only.png');
+            const fallbackIconPath = path.join(__dirname, '../public/ShoreAgents-Logo-only-256.png');
             if (fs.existsSync(fallbackIconPath)) {
               tray.setImage(fallbackIconPath);
             }
@@ -1635,7 +1635,7 @@ function createWindow() {
 async function createTray() {
   // Create initial tray icon with no notifications - in memory
   const initialTrayIcon = await createTrayIconWithIndicator(0);
-  const trayIcon = initialTrayIcon || path.join(__dirname, '../public/ShoreAgents-Logo-only.png');
+  const trayIcon = initialTrayIcon || path.join(__dirname, '../public/ShoreAgents-Logo-only-256.png');
   
   tray = new Tray(trayIcon);
   
@@ -1669,7 +1669,7 @@ async function createTray() {
           tray.setImage(noNotificationIcon);
         } else {
           // Fallback to the original logo if createTrayIconWithIndicator fails
-          const fallbackIconPath = path.join(__dirname, '../public/ShoreAgents-Logo-only.png');
+          const fallbackIconPath = path.join(__dirname, '../public/ShoreAgents-Logo-only-256.png');
           if (fs.existsSync(fallbackIconPath)) {
             tray.setImage(fallbackIconPath);
           }
@@ -1714,7 +1714,7 @@ async function createTrayIconWithIndicator(count) {
     const { nativeImage } = require('electron');
     
     // Load the ShoreAgents logo
-    const logoPath = path.join(__dirname, '../public/ShoreAgents-Logo-only.png');
+    const logoPath = path.join(__dirname, '../public/ShoreAgents-Logo-only-256.png');
     
     if (!fs.existsSync(logoPath)) {
       console.error('ShoreAgents logo not found at:', logoPath);
@@ -1906,7 +1906,7 @@ async function updateTrayMenu() {
           tray.setImage(initialTrayIconPath);
         } else {
           // Fallback to the original logo if createTrayIconWithIndicator fails
-          const fallbackIconPath = path.join(__dirname, '../public/ShoreAgents-Logo-only.png');
+          const fallbackIconPath = path.join(__dirname, '../public/ShoreAgents-Logo-only-256.png');
           if (fs.existsSync(fallbackIconPath)) {
             tray.setImage(fallbackIconPath);
           }
@@ -2103,7 +2103,7 @@ async function handleLogoutAndQuit() {
       title: 'Confirm Logout',
       message: 'Logout and quit ShoreAgents Dashboard?',
       detail: 'This will stop activity tracking and log you out. Are you sure?',
-      icon: path.join(__dirname, '../public/ShoreAgents-Logo-only.png')
+      icon: path.join(__dirname, '../public/ShoreAgents-Logo-only-256.png')
     });
     
     if (result.response === 0) { // User clicked "Logout & Quit"
@@ -2263,7 +2263,7 @@ app.whenReady().then(async () => {
             tray.setImage(noNotificationIconPath);
           } else {
             // Fallback to the original logo if createTrayIconWithIndicator fails
-            const fallbackIconPath = path.join(__dirname, '../public/ShoreAgents-Logo-only.png');
+            const fallbackIconPath = path.join(__dirname, '../public/ShoreAgents-Logo-only-256.png');
             if (fs.existsSync(fallbackIconPath)) {
               tray.setImage(fallbackIconPath);
             }
@@ -2383,7 +2383,7 @@ ipcMain.handle('logout-completed', async () => {
       tray.setImage(initialTrayIconPath);
     } else {
       // Fallback to the original logo if createTrayIconWithIndicator fails
-      const fallbackIconPath = path.join(__dirname, '../public/ShoreAgents-Logo-only.png');
+      const fallbackIconPath = path.join(__dirname, '../public/ShoreAgents-Logo-only-256.png');
       if (fs.existsSync(fallbackIconPath)) {
         tray.setImage(fallbackIconPath);
       }
@@ -2444,7 +2444,7 @@ ipcMain.handle('user-logged-out', async () => {
         tray.setImage(initialTrayIconPath);
       } else {
         // Fallback to the original logo if createTrayIconWithIndicator fails
-        const fallbackIconPath = path.join(__dirname, '../public/ShoreAgents-Logo-only.png');
+        const fallbackIconPath = path.join(__dirname, '../public/ShoreAgents-Logo-only-256.png');
         if (fs.existsSync(fallbackIconPath)) {
           tray.setImage(fallbackIconPath);
         }
@@ -2974,7 +2974,7 @@ ipcMain.on('show-notification', (event, data) => {
     const notification = new Notification({
       title: data.title || 'ShoreAgents Dashboard',
       body: data.body || 'Notification',
-      icon: data.icon || path.join(__dirname, '../public/ShoreAgents-Logo-only.png'),
+      icon: data.icon || path.join(__dirname, '../public/ShoreAgents-Logo-only-256.png'),
       silent: useCustom
     });
     
