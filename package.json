@@ -23,7 +23,7 @@
     },
     "win": {
       "target": "dir",
-      "icon": "public/ShoreAgents-Logo-only.png"
+      "icon": "public/ShoreAgents-Logo-only.ico"
     },
     "linux": {
       "target": "AppImage",
