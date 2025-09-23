@@ -477,67 +477,12 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         let shiftStartDate: Date | null = null
         let shiftEndDate: Date | null = null
         
-        if (shiftInfo?.startTime && shiftInfo?.endTime) {
-          // Use shift info from server if available
-          shiftStartDate = new Date(shiftInfo.startTime)
-          shiftEndDate = new Date(shiftInfo.endTime)
-        } else if (userProfile?.shift_time) {
-          // Parse shift time and convert to Philippines timezone
+        if (userProfile?.shift_time) {
+          // Always use the proper parseShiftTime function for consistent parsing
           const parsed = parseShiftTime(userProfile.shift_time, nowPH)
           if (parsed?.startTime && parsed?.endTime) {
-            if (parsed.isNightShift) {
-              // For night shifts, we need to handle the date rollover properly
-              // Create dates in Philippines timezone
-              const todayPH = new Date(nowPH)
-              todayPH.setHours(0, 0, 0, 0)
-              
-              // Parse start time (e.g., 10:00 PM)
-              const startTimeStr = userProfile.shift_time.split(' - ')[0].trim()
-              const startMatch = startTimeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i)
-              if (startMatch) {
-                let startHour = parseInt(startMatch[1])
-                const startMinute = parseInt(startMatch[2])
-                const startPeriod = startMatch[3].toUpperCase()
-                
-                // Convert to 24-hour format
-                if (startPeriod === 'PM' && startHour !== 12) {
-                  startHour += 12
-                } else if (startPeriod === 'AM' && startHour === 12) {
-                  startHour = 0
-                }
-                
-                shiftStartDate = new Date(todayPH)
-                shiftStartDate.setHours(startHour, startMinute, 0, 0)
-                
-                // Parse end time (e.g., 7:00 AM)
-                const endTimeStr = userProfile.shift_time.split(' - ')[1].trim()
-                const endMatch = endTimeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i)
-                if (endMatch) {
-                  let endHour = parseInt(endMatch[1])
-                  const endMinute = parseInt(endMatch[2])
-                  const endPeriod = endMatch[3].toUpperCase()
-                  
-                  // Convert to 24-hour format
-                  if (endPeriod === 'PM' && endHour !== 12) {
-                    endHour += 12
-                  } else if (endPeriod === 'AM' && endHour === 12) {
-                    endHour = 0
-                  }
-                  
-                  shiftEndDate = new Date(todayPH)
-                  shiftEndDate.setHours(endHour, endMinute, 0, 0)
-                  
-                  // For night shifts, if end time is before start time, add 24 hours to end time
-                  if (endHour < startHour) {
-                    shiftEndDate.setDate(shiftEndDate.getDate() + 1)
-                  }
-                }
-              }
-            } else {
-              // Day shift - use parsed times directly
-              shiftStartDate = parsed.startTime
-              shiftEndDate = parsed.endTime
-            }
+            shiftStartDate = parsed.startTime
+            shiftEndDate = parsed.endTime
           }
         }
         
@@ -639,9 +584,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
         let shiftEndDate: Date | null = null
         
-        if (shiftInfo?.endTime) {
-          shiftEndDate = new Date(shiftInfo.endTime)
-        } else if (userProfile?.shift_time) {
+        if (userProfile?.shift_time) {
           const parsed = parseShiftTime(userProfile.shift_time, nowPH)
           if (parsed?.endTime) {
             shiftEndDate = parsed.endTime
@@ -870,10 +813,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         let shiftStartDate: Date | null = null
         let shiftEndDate: Date | null = null
         
-        if (shiftInfo?.startTime && shiftInfo?.endTime) {
-          shiftStartDate = new Date(shiftInfo.startTime)
-          shiftEndDate = new Date(shiftInfo.endTime)
-        } else if (userProfile?.shift_time) {
+        if (userProfile?.shift_time) {
           const parsed = parseShiftTime(userProfile.shift_time, nowPH)
           if (parsed?.startTime && parsed?.endTime) {
             if (parsed.isNightShift && nowPH < parsed.startTime) {
@@ -926,10 +866,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         let shiftStartDate: Date | null = null
         let shiftEndDate: Date | null = null
         
-        if (shiftInfo?.startTime && shiftInfo?.endTime) {
-          shiftStartDate = new Date(shiftInfo.startTime)
-          shiftEndDate = new Date(shiftInfo.endTime)
-        } else if (userProfile?.shift_time) {
+        if (userProfile?.shift_time) {
           const parsed = parseShiftTime(userProfile.shift_time, nowPH)
           if (parsed?.startTime && parsed?.endTime) {
             if (parsed.isNightShift && nowPH < parsed.startTime) {
@@ -1128,3 +1065,5 @@ export function useTimer() {
   }
   return context
 } 
+
+
