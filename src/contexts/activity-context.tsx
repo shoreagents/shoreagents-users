@@ -55,12 +55,13 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
     setShowInactivityDialog
   } = useActivityTracking(setActivityState)
 
-  // Helper function to check if shift has ended
+  // Helper function to check if shift has ended - always re-parse to use updated logic
   const checkIfShiftEnded = useCallback((shiftInfo: any) => {
     try {
       if (!shiftInfo?.time) return false
       
       const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
+      // Always re-parse shift time to use updated parseShiftTime logic
       const parsed = parseShiftTime(shiftInfo.time, nowPH)
       
       if (parsed?.endTime) {
@@ -73,12 +74,13 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
-  // Helper function to check if shift has not started
+  // Helper function to check if shift has not started - always re-parse to use updated logic
   const checkIfShiftNotStarted = useCallback((shiftInfo: any) => {
     try {
       if (!shiftInfo?.time) return false
       
       const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
+      // Always re-parse shift time to use updated parseShiftTime logic
       const parsed = parseShiftTime(shiftInfo.time, nowPH)
       
       if (parsed?.startTime) {
