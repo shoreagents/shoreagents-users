@@ -1485,10 +1485,11 @@ function createWindow() {
     (process.env.ELECTRON_APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://shoreagents-users.vercel.app');
   mainWindow.loadURL(serverUrl);
   
-  // Open DevTools in development
-  if (isDev) {
-    mainWindow.webContents.openDevTools();
-  }
+  // DevTools can be opened manually with F12, Ctrl+Shift+I, or menu
+  // Automatic opening disabled for cleaner development experience
+  // if (isDev) {
+  //   mainWindow.webContents.openDevTools();
+  // }
 
   // Register global shortcuts for better reliability
   try {
