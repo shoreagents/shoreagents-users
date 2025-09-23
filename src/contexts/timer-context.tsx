@@ -477,8 +477,12 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         let shiftStartDate: Date | null = null
         let shiftEndDate: Date | null = null
         
-        // Always use parseShiftTime function for consistent shift parsing
-        if (userProfile?.shift_time) {
+        if (shiftInfo?.startTime && shiftInfo?.endTime) {
+          // Use shift info from server if available
+          shiftStartDate = new Date(shiftInfo.startTime)
+          shiftEndDate = new Date(shiftInfo.endTime)
+        } else if (userProfile?.shift_time) {
+          // Parse shift time using the consistent parseShiftTime function
           const parsed = parseShiftTime(userProfile.shift_time, nowPH)
           if (parsed?.startTime && parsed?.endTime) {
             // Use the parsed times directly for both day and night shifts
@@ -486,10 +490,6 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
             shiftStartDate = parsed.startTime
             shiftEndDate = parsed.endTime
           }
-        } else if (shiftInfo?.startTime && shiftInfo?.endTime) {
-          // Fallback to server shift info if no user profile shift time
-          shiftStartDate = new Date(shiftInfo.startTime)
-          shiftEndDate = new Date(shiftInfo.endTime)
         }
         
         // Stop counting before shift start
@@ -590,15 +590,13 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
         let shiftEndDate: Date | null = null
         
-        // Always use parseShiftTime function for consistent shift parsing
-        if (userProfile?.shift_time) {
+        if (shiftInfo?.endTime) {
+          shiftEndDate = new Date(shiftInfo.endTime)
+        } else if (userProfile?.shift_time) {
           const parsed = parseShiftTime(userProfile.shift_time, nowPH)
           if (parsed?.endTime) {
             shiftEndDate = parsed.endTime
           }
-        } else if (shiftInfo?.endTime) {
-          // Fallback to server shift info if no user profile shift time
-          shiftEndDate = new Date(shiftInfo.endTime)
         }
         
         if (shiftEndDate && nowPH > shiftEndDate && isActive) {
@@ -879,19 +877,25 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         let shiftStartDate: Date | null = null
         let shiftEndDate: Date | null = null
         
-        // Always use parseShiftTime function for consistent shift parsing
-        if (userProfile?.shift_time) {
-          const parsed = parseShiftTime(userProfile.shift_time, nowPH)
-          if (parsed?.startTime && parsed?.endTime) {
-            // Use the parsed times directly for both day and night shifts
-            // The parseShiftTime function now handles both cases correctly
-            shiftStartDate = parsed.startTime
-            shiftEndDate = parsed.endTime
-          }
-        } else if (shiftInfo?.startTime && shiftInfo?.endTime) {
-          // Fallback to server shift info if no user profile shift time
+        if (shiftInfo?.startTime && shiftInfo?.endTime) {
           shiftStartDate = new Date(shiftInfo.startTime)
           shiftEndDate = new Date(shiftInfo.endTime)
+        } else if (userProfile?.shift_time) {
+          const parsed = parseShiftTime(userProfile.shift_time, nowPH)
+          if (parsed?.startTime && parsed?.endTime) {
+            if (parsed.isNightShift && nowPH < parsed.startTime) {
+              // Anchor night shift to previous day when before today's start
+              const adjustedStart = new Date(parsed.startTime)
+              adjustedStart.setDate(adjustedStart.getDate() - 1)
+              const adjustedEnd = new Date(parsed.endTime)
+              adjustedEnd.setDate(adjustedEnd.getDate() - 1)
+              shiftStartDate = adjustedStart
+              shiftEndDate = adjustedEnd
+            } else {
+              shiftStartDate = parsed.startTime
+              shiftEndDate = parsed.endTime
+            }
+          }
         }
         
         // Stop syncing before shift start

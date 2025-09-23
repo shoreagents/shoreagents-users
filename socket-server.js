@@ -791,8 +791,8 @@ function shouldResetForShift(lastActivityTime, currentTime, shiftInfo) {
   if (!shiftInfo) {
     // Fallback to daily reset if no shift info
     // Use Manila time-based date comparison to avoid timezone issues
-    const lastDate = new Date(lastActivityTime.getTime() + (8 * 60 * 60 * 1000)).toISOString().split('T')[0];
-    const currentDate = new Date(currentTime.getTime() + (8 * 60 * 60 * 1000)).toISOString().split('T')[0];
+    const lastDate = new Date(lastActivityTime.toLocaleString('en-US', { timeZone: 'Asia/Manila' })).toISOString().split('T')[0];
+    const currentDate = new Date(currentTime.toLocaleString('en-US', { timeZone: 'Asia/Manila' })).toISOString().split('T')[0];
     return lastDate !== currentDate;
   }
 
@@ -828,8 +828,8 @@ function shouldResetForShift(lastActivityTime, currentTime, shiftInfo) {
       
       // FIXED: Check if this is a NEW DAY's shift, not just continuing the same shift
       // Get the date of the last activity and current time in Manila timezone
-      const lastActivityDate = new Date(lastActivityTime.getTime() + (8 * 60 * 60 * 1000)).toISOString().split('T')[0];
-      const currentDate = new Date(currentTime.getTime() + (8 * 60 * 60 * 1000)).toISOString().split('T')[0];
+      const lastActivityDate = new Date(lastActivityTime.toLocaleString('en-US', { timeZone: 'Asia/Manila' })).toISOString().split('T')[0];
+      const currentDate = new Date(currentTime.toLocaleString('en-US', { timeZone: 'Asia/Manila' })).toISOString().split('T')[0];
       
       // FIXED: Only reset when we're on a completely NEW DAY
       // Don't reset when continuing the same shift on the same day
@@ -844,8 +844,8 @@ function shouldResetForShift(lastActivityTime, currentTime, shiftInfo) {
   } catch (error) {
     console.error('Error in shouldResetForShift:', error);
     // Fallback to daily reset on error
-    const lastDate = new Date(lastActivityTime.getTime() + (8 * 60 * 60 * 1000)).toISOString().split('T')[0];
-    const currentDate = new Date(currentTime.getTime() + (8 * 60 * 60 * 1000)).toISOString().split('T')[0];
+    const lastDate = new Date(lastActivityTime.toLocaleString('en-US', { timeZone: 'Asia/Manila' })).toISOString().split('T')[0];
+    const currentDate = new Date(currentTime.toLocaleString('en-US', { timeZone: 'Asia/Manila' })).toISOString().split('T')[0];
     return lastDate !== currentDate;
   }
 }
@@ -1329,9 +1329,8 @@ async function checkShiftReset(email, userId) {
         const shiftStartDate = getShiftStartForDate(currentTime, shiftInfo);
         currentDate = shiftStartDate.toISOString().split('T')[0];
       } else {
-        // For day shifts, use current Manila time (not UTC)
-        // Convert UTC to Manila time by adding 8 hours (UTC+8)
-        const manilaTime = new Date(currentTime.getTime() + (8 * 60 * 60 * 1000));
+        // For day shifts, use proper timezone conversion (consistent with night shifts)
+        const manilaTime = new Date(currentTime.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
         currentDate = manilaTime.toISOString().split('T')[0];
       }
       
@@ -1663,9 +1662,10 @@ io.on('connection', (socket) => {
              currentDate = shiftStartDate.toISOString().split('T')[0];
              console.log(`🌙 Night shift detected for ${emailString} - using shift start date: ${currentDate} (not current calendar date)`);
            } else {
-             // For day shifts, use current Manila time (not UTC)
-             // Convert UTC to Manila time by adding 8 hours (UTC+8)
-             currentDate = new Date(currentTime.getTime() + (8 * 60 * 60 * 1000)).toISOString().split('T')[0];
+             // For day shifts, use proper timezone conversion (consistent with night shifts)
+             const manilaTime = new Date(currentTime.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+             currentDate = manilaTime.toISOString().split('T')[0];
+             console.log(`☀️ Day shift detected for ${emailString} - using Manila date: ${currentDate}`);
            }
           
           // First check if there's any activity data for this user
@@ -1884,9 +1884,10 @@ io.on('connection', (socket) => {
                currentDate = shiftStartDate.toISOString().split('T')[0];
                console.log(`🌙 Night shift refresh detected for ${emailString} - using shift start date: ${currentDate} (not current calendar date)`);
              } else {
-               // For day shifts, use current Manila time (not UTC)
-               // Convert UTC to Manila time by adding 8 hours (UTC+8)
-               currentDate = new Date(currentTime.getTime() + (8 * 60 * 60 * 1000)).toISOString().split('T')[0];
+               // For day shifts, use proper timezone conversion (consistent with night shifts)
+               const manilaTime = new Date(currentTime.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+               currentDate = manilaTime.toISOString().split('T')[0];
+               console.log(`☀️ Day shift refresh detected for ${emailString} - using Manila date: ${currentDate}`);
              }
             
                         // Get the most recent activity data for this user
@@ -2612,7 +2613,7 @@ io.on('connection', (socket) => {
       const userInfo = userDataEntry.userInfo;
       const userId = userInfo.userId;
       const shiftInfo = userShiftInfo.get(email) || null;
-      const currentShiftId = shiftInfo ? getCurrentShiftId(new Date(), shiftInfo) : new Date(currentTime.getTime() + (8 * 60 * 60 * 1000)).toISOString().split('T')[0];
+      const currentShiftId = shiftInfo ? getCurrentShiftId(new Date(), shiftInfo) : new Date(currentTime.toLocaleString('en-US', { timeZone: 'Asia/Manila' })).toISOString().split('T')[0];
       const currentDate = currentShiftId; // Use shift ID as the date for database records
 
       // Debounce on server side too
@@ -2760,7 +2761,16 @@ io.on('connection', (socket) => {
               const parsed = parseShiftTime(shiftText, nowPH);
               
               if (parsed?.startTime && parsed?.endTime) {
+                const wasWithinShift = withinShift;
                 withinShift = nowPH >= parsed.startTime && nowPH <= parsed.endTime;
+                
+                // Log shift transitions
+                if (wasWithinShift && !withinShift) {
+                  console.log(`🏁 SHIFT ENDED for ${userData.email}: ${nowPH.toISOString()} is after shift end ${parsed.endTime.toISOString()}`);
+                } else if (!wasWithinShift && withinShift) {
+                  console.log(`🚀 SHIFT STARTED for ${userData.email}: ${nowPH.toISOString()} is within shift window`);
+                }
+                
                 console.log(`Shift window calculation using parseShiftTime: start=${parsed.startTime.toISOString()}, end=${parsed.endTime.toISOString()}, current=${nowPH.toISOString()}, withinShift=${withinShift}`);
               } else {
                 withinShift = true;
@@ -2770,42 +2780,60 @@ io.on('connection', (socket) => {
               withinShift = true; // default allow if shift text not parsable
               console.log(`Shift window: using default withinShift=true (shift text not parsable)`);
             }
-          } catch (_) {
-            withinShift = true; // be permissive on errors so counting still saves
-            console.log(`Shift window: using default withinShift=true (error in calculation)`);
+          } catch (error) {
+            console.error('Shift calculation error:', error);
+            // Be more conservative - if we can't determine shift, assume outside for safety
+            withinShift = false;
+            console.log(`Shift window: using default withinShift=false (error in calculation - being conservative)`);
           }
           
         } catch (dbError) {
-          console.error('Database function failed, falling back to parseShiftTime calculation:', dbError.message);
+          console.error('Database function failed, falling back to manual calculation:', dbError.message);
           
-          // Fallback to parseShiftTime function if database functions fail
+          // Fallback to original logic if database functions fail
+          let shiftStartMinutes = null;
+          let hasShiftStart = false;
+          let shiftEndMinutes = null;
+          let hasShiftEnd = false;
+          
           try {
             const shiftRes = await pool.query(
               `SELECT ji.shift_time FROM job_info ji WHERE ji.agent_user_id = $1 LIMIT 1`,
               [userId]
             );
             const shiftText = (shiftRes.rows[0]?.shift_time || '').toString();
+            const both = shiftText.match(/(\d{1,2}:\d{2}\s*(?:AM|PM))\s*-\s*(\d{1,2}:\d{2}\s*(?:AM|PM))/i);
             
-            if (shiftText) {
-              // Use the same parseShiftTime function that we fixed
-              const now = new Date();
-              const nowPH = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
-              const parsed = parseShiftTime(shiftText, nowPH);
-              
-              if (parsed?.startTime && parsed?.endTime) {
-                withinShift = nowPH >= parsed.startTime && nowPH <= parsed.endTime;
-                console.log(`Fallback shift calculation using parseShiftTime: start=${parsed.startTime.toISOString()}, end=${parsed.endTime.toISOString()}, current=${nowPH.toISOString()}, withinShift=${withinShift}`);
-              } else {
-                withinShift = true;
-                console.log(`Fallback: Could not parse shift time, defaulting to withinShift=true`);
-              }
-            } else {
-              withinShift = true;
-              console.log(`Fallback: No shift time found, defaulting to withinShift=true`);
+            if (both) {
+              const start = both[1].trim().toUpperCase();
+              const end = both[2].trim().toUpperCase();
+              const parseToMinutes = (token) => {
+                const [hhmm, ampm] = token.split(/\s+/);
+                const [hhStr, mmStr] = hhmm.split(':');
+                let hh = parseInt(hhStr, 10);
+                const mm = parseInt(mmStr, 10);
+                if (ampm === 'AM') { if (hh === 12) hh = 0; } 
+                else if (ampm === 'PM') { if (hh !== 12) hh += 12; }
+                return (hh * 60) + mm;
+              };
+              shiftStartMinutes = parseToMinutes(start);
+              shiftEndMinutes = parseToMinutes(end);
+              hasShiftStart = true;
+              hasShiftEnd = true;
             }
-          } catch (fallbackError) {
-            console.error('Fallback shift calculation failed:', fallbackError.message);
-            withinShift = true; // be permissive on errors so counting still saves
+          } catch (_) {}
+
+          // Get current Manila time correctly
+          const now = new Date();
+          const philippinesNow = new Date(now.getTime() + (8 * 60 * 60 * 1000));
+          const currentMinutesLocal = philippinesNow.getUTCHours() * 60 + philippinesNow.getUTCMinutes();
+
+          if (hasShiftStart && hasShiftEnd && shiftStartMinutes !== null && shiftEndMinutes !== null) {
+            if (shiftEndMinutes > shiftStartMinutes) {
+              withinShift = currentMinutesLocal >= shiftStartMinutes && currentMinutesLocal < shiftEndMinutes;
+            } else {
+              withinShift = (currentMinutesLocal >= shiftStartMinutes) || (currentMinutesLocal < shiftEndMinutes);
+            }
           }
 
           const manilaYMD = (d) => {
