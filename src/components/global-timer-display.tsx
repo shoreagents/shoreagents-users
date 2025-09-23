@@ -93,14 +93,27 @@ export const GlobalTimerDisplay = React.memo(function GlobalTimerDisplay() {
     }
   }
 
-  // Check if shift has ended - OPTIMIZED: Memoized expensive calculations
+  // Add a state to track current time for real-time updates
+  const [currentTime, setCurrentTime] = useState(() => new Date())
+
+  // Update current time every second for real-time shift state calculations
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentTime(new Date())
+    }, 1000)
+    
+    return () => clearInterval(interval)
+  }, [])
+
+  // Check if shift has ended - Updated to use real-time current time
   const shiftEnded = useMemo(() => {
     try {
       const currentUser = getCurrentUser()
       if (!currentUser) return false
 
-      // Get current Philippines time
-      const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
+      // Get current Philippines time - more reliable conversion
+      const nowUTC = new Date(currentTime)
+      const nowPH = new Date(nowUTC.getTime() + (8 * 60 * 60 * 1000)) // UTC+8 for Philippines
       
       // Parse shift time to get dynamic start/end times
       if (shiftInfo?.time) {
@@ -113,18 +126,20 @@ export const GlobalTimerDisplay = React.memo(function GlobalTimerDisplay() {
       // If no shift time available, return false (don't assume shift has ended)
       return false
     } catch (error) {
+      console.error('Error in shift end calculation:', error)
       return false
     }
-  }, [shiftInfo?.time]) // Removed unnecessary nowTick dependency
+  }, [shiftInfo?.time, currentTime]) // Now includes currentTime for real-time updates
   
-  // Check if shift hasn't started yet - OPTIMIZED: Memoized expensive calculations
+  // Check if shift hasn't started yet - Updated to use real-time current time
   const shiftNotStarted = useMemo(() => {
     try {
       const currentUser = getCurrentUser()
       if (!currentUser) return false
 
-      // Get current Philippines time
-      const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
+      // Get current Philippines time - more reliable conversion
+      const nowUTC = new Date(currentTime)
+      const nowPH = new Date(nowUTC.getTime() + (8 * 60 * 60 * 1000)) // UTC+8 for Philippines
       
       // Parse shift time to get dynamic start/end times
       if (shiftInfo?.time) {
@@ -137,9 +152,10 @@ export const GlobalTimerDisplay = React.memo(function GlobalTimerDisplay() {
       // If no shift time available, return false (don't assume shift hasn't started)
       return false
     } catch (error) {
+      console.error('Error in shift start calculation:', error)
       return false
     }
-  }, [shiftInfo?.time]) // Removed unnecessary nowTick dependency
+  }, [shiftInfo?.time, currentTime]) // Now includes currentTime for real-time updates
   
   // Debug logging for shift end state
   useEffect(() => {

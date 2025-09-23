@@ -35,22 +35,59 @@ export function parseShiftTime(shiftTimeString: string, referenceDate = new Date
     // If end time is before start time, it means shift crosses midnight
     const isNightShift = endTime <= startTime;
     if (isNightShift) {
-      // For night shifts, start time should be on the previous day
-      const startTimePrevDay = new Date(startTime);
-      startTimePrevDay.setDate(startTimePrevDay.getDate() - 1);
+      // For night shifts, we need to determine which shift period we're in
+      const now = new Date(referenceDate);
       
-      // For night shifts, end time should be on the NEXT day (not the same day)
-      const endTimeNextDay = new Date(endTime);
-      endTimeNextDay.setDate(endTimeNextDay.getDate() + 1);
+      // Check if we're currently before or after the end time today
+      const endTimeToday = new Date(endTime);
+      const startTimeToday = new Date(startTime);
       
-      return {
-        period: "Night Shift",
-        schedule: "", // We don't parse schedule from time string
-        time: shiftTimeString,
-        startTime: startTimePrevDay,
-        endTime: endTimeNextDay,
-        isNightShift
-      };
+      if (now <= endTimeToday) {
+        // We're before the end time today, so we're in the shift that started yesterday
+        const startTimeYesterday = new Date(startTime);
+        startTimeYesterday.setDate(startTimeYesterday.getDate() - 1);
+        
+        return {
+          period: "Night Shift",
+          schedule: "",
+          time: shiftTimeString,
+          startTime: startTimeYesterday,
+          endTime: endTimeToday,
+          isNightShift
+        };
+      } else {
+        // We're after the end time today, so we're either:
+        // 1. In the shift that started today (if we're after start time)
+        // 2. Between shifts (if we're before start time)
+        
+        if (now >= startTimeToday) {
+          // We're in the shift that started today
+          const endTimeTomorrow = new Date(endTime);
+          endTimeTomorrow.setDate(endTimeTomorrow.getDate() + 1);
+          
+          return {
+            period: "Night Shift",
+            schedule: "",
+            time: shiftTimeString,
+            startTime: startTimeToday,
+            endTime: endTimeTomorrow,
+            isNightShift
+          };
+        } else {
+          // We're between shifts - return the most recent completed shift
+          const startTimeYesterday = new Date(startTime);
+          startTimeYesterday.setDate(startTimeYesterday.getDate() - 1);
+          
+          return {
+            period: "Night Shift",
+            schedule: "",
+            time: shiftTimeString,
+            startTime: startTimeYesterday,
+            endTime: endTimeToday,
+            isNightShift
+          };
+        }
+      }
     }
 
     return {

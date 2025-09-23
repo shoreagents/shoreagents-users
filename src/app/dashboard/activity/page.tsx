@@ -1,9 +1,10 @@
 "use client"
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { getCurrentUser } from '@/lib/ticket-utils'
 import { useTimer } from '@/contexts/timer-context'
 import { useMeeting } from '@/contexts/meeting-context'
+import { parseShiftTime } from '@/lib/shift-utils'
 import { AppSidebar } from '@/components/app-sidebar'
 import { AppHeader } from '@/components/app-header'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -48,11 +49,72 @@ export default function TestActivityPage() {
     timerData, 
     error, 
     liveActiveSeconds,
-    liveInactiveSeconds
+    liveInactiveSeconds,
+    shiftInfo
   } = useTimer()
 
   // Use meeting context instead of hook to prevent frequent API calls
   const { isInMeeting } = useMeeting()
+
+  // Add real-time shift state detection
+  const [currentTime, setCurrentTime] = useState(() => new Date())
+
+  // Update current time every second for real-time shift state calculations
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentTime(new Date())
+    }, 1000)
+    
+    return () => clearInterval(interval)
+  }, [])
+
+  // Check if shift has ended
+  const shiftEnded = useMemo(() => {
+    try {
+      const user = getCurrentUser()
+      if (!user) return false
+
+      // Get current Philippines time
+      const nowUTC = new Date(currentTime)
+      const nowPH = new Date(nowUTC.getTime() + (8 * 60 * 60 * 1000)) // UTC+8 for Philippines
+      
+      // Parse shift time to get dynamic start/end times
+      if (shiftInfo?.time) {
+        const parsed = parseShiftTime(shiftInfo.time, nowPH)
+        if (parsed?.endTime) {
+          return nowPH > parsed.endTime
+        }
+      }
+
+      return false
+    } catch (error) {
+      return false
+    }
+  }, [shiftInfo?.time, currentTime])
+
+  // Check if shift hasn't started yet
+  const shiftNotStarted = useMemo(() => {
+    try {
+      const user = getCurrentUser()
+      if (!user) return false
+
+      // Get current Philippines time
+      const nowUTC = new Date(currentTime)
+      const nowPH = new Date(nowUTC.getTime() + (8 * 60 * 60 * 1000)) // UTC+8 for Philippines
+      
+      // Parse shift time to get dynamic start/end times
+      if (shiftInfo?.time) {
+        const parsed = parseShiftTime(shiftInfo.time, nowPH)
+        if (parsed?.startTime) {
+          return nowPH < parsed.startTime
+        }
+      }
+
+      return false
+    } catch (error) {
+      return false
+    }
+  }, [shiftInfo?.time, currentTime])
 
   const handleGlobalRefresh = () => {
     setRefreshKey(prev => prev + 1)
@@ -373,18 +435,54 @@ export default function TestActivityPage() {
               <CardContent>
                 {timerData ? (
                   <div className="space-y-6">
+                    {/* Shift State Banners */}
+                    {shiftNotStarted && (
+                      <div className="bg-blue-100 dark:bg-blue-900/20 border border-blue-300 dark:border-blue-700 rounded p-3 text-center">
+                        <div className="text-sm font-medium text-blue-700 dark:text-blue-300">
+                          Shift Not Started Yet - Timer Paused
+                        </div>
+                      </div>
+                    )}
+                    
+                    {shiftEnded && (
+                      <div className="bg-gray-100 dark:bg-gray-900/20 border border-gray-300 dark:border-gray-700 rounded p-3 text-center">
+                        <div className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                          Shift Has Ended - Timer Reset to 0s
+                        </div>
+                      </div>
+                    )}
+
                     {/* Status Badge */}
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-medium text-muted-foreground">Current Status</span>
                       <Badge 
-                        variant={isInMeeting ? "outline" : (timerData.isActive ? "default" : "secondary")}
+                        variant={
+                          shiftEnded
+                            ? "outline"
+                            : shiftNotStarted
+                            ? "outline"
+                            : isInMeeting 
+                            ? "outline" 
+                            : (timerData.isActive ? "default" : "secondary")
+                        }
                         className={
-                          isInMeeting 
+                          shiftEnded
+                            ? "border-gray-300 text-gray-700 bg-gray-50"
+                            : shiftNotStarted
+                            ? "border-blue-300 text-blue-700 bg-blue-50"
+                            : isInMeeting 
                             ? "border-yellow-300 text-yellow-700 bg-yellow-50" 
                             : (timerData.isActive ? "bg-green-500 hover:bg-green-600" : "")
                         }
                       >
-                        {isInMeeting ? '🔇 In Meeting' : (timerData.isActive ? '🟢 Active' : '⚪ Inactive')}
+                        {shiftEnded
+                          ? '⚫ Shift Ended'
+                          : shiftNotStarted
+                          ? '🔵 Shift Not Started'
+                          : isInMeeting 
+                          ? '🔇 In Meeting' 
+                          : (timerData.isActive ? '🟢 Active' : '⚪ Inactive')
+                        }
                       </Badge>
                     </div>
                     
@@ -405,23 +503,47 @@ export default function TestActivityPage() {
 
                     {/* Timer Display */}
                     <div className="grid grid-cols-2 gap-4">
-                      <div className={`p-6 rounded-xl border ${isInMeeting ? 'bg-muted/30 border-border/50 opacity-60' : 'bg-muted/20 dark:bg-emerald-950/20 border-green-200 dark:border-emerald-900/40'}`}>
+                      <div className={`p-6 rounded-xl border ${
+                        shiftEnded || shiftNotStarted 
+                          ? 'bg-muted/30 border-border/50 opacity-60' 
+                          : isInMeeting 
+                          ? 'bg-muted/30 border-border/50 opacity-60' 
+                          : 'bg-muted/20 dark:bg-emerald-950/20 border-green-200 dark:border-emerald-900/40'
+                      }`}>
                         <div className="flex items-center justify-between mb-2">
-                          <span className={`text-sm font-medium ${isInMeeting ? 'text-gray-500' : 'text-green-700'}`}>Active Time</span>
-                          <div className={`w-3 h-3 rounded-full ${isInMeeting ? 'bg-gray-400' : 'bg-green-500 animate-pulse'}`}></div>
+                          <span className={`text-sm font-medium ${
+                            shiftEnded || shiftNotStarted || isInMeeting ? 'text-gray-500' : 'text-green-700'
+                          }`}>Active Time</span>
+                          <div className={`w-3 h-3 rounded-full ${
+                            shiftEnded || shiftNotStarted || isInMeeting ? 'bg-gray-400' : 'bg-green-500 animate-pulse'
+                          }`}></div>
                         </div>
-                        <div className={`text-2xl font-bold ${isInMeeting ? 'text-muted-foreground' : 'text-green-600'}`}>
-                          {formatTime(liveActiveSeconds)}
+                        <div className={`text-2xl font-bold ${
+                          shiftEnded || shiftNotStarted || isInMeeting ? 'text-muted-foreground' : 'text-green-600'
+                        }`}>
+                          {shiftEnded || shiftNotStarted ? '0s' : formatTime(liveActiveSeconds)}
                         </div>
                       </div>
                       
-                      <div className={`p-6 rounded-xl border ${isInMeeting ? 'bg-muted/30 border-border/50 opacity-60' : 'bg-muted/20 dark:bg-rose-950/20 border-red-200 dark:border-rose-900/40'}`}>
+                      <div className={`p-6 rounded-xl border ${
+                        shiftEnded || shiftNotStarted 
+                          ? 'bg-muted/30 border-border/50 opacity-60' 
+                          : isInMeeting 
+                          ? 'bg-muted/30 border-border/50 opacity-60' 
+                          : 'bg-muted/20 dark:bg-rose-950/20 border-red-200 dark:border-rose-900/40'
+                      }`}>
                         <div className="flex items-center justify-between mb-2">
-                          <span className={`text-sm font-medium ${isInMeeting ? 'text-gray-500' : 'text-red-700'}`}>Inactive Time</span>
-                          <div className={`w-3 h-3 rounded-full ${isInMeeting ? 'bg-gray-400' : 'bg-red-500'}`}></div>
+                          <span className={`text-sm font-medium ${
+                            shiftEnded || shiftNotStarted || isInMeeting ? 'text-gray-500' : 'text-red-700'
+                          }`}>Inactive Time</span>
+                          <div className={`w-3 h-3 rounded-full ${
+                            shiftEnded || shiftNotStarted || isInMeeting ? 'bg-gray-400' : 'bg-red-500'
+                          }`}></div>
                         </div>
-                        <div className={`text-2xl font-bold ${isInMeeting ? 'text-muted-foreground' : 'text-red-600'}`}>
-                          {formatTime(liveInactiveSeconds)}
+                        <div className={`text-2xl font-bold ${
+                          shiftEnded || shiftNotStarted || isInMeeting ? 'text-muted-foreground' : 'text-red-600'
+                        }`}>
+                          {shiftEnded || shiftNotStarted ? '0s' : formatTime(liveInactiveSeconds)}
                         </div>
                       </div>
                     </div>
