@@ -39,16 +39,16 @@ export function parseShiftTime(shiftTimeString: string, referenceDate = new Date
       const startTimePrevDay = new Date(startTime);
       startTimePrevDay.setDate(startTimePrevDay.getDate() - 1);
       
-      // For night shifts, end time should be on the same day as the reference date
-      // (not the next day)
-      const endTimeSameDay = new Date(endTime);
+      // For night shifts, end time should be on the NEXT day (not the same day)
+      const endTimeNextDay = new Date(endTime);
+      endTimeNextDay.setDate(endTimeNextDay.getDate() + 1);
       
       return {
         period: "Night Shift",
         schedule: "", // We don't parse schedule from time string
         time: shiftTimeString,
         startTime: startTimePrevDay,
-        endTime: endTimeSameDay,
+        endTime: endTimeNextDay,
         isNightShift
       };
     }
