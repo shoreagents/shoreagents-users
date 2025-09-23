@@ -740,16 +740,16 @@ function parseShiftTime(shiftTimeString, referenceDate = new Date()) {
       const startTimePrevDay = new Date(startTime);
       startTimePrevDay.setDate(startTimePrevDay.getDate() - 1);
       
-      // For night shifts, end time should be on the same day as the reference date
-      // (not the next day)
-      const endTimeSameDay = new Date(endTime);
+      // For night shifts, end time should be on the NEXT day (not the same day)
+      const endTimeNextDay = new Date(endTime);
+      endTimeNextDay.setDate(endTimeNextDay.getDate() + 1);
       
       return {
         period: "Night Shift",
         schedule: "", 
         time: shiftTimeString,
         startTime: startTimePrevDay,
-        endTime: endTimeSameDay,
+        endTime: endTimeNextDay,
         isNightShift
       };
     }
@@ -2744,7 +2744,7 @@ io.on('connection', (socket) => {
             throw new Error('No date result from function');
           }
           
-          // Determine withinShift using parsed shift window (more reliable for night shifts)
+          // Determine withinShift using the consistent parseShiftTime function
           try {
             const shiftRes = await pool.query(
               `SELECT ji.shift_time FROM job_info ji WHERE ji.agent_user_id = $1 LIMIT 1`,
@@ -2752,28 +2752,20 @@ io.on('connection', (socket) => {
             );
             const shiftText = (shiftRes.rows[0]?.shift_time || '').toString();
             console.log(`Shift window check for ${userData.email}: shift_time="${shiftText}"`);
-            const both = shiftText.match(/(\d{1,2}:\d{2}\s*(?:AM|PM))\s*-\s*(\d{1,2}:\d{2}\s*(?:AM|PM))/i);
-            if (both) {
-              const parseToMinutes = (token) => {
-                const [hhmm, ampm] = token.split(/\s+/);
-                const [hhStr, mmStr] = hhmm.split(':');
-                let hh = parseInt(hhStr, 10);
-                const mm = parseInt(mmStr, 10);
-                if (ampm === 'AM') { if (hh === 12) hh = 0; } else if (ampm === 'PM') { if (hh !== 12) hh += 12; }
-                return (hh * 60) + mm;
-              };
-              const startMinutes = parseToMinutes(both[1].trim().toUpperCase());
-              const endMinutes = parseToMinutes(both[2].trim().toUpperCase());
-              // Get current Manila time correctly
+            
+            if (shiftText) {
+              // Use the same parseShiftTime function that we fixed
               const now = new Date();
-              const manilaTime = new Date(now.getTime() + (8 * 60 * 60 * 1000));
-              const curMinutes = manilaTime.getUTCHours() * 60 + manilaTime.getUTCMinutes();
-              if (endMinutes > startMinutes) {
-                withinShift = curMinutes >= startMinutes && curMinutes < endMinutes; // day shift
+              const nowPH = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+              const parsed = parseShiftTime(shiftText, nowPH);
+              
+              if (parsed?.startTime && parsed?.endTime) {
+                withinShift = nowPH >= parsed.startTime && nowPH <= parsed.endTime;
+                console.log(`Shift window calculation using parseShiftTime: start=${parsed.startTime.toISOString()}, end=${parsed.endTime.toISOString()}, current=${nowPH.toISOString()}, withinShift=${withinShift}`);
               } else {
-                withinShift = (curMinutes >= startMinutes) || (curMinutes < endMinutes); // night shift crossing midnight
+                withinShift = true;
+                console.log(`Could not parse shift time, defaulting to withinShift=true`);
               }
-              console.log(`Shift window calculation: start=${startMinutes}min, end=${endMinutes}min, current=${curMinutes}min, withinShift=${withinShift}`);
             } else {
               withinShift = true; // default allow if shift text not parsable
               console.log(`Shift window: using default withinShift=true (shift text not parsable)`);
