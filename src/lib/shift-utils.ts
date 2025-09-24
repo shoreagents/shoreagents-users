@@ -348,18 +348,21 @@ export function isShiftNotStarted(shiftInfo: ShiftInfo | null, currentTime: Date
   if (!shiftInfo) return false;
 
   try {
-    // Get current time in Philippines timezone
+    // Get current time in Philippines timezone - use proper timezone conversion
     const nowPH = new Date(currentTime.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
     
     console.log('isShiftNotStarted: Checking shift start - nowPH:', nowPH, 'shiftInfo:', shiftInfo);
     
     // Check if we have shift info from context
     if (shiftInfo?.startTime) {
-      // The shiftInfo.startTime is in UTC, convert it to Philippines time for comparison
+      // The shiftInfo.startTime is in UTC, we need to compare it properly
       const shiftStartDate = new Date(shiftInfo.startTime);
-      const shiftStartDatePH = new Date(shiftStartDate.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
-      const notStarted = nowPH < shiftStartDatePH;
-      console.log('isShiftNotStarted: Using startTime - shiftStartDate (UTC):', shiftStartDate, 'shiftStartDatePH (PH):', shiftStartDatePH, 'nowPH:', nowPH, 'notStarted:', notStarted);
+      
+      // Convert current time to UTC for proper comparison with UTC shift time
+      const nowUTC = new Date(currentTime);
+      
+      const notStarted = nowUTC < shiftStartDate;
+      console.log('isShiftNotStarted: Using startTime - shiftStartDate (UTC):', shiftStartDate, 'nowUTC:', nowUTC, 'nowPH:', nowPH, 'notStarted:', notStarted);
       return notStarted;
     }
 
@@ -396,11 +399,14 @@ export function isShiftEnded(shiftInfo: ShiftInfo | null, currentTime: Date = ne
     
     // Check if we have shift info from context
     if (shiftInfo?.endTime) {
-      // The shiftInfo.endTime is in UTC, convert it to Philippines time for comparison
+      // The shiftInfo.endTime is in UTC, we need to compare it properly
       const shiftEndDate = new Date(shiftInfo.endTime);
-      const shiftEndDatePH = new Date(shiftEndDate.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
-      const isEnded = nowPH > shiftEndDatePH;
-      console.log('isShiftEnded: Using endTime - shiftEndDate (UTC):', shiftEndDate, 'shiftEndDatePH (PH):', shiftEndDatePH, 'nowPH:', nowPH, 'isEnded:', isEnded);
+      
+      // Convert current time to UTC for proper comparison with UTC shift time
+      const nowUTC = new Date(currentTime);
+      
+      const isEnded = nowUTC > shiftEndDate;
+      console.log('isShiftEnded: Using endTime - shiftEndDate (UTC):', shiftEndDate, 'nowUTC:', nowUTC, 'nowPH:', nowPH, 'isEnded:', isEnded);
       return isEnded;
     }
 
