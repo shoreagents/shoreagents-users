@@ -122,10 +122,8 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
     
     // Only start tracking if shift is active (not ended and not started) and not in health check or restroom
     if (hasLoggedIn && !isTracking && !isBreakActive && !isInMeeting && !isInEvent && !isGoingToClinic && !isInClinic && !isInRestroom && isWithinShift && !isShiftEnded && !isShiftNotStarted && window.location.pathname !== '/') {
-      // Set inactivity threshold from environment variable or default to 30 seconds (30000ms)
-      const inactivityThreshold = process.env.NEXT_PUBLIC_INACTIVITY_THRESHOLD 
-        ? parseInt(process.env.NEXT_PUBLIC_INACTIVITY_THRESHOLD, 10) 
-        : 30000
+      // Set inactivity threshold to 30 seconds (30000ms)
+      const inactivityThreshold = 30000
       setInactivityThreshold(inactivityThreshold)
       startTracking()
     }
@@ -444,7 +442,7 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
         onReset={handleResetActivity}
         onAutoLogout={handleInactivityTimeout}
         inactiveTime={inactivityData?.inactiveTime || 0}
-        threshold={inactivityData?.threshold || (process.env.NEXT_PUBLIC_INACTIVITY_THRESHOLD ? parseInt(process.env.NEXT_PUBLIC_INACTIVITY_THRESHOLD, 10) : 30000)}
+        threshold={inactivityData?.threshold || 30000}
       />
     </ActivityContext.Provider>
   )
