@@ -353,8 +353,9 @@ export function isShiftNotStarted(shiftInfo: ShiftInfo | null, currentTime: Date
     
     // Check if we have shift info from context
     if (shiftInfo?.startTime) {
+      // Ensure startTime is a Date object (it might be a string from JSON)
+      const shiftStartDate = shiftInfo.startTime instanceof Date ? shiftInfo.startTime : new Date(shiftInfo.startTime);
       // Convert shift start time to Philippines timezone for accurate comparison
-      const shiftStartDate = new Date(shiftInfo.startTime);
       const shiftStartDatePH = new Date(shiftStartDate.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
       return nowPH < shiftStartDatePH;
     }
@@ -387,8 +388,9 @@ export function isShiftEnded(shiftInfo: ShiftInfo | null, currentTime: Date = ne
     
     // Check if we have shift info from context
     if (shiftInfo?.endTime) {
+      // Ensure endTime is a Date object (it might be a string from JSON)
+      const shiftEndDate = shiftInfo.endTime instanceof Date ? shiftInfo.endTime : new Date(shiftInfo.endTime);
       // Convert shift end time to Philippines timezone for accurate comparison
-      const shiftEndDate = new Date(shiftInfo.endTime);
       const shiftEndDatePH = new Date(shiftEndDate.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
       return nowPH > shiftEndDatePH;
     }
@@ -423,19 +425,20 @@ export function isWithinShiftHours(shiftInfo: ShiftInfo | null, currentTime: Dat
     console.log('isWithinShiftHours Debug:', {
       nowPH: nowPH.toISOString(),
       shiftInfo: shiftInfo ? {
-        startTime: shiftInfo.startTime.toISOString(),
-        endTime: shiftInfo.endTime.toISOString(),
+        startTime: shiftInfo.startTime instanceof Date ? shiftInfo.startTime.toISOString() : shiftInfo.startTime,
+        endTime: shiftInfo.endTime instanceof Date ? shiftInfo.endTime.toISOString() : shiftInfo.endTime,
         time: shiftInfo.time
       } : null
     });
     
     // Check if we have shift info from context
     if (shiftInfo?.startTime && shiftInfo?.endTime) {
-      // Convert shift times to Philippines timezone for accurate comparison
-      const shiftStartDate = new Date(shiftInfo.startTime);
-      const shiftStartDatePH = new Date(shiftStartDate.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+      // Ensure startTime and endTime are Date objects (they might be strings from JSON)
+      const shiftStartDate = shiftInfo.startTime instanceof Date ? shiftInfo.startTime : new Date(shiftInfo.startTime);
+      const shiftEndDate = shiftInfo.endTime instanceof Date ? shiftInfo.endTime : new Date(shiftInfo.endTime);
       
-      const shiftEndDate = new Date(shiftInfo.endTime);
+      // Convert shift times to Philippines timezone for accurate comparison
+      const shiftStartDatePH = new Date(shiftStartDate.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
       const shiftEndDatePH = new Date(shiftEndDate.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
       
       const isStarted = nowPH >= shiftStartDatePH;
