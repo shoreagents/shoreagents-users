@@ -418,11 +418,13 @@ export function isWithinShiftHours(shiftInfo: ShiftInfo | null, currentTime: Dat
   if (!shiftInfo) return true; // Default to true if no shift info (allow activity tracking)
 
   try {
-    // Get current Philippines time
-    const nowPH = new Date(currentTime.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+    // Get current Philippines time - use a more reliable method
+    const now = new Date(currentTime);
+    const nowPH = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
     
     // Debug logging
     console.log('isWithinShiftHours Debug:', {
+      currentTime: currentTime.toISOString(),
       nowPH: nowPH.toISOString(),
       shiftInfo: shiftInfo ? {
         startTime: shiftInfo.startTime instanceof Date ? shiftInfo.startTime.toISOString() : shiftInfo.startTime,
@@ -437,17 +439,25 @@ export function isWithinShiftHours(shiftInfo: ShiftInfo | null, currentTime: Dat
       const shiftStartDate = shiftInfo.startTime instanceof Date ? shiftInfo.startTime : new Date(shiftInfo.startTime);
       const shiftEndDate = shiftInfo.endTime instanceof Date ? shiftInfo.endTime : new Date(shiftInfo.endTime);
       
-      // Convert shift times to Philippines timezone for accurate comparison
-      const shiftStartDatePH = new Date(shiftStartDate.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
-      const shiftEndDatePH = new Date(shiftEndDate.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+      // The shift times in the database are stored as UTC but represent Philippines local time
+      // So we need to convert them to actual Philippines time for comparison
+      // If the shift is 6:00 AM - 3:00 PM Philippines time, the UTC times should be:
+      // 6:00 AM Philippines = 10:00 PM UTC (previous day) or 11:00 PM UTC (previous day) depending on DST
+      // But since they're stored as 6:00 AM UTC, we need to treat them as Philippines time
       
-      const isStarted = nowPH >= shiftStartDatePH;
-      const isNotEnded = nowPH <= shiftEndDatePH;
+      // Create new Date objects with the same date but in Philippines timezone
+      const shiftStartPH = new Date(shiftStartDate.getFullYear(), shiftStartDate.getMonth(), shiftStartDate.getDate(), 
+                                   shiftStartDate.getHours(), shiftStartDate.getMinutes(), 0, 0);
+      const shiftEndPH = new Date(shiftEndDate.getFullYear(), shiftEndDate.getMonth(), shiftEndDate.getDate(), 
+                                 shiftEndDate.getHours(), shiftEndDate.getMinutes(), 0, 0);
+      
+      const isStarted = nowPH >= shiftStartPH;
+      const isNotEnded = nowPH <= shiftEndPH;
       
       console.log('Shift time comparison:', {
         nowPH: nowPH.toISOString(),
-        shiftStartPH: shiftStartDatePH.toISOString(),
-        shiftEndPH: shiftEndDatePH.toISOString(),
+        shiftStartPH: shiftStartPH.toISOString(),
+        shiftEndPH: shiftEndPH.toISOString(),
         isStarted,
         isNotEnded,
         result: isStarted && isNotEnded
