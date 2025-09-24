@@ -1,8 +1,8 @@
 "use client"
 
 import React, { useState, useEffect, useRef, useCallback } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useMeeting } from '@/contexts/meeting-context'
-import { useMeetingStatus } from '@/hooks/use-meetings'
 import { useSocket } from '@/contexts/socket-context'
 import { Button } from '@/components/ui/button'
 import { 
@@ -22,19 +22,13 @@ interface GlobalMeetingIndicatorProps {
 }
 
 export const GlobalMeetingIndicator = React.memo(function GlobalMeetingIndicator({ className }: GlobalMeetingIndicatorProps) {
-  const { endCurrentMeeting } = useMeeting()
-  const { socket, isConnected } = useSocket()
-  
-  // Use direct hook instead of context to prevent duplicate requests
   const { 
-    data: statusData, 
-    isLoading: statusLoading,
-    refetch: refetchMeetingStatus
-  } = useMeetingStatus(7)
-  
-  const isInMeeting = statusData?.isInMeeting || false
-  const currentMeeting = statusData?.activeMeeting || null
-  const isLoading = statusLoading
+    endCurrentMeeting, 
+    isInMeeting, 
+    currentMeeting, 
+    isLoading 
+  } = useMeeting()
+  const { socket, isConnected } = useSocket()
   const [isEnding, setIsEnding] = useState(false)
   const [currentTime, setCurrentTime] = useState(new Date())
   const [position, setPosition] = useState({ x: 24, y: 24 }) // Default top-right position
@@ -129,67 +123,8 @@ export const GlobalMeetingIndicator = React.memo(function GlobalMeetingIndicator
     return () => clearInterval(interval)
   }, [])
 
-  // Listen for event-left events to refresh meeting status
-  useEffect(() => {
-    const handleEventLeft = () => {
-      // Single refresh is sufficient - socket events handle real-time updates
-      refetchMeetingStatus()
-    }
-
-    window.addEventListener('event-left', handleEventLeft)
-    
-    return () => {
-      window.removeEventListener('event-left', handleEventLeft)
-    }
-  }, [refetchMeetingStatus])
-
-  // Listen for socket events for real-time meeting updates
-  useEffect(() => {
-    if (!socket || !isConnected) return
-
-    let refreshTimeout: NodeJS.Timeout | null = null
-
-    const debouncedRefresh = () => {
-      if (refreshTimeout) {
-        clearTimeout(refreshTimeout)
-      }
-      refreshTimeout = setTimeout(() => {
-        refetchMeetingStatus()
-      }, 100) // 100ms debounce to prevent excessive calls
-    }
-
-    const handleMeetingStarted = () => {
-      // Immediate refresh when meeting starts
-      refetchMeetingStatus()
-    }
-
-    const handleMeetingEnded = () => {
-      // Immediate refresh when meeting ends
-      refetchMeetingStatus()
-    }
-
-    const handleMeetingStatusUpdate = () => {
-      // Debounced refresh for status updates
-      debouncedRefresh()
-    }
-
-    // Add socket event listeners
-    socket.on('meeting_started', handleMeetingStarted)
-    socket.on('meeting_ended', handleMeetingEnded)
-    socket.on('meeting-status-update', handleMeetingStatusUpdate)
-    socket.on('meeting-update', handleMeetingStatusUpdate)
-
-    return () => {
-      // Clean up socket event listeners and timeout
-      if (refreshTimeout) {
-        clearTimeout(refreshTimeout)
-      }
-      socket.off('meeting_started', handleMeetingStarted)
-      socket.off('meeting_ended', handleMeetingEnded)
-      socket.off('meeting-status-update', handleMeetingStatusUpdate)
-      socket.off('meeting-update', handleMeetingStatusUpdate)
-    }
-  }, [socket, isConnected, refetchMeetingStatus])
+  // Socket events are handled by the meeting context
+  // No need for separate socket handling here
 
   // Handle drag start
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -250,6 +185,20 @@ export const GlobalMeetingIndicator = React.memo(function GlobalMeetingIndicator
       }
     }
   }, [isDragging, handleMouseMove, handleMouseUp])
+
+  // Animation configuration
+  const containerAnimation = {
+    initial: { opacity: 0, scale: 0.8, y: -20 },
+    animate: { opacity: 1, scale: 1, y: 0 },
+    exit: { opacity: 0, scale: 0.8, y: -20 }
+  }
+
+  const containerTransition = {
+    duration: 0.3,
+    type: "spring" as const,
+    stiffness: 300,
+    damping: 30
+  }
 
   // Don't render if not in a meeting or if we're still loading and there's no indication of an active meeting
   // Only show loading state if we have some indication there might be an active meeting
@@ -331,20 +280,23 @@ export const GlobalMeetingIndicator = React.memo(function GlobalMeetingIndicator
   }
 
   return (
-    <div
-      ref={containerRef}
-      className={cn(
-        "fixed z-50 select-none",
-        isDragging && "cursor-grabbing",
-        className
-      )}
-      style={{
-        left: position.x,
-        top: position.y,
-        transform: isDragging ? 'scale(1.02)' : 'scale(1)',
-        transition: isDragging ? 'none' : 'transform 0.2s ease-in-out'
-      }}
-    >
+    <AnimatePresence mode="wait">
+      <motion.div
+        ref={containerRef}
+        className={cn(
+          "fixed z-50 select-none",
+          isDragging && "cursor-grabbing",
+          className
+        )}
+        style={{
+          left: position.x,
+          top: position.y,
+        }}
+        initial={containerAnimation.initial}
+        animate={containerAnimation.animate}
+        exit={containerAnimation.exit}
+        transition={containerTransition}
+      >
       <div className={cn(
         "bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700",
         "backdrop-blur-sm bg-white/95 dark:bg-gray-800/95",
@@ -396,10 +348,18 @@ export const GlobalMeetingIndicator = React.memo(function GlobalMeetingIndicator
           </div>
         </div>
 
-        {!isMinimized && (
-          <>
-            {/* Content area */}
-            <div className="p-2">
+        <motion.div
+          animate={{
+            height: isMinimized ? 0 : "auto",
+            opacity: isMinimized ? 0 : 1
+          }}
+          transition={{
+            duration: 0.3,
+            ease: "easeInOut"
+          }}
+          style={{ overflow: "hidden" }}
+        >
+          <div className="p-2">
               {/* Meeting Details - Simplified */}
               <div className="space-y-1.5">
                 <div>
@@ -473,9 +433,9 @@ export const GlobalMeetingIndicator = React.memo(function GlobalMeetingIndicator
                 })()}
               </div>
             </div>
-          </>
-        )}
+        </motion.div>
       </div>
-    </div>
+      </motion.div>
+    </AnimatePresence>
   )
 })

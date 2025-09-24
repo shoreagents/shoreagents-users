@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useState, useEffect, useRef, useCallback } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useEventsContext } from '@/contexts/events-context'
 import { useMeeting } from '@/contexts/meeting-context'
 import { useSocket } from '@/contexts/socket-context'
@@ -220,6 +221,20 @@ export const GlobalEventIndicator = React.memo(function GlobalEventIndicator({ c
     }
   }, [isDragging, handleMouseMove, handleMouseUp])
 
+  // Animation configuration
+  const containerAnimation = {
+    initial: { opacity: 0, scale: 0.8, y: -20 },
+    animate: { opacity: 1, scale: 1, y: 0 },
+    exit: { opacity: 0, scale: 0.8, y: -20 }
+  }
+
+  const containerTransition = {
+    duration: 0.3,
+    type: "spring" as const,
+    stiffness: 300,
+    damping: 30
+  }
+
   // Handle join event
   const handleJoinEvent = async () => {
     if (!currentEvent || isJoining) return
@@ -337,20 +352,24 @@ export const GlobalEventIndicator = React.memo(function GlobalEventIndicator({ c
   }
 
   return (
-    <div
-      ref={containerRef}
-      className={cn(
-        "fixed z-50 select-none",
-        isDragging && "cursor-grabbing",
-        className
-      )}
-      style={{
-        left: position.x,
-        top: position.y,
-        transform: isDragging ? 'scale(1.02)' : 'scale(1)',
-        transition: isDragging ? 'none' : 'transform 0.2s ease-in-out'
-      }}
-    >
+    <>
+      <AnimatePresence mode="wait">
+        <motion.div
+        ref={containerRef}
+        className={cn(
+          "fixed z-50 select-none",
+          isDragging && "cursor-grabbing",
+          className
+        )}
+        style={{
+          left: position.x,
+          top: position.y,
+        }}
+        initial={containerAnimation.initial}
+        animate={containerAnimation.animate}
+        exit={containerAnimation.exit}
+        transition={containerTransition}
+      >
       <div className={cn(
         "bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700",
         "backdrop-blur-sm bg-white/95 dark:bg-gray-800/95",
@@ -402,10 +421,18 @@ export const GlobalEventIndicator = React.memo(function GlobalEventIndicator({ c
           </div>
         </div>
 
-        {!isMinimized && (
-          <>
-            {/* Content area */}
-            <div className="p-2">
+        <motion.div
+          animate={{
+            height: isMinimized ? 0 : "auto",
+            opacity: isMinimized ? 0 : 1
+          }}
+          transition={{
+            duration: 0.3,
+            ease: "easeInOut"
+          }}
+          style={{ overflow: "hidden" }}
+        >
+          <div className="p-2">
               {/* Event Details - Simplified */}
               <div className="space-y-1.5">
                 <div>
@@ -466,49 +493,50 @@ export const GlobalEventIndicator = React.memo(function GlobalEventIndicator({ c
                 </div>
               </div>
             </div>
-          </>
-        )}
+        </motion.div>
       </div>
+        </motion.div>
+      </AnimatePresence>
 
-      {/* Meeting Blocked Dialog */}
-      <Dialog open={showMeetingBlockedDialog} onOpenChange={setShowMeetingBlockedDialog}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <AlertCircle className="h-5 w-5 text-amber-500" />
-              Cannot Join Event
-            </DialogTitle>
-            <DialogDescription>
-              You cannot join the event while you are currently in a meeting. Please end your meeting first before joining the event.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="flex gap-2">
-            <Button 
-              onClick={() => setShowMeetingBlockedDialog(false)}
-              variant="outline"
-            >
-              Cancel
-            </Button>
-            <Button 
-              onClick={handleEndMeetingAndJoin}
-              variant="destructive"
-              disabled={isEndingMeeting || !currentMeeting}
-            >
-              {isEndingMeeting ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Ending Meeting...
-                </>
-              ) : (
-                <>
-                  <Square className="h-4 w-4 mr-2" />
-                  End Meeting & Join Event
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
+    {/* Meeting Blocked Dialog */}
+    <Dialog open={showMeetingBlockedDialog} onOpenChange={setShowMeetingBlockedDialog}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <AlertCircle className="h-5 w-5 text-amber-500" />
+            Cannot Join Event
+          </DialogTitle>
+          <DialogDescription>
+            You cannot join the event while you are currently in a meeting. Please end your meeting first before joining the event.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="flex gap-2">
+          <Button 
+            onClick={() => setShowMeetingBlockedDialog(false)}
+            variant="outline"
+          >
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleEndMeetingAndJoin}
+            variant="destructive"
+            disabled={isEndingMeeting || !currentMeeting}
+          >
+            {isEndingMeeting ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Ending Meeting...
+              </>
+            ) : (
+              <>
+                <Square className="h-4 w-4 mr-2" />
+                End Meeting & Join Event
+              </>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  </>
   )
 })
