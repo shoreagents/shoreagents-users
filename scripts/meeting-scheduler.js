@@ -1,10 +1,41 @@
 const { Pool } = require('pg');
+const { createClient } = require('redis');
 require('dotenv').config({ path: '.env.local' });
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
 });
+
+// Redis client for cache invalidation
+let redisClient = null;
+
+const initializeRedis = async () => {
+  if (!process.env.REDIS_URL) {
+    console.log('No REDIS_URL found, cache invalidation will be skipped');
+    return null;
+  }
+  
+  try {
+    redisClient = createClient({
+      url: process.env.REDIS_URL,
+      socket: {
+        connectTimeout: 5000,
+      },
+    });
+    
+    redisClient.on('error', (err) => {
+      console.error('Redis Client Error:', err);
+    });
+    
+    await redisClient.connect();
+    console.log('Redis connected for cache invalidation');
+    return redisClient;
+  } catch (error) {
+    console.error('Redis initialization failed:', error);
+    return null;
+  }
+};
 
 class MeetingScheduler {
   constructor() {
@@ -30,6 +61,14 @@ class MeetingScheduler {
       
       if (meetingsStarted > 0) {
         console.log(`[${new Date().toLocaleTimeString()}] Started ${meetingsStarted} scheduled meetings`);
+        
+        // Invalidate Redis cache for all users to ensure frontend gets updated data
+        try {
+          await this.invalidateMeetingCache();
+          console.log(`[${new Date().toLocaleTimeString()}] Invalidated meeting cache after starting ${meetingsStarted} meetings`);
+        } catch (cacheError) {
+          console.error(`[${new Date().toLocaleTimeString()}] Failed to invalidate cache:`, cacheError.message);
+        }
       }
       
     } catch (error) {
@@ -113,6 +152,14 @@ class MeetingScheduler {
       this.notificationIntervalId = null;
     }
     
+    // Close Redis connection
+    if (redisClient) {
+      redisClient.quit().catch(err => {
+        console.error('Error closing Redis connection:', err);
+      });
+      redisClient = null;
+    }
+    
     console.log('Meeting scheduler stopped');
   }
 
@@ -136,6 +183,16 @@ class MeetingScheduler {
       
       console.log(`[${new Date().toLocaleTimeString()}] Meeting processing complete: ${meetingsStarted} meetings started`);
       
+      // Invalidate cache if meetings were started
+      if (meetingsStarted > 0) {
+        try {
+          await this.invalidateMeetingCache();
+          console.log(`[${new Date().toLocaleTimeString()}] Invalidated meeting cache after manual processing`);
+        } catch (cacheError) {
+          console.error(`[${new Date().toLocaleTimeString()}] Failed to invalidate cache:`, cacheError.message);
+        }
+      }
+      
       return { meetingsStarted };
     } catch (error) {
       console.error(`[${new Date().toLocaleTimeString()}] Error processing scheduled meetings:`, error.message);
@@ -154,6 +211,76 @@ class MeetingScheduler {
     } catch (error) {
       console.error(`[${new Date().toLocaleTimeString()}] Error processing meeting notifications:`, error.message);
       throw error;
+    }
+  }
+
+  // Method to invalidate meeting cache
+  async invalidateMeetingCache() {
+    try {
+      if (!redisClient) {
+        console.log(`[${new Date().toLocaleTimeString()}] Initializing Redis connection for cache invalidation...`);
+        redisClient = await initializeRedis();
+        if (!redisClient) {
+          console.log(`[${new Date().toLocaleTimeString()}] Redis not available, skipping cache invalidation`);
+          return;
+        }
+      }
+      
+      // Get all user IDs from the database
+      const usersResult = await pool.query('SELECT DISTINCT agent_user_id FROM meetings WHERE agent_user_id IS NOT NULL');
+      const userIds = usersResult.rows.map(row => row.agent_user_id);
+      
+      console.log(`[${new Date().toLocaleTimeString()}] Starting cache invalidation for ${userIds.length} users...`);
+      
+      // Invalidate cache for each user
+      let totalKeysCleared = 0;
+      for (const userId of userIds) {
+        // Invalidate meetings cache patterns
+        const patterns = [
+          `meetings:${userId}:7:*`,
+          `meeting-status:${userId}:7`,
+          `meeting-counts:${userId}:7`
+        ];
+        
+        for (const pattern of patterns) {
+          try {
+            const keys = await redisClient.keys(pattern);
+            if (keys.length > 0) {
+              await redisClient.del(keys);
+              totalKeysCleared += keys.length;
+              console.log(`[${new Date().toLocaleTimeString()}] Cleared ${keys.length} keys for pattern: ${pattern}`);
+            }
+          } catch (patternError) {
+            console.error(`[${new Date().toLocaleTimeString()}] Error invalidating pattern ${pattern}:`, patternError.message);
+          }
+        }
+      }
+      
+      // Also clear any general meeting cache patterns
+      const generalPatterns = [
+        'meetings:*',
+        'meeting-status:*',
+        'meeting-counts:*'
+      ];
+      
+      for (const pattern of generalPatterns) {
+        try {
+          const keys = await redisClient.keys(pattern);
+          if (keys.length > 0) {
+            await redisClient.del(keys);
+            totalKeysCleared += keys.length;
+            console.log(`[${new Date().toLocaleTimeString()}] Cleared ${keys.length} keys for general pattern: ${pattern}`);
+          }
+        } catch (patternError) {
+          console.error(`[${new Date().toLocaleTimeString()}] Error invalidating general pattern ${pattern}:`, patternError.message);
+        }
+      }
+      
+      console.log(`[${new Date().toLocaleTimeString()}] Cache invalidation complete: ${totalKeysCleared} keys cleared for ${userIds.length} users`);
+    } catch (error) {
+      console.error(`[${new Date().toLocaleTimeString()}] Error invalidating cache:`, error.message);
+      console.error(`[${new Date().toLocaleTimeString()}] Full error:`, error);
+      // Don't throw error to prevent scheduler from stopping
     }
   }
 

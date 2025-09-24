@@ -23,6 +23,7 @@ type MonthlySummary = {
 
 type LeaderboardRow = { 
   rank: number
+  userId: string
   name: string
   productivityScore: number 
 }
@@ -166,6 +167,7 @@ export function useAnalyticsLeaderboard() {
         .slice(0, 10) // Limit to top 10
         .map((entry: any) => ({
           rank: entry.rank,
+          userId: entry.userId,
           name: entry.name,
           productivityScore: entry.productivityScore
         }))

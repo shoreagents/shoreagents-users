@@ -85,8 +85,10 @@ function MeetingCard({
   const meetingStartTime = new Date(meeting.start_time)
   // Add 10-minute grace period to match the database function logic
   const gracePeriodMs = 10 * 60 * 1000 // 10 minutes in milliseconds
+  // Add 2-second buffer to account for scheduler timing (0.5s interval + processing time)
+  const schedulerBufferMs = 2 * 1000 // 2 seconds in milliseconds
   const canStart = meeting.status === 'scheduled' && 
-    meetingStartTime <= now && 
+    meetingStartTime <= new Date(now.getTime() - schedulerBufferMs) && 
     (now.getTime() - meetingStartTime.getTime()) <= gracePeriodMs &&
     !isInEvent // Don't show starting automatically if user is in an event
 
@@ -375,12 +377,35 @@ export default function MeetingsPage() {
 
   // Immediate check for in-progress meetings when meetings data changes
   useEffect(() => {
-    const hasInProgressMeetings = meetings.some(meeting => meeting.status === 'in-progress')
+    const hasInProgressMeetings = allMeetings.some(meeting => meeting.status === 'in-progress')
+    const hasScheduledMeetings = allMeetings.some(meeting => meeting.status === 'scheduled')
+    
+    // Immediate check - meetings data changed
+    
     if (hasInProgressMeetings) {
-      console.log('Meetings data changed - found in-progress meetings, clearing loading state')
+      // Meeting has started, clear loading state
+      // Meeting started - clear loading state immediately
       setIsScheduledMeetingLoading(false)
+    } else if (!hasScheduledMeetings) {
+      // No scheduled meetings, clear loading state
+      // No scheduled meetings - clear loading state
+      setIsScheduledMeetingLoading(false)
+    } else {
+      // Check if any scheduled meetings are overdue and should start immediately
+      const now = new Date()
+      const overdueMeetings = allMeetings.filter(meeting => {
+        if (meeting.status !== 'scheduled') return false
+        const meetingStartTime = new Date(meeting.start_time)
+        // Add 2-second grace period before considering overdue
+        return meetingStartTime <= new Date(now.getTime() - 2 * 1000)
+      })
+      
+      if (overdueMeetings.length > 0) {
+        // Found overdue meetings - trigger immediate refresh
+        refetchMeetings()
+      }
     }
-  }, [meetings])
+  }, [allMeetings, refetchMeetings])
 
   // Extract pagination info
   const pagination = meetingsData?.pagination || {
@@ -393,7 +418,9 @@ export default function MeetingsPage() {
   }
   // Show loading if we're loading meetings, status, or counts, or if we don't have any data yet
   // This prevents the empty state from flashing before data loads
-  const loading = isInitialMount || meetingsLoading || allMeetingsLoading || statusLoading || countsLoading || (!meetingsData && !allMeetingsData && !statusData)
+  const loading = isInitialMount || meetingsLoading || allMeetingsLoading || statusLoading || countsLoading
+  
+  // Debug logging removed - loading state is working correctly
   
   // Show loading state when pagination is changing (meetingsLoading is true but we have data)
   const paginationLoading = isPaginationLoading || (meetingsLoading && meetingsData)
@@ -496,10 +523,18 @@ export default function MeetingsPage() {
 
   // Handle initial mount state
   useEffect(() => {
-    if (meetingsData || allMeetingsData || statusData || meetingsLoading || allMeetingsLoading || statusLoading) {
+    // Reset initial mount state when any data loads or after a timeout
+    if (meetingsData || allMeetingsData || statusData) {
       setIsInitialMount(false)
     }
-  }, [meetingsData, allMeetingsData, statusData, meetingsLoading, allMeetingsLoading, statusLoading])
+    
+    // Fallback: reset initial mount after 5 seconds to prevent stuck loading
+    const timeout = setTimeout(() => {
+      setIsInitialMount(false)
+    }, 5000)
+    
+    return () => clearTimeout(timeout)
+  }, [meetingsData, allMeetingsData, statusData])
 
   // Update current time every second for elapsed time display
   useEffect(() => {
@@ -532,17 +567,17 @@ export default function MeetingsPage() {
   // Listen for automatic meeting start events
   useEffect(() => {
     const handleMeetingStarted = (event: CustomEvent) => {
-      // Refresh both meeting data and context to ensure consistency
+      // Refresh meeting data to ensure consistency
       setIsScheduledMeetingLoading(false) // Clear loading state immediately
+      // Only call one refresh method to prevent duplicate API calls
       refetchMeetings()
-      contextRefreshMeetings()
     }
 
     const handleEventLeft = (event: CustomEvent) => {
       // Single refresh is sufficient - the database function will handle the rest
       setIsScheduledMeetingLoading(false) // Clear loading state immediately
+      // Only call one refresh method to prevent duplicate API calls
       refetchMeetings()
-      contextRefreshMeetings()
     }
 
     window.addEventListener('meeting_started', handleMeetingStarted as EventListener)
@@ -552,7 +587,7 @@ export default function MeetingsPage() {
       window.removeEventListener('meeting_started', handleMeetingStarted as EventListener)
       window.removeEventListener('event-left', handleEventLeft as EventListener)
     }
-  }, [refetchMeetings, contextRefreshMeetings])
+  }, [refetchMeetings])
 
   // Track if socket has cleared loading state to prevent polling from overriding
   const [socketClearedLoading, setSocketClearedLoading] = useState(false)
@@ -568,32 +603,33 @@ export default function MeetingsPage() {
         clearTimeout(refreshTimeout)
       }
       refreshTimeout = setTimeout(() => {
+        // Only call one refresh method to prevent duplicate API calls
         refetchMeetings()
-        contextRefreshMeetings()
-      }, 50) // Reduced to 50ms for faster response
+        // Remove contextRefreshMeetings() call to prevent duplicate requests
+      }, 500) // Increased to 500ms to reduce API calls
     }
 
     const handleMeetingStarted = () => {
       // Immediate refresh when meeting starts via socket
       setIsScheduledMeetingLoading(false) // Clear loading state immediately
       setSocketClearedLoading(true) // Mark that socket cleared it
+      // Only call one refresh method to prevent duplicate API calls
       refetchMeetings()
-      contextRefreshMeetings()
     }
 
     const handleMeetingEnded = () => {
       // Immediate refresh when meeting ends via socket
       setIsScheduledMeetingLoading(false) // Clear loading state immediately
       setSocketClearedLoading(true) // Mark that socket cleared it
+      // Only call one refresh method to prevent duplicate API calls
       refetchMeetings()
-      contextRefreshMeetings()
     }
 
     const handleMeetingStatusUpdate = () => {
       // Debounced refresh for status updates
       // Only clear loading state if we're not waiting for scheduled meetings
       const now = new Date()
-      const hasScheduledMeetingsWaiting = meetings.some(meeting => {
+      const hasScheduledMeetingsWaiting = allMeetings.some(meeting => {
         if (meeting.status !== 'scheduled') return false
         const meetingStartTime = new Date(meeting.start_time)
         return meetingStartTime <= now
@@ -622,79 +658,115 @@ export default function MeetingsPage() {
       socket.off('meeting-status-update', handleMeetingStatusUpdate)
       socket.off('meeting-update', handleMeetingStatusUpdate)
     }
-  }, [socket, isConnected, refetchMeetings, contextRefreshMeetings, meetings])
+  }, [socket, isConnected, refetchMeetings, contextRefreshMeetings, allMeetings])
 
   // Reset socket cleared flag only when we have no scheduled meetings waiting
   useEffect(() => {
     const now = new Date()
-    const hasScheduledMeetingsWaiting = meetings.some(meeting => {
+    const hasScheduledMeetingsWaiting = allMeetings.some(meeting => {
       if (meeting.status !== 'scheduled') return false
       const meetingStartTime = new Date(meeting.start_time)
-      return meetingStartTime <= now
+      // Add 2-second grace period before considering waiting
+      return meetingStartTime <= new Date(now.getTime() - 2 * 1000)
     })
 
     // Only reset socket cleared flag if there are no scheduled meetings waiting
     if (!hasScheduledMeetingsWaiting) {
       setSocketClearedLoading(false)
     }
-  }, [meetings])
+  }, [allMeetings])
 
   // Periodic refresh for scheduled meetings to catch automatic starts
   // Only poll if user is NOT in an event to prevent unnecessary API calls
   useEffect(() => {
     // Check if there are any scheduled meetings that should have started
+    // Use allMeetings instead of meetings to check ALL meetings, not just current page
     const now = new Date()
-    const hasScheduledMeetingsWaiting = meetings.some(meeting => {
+    const hasScheduledMeetingsWaiting = allMeetings.some(meeting => {
       if (meeting.status !== 'scheduled') return false
       const meetingStartTime = new Date(meeting.start_time)
-      return meetingStartTime <= now
+      // Add 2-second grace period before showing loading state
+      return meetingStartTime <= new Date(now.getTime() - 2 * 1000)
     })
 
     // Check if any meetings have actually started (changed to in-progress)
-    const hasInProgressMeetings = meetings.some(meeting => meeting.status === 'in-progress')
+    const hasInProgressMeetings = allMeetings.some(meeting => meeting.status === 'in-progress')
+
+    // Debug logging removed for production
 
     if (!hasScheduledMeetingsWaiting || isInEvent || hasInProgressMeetings) {
       // No scheduled meetings waiting, user is in event, or meetings have started
+      // Clear loading state - no meetings waiting or meeting started
       setIsScheduledMeetingLoading(false)
       return
     }
 
+    // Don't manually start meetings - let the backend scheduler handle it
+    // The backend scheduler runs every 500ms and will start meetings automatically
+
     // Set loading state when waiting for meetings to start
     setIsScheduledMeetingLoading(true)
+    
+    // Set a timeout to prevent stuck loading state (30 seconds max)
+    const loadingTimeout = setTimeout(() => {
+      // Meeting auto-start loading timeout - clearing loading state
+      setIsScheduledMeetingLoading(false)
+    }, 30 * 1000) // Reduced to 30 seconds
 
     const interval = setInterval(() => {
       // Don't override if socket has already cleared the loading state
       if (socketClearedLoading) {
+        // Skip interval check - socket already cleared loading
         return
       }
 
       // Check if any scheduled meetings should have started
+      // Use allMeetings instead of meetings to check ALL meetings, not just current page
       const now = new Date()
-      const hasScheduledMeetingsWaiting = meetings.some(meeting => {
+      const hasScheduledMeetingsWaiting = allMeetings.some(meeting => {
         if (meeting.status !== 'scheduled') return false
         const meetingStartTime = new Date(meeting.start_time)
-        return meetingStartTime <= now
+        // Add 2-second grace period before showing loading state
+        return meetingStartTime <= new Date(now.getTime() - 2 * 1000)
       })
 
       // Check if any meetings have actually started (changed to in-progress)
-      const hasInProgressMeetings = meetings.some(meeting => meeting.status === 'in-progress')
+      const hasInProgressMeetings = allMeetings.some(meeting => meeting.status === 'in-progress')
+
+      // Interval check for meeting status
 
       if (hasScheduledMeetingsWaiting && !hasInProgressMeetings) {
-        // Still waiting for meetings to start
+        // Check if meeting is significantly overdue (more than 5 seconds)
+        const overdueMeetings = allMeetings.filter(meeting => {
+          if (meeting.status !== 'scheduled') return false
+          const meetingStartTime = new Date(meeting.start_time)
+          const now = new Date()
+          return meetingStartTime <= new Date(now.getTime() - 5 * 1000) // 5 seconds overdue
+        })
+
+        if (overdueMeetings.length > 0) {
+          // Meeting is overdue - try to start it manually as fallback
+          const overdueMeeting = overdueMeetings[0]
+          startMeetingMutation.mutate(overdueMeeting.id)
+        }
+
+        // Still waiting for meetings to start - backend scheduler will handle it
         setIsScheduledMeetingLoading(true)
+        // Only call one refresh method to prevent duplicate API calls
         refetchMeetings()
-        contextRefreshMeetings()
       } else {
         // No scheduled meetings waiting or meetings have started
+        // Clear loading state - meeting started or no meetings waiting
         setIsScheduledMeetingLoading(false)
       }
-    }, 500) // Check every 500ms for even faster response
+    }, 500) // Reduced to 500ms to match backend scheduler frequency
 
     return () => {
       clearInterval(interval)
+      clearTimeout(loadingTimeout)
       setIsScheduledMeetingLoading(false)
     }
-  }, [meetings, refetchMeetings, contextRefreshMeetings, isInEvent, socketClearedLoading])
+  }, [allMeetings, refetchMeetings, isInEvent, socketClearedLoading, startMeetingMutation])
 
   // Periodic sync check to ensure UI consistency
   useEffect(() => {
@@ -715,13 +787,13 @@ export default function MeetingsPage() {
       })
 
       if (shouldSync) {
+        // Only call one refresh method to prevent duplicate API calls
         refetchMeetings()
-        contextRefreshMeetings()
       }
     }, 120000) // OPTIMIZED: Increased from 30 seconds to 2 minutes to reduce API calls
 
     return () => clearInterval(interval)
-  }, [meetings, refetchMeetings, contextRefreshMeetings])
+  }, [meetings, refetchMeetings])
 
   const getStatusColor = (status: Meeting['status']) => {
     switch (status) {

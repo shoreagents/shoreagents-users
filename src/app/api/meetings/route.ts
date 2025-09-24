@@ -40,9 +40,18 @@ export async function GET(request: NextRequest) {
     const countResult = await executeQuery(countQuery, [agent_user_id, days])
     const totalCount = countResult[0]?.total_count || 0
 
+    // Convert timestamps to proper timezone format
+    // The database returns timestamps with timezone info, so we need to parse them correctly
+    const meetingsWithTimezone = result.map(meeting => ({
+      ...meeting,
+      start_time: meeting.start_time ? new Date(meeting.start_time).toISOString() : null,
+      end_time: meeting.end_time ? new Date(meeting.end_time).toISOString() : null,
+      created_at: meeting.created_at ? new Date(meeting.created_at).toISOString() : null
+    }))
+
     const responseData = {
       success: true,
-      meetings: result,
+      meetings: meetingsWithTimezone,
       pagination: {
         total: totalCount,
         limit,

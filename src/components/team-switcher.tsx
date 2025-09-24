@@ -30,6 +30,9 @@ export function TeamSwitcher({
         <SidebarMenuButton
           size="lg"
           className="cursor-default"
+          style={{ 
+            WebkitAppRegion: 'drag' as any
+          } as React.CSSProperties}
         >
           <div className="flex aspect-square size-8 items-center justify-center rounded-lg overflow-hidden">
             <Image

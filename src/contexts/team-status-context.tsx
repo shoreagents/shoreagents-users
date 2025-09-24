@@ -149,17 +149,8 @@ export function TeamStatusProvider({ children }: TeamStatusProviderProps) {
     }
   }, [socket])
 
-  // Periodic refresh when socket is disconnected (fallback)
-  useEffect(() => {
-    if (!isConnected && teamData?.agents) {
-      const interval = setInterval(() => {
-        // Trigger team agents refresh to get updated team data
-        triggerRealtimeUpdate()
-      }, 30000) // Every 30 seconds
-
-      return () => clearInterval(interval)
-    }
-  }, [isConnected, teamData, triggerRealtimeUpdate])
+  // Note: Removed periodic refresh interval - socket events should handle real-time updates
+  // The 30-second polling was causing excessive API calls
 
   const value: TeamStatusContextType = {
     onlineTeamCount,

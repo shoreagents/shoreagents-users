@@ -122,17 +122,7 @@ export default function ConnectedUsersPage() {
     }
   }, [])
 
-  // Trigger real-time update when socket reconnects (with debouncing)
-  useEffect(() => {
-    if (socket && isConnected) {
-      // Debounce the update to prevent spam
-      const timeoutId = setTimeout(() => {
-        triggerRealtimeUpdate()
-      }, 1000) // 1 second delay
-      
-      return () => clearTimeout(timeoutId)
-    }
-  }, [socket, isConnected, triggerRealtimeUpdate])
+  // Note: Removed duplicate triggerRealtimeUpdate call - global TeamStatusProvider handles this
 
   // Auto-select current user when team agents are loaded
   useEffect(() => {

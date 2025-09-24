@@ -146,16 +146,16 @@ export function useActivityStatus() {
     // Check immediately
     checkActivityStatus()
 
-    // Check every 500ms for real-time updates
-    const interval = setInterval(checkActivityStatus, 500)
+    // OPTIMIZED: Check every 2 seconds instead of 500ms to reduce API calls
+    const interval = setInterval(checkActivityStatus, 2000)
 
     // Add event listeners for real-time activity detection
     const handleActivity = async () => {
       const currentUser = getCurrentUser()
       if (currentUser?.email) {
+        // OPTIMIZED: Increased delay to reduce API calls
         // TODO: Replace with database-driven activity tracking
-        // For now, just check status after a brief delay
-        setTimeout(checkActivityStatus, 50)
+        setTimeout(checkActivityStatus, 200)
       }
     }
 
@@ -172,8 +172,9 @@ export function useActivityStatus() {
       if (!document.hidden) {
         const currentUser = getCurrentUser()
         if (currentUser?.email) {
+          // OPTIMIZED: Increased delay to reduce API calls
           // TODO: Replace with database-driven activity tracking
-          setTimeout(checkActivityStatus, 50)
+          setTimeout(checkActivityStatus, 200)
         }
       }
     }
@@ -187,7 +188,8 @@ export function useActivityStatus() {
     const handleActivityUpdate = (event: CustomEvent) => {
       const currentUser = getCurrentUser()
       if (currentUser?.email && event.detail.userId === currentUser.email) {
-        setTimeout(checkActivityStatus, 50)
+        // OPTIMIZED: Increased delay to reduce API calls
+        setTimeout(checkActivityStatus, 200)
       }
     }
     window.addEventListener('userActivityUpdate', handleActivityUpdate as EventListener)

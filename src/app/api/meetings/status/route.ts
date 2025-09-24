@@ -33,10 +33,19 @@ export async function GET(request: NextRequest) {
     const inMeetingQuery = `SELECT is_user_in_meeting($1)`
     const inMeetingResult = await executeQuery(inMeetingQuery, [agent_user_id])
 
+    // Convert timestamps to proper timezone format
+    // The database returns timestamps with timezone info, so we need to parse them correctly
+    const activeMeeting = activeResult[0] ? {
+      ...activeResult[0],
+      start_time: activeResult[0].start_time ? new Date(activeResult[0].start_time).toISOString() : null,
+      end_time: activeResult[0].end_time ? new Date(activeResult[0].end_time).toISOString() : null,
+      created_at: activeResult[0].created_at ? new Date(activeResult[0].created_at).toISOString() : null
+    } : null
+
     const responseData = {
       success: true,
       statistics: statsResult[0] || {},
-      activeMeeting: activeResult[0] || null,
+      activeMeeting,
       isInMeeting: inMeetingResult[0]?.is_user_in_meeting || false
     }
 

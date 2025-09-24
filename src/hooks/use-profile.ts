@@ -95,7 +95,7 @@ export function useProfile() {
       return response.json()
     },
     enabled: isClient && !!currentUser?.email,
-    staleTime: 30 * 1000, // 30 seconds - data is fresh for 30 seconds
+    staleTime: 2 * 60 * 1000, // 2 minutes - let socket events handle real-time updates
     gcTime: 2 * 60 * 1000, // 2 minutes - keep in cache for 2 minutes
     refetchOnMount: true, // Refetch when component mounts
     refetchOnWindowFocus: true, // Refetch when window gains focus

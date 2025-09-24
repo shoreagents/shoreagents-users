@@ -146,7 +146,7 @@ export function useUserAuthData(email: string) {
       return data.data
     },
     enabled: isClient && !!email,
-    staleTime: 30 * 1000, // 30 seconds - auth data changes frequently on login
+    staleTime: 2 * 60 * 1000, // 2 minutes - let socket events handle real-time updates
     gcTime: 5 * 60 * 1000, // 5 minutes - keep in cache for 5 min
     refetchOnMount: false,
     refetchOnWindowFocus: false,
@@ -189,7 +189,7 @@ export function useTeamAuthData(agents: TeamAgent[]) {
       return authDataMap
     },
     enabled: isClient && agents.length > 0,
-    staleTime: 30 * 1000, // 30 seconds - auth data changes frequently on login
+    staleTime: 2 * 60 * 1000, // 2 minutes - let socket events handle real-time updates
     gcTime: 5 * 60 * 1000, // 5 minutes - keep in cache for 5 min
     refetchOnMount: false,
     refetchOnWindowFocus: false,

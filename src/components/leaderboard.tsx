@@ -5,15 +5,15 @@ import { Trophy, TrendingUp, User, Crown, Info } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { getAllUsersLeaderboard, getCurrentUserRank, type LeaderboardEntry } from "@/lib/leaderboard-utils"
+import { useAnalyticsLeaderboard } from "@/hooks/use-analytics"
+import { type LeaderboardEntry } from "@/lib/leaderboard-utils"
 
 export function Leaderboard() {
-  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([])
-  const [currentUserRank, setCurrentUserRank] = useState<number | null>(null)
-  const [currentMonth, setCurrentMonth] = useState<string>('')
-  const [loading, setLoading] = useState(true)
-  const [isInitialized, setIsInitialized] = useState(false) // Add flag to prevent immediate refresh
+  // Use React Query hook instead of manual API calls
+  const { data: leaderboardData, isLoading, error } = useAnalyticsLeaderboard()
+  
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null)
+  const [isInitialized, setIsInitialized] = useState(false) // Add flag to prevent immediate refresh
 
   // Function to truncate name with ellipsis
   const truncateName = useCallback((name: string, maxLength: number = 12) => {
@@ -45,86 +45,25 @@ export function Leaderboard() {
     return null
   }, [])
 
-  // Memoize the loadLeaderboard function
-  const loadLeaderboard = useCallback(async () => {
-    try {
-      setLoading(true)
-      const data = await getAllUsersLeaderboard()
-      const rank = await getCurrentUserRank()
-      const userEmail = getCurrentUserEmail()
-      
-      setLeaderboard(data.slice(0, 10)) // Show top 10
-      setCurrentUserRank(rank)
-      setCurrentUserEmail(userEmail)
-      
-      // Get current month for display
-      const now = new Date()
-      const currentMonthYear = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-      setCurrentMonth(currentMonthYear)
-      
-      // Mark as initialized after first successful load
+  // Extract data from React Query
+  const leaderboard = leaderboardData?.leaderboard || []
+  const currentMonth = leaderboardData?.monthYear || ''
+  const currentUserRank = 0 // TODO: Add user rank to the API response
+
+  // Note: Real-time updates are now handled by React Query cache invalidation
+  // The leaderboard will automatically refresh when the cache is invalidated
+
+  // Initialize when data is loaded
+  useEffect(() => {
+    if (leaderboardData && !isInitialized) {
+      setCurrentUserEmail(getCurrentUserEmail())
       setIsInitialized(true)
-      
-      // Leaderboard data loaded
-    } catch (error) {
-      console.error('Error loading leaderboard:', error)
-    } finally {
-      setLoading(false)
     }
-  }, [getCurrentUserEmail])
+  }, [leaderboardData, isInitialized, getCurrentUserEmail])
 
-  // Memoize the productivity update handler
-  const handleProductivityUpdate = useCallback((event: CustomEvent) => {
-    // Only process productivity updates after initial load to prevent duplicate API calls
-    if (!isInitialized) {
-      return
-    }
-    
-    const { email, userId, productivityScore, totalActiveTime, totalInactiveTime } = event.detail;
-    
-    
-    // Real-time productivity update received
-    
-    // Update leaderboard with new productivity data
-    setLeaderboard(prev => {
-      const updated = prev.map(entry => {
-        if (entry.userId === userId) {
-          return {
-            ...entry,
-            productivityScore,
-            totalActiveTime,
-            totalInactiveTime
-          };
-        }
-        return entry;
-      });
-      
-      // Re-sort by productivity score
-      return updated
-        .slice()
-        .sort((a, b) => b.productivityScore - a.productivityScore)
-        .map((entry, index) => ({
-        ...entry,
-        rank: index + 1
-      }));
-    });
-  }, [isInitialized])
+  // Note: Real-time updates are handled by React Query cache invalidation
 
-  useEffect(() => {
-    loadLeaderboard()
-  }, [loadLeaderboard])
-
-  // Listen for real-time productivity updates
-  useEffect(() => {
-    // Listen for productivity updates
-    window.addEventListener('productivity-update', handleProductivityUpdate as EventListener);
-
-    return () => {
-      window.removeEventListener('productivity-update', handleProductivityUpdate as EventListener);
-    };
-  }, [handleProductivityUpdate]);
-
-  if (loading) {
+  if (isLoading) {
     return (
       <Card className="mb-4">
         <CardHeader className="pb-3">

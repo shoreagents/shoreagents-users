@@ -85,44 +85,22 @@ export function MeetingProvider({ children }: MeetingProviderProps) {
       refreshTimeoutRef.current = setTimeout(() => {
         refreshMeetings()
         setLastUpdated(new Date())
-      }, 1000) // OPTIMIZED: Increased debounce time to 1 second to reduce API calls
+      }, 500) // OPTIMIZED: Reduced debounce time to 500ms for better responsiveness
     }
 
-    // Listen for meeting status updates from Socket.IO server
-    const handleMeetingStatusUpdate = (data: { isInMeeting: boolean; activeMeeting?: Meeting }) => {
+    // Consolidated socket event handler to prevent multiple refreshes
+    const handleSocketEvent = (eventType: string, data: any) => {
+      // Only refresh once per event, not per handler
       debouncedRefresh()
     }
 
-    // Listen for meeting data updates
-    const handleMeetingsUpdated = () => {
-      debouncedRefresh()
-    }
-
-    // Listen for real-time meeting status changes
-    const handleMeetingStarted = (data: any) => {
-      debouncedRefresh()
-    }
-
-    const handleMeetingEnded = (data: any) => {
-      debouncedRefresh()
-    }
-
-    const handleMeetingUpdate = (data: any) => {
-      debouncedRefresh()
-    }
-
-    // Listen for agent status updates
-    const handleAgentStatusUpdate = (data: any) => {
-      debouncedRefresh()
-    }
-
-    // Add event listeners
-    socket.on('meeting-status-update', handleMeetingStatusUpdate)
-    socket.on('meetings-updated', handleMeetingsUpdated)
-    socket.on('meeting_started', handleMeetingStarted)
-    socket.on('meeting_ended', handleMeetingEnded)
-    socket.on('meeting-update', handleMeetingUpdate)
-    socket.on('agent-status-update', handleAgentStatusUpdate)
+    // Add event listeners - all use the same handler to prevent duplicate refreshes
+    socket.on('meeting-status-update', (data) => handleSocketEvent('meeting-status-update', data))
+    socket.on('meetings-updated', (data) => handleSocketEvent('meetings-updated', data))
+    socket.on('meeting_started', (data) => handleSocketEvent('meeting_started', data))
+    socket.on('meeting_ended', (data) => handleSocketEvent('meeting_ended', data))
+    socket.on('meeting-update', (data) => handleSocketEvent('meeting-update', data))
+    socket.on('agent-status-update', (data) => handleSocketEvent('agent-status-update', data))
 
     return () => {
       // Clear any pending refresh timeout
@@ -131,12 +109,12 @@ export function MeetingProvider({ children }: MeetingProviderProps) {
       }
       
       // Remove event listeners
-      socket.off('meeting-status-update', handleMeetingStatusUpdate)
-      socket.off('meetings-updated', handleMeetingsUpdated)
-      socket.off('meeting_started', handleMeetingStarted)
-      socket.off('meeting_ended', handleMeetingEnded)
-      socket.off('meeting-update', handleMeetingUpdate)
-      socket.off('agent-status-update', handleAgentStatusUpdate)
+      socket.off('meeting-status-update')
+      socket.off('meetings-updated')
+      socket.off('meeting_started')
+      socket.off('meeting_ended')
+      socket.off('meeting-update')
+      socket.off('agent-status-update')
     }
   }, [socket, isConnected, refreshMeetings])
 
@@ -162,10 +140,8 @@ export function MeetingProvider({ children }: MeetingProviderProps) {
         scheduledTime
       })
       
-      // Invalidate all meeting-related queries to ensure UI updates
-      await queryClient.invalidateQueries({ queryKey: meetingKeys.all })
-      
-      // Also refresh the current context's meetings
+      // Only use refreshMeetings() - it already handles cache invalidation
+      // Remove duplicate queryClient.invalidateQueries() call
       refreshMeetings()
       
       return { success: true, message: 'Meeting created successfully' }
@@ -184,13 +160,9 @@ export function MeetingProvider({ children }: MeetingProviderProps) {
       const currentUser = getCurrentUser()
       await endMeeting(meetingId, currentUser?.id)
       
-      // Invalidate meeting-related queries to ensure UI updates
-      // Use more targeted invalidation to prevent spam
-      queryClient.invalidateQueries({ 
-        queryKey: meetingKeys.all,
-        exact: false,
-        refetchType: 'active' // Only refetch active queries, not background ones
-      })
+      // Only use refreshMeetings() - it already handles cache invalidation
+      // Remove duplicate queryClient.invalidateQueries() call
+      refreshMeetings()
       
       return { success: true, message: 'Meeting ended successfully' }
     } catch (error) {
