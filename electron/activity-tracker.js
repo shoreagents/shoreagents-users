@@ -117,6 +117,8 @@ class ActivityTracker {
   startMouseTracking() {
     if (this.mouseTrackingInterval || this.isSystemSuspended) return;
     
+    console.log('ActivityTracker: Starting mouse tracking');
+    
     // Track mouse movement every 200ms (more frequent for faster response)
     this.mouseTrackingInterval = setInterval(() => {
       if (!this.isTracking || this.isSystemSuspended) return;
@@ -132,6 +134,7 @@ class ActivityTracker {
         );
         
         if (distance >= 2) {
+          console.log('ActivityTracker: Mouse moved, updating activity');
           this.updateActivity();
           this.mousePosition = newPosition;
         }
@@ -200,6 +203,11 @@ class ActivityTracker {
     const currentTime = Date.now();
     const timeSinceLastActivity = currentTime - this.lastActivityTime;
     
+    // Debug logging every 10 seconds
+    if (Math.floor(timeSinceLastActivity / 10000) * 10000 === timeSinceLastActivity) {
+      console.log(`ActivityTracker: Checking inactivity - ${timeSinceLastActivity}ms since last activity (threshold: ${this.inactivityThreshold}ms)`);
+    }
+    
     // Prefer our own high-frequency tracker for consistent thresholding.
     // Use system idle time only as additional context, not as a hard gate.
     let systemIdleTime = null;
@@ -208,6 +216,7 @@ class ActivityTracker {
     } catch (_) {}
 
     if (timeSinceLastActivity >= this.inactivityThreshold) {
+      console.log('ActivityTracker: Inactivity threshold reached, showing dialog');
       this.showInactivityWindow();
       try {
         if (this.mainWindow && !this.mainWindow.isDestroyed() && this.mainWindow.webContents) {

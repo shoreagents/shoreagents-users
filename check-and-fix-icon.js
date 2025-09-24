@@ -110,3 +110,4 @@ function createMinimalIco(icoPath) {
 checkAndFixIcon();
 
 
+
