@@ -718,9 +718,25 @@ function parseShiftTime(shiftTimeString, referenceDate = new Date()) {
     const nowManila = new Date(referenceDate.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
     const today = new Date(nowManila);
     today.setSeconds(0, 0); // Reset seconds and milliseconds
+    
+    console.log(`🔍 parseShiftTime debug:`, {
+      referenceDate: referenceDate.toISOString(),
+      nowManila: nowManila.toISOString(),
+      today: today.toISOString(),
+      shiftTimeString
+    });
 
     const startTime = parseTimeString(startTimeStr, today);
     let endTime = parseTimeString(endTimeStr, today);
+
+    console.log(`🔍 parseShiftTime times:`, {
+      startTimeStr,
+      endTimeStr,
+      startTime: startTime.toISOString(),
+      endTime: endTime.toISOString(),
+      startTimeManila: startTime.toLocaleString('en-US', { timeZone: 'Asia/Manila' }),
+      endTimeManila: endTime.toLocaleString('en-US', { timeZone: 'Asia/Manila' })
+    });
 
     // If end time is before start time, it means shift crosses midnight
     const isNightShift = endTime <= startTime;
@@ -781,7 +797,7 @@ function parseShiftTime(shiftTimeString, referenceDate = new Date()) {
     }
 
     // Day shift - simple same-day logic
-    return {
+    const result = {
       period: "Day Shift",
       schedule: "",
       time: shiftTimeString,
@@ -789,6 +805,18 @@ function parseShiftTime(shiftTimeString, referenceDate = new Date()) {
       endTime,
       isNightShift: false
     };
+    
+    console.log(`🔍 parseShiftTime final result:`, {
+      period: result.period,
+      time: result.time,
+      startTime: result.startTime.toISOString(),
+      endTime: result.endTime.toISOString(),
+      startTimeManila: result.startTime.toLocaleString('en-US', { timeZone: 'Asia/Manila' }),
+      endTimeManila: result.endTime.toLocaleString('en-US', { timeZone: 'Asia/Manila' }),
+      isNightShift: result.isNightShift
+    });
+    
+    return result;
   } catch (error) {
     console.error('Error parsing shift time:', error);
     return null;
@@ -818,6 +846,16 @@ function parseTimeString(timeStr, baseDate) {
   // Create ISO string for Manila timezone (UTC+8)
   const manilaTimeString = `${year}-${month}-${day}T${hour}:${minute}:00+08:00`;
   const utcTime = new Date(manilaTimeString);
+  
+  console.log(`🔍 parseTimeString debug:`, {
+    timeStr,
+    hour24,
+    minutes,
+    baseDate: baseDate.toISOString(),
+    manilaTimeString,
+    utcTime: utcTime.toISOString(),
+    utcTimeManila: utcTime.toLocaleString('en-US', { timeZone: 'Asia/Manila' })
+  });
   
   return utcTime;
 }
@@ -969,11 +1007,19 @@ async function getUserShiftInfo(userId) {
     if (result.rows.length > 0) {
       const shiftData = result.rows[0];
       const currentTime = new Date();
+      console.log(`🔍 getUserShiftInfo: Parsing shift time "${shiftData.shift_time}" for user ${userId} at ${currentTime.toISOString()}`);
       const shiftInfo = parseShiftTime(shiftData.shift_time, currentTime);
       
       if (shiftInfo) {
         shiftInfo.period = shiftData.shift_period || shiftInfo.period;
         shiftInfo.schedule = shiftData.shift_schedule || shiftInfo.schedule;
+        console.log(`🔍 getUserShiftInfo: Parsed shift info:`, {
+          period: shiftInfo.period,
+          time: shiftInfo.time,
+          startTime: shiftInfo.startTime?.toISOString(),
+          endTime: shiftInfo.endTime?.toISOString(),
+          isNightShift: shiftInfo.isNightShift
+        });
         return shiftInfo;
       }
     }

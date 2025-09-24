@@ -24,9 +24,17 @@
       "icon": "public/ShoreAgents-Logo-only-256.png"
     },
     "win": {
-      "target": "dir",
+      "target": "nsis",
       "icon": "public/ShoreAgents-Logo-only-256.ico",
       "requestedExecutionLevel": "asInvoker"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "ShoreAgents Dashboard",
+      "deleteAppDataOnUninstall": false
     },
     "linux": {
       "target": "AppImage",

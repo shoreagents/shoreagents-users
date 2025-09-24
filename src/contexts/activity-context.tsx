@@ -119,13 +119,36 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
     const isWithinShift = isWithinShiftHours(shiftInfo)
     const isShiftEnded = checkIfShiftEnded(shiftInfo)
     const isShiftNotStarted = checkIfShiftNotStarted(shiftInfo)
+    
+    console.log('🔍 isWithinShiftHours result:', isWithinShift)
+    console.log('🔍 shiftInfo received:', shiftInfo)
+   
+    // DEBUG: Log all conditions to understand why tracking might not start
+    console.log('🔍 Activity Tracking Debug:', {
+      hasLoggedIn,
+      isTracking,
+      isBreakActive,
+      isInMeeting,
+      isInEvent,
+      isGoingToClinic,
+      isInClinic,
+      isInRestroom,
+      isWithinShift,
+      isShiftEnded,
+      isShiftNotStarted,
+      pathname: window.location.pathname,
+      shiftInfo
+    })
    
     // Only start tracking if shift is active (not ended and not started) and not in health check or restroom
     if (hasLoggedIn && !isTracking && !isBreakActive && !isInMeeting && !isInEvent && !isGoingToClinic && !isInClinic && !isInRestroom && isWithinShift && !isShiftEnded && !isShiftNotStarted && window.location.pathname !== '/') {
+      console.log('✅ Starting activity tracking - all conditions met')
       // Set inactivity threshold from environment variable or default to 30 seconds (30000ms)
       const inactivityThreshold = 30000
       setInactivityThreshold(inactivityThreshold)
       startTracking()
+    } else {
+      console.log('❌ Not starting activity tracking - conditions not met')
     }
   }, [hasLoggedIn, isTracking, isBreakActive, isInMeeting, isInEvent, isGoingToClinic, isInClinic, isInRestroom, shiftInfo, startTracking, setInactivityThreshold, checkIfShiftEnded, checkIfShiftNotStarted])
 

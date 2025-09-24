@@ -361,6 +361,12 @@ export function isShiftNotStarted(shiftInfo: ShiftInfo | null, currentTime: Date
       const nowUTC = new Date(currentTime.toISOString());
       
       const notStarted = nowUTC < shiftStartDate;
+      console.log('🔍 isShiftNotStarted debug:', {
+        shiftStartTime: shiftInfo.startTime,
+        shiftStartDate: shiftStartDate.toISOString(),
+        nowUTC: nowUTC.toISOString(),
+        notStarted
+      });
       return notStarted;
     }
 
@@ -369,6 +375,12 @@ export function isShiftNotStarted(shiftInfo: ShiftInfo | null, currentTime: Date
       const parsed = parseShiftTime(shiftInfo.time, nowPH);
       if (parsed?.startTime) {
         const notStarted = nowPH < parsed.startTime;
+        console.log('🔍 isShiftNotStarted fallback debug:', {
+          shiftTime: shiftInfo.time,
+          parsedStartTime: parsed.startTime.toISOString(),
+          nowPH: nowPH.toISOString(),
+          notStarted
+        });
         return notStarted;
       }
     }
@@ -401,6 +413,12 @@ export function isShiftEnded(shiftInfo: ShiftInfo | null, currentTime: Date = ne
       const nowUTC = new Date(currentTime.toISOString());
       
       const isEnded = nowUTC > shiftEndDate;
+      console.log('🔍 isShiftEnded debug:', {
+        shiftEndTime: shiftInfo.endTime,
+        shiftEndDate: shiftEndDate.toISOString(),
+        nowUTC: nowUTC.toISOString(),
+        isEnded
+      });
       return isEnded;
     }
 
@@ -409,6 +427,12 @@ export function isShiftEnded(shiftInfo: ShiftInfo | null, currentTime: Date = ne
       const parsed = parseShiftTime(shiftInfo.time, nowPH);
       if (parsed?.endTime) {
         const isEnded = nowPH > parsed.endTime;
+        console.log('🔍 isShiftEnded fallback debug:', {
+          shiftTime: shiftInfo.time,
+          parsedEndTime: parsed.endTime.toISOString(),
+          nowPH: nowPH.toISOString(),
+          isEnded
+        });
         return isEnded;
       }
     }
@@ -426,12 +450,21 @@ export function isShiftEnded(shiftInfo: ShiftInfo | null, currentTime: Date = ne
  */
 export function isWithinShiftHours(shiftInfo: ShiftInfo | null, currentTime: Date = new Date()): boolean {
   if (!shiftInfo) {
+    console.log('🔍 isWithinShiftHours: No shift info, returning true');
     return true; // Default to true if no shift info (allow activity tracking)
   }
 
   const notStarted = isShiftNotStarted(shiftInfo, currentTime);
   const ended = isShiftEnded(shiftInfo, currentTime);
   const withinHours = !notStarted && !ended;
+  
+  console.log('🔍 isWithinShiftHours debug:', {
+    shiftInfo,
+    currentTime: currentTime.toISOString(),
+    notStarted,
+    ended,
+    withinHours
+  });
   
   return withinHours;
 }
