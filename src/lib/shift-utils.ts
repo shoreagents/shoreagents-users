@@ -351,7 +351,6 @@ export function isShiftNotStarted(shiftInfo: ShiftInfo | null, currentTime: Date
     // Get current time in Philippines timezone for logging
     const nowPH = new Date(currentTime.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
     
-    console.log('isShiftNotStarted: Checking shift start - nowPH:', nowPH, 'shiftInfo:', shiftInfo);
     
     // Check if we have shift info from context
     if (shiftInfo?.startTime) {
@@ -362,7 +361,6 @@ export function isShiftNotStarted(shiftInfo: ShiftInfo | null, currentTime: Date
       const nowUTC = new Date(currentTime.toISOString());
       
       const notStarted = nowUTC < shiftStartDate;
-      console.log('isShiftNotStarted: Using startTime - shiftStartDate (UTC):', shiftStartDate.toISOString(), 'nowUTC:', nowUTC.toISOString(), 'nowPH:', nowPH, 'notStarted:', notStarted);
       return notStarted;
     }
 
@@ -371,12 +369,10 @@ export function isShiftNotStarted(shiftInfo: ShiftInfo | null, currentTime: Date
       const parsed = parseShiftTime(shiftInfo.time, nowPH);
       if (parsed?.startTime) {
         const notStarted = nowPH < parsed.startTime;
-        console.log('isShiftNotStarted: Using parsed time - parsed.startTime:', parsed.startTime, 'notStarted:', notStarted);
         return notStarted;
       }
     }
 
-    console.log('isShiftNotStarted: No valid shift info, returning false');
     return false;
   } catch (error) {
     console.error('Error checking if shift not started:', error);
@@ -395,7 +391,6 @@ export function isShiftEnded(shiftInfo: ShiftInfo | null, currentTime: Date = ne
     // Get current time in Philippines timezone for logging
     const nowPH = new Date(currentTime.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
     
-    console.log('isShiftEnded: Checking shift end - nowPH:', nowPH, 'shiftInfo:', shiftInfo);
     
     // Check if we have shift info from context
     if (shiftInfo?.endTime) {
@@ -406,7 +401,6 @@ export function isShiftEnded(shiftInfo: ShiftInfo | null, currentTime: Date = ne
       const nowUTC = new Date(currentTime.toISOString());
       
       const isEnded = nowUTC > shiftEndDate;
-      console.log('isShiftEnded: Using endTime - shiftEndDate (UTC):', shiftEndDate.toISOString(), 'nowUTC:', nowUTC.toISOString(), 'nowPH:', nowPH, 'isEnded:', isEnded);
       return isEnded;
     }
 
@@ -415,12 +409,10 @@ export function isShiftEnded(shiftInfo: ShiftInfo | null, currentTime: Date = ne
       const parsed = parseShiftTime(shiftInfo.time, nowPH);
       if (parsed?.endTime) {
         const isEnded = nowPH > parsed.endTime;
-        console.log('isShiftEnded: Using parsed time - parsed.endTime:', parsed.endTime, 'isEnded:', isEnded);
         return isEnded;
       }
     }
 
-    console.log('isShiftEnded: No valid shift info, returning false');
     return false;
   } catch (error) {
     console.error('Error checking if shift ended:', error);
@@ -434,7 +426,6 @@ export function isShiftEnded(shiftInfo: ShiftInfo | null, currentTime: Date = ne
  */
 export function isWithinShiftHours(shiftInfo: ShiftInfo | null, currentTime: Date = new Date()): boolean {
   if (!shiftInfo) {
-    console.log('isWithinShiftHours: No shift info, returning true (allow tracking)');
     return true; // Default to true if no shift info (allow activity tracking)
   }
 
@@ -442,7 +433,6 @@ export function isWithinShiftHours(shiftInfo: ShiftInfo | null, currentTime: Dat
   const ended = isShiftEnded(shiftInfo, currentTime);
   const withinHours = !notStarted && !ended;
   
-  console.log('isWithinShiftHours: notStarted:', notStarted, 'ended:', ended, 'withinHours:', withinHours);
   
   return withinHours;
 }

@@ -184,7 +184,6 @@ export default function TestActivityPage() {
       const weekStart = new Date(philippinesTime)
       weekStart.setDate(philippinesTime.getDate() + mondayOffset)
       
-      
       // Generate 7 days starting from Monday
       const weekData = []
       for (let i = 0; i < 7; i++) {
@@ -202,8 +201,23 @@ export default function TestActivityPage() {
         const dayOfWeek = currentDate.getDay() // 0 = Sunday, 6 = Saturday
         const isWeekend = dayOfWeek === 0 || dayOfWeek === 6 // Sunday or Saturday
         
+        // For night shift agents, check yesterday's data for today's display
+        let dataToCheck = existingData
+        const isNightShift = shiftInfo?.period === 'Night Shift'
+        
+        if (isNightShift && !isFuture && !isWeekend) {
+          // For night shift agents, check yesterday's data for today's display
+          const yesterday = new Date(currentDate)
+          yesterday.setDate(currentDate.getDate() - 1)
+          const yesterdayString = yesterday.toISOString().split('T')[0]
+          const yesterdayData = aggregatedData[yesterdayString]
+          if (yesterdayData) {
+            dataToCheck = yesterdayData
+          }
+        }
+        
         // Override logic: Weekends are always REST DAY, weekdays show actual data if available
-        const hasData = !isWeekend && existingData && (existingData.total_active_seconds > 0 || existingData.total_inactive_seconds > 0)
+        const hasData = !isWeekend && dataToCheck && (dataToCheck.total_active_seconds > 0 || dataToCheck.total_inactive_seconds > 0)
         
         
         if (isWeekend) {
@@ -239,11 +253,11 @@ export default function TestActivityPage() {
         } else if (hasData) {
           // Day with data
           const dataEntry = {
-            ...existingData,
+            ...dataToCheck,
             id: `data-${i}`, // Ensure unique string ID
             today_date: dateString, // Use clean date format
-            today_active_seconds: existingData.total_active_seconds,
-            today_inactive_seconds: existingData.total_inactive_seconds,
+            today_active_seconds: dataToCheck.total_active_seconds,
+            today_inactive_seconds: dataToCheck.total_inactive_seconds,
             status: 'has_data' as const
           }
           weekData.push(dataEntry)

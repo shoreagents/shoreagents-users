@@ -119,39 +119,14 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
     const isWithinShift = isWithinShiftHours(shiftInfo)
     const isShiftEnded = checkIfShiftEnded(shiftInfo)
     const isShiftNotStarted = checkIfShiftNotStarted(shiftInfo)
-    
-    console.log('ActivityContext: Start tracking check - hasLoggedIn:', hasLoggedIn, 'isTracking:', isTracking, 'isBreakActive:', isBreakActive, 'isInMeeting:', isInMeeting, 'isInEvent:', isInEvent, 'isGoingToClinic:', isGoingToClinic, 'isInClinic:', isInClinic, 'isInRestroom:', isInRestroom, 'isWithinShift:', isWithinShift, 'isShiftEnded:', isShiftEnded, 'isShiftNotStarted:', isShiftNotStarted, 'pathname:', window.location.pathname)
-    
-    // Check each condition individually
-    const conditions = {
-      hasLoggedIn,
-      notTracking: !isTracking,
-      notBreakActive: !isBreakActive,
-      notInMeeting: !isInMeeting,
-      notInEvent: !isInEvent,
-      notGoingToClinic: !isGoingToClinic,
-      notInClinic: !isInClinic,
-      notInRestroom: !isInRestroom,
-      isWithinShift,
-      notShiftEnded: !isShiftEnded,
-      notShiftNotStarted: !isShiftNotStarted,
-      notOnHomePage: window.location.pathname !== '/'
-    }
-    
-    console.log('ActivityContext: Individual conditions:', conditions)
-    
+   
     // Only start tracking if shift is active (not ended and not started) and not in health check or restroom
     if (hasLoggedIn && !isTracking && !isBreakActive && !isInMeeting && !isInEvent && !isGoingToClinic && !isInClinic && !isInRestroom && isWithinShift && !isShiftEnded && !isShiftNotStarted && window.location.pathname !== '/') {
-      console.log('ActivityContext: Starting activity tracking')
       // Set inactivity threshold from environment variable or default to 30 seconds (30000ms)
       const inactivityThreshold = 30000
       setInactivityThreshold(inactivityThreshold)
       startTracking()
     } else {
-      console.log('ActivityContext: Not starting tracking due to conditions not met')
-      // Log which specific conditions are failing
-      const failedConditions = Object.entries(conditions).filter(([key, value]) => !value).map(([key]) => key)
-      console.log('ActivityContext: Failed conditions:', failedConditions)
     }
   }, [hasLoggedIn, isTracking, isBreakActive, isInMeeting, isInEvent, isGoingToClinic, isInClinic, isInRestroom, shiftInfo, startTracking, setInactivityThreshold, checkIfShiftEnded, checkIfShiftNotStarted])
 
@@ -195,17 +170,14 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
         const isShiftEnded = checkIfShiftEnded(shiftInfo)
         const isShiftNotStarted = checkIfShiftNotStarted(shiftInfo)
         
-        console.log('ActivityContext: Shift check - isWithinShift:', isWithinShift, 'isShiftEnded:', isShiftEnded, 'isShiftNotStarted:', isShiftNotStarted, 'shiftInfo:', shiftInfo)
         
         // Pause tracking if outside shift hours, shift has ended, or shift hasn't started
         if (!isWithinShift || isShiftEnded || isShiftNotStarted) {
-          console.log('ActivityContext: Pausing activity tracking due to shift status')
           // Pause activity tracking when outside shift hours or shift is not active
           // TODO: Replace with database-driven activity pausing
           // pauseActivityForShift(currentUser.email)
           pauseTracking()
         } else {
-          console.log('ActivityContext: Resuming activity tracking - shift is active')
           // Resume activity tracking when within shift hours and shift is active
           // TODO: Replace with database-driven activity resuming
           // resumeActivityFromShift(currentUser.email)

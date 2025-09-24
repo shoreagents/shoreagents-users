@@ -2776,7 +2776,7 @@ io.on('connection', (socket) => {
               } else {
                 withinShift = (curMinutes >= startMinutes) || (curMinutes < endMinutes); // night shift crossing midnight
               }
-              console.log(`Shift window calculation: start=${startMinutes}min (${both[1]}), end=${endMinutes}min (${both[2]}), current=${curMinutes}min (${manilaTime.toLocaleTimeString()}), withinShift=${withinShift}`);
+              console.log(`Shift window calculation: start=${startMinutes}min, end=${endMinutes}min, current=${curMinutes}min, withinShift=${withinShift}`);
             } else {
               withinShift = true; // default allow if shift text not parsable
               console.log(`Shift window: using default withinShift=true (shift text not parsable)`);
