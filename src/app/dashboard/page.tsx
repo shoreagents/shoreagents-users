@@ -6,6 +6,7 @@ import { AppHeader } from "@/components/app-header"
 import { DashboardSkeleton } from "@/components/skeleton-loaders"
 import { useActivityTracker } from "@/hooks/use-activity-tracker"
 import { useDashboardData } from "@/hooks/use-dashboard"
+import { useEventsContext } from "@/contexts/events-context"
 import {
   SidebarInset,
   SidebarProvider,
@@ -26,7 +27,8 @@ import {
   Target,
   TrendingUp,
   AlertCircle,
-  CheckSquare
+  CheckSquare,
+  ExternalLink
 } from "lucide-react"
 import Link from "next/link"
 import {
@@ -62,6 +64,8 @@ export default function DashboardPage() {
     isLoading,
     hasError
   } = useDashboardData(days)
+  
+  const { events } = useEventsContext()
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -261,8 +265,13 @@ export default function DashboardPage() {
           {/* KPI Cards */}
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Total Tasks</CardTitle>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 group">
+                <div className="flex items-center gap-2">
+                  <CardTitle className="text-sm font-medium">Total Tasks</CardTitle>
+                  <Link href="/productivity/task-activity">
+                    <ExternalLink className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer" />
+                  </Link>
+                </div>
                 <Target className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
@@ -272,19 +281,29 @@ export default function DashboardPage() {
             </Card>
 
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Overdue Tasks</CardTitle>
-                <AlertCircle className="h-4 w-4 text-muted-foreground" />
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 group">
+                <div className="flex items-center gap-2">
+                  <CardTitle className="text-sm font-medium">Events & Activities</CardTitle>
+                  <Link href="/status/events">
+                    <ExternalLink className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer" />
+                  </Link>
+                </div>
+                <Calendar className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{taskStats?.overdue?.overdue_count || 0}</div>
-                <p className="text-xs text-muted-foreground">Past due date</p>
+                <div className="text-2xl font-bold">{events.length}</div>
+                <p className="text-xs text-muted-foreground">Total events</p>
               </CardContent>
             </Card>
 
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Total Tickets</CardTitle>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 group">
+                <div className="flex items-center gap-2">
+                  <CardTitle className="text-sm font-medium">Total Tickets</CardTitle>
+                  <Link href="/forms/my-tickets">
+                    <ExternalLink className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer" />
+                  </Link>
+                </div>
                 <FileText className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
@@ -294,8 +313,13 @@ export default function DashboardPage() {
             </Card>
 
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Meetings ({selectedPeriod})</CardTitle>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 group">
+                <div className="flex items-center gap-2">
+                  <CardTitle className="text-sm font-medium">Meetings</CardTitle>
+                  <Link href="/status/meetings">
+                    <ExternalLink className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer" />
+                  </Link>
+                </div>
                 <Calendar className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>

@@ -714,8 +714,9 @@ function parseShiftTime(shiftTimeString, referenceDate = new Date()) {
 
     const [, startTimeStr, endTimeStr] = timeMatch;
 
-    // Parse start and end times in Philippines timezone
-    const today = new Date(referenceDate);
+    // Get current time in Manila timezone for proper date calculation
+    const nowManila = new Date(referenceDate.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+    const today = new Date(nowManila);
     today.setSeconds(0, 0); // Reset seconds and milliseconds
 
     const startTime = parseTimeString(startTimeStr, today);
@@ -724,31 +725,69 @@ function parseShiftTime(shiftTimeString, referenceDate = new Date()) {
     // If end time is before start time, it means shift crosses midnight
     const isNightShift = endTime <= startTime;
     if (isNightShift) {
-      // For night shifts, start time should be on the previous day
-      const startTimePrevDay = new Date(startTime);
-      startTimePrevDay.setDate(startTimePrevDay.getDate() - 1);
+      // For night shifts, we need to determine which shift period we're in
+      const now = new Date(referenceDate);
       
-      // For night shifts, end time should be on the same day as the reference date
-      // (not the next day)
-      const endTimeSameDay = new Date(endTime);
+      // Check if we're currently before or after the end time today
+      const endTimeToday = new Date(endTime);
+      const startTimeToday = new Date(startTime);
       
-      return {
-        period: "Night Shift",
-        schedule: "", 
-        time: shiftTimeString,
-        startTime: startTimePrevDay,
-        endTime: endTimeSameDay,
-        isNightShift
-      };
+      if (now <= endTimeToday) {
+        // We're before the end time today, so we're in the shift that started yesterday
+        const startTimeYesterday = new Date(startTime);
+        startTimeYesterday.setDate(startTimeYesterday.getDate() - 1);
+        
+        return {
+          period: "Night Shift",
+          schedule: "",
+          time: shiftTimeString,
+          startTime: startTimeYesterday,
+          endTime: endTimeToday,
+          isNightShift
+        };
+      } else {
+        // We're after the end time today, so we're either:
+        // 1. In the shift that started today (if we're after start time)
+        // 2. Between shifts (if we're before start time)
+        
+        if (now >= startTimeToday) {
+          // We're in the shift that started today
+          const endTimeTomorrow = new Date(endTime);
+          endTimeTomorrow.setDate(endTimeTomorrow.getDate() + 1);
+          
+          return {
+            period: "Night Shift",
+            schedule: "",
+            time: shiftTimeString,
+            startTime: startTimeToday,
+            endTime: endTimeTomorrow,
+            isNightShift
+          };
+        } else {
+          // We're between shifts - return the most recent completed shift
+          const startTimeYesterday = new Date(startTime);
+          startTimeYesterday.setDate(startTimeYesterday.getDate() - 1);
+          
+          return {
+            period: "Night Shift",
+            schedule: "",
+            time: shiftTimeString,
+            startTime: startTimeYesterday,
+            endTime: endTimeToday,
+            isNightShift
+          };
+        }
+      }
     }
 
+    // Day shift - simple same-day logic
     return {
-      period: isNightShift ? "Night Shift" : "Day Shift",
-      schedule: "", 
+      period: "Day Shift",
+      schedule: "",
       time: shiftTimeString,
       startTime,
       endTime,
-      isNightShift
+      isNightShift: false
     };
   } catch (error) {
     console.error('Error parsing shift time:', error);
@@ -769,12 +808,18 @@ function parseTimeString(timeStr, baseDate) {
     hour24 = 0;
   }
 
-  // Create a date with the Philippines time in UTC
-  // Philippines is UTC+8, so we need to subtract 8 hours from Philippines time to get UTC
-  const result = new Date(baseDate);
-  result.setUTCHours(hour24 - 8, minutes, 0, 0);
+  // Create a date string in Manila timezone format
+  const year = baseDate.getFullYear();
+  const month = String(baseDate.getMonth() + 1).padStart(2, '0');
+  const day = String(baseDate.getDate()).padStart(2, '0');
+  const hour = String(hour24).padStart(2, '0');
+  const minute = String(minutes).padStart(2, '0');
   
-  return result;
+  // Create ISO string for Manila timezone (UTC+8)
+  const manilaTimeString = `${year}-${month}-${day}T${hour}:${minute}:00+08:00`;
+  const utcTime = new Date(manilaTimeString);
+  
+  return utcTime;
 }
 
 // Function to check if current time has passed shift start time since last activity

@@ -126,7 +126,6 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
       const inactivityThreshold = 30000
       setInactivityThreshold(inactivityThreshold)
       startTracking()
-    } else {
     }
   }, [hasLoggedIn, isTracking, isBreakActive, isInMeeting, isInEvent, isGoingToClinic, isInClinic, isInRestroom, shiftInfo, startTracking, setInactivityThreshold, checkIfShiftEnded, checkIfShiftNotStarted])
 

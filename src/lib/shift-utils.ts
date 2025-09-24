@@ -433,6 +433,5 @@ export function isWithinShiftHours(shiftInfo: ShiftInfo | null, currentTime: Dat
   const ended = isShiftEnded(shiftInfo, currentTime);
   const withinHours = !notStarted && !ended;
   
-  
   return withinHours;
 }
