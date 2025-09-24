@@ -27,8 +27,8 @@ const nextConfig: NextConfig = {
     root: __dirname,
   },
   compiler: {
-    // Keep console.logs for debugging activity tracker
-    removeConsole: false,
+    // Remove console.logs in production
+    removeConsole: process.env.NODE_ENV === 'production',
   },
   // Ensure TypeScript path mapping works
   typescript: {
