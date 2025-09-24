@@ -28,6 +28,28 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean) => vo
   
   // Ref to track if listeners are already set up for this instance
   const listenersSetupRef = useRef(false);
+  
+  // Periodic status check to sync React state with actual tracker state
+  useEffect(() => {
+    if (!window.electronAPI) return;
+    
+    const checkStatus = async () => {
+      try {
+        const status = await window.electronAPI?.activityTracking.getStatus();
+        if (status && !status.error && status.isTracking !== isTracking) {
+          console.log('useActivityTracking: Status check - syncing isTracking from', isTracking, 'to', status.isTracking);
+          setIsTracking(status.isTracking);
+        }
+      } catch (error) {
+        console.error('Error checking activity status:', error);
+      }
+    };
+    
+    // Check status every 5 seconds
+    const interval = setInterval(checkStatus, 5000);
+    
+    return () => clearInterval(interval);
+  }, [isTracking]);
 
   // Start activity tracking
   const startTracking = useCallback(async () => {
@@ -36,17 +58,25 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean) => vo
       return;
     }
     
+    console.log('useActivityTracking: Attempting to start tracking, current isTracking:', isTracking);
+    
     try {
       const result = await window.electronAPI.activityTracking.start();
+      console.log('useActivityTracking: Start tracking result:', result);
       if (result.success) {
+        console.log('useActivityTracking: Setting isTracking to true');
         setIsTracking(true);
       } else {
         console.error('Failed to start activity tracking:', result.error);
+        console.log('useActivityTracking: Setting isTracking to false due to failure');
+        setIsTracking(false);
       }
     } catch (error) {
       console.error('Error starting activity tracking:', error);
+      console.log('useActivityTracking: Setting isTracking to false due to error');
+      setIsTracking(false);
     }
-  }, []);
+  }, [isTracking]);
 
   // Stop activity tracking
   const stopTracking = useCallback(async () => {
@@ -80,9 +110,13 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean) => vo
       return;
     }
     
+    console.log('useActivityTracking: Attempting to pause tracking, current isTracking:', isTracking);
+    
     try {
       const result = await window.electronAPI.activityTracking.pause();
+      console.log('useActivityTracking: Pause tracking result:', result);
       if (result.success) {
+        console.log('useActivityTracking: Setting isTracking to false (paused)');
         setIsTracking(false);
       } else {
         console.error('Failed to pause activity tracking:', result.error);
@@ -90,7 +124,7 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean) => vo
     } catch (error) {
       console.error('Error pausing activity tracking:', error);
     }
-  }, []);
+  }, [isTracking]);
 
   // Resume activity tracking
   const resumeTracking = useCallback(async () => {
@@ -99,9 +133,13 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean) => vo
       return;
     }
     
+    console.log('useActivityTracking: Attempting to resume tracking, current isTracking:', isTracking);
+    
     try {
       const result = await window.electronAPI.activityTracking.resume();
+      console.log('useActivityTracking: Resume tracking result:', result);
       if (result.success) {
+        console.log('useActivityTracking: Setting isTracking to true (resumed)');
         setIsTracking(true);
       } else {
         console.error('Failed to resume activity tracking:', result.error);
@@ -109,7 +147,7 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean) => vo
     } catch (error) {
       console.error('Error resuming activity tracking:', error);
     }
-  }, []);
+  }, [isTracking]);
 
   // Reset activity functionality removed to prevent cheating
   // Activity will naturally reset when user becomes active
@@ -142,8 +180,14 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean) => vo
     
     try {
       const status = await window.electronAPI.activityTracking.getStatus();
+      console.log('useActivityTracking: Got activity status:', status);
       if (status && !status.error) {
         setActivityStatus(status);
+        // Sync the isTracking state with the actual tracker state
+        if (status.isTracking !== isTracking) {
+          console.log('useActivityTracking: Syncing isTracking state - actual:', status.isTracking, 'react state:', isTracking);
+          setIsTracking(status.isTracking);
+        }
         return status;
       } else {
         console.error('Failed to get activity status:', status.error);
@@ -151,7 +195,7 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean) => vo
     } catch (error) {
       console.error('Error getting activity status:', error);
     }
-  }, []);
+  }, [isTracking]);
 
   // Handle activity updates
   const handleActivityUpdate = useCallback((data: unknown) => {

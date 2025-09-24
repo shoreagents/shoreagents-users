@@ -385,22 +385,29 @@ export function isShiftEnded(shiftInfo: ShiftInfo | null, currentTime: Date = ne
     // Get current Philippines time
     const nowPH = new Date(currentTime.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
     
+    console.log('isShiftEnded: Checking shift end - nowPH:', nowPH, 'shiftInfo:', shiftInfo);
+    
     // Check if we have shift info from context
     if (shiftInfo?.endTime) {
       // Convert shift end time to Philippines timezone for accurate comparison
       const shiftEndDate = new Date(shiftInfo.endTime);
       const shiftEndDatePH = new Date(shiftEndDate.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
-      return nowPH > shiftEndDatePH;
+      const isEnded = nowPH > shiftEndDatePH;
+      console.log('isShiftEnded: Using endTime - shiftEndDatePH:', shiftEndDatePH, 'isEnded:', isEnded);
+      return isEnded;
     }
 
     // Fallback: try to parse from shift time string if available
     if (shiftInfo?.time) {
       const parsed = parseShiftTime(shiftInfo.time, nowPH);
       if (parsed?.endTime) {
-        return nowPH > parsed.endTime;
+        const isEnded = nowPH > parsed.endTime;
+        console.log('isShiftEnded: Using parsed time - parsed.endTime:', parsed.endTime, 'isEnded:', isEnded);
+        return isEnded;
       }
     }
 
+    console.log('isShiftEnded: No valid shift info, returning false');
     return false;
   } catch (error) {
     console.error('Error checking if shift ended:', error);
@@ -413,7 +420,16 @@ export function isShiftEnded(shiftInfo: ShiftInfo | null, currentTime: Date = ne
  * Returns true if shift has started and not ended yet
  */
 export function isWithinShiftHours(shiftInfo: ShiftInfo | null, currentTime: Date = new Date()): boolean {
-  if (!shiftInfo) return true; // Default to true if no shift info (allow activity tracking)
+  if (!shiftInfo) {
+    console.log('isWithinShiftHours: No shift info, returning true (allow tracking)');
+    return true; // Default to true if no shift info (allow activity tracking)
+  }
 
-  return !isShiftNotStarted(shiftInfo, currentTime) && !isShiftEnded(shiftInfo, currentTime);
+  const notStarted = isShiftNotStarted(shiftInfo, currentTime);
+  const ended = isShiftEnded(shiftInfo, currentTime);
+  const withinHours = !notStarted && !ended;
+  
+  console.log('isWithinShiftHours: notStarted:', notStarted, 'ended:', ended, 'withinHours:', withinHours);
+  
+  return withinHours;
 }
