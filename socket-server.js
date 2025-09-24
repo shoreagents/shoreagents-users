@@ -317,7 +317,6 @@ async function initializeGlobalNotificationListener() {
             if (targetEmail) {
               const userSockets = userConnections.get(targetEmail);
               if (userSockets && userSockets.size > 0) {
-                console.log(`Broadcasting activity data update to ${userSockets.size} connections for user ${payload.user_id} (${targetEmail})`);
                 userSockets.forEach(socketId => {
                   io.to(socketId).emit('activity-data-updated', payload);
                 });
@@ -334,8 +333,6 @@ async function initializeGlobalNotificationListener() {
           // Find all sockets for this user and emit to all of them
           if (payload.user_id) {
             let targetEmail = null;
-            console.log(`Looking for user ${payload.user_id} in ${connectedUsers.size} connected users`);
-            console.log(`Connected users:`, Array.from(connectedUsers.entries()).map(([id, data]) => `${id}: ${data.email} (userId: ${data.userId})`));
             
             // Find the user by database ID in the connected users
             for (const [socketId, userData] of connectedUsers.entries()) {
@@ -349,10 +346,8 @@ async function initializeGlobalNotificationListener() {
             if (targetEmail) {
               const userSockets = userConnections.get(targetEmail);
               if (userSockets && userSockets.size > 0) {
-                console.log(`Broadcasting monthly activity update to ${userSockets.size} connections for user ${payload.user_id} (${targetEmail})`);
                 userSockets.forEach(socketId => {
                   io.to(socketId).emit('monthly-activity-update', payload);
-                  console.log(`Emitted monthly-activity-update to socket ${socketId}`);
                 });
               } else {
                 console.log(`No active connections found for user ${payload.user_id} (${targetEmail})`);
@@ -368,8 +363,6 @@ async function initializeGlobalNotificationListener() {
           // Find all sockets for this user and emit to all of them
           if (payload.agent_user_id) {
             let targetEmail = null;
-            console.log(`Looking for user ${payload.agent_user_id} in ${connectedUsers.size} connected users`);
-            console.log(`Connected users:`, Array.from(connectedUsers.entries()).map(([id, data]) => `${id}: ${data.email} (userId: ${data.userId})`));
             
             // Find the user by database ID in the connected users
             for (const [socketId, userData] of connectedUsers.entries()) {
@@ -444,10 +437,8 @@ async function initializeGlobalNotificationListener() {
           }
         } else if (msg.channel === 'event_changes') {
           const payload = JSON.parse(msg.payload);
-          console.log(`Event change notification received:`, payload.type, `Event ID: ${payload.event_id}`);
           
           // Broadcast to all connected users since events are visible to all
-          console.log(`Broadcasting event change to all ${connectedUsers.size} connected users`);
           
           // Emit to all connected sockets
           io.emit('event-change', {
@@ -485,7 +476,6 @@ async function initializeGlobalNotificationListener() {
           
         } else if (msg.channel === 'event_attendance_changes') {
           const payload = JSON.parse(msg.payload);
-          console.log(`Event attendance change notification received:`, payload.type, `Event ID: ${payload.event_id}, User ID: ${payload.user_id}`);
           
           // Find the user's email by looking through all connected users
           let targetEmail = null;
@@ -499,7 +489,6 @@ async function initializeGlobalNotificationListener() {
           if (targetEmail) {
             const userSockets = userConnections.get(targetEmail);
             if (userSockets && userSockets.size > 0) {
-              console.log(`Broadcasting event attendance change to ${userSockets.size} connections for user ${payload.user_id} (${targetEmail})`);
               userSockets.forEach(socketId => {
                 io.to(socketId).emit('event-attendance-change', {
                   type: payload.type,
@@ -605,7 +594,6 @@ async function initializeGlobalNotificationListener() {
             }
           } else if (payload.type === 'announcement_change') {
             // Broadcast announcement changes to all users (for admin updates)
-            console.log(`Broadcasting announcement change to all ${connectedUsers.size} connected users`);
             io.emit('announcement', payload);
           }
         }
@@ -813,15 +801,6 @@ function shouldResetForShift(lastActivityTime, currentTime, shiftInfo) {
       // For night shifts, we only reset when we move to a completely new night shift period
       // This means the last activity was from a different night shift start time
       const shouldReset = lastShiftStart.getTime() !== currentShiftStart.getTime();
-      
-      console.log(`Night Shift reset check:`, {
-        lastActivity: lastActivityTime.toISOString(),
-        currentTime: currentTime.toISOString(),
-        lastShiftStart: lastShiftStart.toISOString(),
-        currentShiftStart: currentShiftStart.toISOString(),
-        shouldReset: shouldReset,
-        reason: shouldReset ? 'new_night_shift_period' : 'same_night_shift_period'
-      });
       
       return shouldReset;
     } else {
@@ -1106,7 +1085,6 @@ async function getConnectedUsersList() {
     `;
     
     const teamResult = await pool.query(teamQuery, [referenceMemberId]);
-    console.log(`📋 Found ${teamResult.rows.length} team members in database`);
     
     const users = [];
     
@@ -1152,7 +1130,6 @@ async function getConnectedUsersList() {
       }
     }
     
-    console.log(`📋 Returning ${users.length} users for team ${referenceMemberId}`);
     return users;
     
   } catch (error) {
@@ -1197,7 +1174,6 @@ function updateUserDetailedStatus(email, statusUpdate) {
   };
   
   userDetailedStatus.set(email, updatedStatus);
-  console.log(`Updated detailed status for ${email}:`, updatedStatus);
   
   // Broadcast the detailed status update to all clients
   broadcastDetailedStatusUpdate(email, updatedStatus);
@@ -2145,9 +2121,6 @@ io.on('connection', (socket) => {
             connectedUsers.delete(socketId);
           }
         }
-        
-        console.log(`Updated socket ${socket.id} with real user data for: ${emailString}`);
-        
         // Track user connections for notifications
         if (!userConnections.has(emailString)) {
           userConnections.set(emailString, new Set());
@@ -2161,7 +2134,6 @@ io.on('connection', (socket) => {
             loginTime: new Date(),
             lastSeen: new Date()
           });
-          console.log(`Created userStatus entry for: ${emailString}`);
         } else {
           // Update existing status to online
           const status = userStatus.get(emailString);
@@ -2702,19 +2674,9 @@ io.on('connection', (socket) => {
 
       // Update in-memory data with frontend values
       const userInfo = userData.userInfo;
-      const oldActive = userInfo.activeSeconds;
-      const oldInactive = userInfo.inactiveSeconds;
       
       userInfo.activeSeconds = timerData.activeSeconds;
       userInfo.inactiveSeconds = timerData.inactiveSeconds;
-      
-      // Throttle: only log significant changes (every 30 seconds or more)
-      const activeDiff = Math.abs(userInfo.activeSeconds - oldActive);
-      const inactiveDiff = Math.abs(userInfo.inactiveSeconds - oldInactive);
-      
-      if (activeDiff >= 30 || inactiveDiff >= 30) {
-        console.log(`Timer updated for ${userData.email}: Active ${oldActive}s → ${userInfo.activeSeconds}s, Inactive ${oldInactive}s → ${userInfo.inactiveSeconds}s`);
-      }
       
       // Also try to update database if connection is available
       try {
@@ -2754,7 +2716,6 @@ io.on('connection', (socket) => {
               [userId]
             );
             const shiftText = (shiftRes.rows[0]?.shift_time || '').toString();
-            console.log(`Shift window check for ${userData.email}: shift_time="${shiftText}"`);
             const both = shiftText.match(/(\d{1,2}:\d{2}\s*(?:AM|PM))\s*-\s*(\d{1,2}:\d{2}\s*(?:AM|PM))/i);
             if (both) {
               const parseToMinutes = (token) => {
@@ -2776,14 +2737,11 @@ io.on('connection', (socket) => {
               } else {
                 withinShift = (curMinutes >= startMinutes) || (curMinutes < endMinutes); // night shift crossing midnight
               }
-              console.log(`Shift window calculation: start=${startMinutes}min, end=${endMinutes}min, current=${curMinutes}min, withinShift=${withinShift}`);
             } else {
               withinShift = true; // default allow if shift text not parsable
-              console.log(`Shift window: using default withinShift=true (shift text not parsable)`);
             }
           } catch (_) {
             withinShift = true; // be permissive on errors so counting still saves
-            console.log(`Shift window: using default withinShift=true (error in calculation)`);
           }
           
         } catch (dbError) {
@@ -2935,12 +2893,6 @@ io.on('connection', (socket) => {
           const shouldEmitSocket = timeSinceLastEmit >= 10000; // 10 seconds
           
           if (shouldEmitSocket) {
-            console.log(`Sending timer update to ${userSockets.size} connections for ${userData.email}:`, {
-              activeSeconds: timerData.activeSeconds,
-              inactiveSeconds: timerData.inactiveSeconds,
-              isActive: timerData.isActive
-            });
-            
             userSockets.forEach(socketId => {
               io.to(socketId).emit('timerUpdated', timerData);
             });
@@ -2948,7 +2900,6 @@ io.on('connection', (socket) => {
             // Update last socket emit timestamp
             userInfo.lastSocketEmit = Date.now();
             
-            console.log(`Timer update sent to ${userSockets.size} connections for ${userData.email}`);
           }
         } else {
           console.log(`No connections found for ${userData.email} to send timer update`);

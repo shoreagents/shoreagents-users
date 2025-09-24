@@ -49,9 +49,6 @@ export async function GET(request: NextRequest) {
     if (!currentUser?.email) {
       return NextResponse.json({ success: false, message: 'User not authenticated' }, { status: 401 })
     }
-    
-    console.log('Current user in events API:', currentUser)
-
     // Check if this is a real-time update request (bypass cache)
     const url = new URL(request.url)
     const bypassCache = url.searchParams.get('bypass_cache') === 'true'
@@ -105,7 +102,6 @@ export async function GET(request: NextRequest) {
       
       const result = await client.query(query, [currentUser.email])
       
-      console.log('Database response:', { rowCount: result.rowCount })
 
       // Convert PostgreSQL array strings to JavaScript arrays
       const events = result.rows.map(row => ({
@@ -121,7 +117,6 @@ export async function GET(request: NextRequest) {
 
       // Cache the result in Redis
       await redisCache.set(cacheKey, responseData, cacheTTL.events)
-      console.log('✅ Events cached in Redis')
 
       return NextResponse.json(responseData)
     } finally {

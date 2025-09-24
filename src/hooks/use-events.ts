@@ -186,18 +186,12 @@ export function useEvents() {
     socket.on('event-attendance-change', handleEventAttendanceChange)
     socket.on('event-updated', handleEventUpdated)
     
-    // Set up periodic refresh every 30 seconds to ensure data stays fresh
-    const refreshInterval = setInterval(() => {
-      triggerRealtimeUpdate()
-    }, 30000)
-    
     return () => {
       socket.off('event-change', handleEventChange)
       socket.off('event-attendance-change', handleEventAttendanceChange)
       socket.off('event-updated', handleEventUpdated)
       socket.off('connect')
       socket.off('disconnect')
-      clearInterval(refreshInterval)
     }
   }, [socket, isConnected, currentUser?.email, queryClient, triggerRealtimeUpdate])
 
