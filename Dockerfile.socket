@@ -1,12 +1,16 @@
-FROM node:20-alpine3.18
+FROM node:20-slim
 
 WORKDIR /app
 
+# Update package lists and install dependencies for native modules
+RUN apt-get update && apt-get install -y \
+    python3 \
+    make \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
 # Configure npm registry
 RUN npm config set registry https://registry.npmjs.org/
-
-# Install dependencies for native modules
-RUN apk add --no-cache python3 make g++
 
 # Copy package files
 COPY socket-server-package.json package.json
@@ -19,8 +23,8 @@ COPY socket-server.js .
 COPY scripts/ ./scripts/
 
 # Create non-root user
-RUN addgroup -g 1001 -S nodejs
-RUN adduser -S nextjs -u 1001
+RUN groupadd -g 1001 nodejs
+RUN useradd -r -u 1001 -g nodejs nextjs
 USER nextjs
 
 # Expose port
