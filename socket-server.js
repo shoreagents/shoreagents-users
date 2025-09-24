@@ -726,7 +726,7 @@ function parseShiftTime(shiftTimeString, referenceDate = new Date()) {
 
     const [, startTimeStr, endTimeStr] = timeMatch;
 
-    // Parse start and end times
+    // Parse start and end times in Philippines timezone
     const today = new Date(referenceDate);
     today.setSeconds(0, 0); // Reset seconds and milliseconds
 
@@ -773,7 +773,8 @@ function parseTimeString(timeStr, baseDate) {
   const [time, period] = cleanTimeStr.split(/\s+/);
   const [hours, minutes] = time.split(':').map(Number);
 
-  const result = new Date(baseDate);
+  // Create a date in Philippines timezone
+  const philippinesDate = new Date(baseDate.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
   
   let hour24 = hours;
   if (period?.toUpperCase() === 'PM' && hours !== 12) {
@@ -782,8 +783,12 @@ function parseTimeString(timeStr, baseDate) {
     hour24 = 0;
   }
 
-  result.setHours(hour24, minutes, 0, 0);
-  return result;
+  philippinesDate.setHours(hour24, minutes, 0, 0);
+  
+  // Convert Philippines time to UTC
+  const utcDate = new Date(philippinesDate.getTime() - (8 * 60 * 60 * 1000));
+  
+  return utcDate;
 }
 
 // Function to check if current time has passed shift start time since last activity
