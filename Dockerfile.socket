@@ -1,6 +1,9 @@
-FROM node:18-alpine
+FROM node:20-alpine3.18
 
 WORKDIR /app
+
+# Configure npm registry
+RUN npm config set registry https://registry.npmjs.org/
 
 # Install dependencies for native modules
 RUN apk add --no-cache python3 make g++
