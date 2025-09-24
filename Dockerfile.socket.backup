@@ -1,4 +1,5 @@
-FROM node:20-slim
+# Alternative Dockerfile with explicit registry and fallback
+FROM registry.hub.docker.com/library/node:20-slim
 
 WORKDIR /app
 
@@ -16,8 +17,7 @@ COPY socket-server.js .
 COPY scripts/ ./scripts/
 
 # Create non-root user
-RUN addgroup -g 1001 -S nodejs
-RUN adduser -S nextjs -u 1001
+RUN groupadd -r nodejs && useradd -r -g nodejs nextjs
 USER nextjs
 
 # Expose port
