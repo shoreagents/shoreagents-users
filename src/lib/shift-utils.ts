@@ -348,21 +348,21 @@ export function isShiftNotStarted(shiftInfo: ShiftInfo | null, currentTime: Date
   if (!shiftInfo) return false;
 
   try {
-    // Get current time in Philippines timezone - use proper timezone conversion
+    // Get current time in Philippines timezone for logging
     const nowPH = new Date(currentTime.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
     
     console.log('isShiftNotStarted: Checking shift start - nowPH:', nowPH, 'shiftInfo:', shiftInfo);
     
     // Check if we have shift info from context
     if (shiftInfo?.startTime) {
-      // The shiftInfo.startTime is in UTC, we need to compare it properly
+      // Parse the UTC time string directly to avoid timezone conversion issues
       const shiftStartDate = new Date(shiftInfo.startTime);
       
-      // Convert current time to UTC for proper comparison with UTC shift time
-      const nowUTC = new Date(currentTime);
+      // Get current time in UTC for proper comparison
+      const nowUTC = new Date(currentTime.toISOString());
       
       const notStarted = nowUTC < shiftStartDate;
-      console.log('isShiftNotStarted: Using startTime - shiftStartDate (UTC):', shiftStartDate, 'nowUTC:', nowUTC, 'nowPH:', nowPH, 'notStarted:', notStarted);
+      console.log('isShiftNotStarted: Using startTime - shiftStartDate (UTC):', shiftStartDate.toISOString(), 'nowUTC:', nowUTC.toISOString(), 'nowPH:', nowPH, 'notStarted:', notStarted);
       return notStarted;
     }
 
@@ -392,21 +392,21 @@ export function isShiftEnded(shiftInfo: ShiftInfo | null, currentTime: Date = ne
   if (!shiftInfo) return false;
 
   try {
-    // Get current time in Philippines timezone
+    // Get current time in Philippines timezone for logging
     const nowPH = new Date(currentTime.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
     
     console.log('isShiftEnded: Checking shift end - nowPH:', nowPH, 'shiftInfo:', shiftInfo);
     
     // Check if we have shift info from context
     if (shiftInfo?.endTime) {
-      // The shiftInfo.endTime is in UTC, we need to compare it properly
+      // Parse the UTC time string directly to avoid timezone conversion issues
       const shiftEndDate = new Date(shiftInfo.endTime);
       
-      // Convert current time to UTC for proper comparison with UTC shift time
-      const nowUTC = new Date(currentTime);
+      // Get current time in UTC for proper comparison
+      const nowUTC = new Date(currentTime.toISOString());
       
       const isEnded = nowUTC > shiftEndDate;
-      console.log('isShiftEnded: Using endTime - shiftEndDate (UTC):', shiftEndDate, 'nowUTC:', nowUTC, 'nowPH:', nowPH, 'isEnded:', isEnded);
+      console.log('isShiftEnded: Using endTime - shiftEndDate (UTC):', shiftEndDate.toISOString(), 'nowUTC:', nowUTC.toISOString(), 'nowPH:', nowPH, 'isEnded:', isEnded);
       return isEnded;
     }
 
