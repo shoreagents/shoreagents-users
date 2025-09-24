@@ -345,19 +345,44 @@ export function formatShiftInfo(shiftInfo: ShiftInfo): string {
  * Returns true if shift hasn't started yet
  */
 export function isShiftNotStarted(shiftInfo: ShiftInfo | null, currentTime: Date = new Date()): boolean {
-  if (!shiftInfo) return false;
+  if (!shiftInfo) {
+    console.log('isShiftNotStarted: No shift info provided, returning false');
+    return false;
+  }
 
   try {
-    // Get current Philippines time
-    const nowPH = new Date(currentTime.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+    // Get current Philippines time - use proper timezone conversion
+    // Create a date in Philippines timezone by adding 8 hours to UTC
+    const nowPH = new Date(currentTime.getTime() + (8 * 60 * 60 * 1000));
+    console.log('Timezone Debug (isShiftNotStarted):', {
+      originalTime: currentTime.toISOString(),
+      philippinesTime: nowPH.toISOString(),
+      philippinesTimeString: currentTime.toLocaleString('en-US', { timeZone: 'Asia/Manila' }),
+      utcOffset: currentTime.getTimezoneOffset(),
+      philippinesOffset: nowPH.getTimezoneOffset()
+    });
+    
+    console.log('isShiftNotStarted Debug:', {
+      shiftInfo,
+      currentTime: currentTime.toISOString(),
+      nowPH: nowPH.toISOString(),
+      shiftStartTime: shiftInfo?.startTime instanceof Date ? shiftInfo.startTime.toISOString() : shiftInfo?.startTime,
+      shiftStartTimeType: typeof shiftInfo?.startTime
+    });
     
     // Check if we have shift info from context
     if (shiftInfo?.startTime) {
-      // Ensure startTime is a Date object (it might be a string from JSON)
+      // Ensure startTime is a Date object
       const shiftStartDate = shiftInfo.startTime instanceof Date ? shiftInfo.startTime : new Date(shiftInfo.startTime);
-      // Convert shift start time to Philippines timezone for accurate comparison
-      const shiftStartDatePH = new Date(shiftStartDate.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
-      return nowPH < shiftStartDatePH;
+      // Convert shift start time to Philippines timezone by adding 8 hours
+      const shiftStartDatePH = new Date(shiftStartDate.getTime() + (8 * 60 * 60 * 1000));
+      const result = nowPH < shiftStartDatePH;
+      console.log('isShiftNotStarted Result:', {
+        nowPH: nowPH.toISOString(),
+        shiftStartDatePH: shiftStartDatePH.toISOString(),
+        result
+      });
+      return result;
     }
 
     // Fallback: try to parse from shift time string if available
@@ -380,19 +405,44 @@ export function isShiftNotStarted(shiftInfo: ShiftInfo | null, currentTime: Date
  * Returns true if shift has ended
  */
 export function isShiftEnded(shiftInfo: ShiftInfo | null, currentTime: Date = new Date()): boolean {
-  if (!shiftInfo) return false;
+  if (!shiftInfo) {
+    console.log('isShiftEnded: No shift info provided, returning false');
+    return false;
+  }
 
   try {
-    // Get current Philippines time
-    const nowPH = new Date(currentTime.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+    // Get current Philippines time - use proper timezone conversion
+    // Create a date in Philippines timezone by adding 8 hours to UTC
+    const nowPH = new Date(currentTime.getTime() + (8 * 60 * 60 * 1000));
+    console.log('Timezone Debug (isShiftEnded):', {
+      originalTime: currentTime.toISOString(),
+      philippinesTime: nowPH.toISOString(),
+      philippinesTimeString: currentTime.toLocaleString('en-US', { timeZone: 'Asia/Manila' }),
+      utcOffset: currentTime.getTimezoneOffset(),
+      philippinesOffset: nowPH.getTimezoneOffset()
+    });
+    
+    console.log('isShiftEnded Debug:', {
+      shiftInfo,
+      currentTime: currentTime.toISOString(),
+      nowPH: nowPH.toISOString(),
+      shiftEndTime: shiftInfo?.endTime instanceof Date ? shiftInfo.endTime.toISOString() : shiftInfo?.endTime,
+      shiftEndTimeType: typeof shiftInfo?.endTime
+    });
     
     // Check if we have shift info from context
     if (shiftInfo?.endTime) {
-      // Ensure endTime is a Date object (it might be a string from JSON)
+      // Ensure endTime is a Date object
       const shiftEndDate = shiftInfo.endTime instanceof Date ? shiftInfo.endTime : new Date(shiftInfo.endTime);
-      // Convert shift end time to Philippines timezone for accurate comparison
-      const shiftEndDatePH = new Date(shiftEndDate.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
-      return nowPH > shiftEndDatePH;
+      // Convert shift end time to Philippines timezone by adding 8 hours
+      const shiftEndDatePH = new Date(shiftEndDate.getTime() + (8 * 60 * 60 * 1000));
+      const result = nowPH > shiftEndDatePH;
+      console.log('isShiftEnded Result:', {
+        nowPH: nowPH.toISOString(),
+        shiftEndDatePH: shiftEndDatePH.toISOString(),
+        result
+      });
+      return result;
     }
 
     // Fallback: try to parse from shift time string if available
@@ -417,66 +467,5 @@ export function isShiftEnded(shiftInfo: ShiftInfo | null, currentTime: Date = ne
 export function isWithinShiftHours(shiftInfo: ShiftInfo | null, currentTime: Date = new Date()): boolean {
   if (!shiftInfo) return true; // Default to true if no shift info (allow activity tracking)
 
-  try {
-    // Get current Philippines time - use a more reliable method
-    const now = new Date(currentTime);
-    const nowPH = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
-    
-    // Debug logging
-    console.log('isWithinShiftHours Debug:', {
-      currentTime: currentTime.toISOString(),
-      nowPH: nowPH.toISOString(),
-      shiftInfo: shiftInfo ? {
-        startTime: shiftInfo.startTime instanceof Date ? shiftInfo.startTime.toISOString() : shiftInfo.startTime,
-        endTime: shiftInfo.endTime instanceof Date ? shiftInfo.endTime.toISOString() : shiftInfo.endTime,
-        time: shiftInfo.time
-      } : null
-    });
-    
-    // Check if we have shift info from context
-    if (shiftInfo?.startTime && shiftInfo?.endTime) {
-      // Ensure startTime and endTime are Date objects (they might be strings from JSON)
-      const shiftStartDate = shiftInfo.startTime instanceof Date ? shiftInfo.startTime : new Date(shiftInfo.startTime);
-      const shiftEndDate = shiftInfo.endTime instanceof Date ? shiftInfo.endTime : new Date(shiftInfo.endTime);
-      
-      // The shift times in the database are stored as UTC but represent Philippines local time
-      // So we need to convert them to actual Philippines time for comparison
-      // If the shift is 6:00 AM - 3:00 PM Philippines time, the UTC times should be:
-      // 6:00 AM Philippines = 10:00 PM UTC (previous day) or 11:00 PM UTC (previous day) depending on DST
-      // But since they're stored as 6:00 AM UTC, we need to treat them as Philippines time
-      
-      // Create new Date objects with the same date but in Philippines timezone
-      const shiftStartPH = new Date(shiftStartDate.getFullYear(), shiftStartDate.getMonth(), shiftStartDate.getDate(), 
-                                   shiftStartDate.getHours(), shiftStartDate.getMinutes(), 0, 0);
-      const shiftEndPH = new Date(shiftEndDate.getFullYear(), shiftEndDate.getMonth(), shiftEndDate.getDate(), 
-                                 shiftEndDate.getHours(), shiftEndDate.getMinutes(), 0, 0);
-      
-      const isStarted = nowPH >= shiftStartPH;
-      const isNotEnded = nowPH <= shiftEndPH;
-      
-      console.log('Shift time comparison:', {
-        nowPH: nowPH.toISOString(),
-        shiftStartPH: shiftStartPH.toISOString(),
-        shiftEndPH: shiftEndPH.toISOString(),
-        isStarted,
-        isNotEnded,
-        result: isStarted && isNotEnded
-      });
-      
-      return isStarted && isNotEnded;
-    }
-
-    // Fallback: try to parse from shift time string if available
-    if (shiftInfo?.time) {
-      const parsed = parseShiftTime(shiftInfo.time, nowPH);
-      if (parsed?.startTime && parsed?.endTime) {
-        return nowPH >= parsed.startTime && nowPH <= parsed.endTime;
-      }
-    }
-
-    return true; // Default to true if we can't determine shift times
-  } catch (error) {
-    console.error('Error checking if within shift hours:', error);
-    return true; // Default to true on error
-  }
+  return !isShiftNotStarted(shiftInfo, currentTime) && !isShiftEnded(shiftInfo, currentTime);
 }

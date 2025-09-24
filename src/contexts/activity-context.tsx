@@ -134,7 +134,9 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
       isShiftEnded,
       isShiftNotStarted,
       currentPath: window.location.pathname,
-      shiftInfo
+      shiftInfo,
+      currentTime: new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }),
+      shiftTime: shiftInfo?.shift_time || shiftInfo?.time
     })
     
     // Only start tracking if shift is active (not ended and not started) and not in health check or restroom
