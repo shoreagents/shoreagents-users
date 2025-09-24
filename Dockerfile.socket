@@ -1,9 +1,9 @@
-FROM node:18-alpine
+FROM node:20-slim
 
 WORKDIR /app
 
 # Install dependencies for native modules
-RUN apk add --no-cache python3 make g++
+RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
 
 # Copy package files
 COPY socket-server-package.json package.json
@@ -16,8 +16,8 @@ COPY socket-server.js .
 COPY scripts/ ./scripts/
 
 # Create non-root user
-RUN addgroup -g 1001 -S nodejs
-RUN adduser -S nextjs -u 1001
+RUN groupadd -g 1001 nodejs
+RUN useradd -r -u 1001 -g nodejs nextjs
 USER nextjs
 
 # Expose port
