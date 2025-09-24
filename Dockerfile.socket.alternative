@@ -1,9 +1,10 @@
-FROM node:18-alpine
+# Alternative Dockerfile using different base image approach
+FROM alpine:3.18
+
+# Install Node.js manually to avoid Docker Hub issues
+RUN apk add --no-cache nodejs npm python3 make g++
 
 WORKDIR /app
-
-# Install dependencies for native modules
-RUN apk add --no-cache python3 make g++
 
 # Copy package files
 COPY socket-server-package.json package.json
@@ -22,8 +23,6 @@ USER nextjs
 
 # Expose port
 EXPOSE 3004
-
-# Health check will be handled by Railway after deployment
 
 # Start only the socket server
 CMD ["node", "socket-server.js"]
