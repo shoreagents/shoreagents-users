@@ -2764,16 +2764,16 @@ io.on('connection', (socket) => {
               };
               const startMinutes = parseToMinutes(both[1].trim().toUpperCase());
               const endMinutes = parseToMinutes(both[2].trim().toUpperCase());
-              // Get current Manila time correctly
+              // Get current Manila time correctly using proper timezone conversion
               const now = new Date();
-              const manilaTime = new Date(now.getTime() + (8 * 60 * 60 * 1000));
-              const curMinutes = manilaTime.getUTCHours() * 60 + manilaTime.getUTCMinutes();
+              const manilaTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+              const curMinutes = manilaTime.getHours() * 60 + manilaTime.getMinutes();
               if (endMinutes > startMinutes) {
                 withinShift = curMinutes >= startMinutes && curMinutes < endMinutes; // day shift
               } else {
                 withinShift = (curMinutes >= startMinutes) || (curMinutes < endMinutes); // night shift crossing midnight
               }
-              console.log(`Shift window calculation: start=${startMinutes}min, end=${endMinutes}min, current=${curMinutes}min, withinShift=${withinShift}`);
+              console.log(`Shift window calculation: start=${startMinutes}min (${both[1]}), end=${endMinutes}min (${both[2]}), current=${curMinutes}min (${manilaTime.toLocaleTimeString()}), withinShift=${withinShift}`);
             } else {
               withinShift = true; // default allow if shift text not parsable
               console.log(`Shift window: using default withinShift=true (shift text not parsable)`);
