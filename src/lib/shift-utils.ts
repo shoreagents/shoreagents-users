@@ -415,5 +415,55 @@ export function isShiftEnded(shiftInfo: ShiftInfo | null, currentTime: Date = ne
 export function isWithinShiftHours(shiftInfo: ShiftInfo | null, currentTime: Date = new Date()): boolean {
   if (!shiftInfo) return true; // Default to true if no shift info (allow activity tracking)
 
-  return !isShiftNotStarted(shiftInfo, currentTime) && !isShiftEnded(shiftInfo, currentTime);
+  try {
+    // Get current Philippines time
+    const nowPH = new Date(currentTime.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+    
+    // Debug logging
+    console.log('isWithinShiftHours Debug:', {
+      nowPH: nowPH.toISOString(),
+      shiftInfo: shiftInfo ? {
+        startTime: shiftInfo.startTime.toISOString(),
+        endTime: shiftInfo.endTime.toISOString(),
+        time: shiftInfo.time
+      } : null
+    });
+    
+    // Check if we have shift info from context
+    if (shiftInfo?.startTime && shiftInfo?.endTime) {
+      // Convert shift times to Philippines timezone for accurate comparison
+      const shiftStartDate = new Date(shiftInfo.startTime);
+      const shiftStartDatePH = new Date(shiftStartDate.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+      
+      const shiftEndDate = new Date(shiftInfo.endTime);
+      const shiftEndDatePH = new Date(shiftEndDate.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+      
+      const isStarted = nowPH >= shiftStartDatePH;
+      const isNotEnded = nowPH <= shiftEndDatePH;
+      
+      console.log('Shift time comparison:', {
+        nowPH: nowPH.toISOString(),
+        shiftStartPH: shiftStartDatePH.toISOString(),
+        shiftEndPH: shiftEndDatePH.toISOString(),
+        isStarted,
+        isNotEnded,
+        result: isStarted && isNotEnded
+      });
+      
+      return isStarted && isNotEnded;
+    }
+
+    // Fallback: try to parse from shift time string if available
+    if (shiftInfo?.time) {
+      const parsed = parseShiftTime(shiftInfo.time, nowPH);
+      if (parsed?.startTime && parsed?.endTime) {
+        return nowPH >= parsed.startTime && nowPH <= parsed.endTime;
+      }
+    }
+
+    return true; // Default to true if we can't determine shift times
+  } catch (error) {
+    console.error('Error checking if within shift hours:', error);
+    return true; // Default to true on error
+  }
 }
