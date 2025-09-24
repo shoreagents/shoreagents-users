@@ -773,9 +773,7 @@ function parseTimeString(timeStr, baseDate) {
   const [time, period] = cleanTimeStr.split(/\s+/);
   const [hours, minutes] = time.split(':').map(Number);
 
-  // Create a date in Philippines timezone
-  const philippinesDate = new Date(baseDate.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
-  
+  // Convert to 24-hour format
   let hour24 = hours;
   if (period?.toUpperCase() === 'PM' && hours !== 12) {
     hour24 += 12;
@@ -783,12 +781,12 @@ function parseTimeString(timeStr, baseDate) {
     hour24 = 0;
   }
 
-  philippinesDate.setHours(hour24, minutes, 0, 0);
+  // Create a date with the Philippines time in UTC
+  // Philippines is UTC+8, so we need to subtract 8 hours from Philippines time to get UTC
+  const result = new Date(baseDate);
+  result.setUTCHours(hour24 - 8, minutes, 0, 0);
   
-  // Convert Philippines time to UTC
-  const utcDate = new Date(philippinesDate.getTime() - (8 * 60 * 60 * 1000));
-  
-  return utcDate;
+  return result;
 }
 
 // Function to check if current time has passed shift start time since last activity
