@@ -2309,7 +2309,6 @@ io.on('connection', (socket) => {
         console.error(`Room joining failed for: ${emailString}`, roomError.message);
       }
 
-      // Note: Removed precreateNextDayRowIfEnded as it was causing incorrect row creation for night shifts
 
       // FIXED: Simple hydration - use the existing data that was already loaded from the database
       try {
