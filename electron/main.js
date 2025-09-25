@@ -1635,6 +1635,19 @@ function createWindow() {
       console.error('Error checking auth state on window focus:', error);
     }
   });
+
+  // Handle window show - refresh notification badge count when restored from tray
+  mainWindow.on('show', async () => {
+    try {
+      // Refresh the notification badge count when window is shown
+      await updateBadgeCount(notificationBadgeCount);
+      
+      // Also update the tray with the current count
+      await updateTrayWithActualCount();
+    } catch (error) {
+      console.error('Error refreshing badge count on window show:', error);
+    }
+  });
 }
 
 // Create system tray
@@ -1689,25 +1702,29 @@ async function createTray() {
   }, 10000); // Check every 10 seconds
   
   // Single click to show window (more convenient)
-  tray.on('click', () => {
+  tray.on('click', async () => {
     if (mainWindow) {
       if (mainWindow.isVisible()) {
         mainWindow.focus();
       } else {
         mainWindow.show();
         mainWindow.focus();
+        // Refresh notification badge when restoring from tray
+        await updateBadgeCount(notificationBadgeCount);
       }
     }
   });
   
   // Double click also works as backup
-  tray.on('double-click', () => {
+  tray.on('double-click', async () => {
     if (mainWindow) {
       if (mainWindow.isVisible()) {
         mainWindow.focus();
       } else {
         mainWindow.show();
         mainWindow.focus();
+        // Refresh notification badge when restoring from tray
+        await updateBadgeCount(notificationBadgeCount);
       }
     }
   });
@@ -1735,34 +1752,40 @@ async function createTrayIconWithIndicator(count) {
     
     // If there are notifications, add a red dot overlay
     if (count > 0) {
-      // Load the red dot PNG file
-      const redDotPath = getAppResourcePath('public/red-dot.png');
-      
-      if (!fs.existsSync(redDotPath)) {
-        console.error('Red dot PNG not found at:', redDotPath);
-        // Fallback to just the logo without red dot
-        return nativeImage.createFromBuffer(logoBuffer);
+      try {
+        // Try to load the red dot PNG file first
+        const redDotPath = getAppResourcePath('public/red-dot.png');
+        
+        if (fs.existsSync(redDotPath)) {
+          // Load and resize the red dot to appropriate size
+          const redDotBuffer = await sharp(redDotPath)
+            .resize(16, 16) // Smaller red dot for tray icon
+            .png()
+            .toBuffer();
+          
+          // Composite the red dot over the logo (positioned at bottom-right)
+          const finalBuffer = await sharp(logoBuffer)
+            .composite([{ 
+              input: redDotBuffer, 
+              blend: 'over',
+              top: 18, // Position from top (32-16+2 for bottom alignment)
+              left: 18 // Position from left (32-16+2 for right alignment)
+            }])
+            .png()
+            .toBuffer();
+          
+          // Create NativeImage from buffer - no temp file needed!
+          return nativeImage.createFromBuffer(finalBuffer);
+        } else {
+          // Fallback: Create red dot programmatically using Sharp
+          console.log('Red dot PNG not found, creating programmatically');
+          return await createTrayIconWithProgrammaticRedDot(logoBuffer, count);
+        }
+      } catch (redDotError) {
+        console.error('Error with red dot file, using programmatic fallback:', redDotError);
+        // Fallback: Create red dot programmatically using Sharp
+        return await createTrayIconWithProgrammaticRedDot(logoBuffer, count);
       }
-      
-      // Load and resize the red dot to appropriate size
-      const redDotBuffer = await sharp(redDotPath)
-        .resize(16, 16) // Smaller red dot for tray icon
-        .png()
-        .toBuffer();
-      
-      // Composite the red dot over the logo (positioned at bottom-right)
-      const finalBuffer = await sharp(logoBuffer)
-        .composite([{ 
-          input: redDotBuffer, 
-          blend: 'over',
-          top: 18, // Position from top (32-16+2 for bottom alignment)
-          left: 18 // Position from left (32-16+2 for right alignment)
-        }])
-        .png()
-        .toBuffer();
-      
-      // Create NativeImage from buffer - no temp file needed!
-      return nativeImage.createFromBuffer(finalBuffer);
     } else {
       // No notifications, just use the logo
       // Create NativeImage from buffer - no temp file needed!
@@ -1771,6 +1794,46 @@ async function createTrayIconWithIndicator(count) {
   } catch (error) {
     console.error('Error creating tray icon with indicator:', error);
     return null;
+  }
+}
+
+// Fallback function to create red dot programmatically
+async function createTrayIconWithProgrammaticRedDot(logoBuffer, count) {
+  try {
+    const sharp = require('sharp');
+    const { nativeImage } = require('electron');
+    
+    // Create a red dot programmatically using Sharp
+    const redDotSvg = `
+      <svg width="16" height="16" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="8" cy="8" r="8" fill="#ff0000" stroke="#ffffff" stroke-width="1"/>
+        <text x="8" y="12" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="10" font-weight="bold">${count > 9 ? '9+' : count}</text>
+      </svg>
+    `;
+    
+    const redDotBuffer = await sharp(Buffer.from(redDotSvg))
+      .resize(16, 16)
+      .png()
+      .toBuffer();
+    
+    // Composite the red dot over the logo (positioned at bottom-right)
+    const finalBuffer = await sharp(logoBuffer)
+      .composite([{ 
+        input: redDotBuffer, 
+        blend: 'over',
+        top: 18, // Position from top (32-16+2 for bottom alignment)
+        left: 18 // Position from left (32-16+2 for right alignment)
+      }])
+      .png()
+      .toBuffer();
+    
+    // Create NativeImage from buffer - no temp file needed!
+    return nativeImage.createFromBuffer(finalBuffer);
+  } catch (error) {
+    console.error('Error creating programmatic red dot:', error);
+    // Ultimate fallback: just return the logo without red dot
+    const { nativeImage } = require('electron');
+    return nativeImage.createFromBuffer(logoBuffer);
   }
 }
 
