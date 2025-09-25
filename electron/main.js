@@ -1743,16 +1743,130 @@ async function createTray() {
 // Function to create a tray icon with red indicator - in memory
 async function createTrayIconWithIndicator(count) {
   try {
-    const sharp = require('sharp');
     const { nativeImage } = require('electron');
     
     // Get the correct path for both development and production
     const logoPath = getAppResourcePath('public/ShoreAgents-Logo-only-256.png');
     
+    console.log('Creating tray icon with indicator:', { count, logoPath, isDev });
+    
     if (!fs.existsSync(logoPath)) {
       console.error('ShoreAgents logo not found at:', logoPath);
       return null;
     }
+    
+    // Simple approach: Use different icons based on notification count
+    if (count > 0) {
+      // Try to use a different icon or create a simple indicator
+      try {
+        console.log('Attempting to load sharp library for red dot...');
+        const sharp = require('sharp');
+        console.log('Sharp library loaded successfully for red dot');
+        
+        // Load and resize the logo to 32x32 for tray icon
+        const logoBuffer = await sharp(logoPath)
+          .resize(32, 32)
+          .png()
+          .toBuffer();
+        
+        // Try to load the red dot PNG file
+        const redDotPath = getAppResourcePath('public/red-dot.png');
+        console.log('Red dot path:', redDotPath, 'exists:', fs.existsSync(redDotPath));
+        
+        if (fs.existsSync(redDotPath)) {
+          // Load and resize the red dot to appropriate size
+          const redDotBuffer = await sharp(redDotPath)
+            .resize(16, 16) // Smaller red dot for tray icon
+            .png()
+            .toBuffer();
+          
+          // Composite the red dot over the logo (positioned at bottom-right)
+          const finalBuffer = await sharp(logoBuffer)
+            .composite([{ 
+              input: redDotBuffer, 
+              blend: 'over',
+              top: 18, // Position from top (32-16+2 for bottom alignment)
+              left: 18 // Position from left (32-16+2 for right alignment)
+            }])
+            .png()
+            .toBuffer();
+          
+          // Create NativeImage from buffer - no temp file needed!
+          return nativeImage.createFromBuffer(finalBuffer);
+        } else {
+          console.warn('Red dot PNG not found at:', redDotPath, '- using fallback method');
+          // Fallback: create a simple red dot using sharp
+          return await createTrayIconWithSharpRedDot(logoPath, count);
+        }
+      } catch (sharpError) {
+        console.warn('Sharp not available or failed:', sharpError.message, '- using fallback method');
+        console.log('Sharp error details:', sharpError);
+        // Fallback: use a simple approach - just return the logo with a different style
+        return await createTrayIconWithAlternativeFile(count);
+      }
+    } else {
+      // No notifications, just use the logo
+      try {
+        const sharp = require('sharp');
+        const logoBuffer = await sharp(logoPath)
+          .resize(32, 32)
+          .png()
+          .toBuffer();
+        return nativeImage.createFromBuffer(logoBuffer);
+      } catch (sharpError) {
+        console.warn('Sharp not available for logo resize:', sharpError.message, '- using original logo');
+        // Fallback: use original logo without resizing
+        return nativeImage.createFromPath(logoPath);
+      }
+    }
+  } catch (error) {
+    console.error('Error creating tray icon with indicator:', error);
+    return null;
+  }
+}
+
+// Simple fallback: Create a notification icon by modifying the logo
+async function createSimpleNotificationIcon(logoPath, count) {
+  try {
+    const { nativeImage } = require('electron');
+    
+    // For now, just return the logo - in a real implementation,
+    // we could modify the logo to have a red tint or border
+    console.log('Using simple notification icon fallback');
+    return nativeImage.createFromPath(logoPath);
+  } catch (error) {
+    console.error('Error creating simple notification icon:', error);
+    return null;
+  }
+}
+
+// Alternative approach: Use a different icon file for notifications
+async function createTrayIconWithAlternativeFile(count) {
+  try {
+    const { nativeImage } = require('electron');
+    
+    // Try to use a different icon file when there are notifications
+    const notificationIconPath = getAppResourcePath('public/ShoreAgents-Logo-only-256.png');
+    
+    if (fs.existsSync(notificationIconPath)) {
+      console.log('Using alternative notification icon file');
+      return nativeImage.createFromPath(notificationIconPath);
+    }
+    
+    // Fallback to regular logo
+    const logoPath = getAppResourcePath('public/ShoreAgents-Logo-only-256.png');
+    return nativeImage.createFromPath(logoPath);
+  } catch (error) {
+    console.error('Error creating tray icon with alternative file:', error);
+    return null;
+  }
+}
+
+// Fallback method using sharp to create red dot
+async function createTrayIconWithSharpRedDot(logoPath, count) {
+  try {
+    const sharp = require('sharp');
+    const { nativeImage } = require('electron');
     
     // Load and resize the logo to 32x32 for tray icon
     const logoBuffer = await sharp(logoPath)
@@ -1760,43 +1874,62 @@ async function createTrayIconWithIndicator(count) {
       .png()
       .toBuffer();
     
-    // If there are notifications, add a red dot overlay
-    if (count > 0) {
-      // Load the red dot PNG file
-      const redDotPath = getAppResourcePath('public/red-dot.png');
-      
-      if (!fs.existsSync(redDotPath)) {
-        console.error('Red dot PNG not found at:', redDotPath);
-        // Fallback to just the logo without red dot
-        return nativeImage.createFromBuffer(logoBuffer);
-      }
-      
-      // Load and resize the red dot to appropriate size
-      const redDotBuffer = await sharp(redDotPath)
-        .resize(16, 16) // Smaller red dot for tray icon
-        .png()
-        .toBuffer();
-      
-      // Composite the red dot over the logo (positioned at bottom-right)
-      const finalBuffer = await sharp(logoBuffer)
-        .composite([{ 
-          input: redDotBuffer, 
-          blend: 'over',
-          top: 18, // Position from top (32-16+2 for bottom alignment)
-          left: 18 // Position from left (32-16+2 for right alignment)
-        }])
-        .png()
-        .toBuffer();
-      
-      // Create NativeImage from buffer - no temp file needed!
-      return nativeImage.createFromBuffer(finalBuffer);
-    } else {
-      // No notifications, just use the logo
-      // Create NativeImage from buffer - no temp file needed!
-      return nativeImage.createFromBuffer(logoBuffer);
-    }
+    // Create a simple red dot using SVG
+    const redDotSvg = `
+      <svg width="16" height="16" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="8" cy="8" r="6" fill="#dc2626" stroke="#ffffff" stroke-width="1"/>
+      </svg>
+    `;
+    
+    const redDotBuffer = await sharp(Buffer.from(redDotSvg))
+      .png()
+      .toBuffer();
+    
+    // Composite the red dot over the logo
+    const finalBuffer = await sharp(logoBuffer)
+      .composite([{ 
+        input: redDotBuffer, 
+        blend: 'over',
+        top: 18,
+        left: 18
+      }])
+      .png()
+      .toBuffer();
+    
+    return nativeImage.createFromBuffer(finalBuffer);
   } catch (error) {
-    console.error('Error creating tray icon with indicator:', error);
+    console.error('Error creating tray icon with sharp red dot:', error);
+    return null;
+  }
+}
+
+// Fallback method using native Electron methods
+async function createTrayIconWithNativeRedDot(logoPath, count) {
+  try {
+    const { nativeImage } = require('electron');
+    
+    // Load the original logo
+    const logoImage = nativeImage.createFromPath(logoPath);
+    
+    // For now, just return the logo without red dot
+    // In a more advanced implementation, we could use canvas or other methods
+    console.warn('Using logo without red dot indicator due to sharp unavailability');
+    return logoImage;
+  } catch (error) {
+    console.error('Error creating tray icon with native red dot:', error);
+    return null;
+  }
+}
+
+// Alternative method: Create a simple red dot using HTML5 Canvas (if available)
+async function createTrayIconWithCanvasRedDot(logoPath, count) {
+  try {
+    // This would require a more complex implementation using canvas
+    // For now, just return the logo
+    const { nativeImage } = require('electron');
+    return nativeImage.createFromPath(logoPath);
+  } catch (error) {
+    console.error('Error creating tray icon with canvas red dot:', error);
     return null;
   }
 }
