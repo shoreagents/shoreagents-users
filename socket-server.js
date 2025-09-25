@@ -1836,11 +1836,10 @@ io.on('connection', (socket) => {
       const startTime = Date.now();
       console.log(`AUTHENTICATE EVENT RECEIVED from socket ${socket.id}:`, data);
       
+      // Handle both object format { email } and direct email string
+      const email = typeof data === 'string' ? data : data?.email;
+      
       try {
-        
-       // Handle both object format { email } and direct email string
-       const email = typeof data === 'string' ? data : data?.email;
-       
        if (!email || typeof email !== 'string') {
          console.log('Authentication failed: Invalid email format');
          socket.emit('error', { message: 'Valid email string is required' });
