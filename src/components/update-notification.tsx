@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { RefreshCw, X, Download } from 'lucide-react'
 import { toast } from 'sonner'
+import { useSocket } from '@/contexts/socket-context'
 
 interface UpdateNotificationProps {
   className?: string
@@ -13,6 +14,7 @@ export function UpdateNotification({ className = '' }: UpdateNotificationProps) 
   const [updateAvailable, setUpdateAvailable] = useState(false)
   const [isChecking, setIsChecking] = useState(false)
   const [isReloading, setIsReloading] = useState(false)
+  const { socket, isConnected } = useSocket()
 
   const handleReload = () => {
     setIsReloading(true)
@@ -53,7 +55,7 @@ export function UpdateNotification({ className = '' }: UpdateNotificationProps) 
 
   const handleDismiss = useCallback(async () => {
     try {
-      // Get the current build time to mark this specific update as dismissed
+      // Get the current build info to mark this specific update as dismissed
       const response = await fetch('/api/build-info', { 
         cache: 'no-cache',
         headers: {
@@ -65,8 +67,9 @@ export function UpdateNotification({ className = '' }: UpdateNotificationProps) 
       
       if (response.ok) {
         const data = await response.json()
-        // Mark this specific build as dismissed
-        localStorage.setItem('update-dismissed', data.buildTime)
+        // Mark this specific build as dismissed using build ID
+        localStorage.setItem('update-dismissed', data.buildId)
+        console.log('Update dismissed for build ID:', data.buildId)
       }
     } catch (error) {
       console.log('Failed to get build info for dismissal:', error)
@@ -82,7 +85,88 @@ export function UpdateNotification({ className = '' }: UpdateNotificationProps) 
   }, [])
 
 
-  // Check for updates periodically
+  // Socket event handlers for real-time updates
+  useEffect(() => {
+    if (!socket || !isConnected) return
+
+    const handleAppUpdateAvailable = (data: any) => {
+      console.log('App update available via socket:', data)
+      setUpdateAvailable(true)
+      showUpdateToast()
+      
+      // Store the new build time
+      if (data.buildTime) {
+        localStorage.setItem('app-build-time', data.buildTime)
+      }
+    }
+
+    const handleAppBuildInfo = (data: any) => {
+      console.log('App build info received via socket:', data)
+      const currentBuildId = localStorage.getItem('app-build-id')
+      const updateDismissed = localStorage.getItem('update-dismissed')
+      
+      console.log('Current state:', { 
+        currentBuildId, 
+        newBuildId: data.buildId, 
+        isNewBuild: data.isNewBuild, 
+        isInitialCheck: data.isInitialCheck,
+        updateDismissed 
+      })
+      
+      if (data.isInitialCheck) {
+        // This is just an initial check, store the build info but don't show update
+        localStorage.setItem('app-build-id', data.buildId)
+        localStorage.setItem('app-build-time', data.buildTime)
+        console.log('Initial check - stored build info:', { buildId: data.buildId, buildTime: data.buildTime })
+        return
+      }
+      
+      if (!currentBuildId) {
+        // First time loading, store the build info
+        localStorage.setItem('app-build-id', data.buildId)
+        localStorage.setItem('app-build-time', data.buildTime)
+        console.log('First time loading - stored build info:', { buildId: data.buildId, buildTime: data.buildTime })
+      } else if (currentBuildId !== data.buildId && data.isNewBuild) {
+        // Build ID has changed AND this is flagged as a new build (real deployment)
+        console.log('New build detected:', { current: currentBuildId, new: data.buildId, dismissed: updateDismissed })
+        
+        if (updateDismissed !== data.buildId) {
+          // Update is available and not dismissed
+          console.log('Update available - showing notification')
+          setUpdateAvailable(true)
+          showUpdateToast()
+        } else {
+          console.log('Update already dismissed for this build ID')
+        }
+      } else {
+        console.log('No new build detected or same build ID')
+      }
+    }
+
+    const handleAppUpdateError = (error: any) => {
+      console.error('App update error via socket:', error)
+    }
+
+    // Listen for socket events
+    socket.on('app-update-available', handleAppUpdateAvailable)
+    socket.on('app-build-info', handleAppBuildInfo)
+    socket.on('app-update-error', handleAppUpdateError)
+
+    // Request current build info when socket connects (for initial setup only)
+    socket.emit('check-app-update')
+    
+    // Start build monitoring for real-time updates
+    socket.emit('start-build-monitoring')
+
+    return () => {
+      socket.off('app-update-available', handleAppUpdateAvailable)
+      socket.off('app-build-info', handleAppBuildInfo)
+      socket.off('app-update-error', handleAppUpdateError)
+      socket.emit('stop-build-monitoring')
+    }
+  }, [socket, isConnected, showUpdateToast])
+
+  // Check for updates periodically (fallback for when socket is not available)
   useEffect(() => {
     let intervalId: NodeJS.Timeout
 
@@ -128,26 +212,29 @@ export function UpdateNotification({ className = '' }: UpdateNotificationProps) 
 
     const checkForUpdates = async () => {
       try {
-        // Check if we're in a browser environment (not Electron)
-        if (typeof window !== 'undefined' && !window.electronAPI) {
-          // Check if there's a service worker update available
-          if ('serviceWorker' in navigator) {
-            const registration = await navigator.serviceWorker.getRegistration()
-            if (registration) {
-              registration.addEventListener('updatefound', () => {
-                setUpdateAvailable(true)
-                showUpdateToast()
-              })
+        // Only run periodic checks if socket is not available
+        if (!socket || !isConnected) {
+          // Check if we're in a browser environment (not Electron)
+          if (typeof window !== 'undefined' && !window.electronAPI) {
+            // Check if there's a service worker update available
+            if ('serviceWorker' in navigator) {
+              const registration = await navigator.serviceWorker.getRegistration()
+              if (registration) {
+                registration.addEventListener('updatefound', () => {
+                  setUpdateAvailable(true)
+                  showUpdateToast()
+                })
+              }
             }
+
+            document.addEventListener('visibilitychange', handleVisibilityChange)
+
+            // Check immediately
+            checkBuildVersion()
+
+            // Set up periodic checking every 5 minutes
+            intervalId = setInterval(checkBuildVersion, 5 * 60 * 1000)
           }
-
-          document.addEventListener('visibilitychange', handleVisibilityChange)
-
-          // Check immediately
-          checkBuildVersion()
-
-          // Set up periodic checking every 5 minutes
-          intervalId = setInterval(checkBuildVersion, 5 * 60 * 1000)
         }
       } catch (error) {
         console.log('Update check failed:', error)
@@ -162,7 +249,7 @@ export function UpdateNotification({ className = '' }: UpdateNotificationProps) 
       }
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [showUpdateToast])
+  }, [socket, isConnected, showUpdateToast])
 
   // Don't render anything if no update is available
   if (!updateAvailable) {
