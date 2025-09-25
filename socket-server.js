@@ -190,6 +190,41 @@ async function initializeGlobalNotificationListener() {
               }
             }
             
+            // If no direct match found, try to find by email if payload contains email
+            if (!targetEmail && payload.email) {
+              console.log(`No direct userId match found, trying to find by email: ${payload.email}`);
+              for (const [socketId, userData] of connectedUsers.entries()) {
+                if (userData.email === payload.email) {
+                  targetEmail = userData.email;
+                  console.log(`Found user by email: ${targetEmail} (userId: ${userData.userId})`);
+                  break;
+                }
+              }
+            }
+            
+            // If still no match, try to resolve user_id to email from database
+            if (!targetEmail) {
+              try {
+                console.log(`Attempting to resolve user_id ${payload.user_id} to email from database`);
+                const userResult = await pool.query('SELECT email FROM users WHERE id = $1', [payload.user_id]);
+                if (userResult.rows.length > 0) {
+                  const dbEmail = userResult.rows[0].email;
+                  console.log(`Found email in database: ${dbEmail} for user_id ${payload.user_id}`);
+                  
+                  // Check if this email has any connected sockets
+                  for (const [socketId, userData] of connectedUsers.entries()) {
+                    if (userData.email === dbEmail) {
+                      targetEmail = userData.email;
+                      console.log(`Found connected user by database lookup: ${targetEmail}`);
+                      break;
+                    }
+                  }
+                }
+              } catch (dbError) {
+                console.error(`Database lookup failed for user_id ${payload.user_id}:`, dbError.message);
+              }
+            }
+            
             if (targetEmail) {
               const userSockets = userConnections.get(targetEmail);
               if (userSockets && userSockets.size > 0) {
@@ -201,7 +236,7 @@ async function initializeGlobalNotificationListener() {
                 console.log(`No active connections found for user ${payload.user_id} (${targetEmail})`);
               }
             } else {
-              console.log(`User ${payload.user_id} not found in connected users`);
+              console.log(`User ${payload.user_id} not found in connected users or database`);
             }
           }
         } else if (msg.channel === 'ticket_comments') {
@@ -2430,44 +2465,79 @@ io.on('connection', (socket) => {
      });
    
    // Global socket disconnect handler
-   socket.on('disconnect', () => {
-                  // Clean up user connection tracking
-             const userData = connectedUsers.get(socket.id);
-             console.log(`🔌 Socket ${socket.id} disconnecting. Connected users before cleanup: ${connectedUsers.size}`);
-             if (userData) {
-               let { email } = userData;
-               // Ensure email is a string
-               if (typeof email === 'object' && email.email) {
-                 email = email.email;
-               }
-               email = String(email);
+   socket.on('disconnect', (reason) => {
+     try {
+       // Clean up user connection tracking
+       const userData = connectedUsers.get(socket.id);
+       console.log(`🔌 Socket ${socket.id} disconnecting (reason: ${reason}). Connected users before cleanup: ${connectedUsers.size}`);
+       
+       if (userData) {
+         let { email, userId } = userData;
+         
+         // Ensure email is a string
+         if (typeof email === 'object' && email.email) {
+           email = email.email;
+         }
+         email = String(email);
+         
+         // Clean up user connections
+         if (userConnections.has(email)) {
+           userConnections.get(email).delete(socket.id);
+           if (userConnections.get(email).size === 0) {
+             userConnections.delete(email);
+             
+             // If no more connections for this user, mark them as offline
+             if (userStatus.has(email)) {
+               const status = userStatus.get(email);
+               status.status = 'offline';
+               status.lastSeen = new Date();
                
-               if (userConnections.has(email)) {
-                 userConnections.get(email).delete(socket.id);
-                 if (userConnections.get(email).size === 0) {
-                   userConnections.delete(email);
-                   // If no more connections for this user, mark them as offline
-                   if (userStatus.has(email)) {
-                     const status = userStatus.get(email);
-                     status.status = 'offline';
-                     status.lastSeen = new Date();
-                     
-                     // Broadcast the offline status
-                     io.emit('user-status-update', {
-                       id: userData.userId || email,
-                       email: email,
-                       name: email, // Will be updated when user reconnects
-                       status: 'offline',
-                       lastSeen: new Date().toISOString()
-                     });
-                   }
-                 }
-               }
-               connectedUsers.delete(socket.id);
-               console.log(`🔌 Socket ${socket.id} disconnected for ${email}. Connected users after cleanup: ${connectedUsers.size}`);
-             } else {
-               console.log(`No user data found for disconnecting socket ${socket.id}`);
+               // Broadcast the offline status
+               io.emit('user-status-update', {
+                 id: userId || email,
+                 email: email,
+                 name: userData.fullName || email,
+                 status: 'offline',
+                 lastSeen: new Date().toISOString()
+               });
+               
+               console.log(`User ${email} marked as offline - no more active connections`);
              }
+           } else {
+             console.log(`User ${email} still has ${userConnections.get(email).size} active connections`);
+           }
+         }
+         
+         // Clean up connected users map
+         connectedUsers.delete(socket.id);
+         console.log(`🔌 Socket ${socket.id} disconnected for ${email}. Connected users after cleanup: ${connectedUsers.size}`);
+         
+         // Clean up any authentication in progress
+         if (authenticationInProgress.has(email)) {
+           authenticationInProgress.delete(email);
+           console.log(`Cleaned up authentication in progress for ${email}`);
+         }
+         
+       } else {
+         console.log(`No user data found for disconnecting socket ${socket.id}`);
+         
+         // Try to clean up by searching through userConnections
+         for (const [email, socketSet] of userConnections.entries()) {
+           if (socketSet.has(socket.id)) {
+             socketSet.delete(socket.id);
+             console.log(`Cleaned up orphaned socket ${socket.id} from user ${email}`);
+             
+             if (socketSet.size === 0) {
+               userConnections.delete(email);
+               console.log(`Removed empty user connection set for ${email}`);
+             }
+             break;
+           }
+         }
+       }
+     } catch (error) {
+       console.error(`Error during socket disconnect cleanup for ${socket.id}:`, error.message);
+     }
    });
 
    // Global Postgres listener to forward task activity events to all clients
@@ -2745,9 +2815,9 @@ io.on('connection', (socket) => {
   });
 
   // Handle timer updates (throttled for performance)
-  // - Database updates: every 5 seconds
-  // - Socket emissions: every 10 seconds  
-  // - Logging: only significant changes (30+ seconds)
+  // - Database updates: every 10 seconds (reduced from 5)
+  // - Socket emissions: every 15 seconds (reduced from 10)
+  // - Logging: only significant changes (60+ seconds)
   socket.on('timerUpdate', async (timerData) => {
     try {
       let userData = connectedUsers.get(socket.id);
@@ -2904,10 +2974,10 @@ io.on('connection', (socket) => {
           return; // avoid a race that could re-insert pre-reset counters
         }
         
-        // Throttle database updates: only update every 2-3 seconds to reduce load
+        // Throttle database updates: only update every 10 seconds to reduce load
         const lastDbUpdate = userInfo.lastDbUpdate || 0;
         const timeSinceLastUpdate = Date.now() - lastDbUpdate;
-        const shouldUpdateDb = timeSinceLastUpdate >= 2000; // 2 seconds instead of 5
+        const shouldUpdateDb = timeSinceLastUpdate >= 10000; // 10 seconds to reduce database load
         
         if (withinShift && shouldUpdateDb) {
           console.log(`Updating database for ${userData.email} - within shift window (date: ${currentDate})`);
@@ -2954,8 +3024,8 @@ io.on('connection', (socket) => {
           // Silent skip for throttled updates - no logging to reduce spam
         }
         
-        // Only log timer updates when database is updated or for significant changes (every 30 seconds)
-        const shouldLogTimer = shouldUpdateDb || (userInfo.activeSeconds % 30 === 0) || (userInfo.inactiveSeconds % 30 === 0);
+        // Only log timer updates when database is updated or for significant changes (every 60 seconds)
+        const shouldLogTimer = shouldUpdateDb || (userInfo.activeSeconds % 60 === 0) || (userInfo.inactiveSeconds % 60 === 0);
         if (shouldLogTimer) {
           console.log(`Updated timer for ${userData.email}: Active=${userInfo.activeSeconds}s, Inactive=${userInfo.inactiveSeconds}s`);
         }
@@ -2980,7 +3050,7 @@ io.on('connection', (socket) => {
           // Throttle socket emissions: only emit every 10 seconds to reduce client load
           const lastSocketEmit = userInfo.lastSocketEmit || 0;
           const timeSinceLastEmit = Date.now() - lastSocketEmit;
-          const shouldEmitSocket = timeSinceLastEmit >= 10000; // 10 seconds
+          const shouldEmitSocket = timeSinceLastEmit >= 15000; // 15 seconds
           
           if (shouldEmitSocket) {
             userSockets.forEach(socketId => {
