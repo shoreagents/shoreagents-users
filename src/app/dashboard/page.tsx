@@ -53,6 +53,7 @@ export default function DashboardPage() {
   // State for time period selection
   const [selectedPeriod, setSelectedPeriod] = useState<'7D' | '30D'>('7D')
   const days = selectedPeriod === '7D' ? 7 : 30
+  
 
   // Use React Query hooks for all dashboard data
   const {

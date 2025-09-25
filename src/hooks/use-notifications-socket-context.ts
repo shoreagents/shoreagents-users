@@ -50,8 +50,18 @@ export function useNotificationsSocketContext(email: string | null) {
           // Update unread count
           setUnreadCount(prev => prev + 1)
           
-          // Show system notification if permission granted
-          if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+          // Show system notification using Electron API if available
+          if (typeof window !== 'undefined' && window.electronAPI?.systemNotifications) {
+            window.electronAPI.systemNotifications.show({
+              title: data.title,
+              message: data.message,
+              actionUrl: data.actionUrl,
+              id: data.id
+            }).catch((error) => {
+              console.error('Error showing system notification:', error)
+            })
+          } else if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+            // Fallback to browser notification
             new Notification(data.title, {
               body: data.message,
               icon: '/shoreagents-logo.png',

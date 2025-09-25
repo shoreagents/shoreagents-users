@@ -79,6 +79,17 @@ declare global {
       startDrag: () => Promise<{ success: boolean; error?: string }>;
       getVersion: () => string;
       platform: string;
+      
+      // Auto-start management
+      autoStart: {
+        getStatus: () => Promise<{ success: boolean; openAtLogin?: boolean; openAsHidden?: boolean; error?: string }>;
+        toggle: (enable: boolean) => Promise<{ success: boolean; enabled?: boolean; error?: string }>;
+      };
+      
+      // Settings management
+      settings: {
+        open: () => Promise<{ success: boolean; error?: string }>;
+      };
     };
   }
 }

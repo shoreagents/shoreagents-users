@@ -270,7 +270,15 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
               }
               
               // Show notification to user about auto-ended break
-              if (typeof window !== 'undefined' && 'Notification' in window) {
+              if (typeof window !== 'undefined' && window.electronAPI?.systemNotifications) {
+                window.electronAPI.systemNotifications.show({
+                  title: 'Break Auto-Ended',
+                  message: `Your paused ${breakInfo.name} break was automatically ended because it was outside the valid time window (${breakInfo.startTime} - ${breakInfo.endTime}).`,
+                  id: `break-auto-ended-${Date.now()}`
+                }).catch((error) => {
+                  console.error('Error showing break auto-ended notification:', error)
+                })
+              } else if (typeof window !== 'undefined' && 'Notification' in window) {
                 if (Notification.permission === 'granted') {
                   new Notification('Break Auto-Ended', {
                     body: `Your paused ${breakInfo.name} break was automatically ended because it was outside the valid time window (${breakInfo.startTime} - ${breakInfo.endTime}).`,

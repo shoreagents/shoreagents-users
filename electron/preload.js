@@ -125,7 +125,19 @@ try {
   getVersion: () => process.versions.electron,
   
   // Platform info
-  platform: process.platform
+  platform: process.platform,
+  
+  // Auto-start management
+  autoStart: {
+    getStatus: () => ipcRenderer.invoke('get-auto-start-status'),
+    toggle: (enable) => ipcRenderer.invoke('toggle-auto-start', enable)
+  },
+  
+  // Settings management
+  settings: {
+    open: () => ipcRenderer.invoke('open-settings')
+  }
+  
   });
   
 } catch (error) {
