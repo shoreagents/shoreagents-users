@@ -127,12 +127,6 @@ try {
   // Platform info
   platform: process.platform,
   
-  // Auto-start management
-  autoStart: {
-    getStatus: () => ipcRenderer.invoke('get-auto-start-status'),
-    toggle: (enable) => ipcRenderer.invoke('toggle-auto-start', enable)
-  }
-  
   });
   
 } catch (error) {

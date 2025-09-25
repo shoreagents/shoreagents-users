@@ -1453,28 +1453,6 @@ ipcMain.handle('get-notification-count', async (event) => {
   return { count: systemNotifications.length };
 });
 
-// IPC handler to get auto-start status
-ipcMain.handle('get-auto-start-status', async (event) => {
-  try {
-    const status = getAutoStartStatus();
-    return { success: true, ...status };
-  } catch (error) {
-    console.error('Error getting auto-start status:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-// IPC handler to toggle auto-start
-ipcMain.handle('toggle-auto-start', async (event, enable) => {
-  try {
-    const success = toggleAutoStart(enable);
-    return { success, enabled: enable };
-  } catch (error) {
-    console.error('Error toggling auto-start:', error);
-    return { success: false, error: error.message };
-  }
-});
-
 // Handle notification count changes from renderer
 ipcMain.on('notification-count-changed', async (event, data) => {
   try {
@@ -1855,37 +1833,6 @@ async function updateTrayWithActualCount() {
   }
 }
 
-// Function to check auto-start status
-function getAutoStartStatus() {
-  try {
-    const settings = app.getLoginItemSettings();
-    return {
-      openAtLogin: settings.openAtLogin,
-      openAsHidden: settings.openAsHidden
-    };
-  } catch (error) {
-    console.error('Error getting auto-start status:', error);
-    return { openAtLogin: false, openAsHidden: false };
-  }
-}
-
-// Function to toggle auto-start
-function toggleAutoStart(enable) {
-  try {
-    app.setLoginItemSettings({
-      openAtLogin: enable,
-      openAsHidden: enable, // Start minimized to tray when auto-starting
-      name: 'ShoreAgents Dashboard',
-      path: process.execPath,
-      args: []
-    });
-    return true;
-  } catch (error) {
-    console.error('Error toggling auto-start:', error);
-    return false;
-  }
-}
-
 // Check if user is logged in by examining localStorage
 async function checkUserLoggedIn() {
   try {
@@ -2144,20 +2091,6 @@ async function updateTrayMenu() {
     );
   }
   
-  // Add auto-start toggle option
-  const autoStartStatus = getAutoStartStatus();
-  baseMenuItems.push({
-    label: `Auto-start on boot: ${autoStartStatus.openAtLogin ? 'Enabled' : 'Disabled'}`,
-    click: () => {
-      const newStatus = !autoStartStatus.openAtLogin;
-      const success = toggleAutoStart(newStatus);
-      if (success) {
-        // Update the tray menu to reflect the new status
-        updateTrayMenu();
-      }
-    }
-  });
-  
   // Add separator
   baseMenuItems.push({ type: 'separator' });
   
@@ -2345,14 +2278,6 @@ app.whenReady().then(async () => {
   // Ensure app name is set
   app.setName('ShoreAgents Dashboard');
   
-  // Configure auto-start on system boot
-  app.setLoginItemSettings({
-    openAtLogin: true,
-    openAsHidden: true, // Start minimized to tray
-    name: 'ShoreAgents Dashboard',
-    path: process.execPath,
-    args: []
-  });
   
   createWindow();
   // Remove menu completely
