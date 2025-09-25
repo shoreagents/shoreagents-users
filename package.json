@@ -12,7 +12,7 @@
     "icon": "public/ShoreAgents-Logo-only-256.png",
     "forceCodeSigning": false,
     "directories": {
-      "output": "dist-electron"
+      "output": "dist"
     },
     "files": [
       "dist/**/*",

@@ -22,7 +22,6 @@
 
 # electron build artifacts
 /dist
-/dist-electron
 
 # misc
 .DS_Store
