@@ -80,14 +80,18 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     const socketServerUrl = (process.env.NEXT_PUBLIC_SOCKET_URL || process.env.SOCKET_SERVER_URL || 'http://localhost:3004') as string
     const newSocket = io(socketServerUrl, {
       reconnection: true,
-      reconnectionAttempts: 3,
-      reconnectionDelay: 2000,
-      timeout: 10000,
-      transports: ['websocket', 'polling']
+      reconnectionAttempts: 5, // Increased from 3
+      reconnectionDelay: 1000, // Start with 1s delay
+      reconnectionDelayMax: 10000, // Max 10s delay
+      timeout: 20000, // Increased from 10s to match server pingTimeout
+      transports: ['websocket', 'polling'],
+      upgrade: true, // Allow transport upgrades
+      rememberUpgrade: true // Remember successful transport
     })
 
     // Handle connection events
     newSocket.on('connect', () => {
+      console.log('🔌 Socket connected:', newSocket.id)
       setIsConnected(true)
       isConnectingRef.current = false
       
@@ -100,14 +104,53 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       newSocket.emit('authenticate', { email })
     })
 
-    newSocket.on('disconnect', () => {
+    // Handle ping/pong for connection health monitoring
+    newSocket.on('ping', () => {
+      newSocket.emit('pong')
+    })
+
+    newSocket.on('pong', () => {
+      // Connection is healthy
+    })
+
+    newSocket.on('disconnect', (reason) => {
+      console.log('🔌 Socket disconnected:', reason)
+      setIsConnected(false)
+      isConnectingRef.current = false
+      
+      // If it's a ping timeout, try to reconnect immediately
+      if (reason === 'ping timeout') {
+        console.log('🔄 Ping timeout detected, attempting reconnection...')
+        setTimeout(() => {
+          if (!newSocket.connected) {
+            newSocket.connect()
+          }
+        }, 1000)
+      }
+    })
+
+    newSocket.on('connect_error', (error) => {
+      console.error('🔌 Socket connection error:', error.message)
       setIsConnected(false)
       isConnectingRef.current = false
     })
 
-    newSocket.on('connect_error', (error) => {
+    newSocket.on('reconnect', (attemptNumber) => {
+      console.log('🔄 Socket reconnected after', attemptNumber, 'attempts')
+      setIsConnected(true)
+    })
+
+    newSocket.on('reconnect_attempt', (attemptNumber) => {
+      console.log('🔄 Socket reconnection attempt', attemptNumber)
+    })
+
+    newSocket.on('reconnect_error', (error) => {
+      console.error('🔌 Socket reconnection error:', error.message)
+    })
+
+    newSocket.on('reconnect_failed', () => {
+      console.error('🔌 Socket reconnection failed after all attempts')
       setIsConnected(false)
-      isConnectingRef.current = false
     })
 
     newSocket.on('authenticated', (data) => {

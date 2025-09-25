@@ -36,6 +36,17 @@ const io = new Server(server, {
   cors: {
     origin: process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_APP_URL,
     methods: ["GET", "POST"]
+  },
+  // Configure ping/pong settings to handle network latency and prevent premature disconnections
+  pingTimeout: 60000, // 60 seconds (default is 20s) - time to wait for pong response
+  pingInterval: 25000, // 25 seconds (default is 25s) - interval between pings
+  upgradeTimeout: 10000, // 10 seconds for upgrade handshake
+  allowEIO3: true, // Allow Engine.IO v3 clients for better compatibility
+  transports: ['websocket', 'polling'], // Allow both transports
+  // Add connection state management
+  connectionStateRecovery: {
+    maxDisconnectionDuration: 2 * 60 * 1000, // 2 minutes
+    skipMiddlewares: true
   }
 });
 
@@ -1629,6 +1640,17 @@ function formatTimeUntilReset(milliseconds) {
 }
 
 io.on('connection', (socket) => {
+  console.log(`🔌 New socket connection: ${socket.id} (transport: ${socket.conn.transport.name})`);
+  
+  // Monitor connection health
+  socket.on('ping', () => {
+    socket.emit('pong');
+  });
+  
+  // Handle connection errors
+  socket.on('error', (error) => {
+    console.error(`Socket ${socket.id} error:`, error.message);
+  });
 
   // Note: Removed precreateNextDayRowIfEnded function as it was causing incorrect row creation for night shifts
   // The proper shift end detection is now handled in the main timer logic
