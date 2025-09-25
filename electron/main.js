@@ -1730,10 +1730,9 @@ async function createTray() {
   });
 }
 
-// Function to create a tray icon with red indicator - in memory
+// Function to create a tray icon with red indicator - simplified approach
 async function createTrayIconWithIndicator(count) {
   try {
-    const sharp = require('sharp');
     const { nativeImage } = require('electron');
     
     // Get the correct path for both development and production
@@ -1744,52 +1743,20 @@ async function createTrayIconWithIndicator(count) {
       return null;
     }
     
-    // Load and resize the logo to 32x32 for tray icon
-    const logoBuffer = await sharp(logoPath)
-      .resize(32, 32)
-      .png()
-      .toBuffer();
-    
-    // If there are notifications, add a red dot overlay
+    // If there are notifications, create a simple red indicator
     if (count > 0) {
       try {
-        // Try to load the red dot PNG file first
-        const redDotPath = getAppResourcePath('public/red-dot.png');
-        
-        if (fs.existsSync(redDotPath)) {
-          // Load and resize the red dot to appropriate size
-          const redDotBuffer = await sharp(redDotPath)
-            .resize(16, 16) // Smaller red dot for tray icon
-            .png()
-            .toBuffer();
-          
-          // Composite the red dot over the logo (positioned at bottom-right)
-          const finalBuffer = await sharp(logoBuffer)
-            .composite([{ 
-              input: redDotBuffer, 
-              blend: 'over',
-              top: 18, // Position from top (32-16+2 for bottom alignment)
-              left: 18 // Position from left (32-16+2 for right alignment)
-            }])
-            .png()
-            .toBuffer();
-          
-          // Create NativeImage from buffer - no temp file needed!
-          return nativeImage.createFromBuffer(finalBuffer);
-        } else {
-          // Fallback: Create red dot programmatically using Sharp
-          console.log('Red dot PNG not found, creating programmatically');
-          return await createTrayIconWithProgrammaticRedDot(logoBuffer, count);
-        }
-      } catch (redDotError) {
-        console.error('Error with red dot file, using programmatic fallback:', redDotError);
-        // Fallback: Create red dot programmatically using Sharp
-        return await createTrayIconWithProgrammaticRedDot(logoBuffer, count);
+        // Try Sharp first (for development)
+        const sharp = require('sharp');
+        return await createTrayIconWithSharp(logoPath, count);
+      } catch (sharpError) {
+        console.log('Sharp not available, using simple fallback');
+        // Fallback: Create a simple red circle with count
+        return await createSimpleRedIndicator(count);
       }
     } else {
       // No notifications, just use the logo
-      // Create NativeImage from buffer - no temp file needed!
-      return nativeImage.createFromBuffer(logoBuffer);
+      return nativeImage.createFromPath(logoPath);
     }
   } catch (error) {
     console.error('Error creating tray icon with indicator:', error);
@@ -1797,17 +1764,22 @@ async function createTrayIconWithIndicator(count) {
   }
 }
 
-// Fallback function to create red dot programmatically
-async function createTrayIconWithProgrammaticRedDot(logoBuffer, count) {
+// Function using Sharp (for development)
+async function createTrayIconWithSharp(logoPath, count) {
   try {
     const sharp = require('sharp');
     const { nativeImage } = require('electron');
+    
+    // Load and resize the logo to 32x32 for tray icon
+    const logoBuffer = await sharp(logoPath)
+      .resize(32, 32)
+      .png()
+      .toBuffer();
     
     // Create a red dot programmatically using Sharp
     const redDotSvg = `
       <svg width="16" height="16" xmlns="http://www.w3.org/2000/svg">
         <circle cx="8" cy="8" r="8" fill="#ff0000" stroke="#ffffff" stroke-width="1"/>
-        <text x="8" y="12" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="10" font-weight="bold">${count > 9 ? '9+' : count}</text>
       </svg>
     `;
     
@@ -1830,10 +1802,30 @@ async function createTrayIconWithProgrammaticRedDot(logoBuffer, count) {
     // Create NativeImage from buffer - no temp file needed!
     return nativeImage.createFromBuffer(finalBuffer);
   } catch (error) {
-    console.error('Error creating programmatic red dot:', error);
-    // Ultimate fallback: just return the logo without red dot
+    console.error('Error with Sharp method:', error);
+    throw error; // Re-throw to trigger fallback
+  }
+}
+
+// Simple fallback function that creates a plain red dot
+async function createSimpleRedIndicator(count) {
+  try {
     const { nativeImage } = require('electron');
-    return nativeImage.createFromBuffer(logoBuffer);
+    
+    // Create a simple red circle using SVG
+    const redIndicatorSvg = `
+      <svg width="32" height="32" xmlns="http://www.w3.org/2000/svg">
+        <!-- Red circle background -->
+        <circle cx="16" cy="16" r="16" fill="#ff0000"/>
+      </svg>
+    `;
+    
+    // Convert SVG to data URL
+    const redIndicatorDataUrl = `data:image/svg+xml;base64,${Buffer.from(redIndicatorSvg).toString('base64')}`;
+    return nativeImage.createFromDataURL(redIndicatorDataUrl);
+  } catch (error) {
+    console.error('Error creating simple red indicator:', error);
+    return null;
   }
 }
 
