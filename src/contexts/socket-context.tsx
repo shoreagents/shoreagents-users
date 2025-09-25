@@ -113,6 +113,23 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       // Connection is healthy
     })
 
+    // Heartbeat mechanism for active connection monitoring
+    newSocket.on('heartbeat-ack', () => {
+      // Server acknowledged our heartbeat
+    })
+
+    // Send periodic heartbeats to server
+    const heartbeatInterval = setInterval(() => {
+      if (newSocket && newSocket.connected) {
+        newSocket.emit('heartbeat')
+      }
+    }, 30000) // Every 30 seconds
+
+    // Clean up heartbeat interval on disconnect
+    newSocket.on('disconnect', () => {
+      clearInterval(heartbeatInterval)
+    })
+
     newSocket.on('disconnect', (reason) => {
       console.log('🔌 Socket disconnected:', reason)
       setIsConnected(false)

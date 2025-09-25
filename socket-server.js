@@ -31,6 +31,39 @@ app.get('/status', (req, res) => {
   });
 });
 
+// Connection metrics endpoint
+app.get('/metrics', (req, res) => {
+  const uptime = Date.now() - connectionMetrics.startTime;
+  const errorRate = connectionMetrics.totalConnections > 0 
+    ? (connectionMetrics.errors / connectionMetrics.totalConnections * 100).toFixed(2) 
+    : 0;
+  
+  res.json({
+    connections: {
+      total: connectionMetrics.totalConnections,
+      active: connectionMetrics.activeConnections,
+      disconnections: connectionMetrics.disconnections,
+      errors: connectionMetrics.errors,
+      reconnections: connectionMetrics.reconnections,
+      errorRate: `${errorRate}%`
+    },
+    uptime: {
+      total: Math.floor(uptime / 1000),
+      since: new Date(connectionMetrics.startTime).toISOString()
+    },
+    health: {
+      status: connectionMetrics.errors > 100 ? 'warning' : 'healthy',
+      lastReset: new Date(connectionMetrics.lastReset).toISOString()
+    },
+    circuitBreaker: {
+      isOpen: circuitBreaker.isOpen,
+      errorCount: circuitBreaker.errorCount,
+      threshold: circuitBreaker.threshold,
+      lastErrorTime: circuitBreaker.lastErrorTime ? new Date(circuitBreaker.lastErrorTime).toISOString() : null
+    }
+  });
+});
+
 const server = createServer(app);
 const io = new Server(server, {
   cors: {
@@ -100,6 +133,60 @@ redisClient.on('error', (err) => {
 redisClient.on('connect', () => {
   console.log('Redis client connected');
 });
+
+// Redis session management functions
+async function storeUserSession(socketId, userData) {
+  try {
+    const sessionKey = `session:${socketId}`;
+    const sessionData = {
+      ...userData,
+      lastSeen: Date.now(),
+      createdAt: Date.now()
+    };
+    await redisClient.setEx(sessionKey, 3600, JSON.stringify(sessionData)); // 1 hour TTL
+    return true;
+  } catch (error) {
+    console.error('Error storing user session:', error);
+    return false;
+  }
+}
+
+async function getUserSession(socketId) {
+  try {
+    const sessionKey = `session:${socketId}`;
+    const sessionData = await redisClient.get(sessionKey);
+    return sessionData ? JSON.parse(sessionData) : null;
+  } catch (error) {
+    console.error('Error getting user session:', error);
+    return null;
+  }
+}
+
+async function removeUserSession(socketId) {
+  try {
+    const sessionKey = `session:${socketId}`;
+    await redisClient.del(sessionKey);
+    return true;
+  } catch (error) {
+    console.error('Error removing user session:', error);
+    return false;
+  }
+}
+
+async function updateUserSession(socketId, updates) {
+  try {
+    const sessionData = await getUserSession(socketId);
+    if (sessionData) {
+      const updatedData = { ...sessionData, ...updates, lastSeen: Date.now() };
+      await storeUserSession(socketId, updatedData);
+      return true;
+    }
+    return false;
+  } catch (error) {
+    console.error('Error updating user session:', error);
+    return false;
+  }
+}
 
 redisClient.on('reconnecting', () => {
   console.log('Redis client reconnecting...');
@@ -715,7 +802,31 @@ setInterval(() => {
       console.log(`Database pool status: ${poolStatus.total} total, ${poolStatus.idle} idle, ${poolStatus.waiting} waiting`);
     }
   }
-}, 60000); // Check every minute
+}, 60000);
+
+// Monitor connection metrics every 5 minutes
+setInterval(() => {
+  const uptime = Date.now() - connectionMetrics.startTime;
+  const errorRate = connectionMetrics.totalConnections > 0 
+    ? (connectionMetrics.errors / connectionMetrics.totalConnections * 100).toFixed(2) 
+    : 0;
+  
+  console.log(`📊 Connection Metrics:`, {
+    active: connectionMetrics.activeConnections,
+    total: connectionMetrics.totalConnections,
+    disconnections: connectionMetrics.disconnections,
+    errors: connectionMetrics.errors,
+    errorRate: `${errorRate}%`,
+    uptime: `${Math.floor(uptime / 1000)}s`
+  });
+  
+  // Reset metrics if error rate is too high
+  if (connectionMetrics.errors > 1000) {
+    console.warn('⚠️ High error rate detected, resetting metrics');
+    connectionMetrics.errors = 0;
+    connectionMetrics.lastReset = Date.now();
+  }
+}, 300000); // Every 5 minutes // Check every minute
 
 // In-memory storage for testing (since PostgreSQL is not running)
 const connectedUsers = new Map();
@@ -731,6 +842,28 @@ const userConnections = new Map(); // Map<email, Set<socketId>>
 
 // Track user online/offline status (based on login/logout, not socket connections)
 const userStatus = new Map(); // Map<email, { status: 'online'|'offline', loginTime: Date, lastSeen: Date }>
+
+// Connection metrics for monitoring
+const connectionMetrics = {
+  totalConnections: 0,
+  activeConnections: 0,
+  disconnections: 0,
+  errors: 0,
+  reconnections: 0,
+  startTime: Date.now(),
+  lastReset: Date.now()
+};
+
+// Circuit breaker for error rate monitoring
+const circuitBreaker = {
+  isOpen: false,
+  errorCount: 0,
+  lastErrorTime: null,
+  threshold: 10, // Max errors per window
+  window: 60000, // 1 minute window
+  timeout: 30000, // 30 seconds timeout when open
+  lastReset: Date.now()
+};
 
 // Track detailed user status from all contexts
 const userDetailedStatus = new Map(); // Map<email, { 
@@ -1642,6 +1775,10 @@ function formatTimeUntilReset(milliseconds) {
 io.on('connection', (socket) => {
   console.log(`🔌 New socket connection: ${socket.id} (transport: ${socket.conn.transport.name})`);
   
+  // Update connection metrics
+  connectionMetrics.totalConnections++;
+  connectionMetrics.activeConnections++;
+  
   // Monitor connection health
   socket.on('ping', () => {
     socket.emit('pong');
@@ -1650,6 +1787,45 @@ io.on('connection', (socket) => {
   // Handle connection errors
   socket.on('error', (error) => {
     console.error(`Socket ${socket.id} error:`, error.message);
+    connectionMetrics.errors++;
+    
+    // Update circuit breaker
+    circuitBreaker.errorCount++;
+    circuitBreaker.lastErrorTime = Date.now();
+    
+    // Check if circuit should open
+    if (circuitBreaker.errorCount >= circuitBreaker.threshold && 
+        Date.now() - circuitBreaker.lastReset < circuitBreaker.window) {
+      circuitBreaker.isOpen = true;
+      console.warn('🚨 Circuit breaker OPEN - too many errors detected');
+      
+      // Close circuit after timeout
+      setTimeout(() => {
+        circuitBreaker.isOpen = false;
+        circuitBreaker.errorCount = 0;
+        circuitBreaker.lastReset = Date.now();
+        console.log('🔄 Circuit breaker CLOSED - attempting recovery');
+      }, circuitBreaker.timeout);
+    }
+  });
+
+  // Heartbeat mechanism for active connection monitoring
+  socket.on('heartbeat', () => {
+    socket.emit('heartbeat-ack');
+    // Update last seen timestamp for this socket
+    if (connectedUsers.has(socket.id)) {
+      const userData = connectedUsers.get(socket.id);
+      userData.lastHeartbeat = Date.now();
+    }
+  });
+
+  // Handle heartbeat acknowledgment
+  socket.on('heartbeat-ack', () => {
+    // Connection is healthy
+    if (connectedUsers.has(socket.id)) {
+      const userData = connectedUsers.get(socket.id);
+      userData.lastHeartbeatAck = Date.now();
+    }
   });
 
   // Note: Removed precreateNextDayRowIfEnded function as it was causing incorrect row creation for night shifts
@@ -2252,12 +2428,18 @@ io.on('connection', (socket) => {
         );
         const fullName = userResult.rows[0]?.full_name || emailString;
         
-        connectedUsers.set(socket.id, { 
+        const userData = { 
           userId: userInfo.userId, 
           email: emailString, 
           userInfo,
           fullName 
-        });
+        };
+        
+        connectedUsers.set(socket.id, userData);
+        
+        // Store session in Redis for scalability
+        await storeUserSession(socket.id, userData);
+        
         console.log(`AUTHENTICATION COMPLETED: Socket ${socket.id} now associated with user ${emailString}`);
         console.log(`Connected users map now contains:`, Array.from(connectedUsers.entries()).map(([id, data]) => `${id} -> ${data.email}`));
         // User authentication completed with data
@@ -2487,8 +2669,12 @@ io.on('connection', (socket) => {
      });
    
    // Global socket disconnect handler
-   socket.on('disconnect', (reason) => {
+   socket.on('disconnect', async (reason) => {
      try {
+       // Update connection metrics
+       connectionMetrics.disconnections++;
+       connectionMetrics.activeConnections = Math.max(0, connectionMetrics.activeConnections - 1);
+       
        // Clean up user connection tracking
        const userData = connectedUsers.get(socket.id);
        console.log(`🔌 Socket ${socket.id} disconnecting (reason: ${reason}). Connected users before cleanup: ${connectedUsers.size}`);
@@ -2532,6 +2718,10 @@ io.on('connection', (socket) => {
          
          // Clean up connected users map
          connectedUsers.delete(socket.id);
+         
+         // Clean up Redis session
+         await removeUserSession(socket.id);
+         
          console.log(`🔌 Socket ${socket.id} disconnected for ${email}. Connected users after cleanup: ${connectedUsers.size}`);
          
          // Clean up any authentication in progress
