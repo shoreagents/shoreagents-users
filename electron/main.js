@@ -1498,17 +1498,6 @@ ipcMain.handle('get-notification-count', async (event) => {
   return { count: systemNotifications.length };
 });
 
-// IPC handler to test sound playback
-ipcMain.handle('test-sound-playback', async (event, type = 'inactivity') => {
-  try {
-    console.log('Testing sound playback for type:', type);
-    playCustomNotificationSound(type);
-    return { success: true };
-  } catch (error) {
-    console.error('Error testing sound playback:', error);
-    return { success: false, error: error.message };
-  }
-});
 
 // Handle notification count changes from renderer
 ipcMain.on('notification-count-changed', async (event, data) => {

@@ -127,9 +127,6 @@ try {
   // Platform info
   platform: process.platform,
   
-  // Sound testing
-  testSoundPlayback: (type) => ipcRenderer.invoke('test-sound-playback', type),
-  
   });
   
 } catch (error) {
