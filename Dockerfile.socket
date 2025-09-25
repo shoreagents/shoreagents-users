@@ -14,7 +14,7 @@ RUN apt-get update && \
 COPY socket-server-package.json package.json
 
 # Install dependencies
-RUN npm ci --only=production && npm cache clean --force
+RUN npm install --omit=dev && npm cache clean --force
 
 # Copy application files
 COPY socket-server.js .
