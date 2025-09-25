@@ -36,9 +36,6 @@ let focusLossCooldown = false;
 let focusLossCooldownTimeout = null;
 let focusMonitoringSetup = false; // Flag to prevent multiple setup calls
 
-// Global variable for settings window
-let settingsWindow = null;
-
 // Function to create black screen windows on secondary monitors
 function createBlackScreenWindows() {
   try {
@@ -1478,17 +1475,6 @@ ipcMain.handle('toggle-auto-start', async (event, enable) => {
   }
 });
 
-// IPC handler to open settings window
-ipcMain.handle('open-settings', async (event) => {
-  try {
-    createSettingsWindow();
-    return { success: true };
-  } catch (error) {
-    console.error('Error opening settings window:', error);
-    return { success: false, error: error.message };
-  }
-});
-
 // Handle notification count changes from renderer
 ipcMain.on('notification-count-changed', async (event, data) => {
   try {
@@ -1900,280 +1886,6 @@ function toggleAutoStart(enable) {
   }
 }
 
-// Function to create settings window
-function createSettingsWindow() {
-  if (settingsWindow && !settingsWindow.isDestroyed()) {
-    settingsWindow.focus();
-    return settingsWindow;
-  }
-
-  settingsWindow = new BrowserWindow({
-    width: 500,
-    height: 400,
-    resizable: false,
-    maximizable: false,
-    minimizable: true,
-    closable: true,
-    alwaysOnTop: false,
-    show: false,
-    icon: getAppResourcePath('public/ShoreAgents-Logo-only-256.png'),
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      enableRemoteModule: false,
-      preload: path.join(__dirname, 'preload.js')
-    },
-    title: 'ShoreAgents Dashboard - Settings',
-    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default'
-  });
-
-  // Load the settings HTML
-  const settingsHTML = `
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>ShoreAgents Dashboard - Settings</title>
-        <style>
-            * {
-                margin: 0;
-                padding: 0;
-                box-sizing: border-box;
-            }
-            
-            body {
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                background: #f8fafc;
-                color: #1e293b;
-                line-height: 1.6;
-            }
-            
-            .container {
-                max-width: 400px;
-                margin: 0 auto;
-                padding: 24px;
-            }
-            
-            .header {
-                text-align: center;
-                margin-bottom: 32px;
-            }
-            
-            .title {
-                font-size: 24px;
-                font-weight: 600;
-                margin-bottom: 8px;
-            }
-            
-            .subtitle {
-                color: #64748b;
-                font-size: 14px;
-            }
-            
-            .setting-item {
-                background: white;
-                border-radius: 12px;
-                padding: 20px;
-                margin-bottom: 16px;
-                box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-                border: 1px solid #e2e8f0;
-            }
-            
-            .setting-header {
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                margin-bottom: 12px;
-            }
-            
-            .setting-title {
-                font-weight: 600;
-                font-size: 16px;
-            }
-            
-            .toggle {
-                position: relative;
-                width: 48px;
-                height: 24px;
-                background: #cbd5e1;
-                border-radius: 12px;
-                cursor: pointer;
-                transition: background 0.3s ease;
-            }
-            
-            .toggle.active {
-                background: #3b82f6;
-            }
-            
-            .toggle-slider {
-                position: absolute;
-                top: 2px;
-                left: 2px;
-                width: 20px;
-                height: 20px;
-                background: white;
-                border-radius: 50%;
-                transition: transform 0.3s ease;
-                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-            }
-            
-            .toggle.active .toggle-slider {
-                transform: translateX(24px);
-            }
-            
-            .setting-description {
-                color: #64748b;
-                font-size: 14px;
-                line-height: 1.5;
-            }
-            
-            .status {
-                margin-top: 12px;
-                padding: 8px 12px;
-                border-radius: 6px;
-                font-size: 14px;
-                font-weight: 500;
-            }
-            
-            .status.enabled {
-                background: #dcfce7;
-                color: #166534;
-                border: 1px solid #bbf7d0;
-            }
-            
-            .status.disabled {
-                background: #fef2f2;
-                color: #dc2626;
-                border: 1px solid #fecaca;
-            }
-            
-            .footer {
-                text-align: center;
-                margin-top: 24px;
-                color: #64748b;
-                font-size: 12px;
-            }
-            
-            .loading {
-                opacity: 0.6;
-                pointer-events: none;
-            }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <div class="header">
-                <h1 class="title">Settings</h1>
-                <p class="subtitle">Configure your ShoreAgents Dashboard</p>
-            </div>
-            
-            <div class="setting-item">
-                <div class="setting-header">
-                    <div class="setting-title">Auto-start on boot</div>
-                    <div class="toggle" id="autoStartToggle">
-                        <div class="toggle-slider"></div>
-                    </div>
-                </div>
-                <div class="setting-description">
-                    Automatically start ShoreAgents Dashboard when your computer boots up. The app will start minimized to the system tray.
-                </div>
-                <div class="status" id="autoStartStatus" style="display: none;">
-                    <span id="statusText">Loading...</span>
-                </div>
-            </div>
-        </div>
-
-        <script>
-            let autoStartEnabled = false;
-            
-            // Load current auto-start status
-            async function loadAutoStartStatus() {
-                try {
-                    const result = await window.electronAPI.autoStart.getStatus();
-                    if (result.success) {
-                        autoStartEnabled = result.openAtLogin;
-                        updateToggle();
-                        updateStatus();
-                    }
-                } catch (error) {
-                    console.error('Error loading auto-start status:', error);
-                }
-            }
-            
-            // Update toggle visual state
-            function updateToggle() {
-                const toggle = document.getElementById('autoStartToggle');
-                if (autoStartEnabled) {
-                    toggle.classList.add('active');
-                } else {
-                    toggle.classList.remove('active');
-                }
-            }
-            
-            // Update status text
-            function updateStatus() {
-                const status = document.getElementById('autoStartStatus');
-                const statusText = document.getElementById('statusText');
-                
-                status.style.display = 'block';
-                if (autoStartEnabled) {
-                    status.className = 'status enabled';
-                    statusText.textContent = 'Auto-start is enabled';
-                } else {
-                    status.className = 'status disabled';
-                    statusText.textContent = 'Auto-start is disabled';
-                }
-            }
-            
-            // Toggle auto-start
-            async function toggleAutoStart() {
-                const toggle = document.getElementById('autoStartToggle');
-                toggle.classList.add('loading');
-                
-                try {
-                    const newState = !autoStartEnabled;
-                    const result = await window.electronAPI.autoStart.toggle(newState);
-                    
-                    if (result.success) {
-                        autoStartEnabled = newState;
-                        updateToggle();
-                        updateStatus();
-                    } else {
-                        console.error('Failed to toggle auto-start:', result.error);
-                        alert('Failed to update auto-start setting. Please try again.');
-                    }
-                } catch (error) {
-                    console.error('Error toggling auto-start:', error);
-                    alert('An error occurred while updating the setting. Please try again.');
-                } finally {
-                    toggle.classList.remove('loading');
-                }
-            }
-            
-            // Event listeners
-            document.getElementById('autoStartToggle').addEventListener('click', toggleAutoStart);
-            
-            // Load status on page load
-            document.addEventListener('DOMContentLoaded', loadAutoStartStatus);
-        </script>
-    </body>
-    </html>
-  `;
-
-  settingsWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(settingsHTML)}`);
-
-  settingsWindow.once('ready-to-show', () => {
-    settingsWindow.show();
-  });
-
-  settingsWindow.on('closed', () => {
-    settingsWindow = null;
-  });
-
-  return settingsWindow;
-}
-
 // Check if user is logged in by examining localStorage
 async function checkUserLoggedIn() {
   try {
@@ -2432,11 +2144,17 @@ async function updateTrayMenu() {
     );
   }
   
-  // Add settings option
+  // Add auto-start toggle option
+  const autoStartStatus = getAutoStartStatus();
   baseMenuItems.push({
-    label: 'Settings',
+    label: `Auto-start on boot: ${autoStartStatus.openAtLogin ? 'Enabled' : 'Disabled'}`,
     click: () => {
-      createSettingsWindow();
+      const newStatus = !autoStartStatus.openAtLogin;
+      const success = toggleAutoStart(newStatus);
+      if (success) {
+        // Update the tray menu to reflect the new status
+        updateTrayMenu();
+      }
     }
   });
   
