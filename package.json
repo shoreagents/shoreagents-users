@@ -11,6 +11,7 @@
     "productName": "ShoreAgents Dashboard",
     "icon": "public/ShoreAgents-Logo-only-256.png",
     "forceCodeSigning": false,
+    "publish": null,
     "directories": {
       "output": "dist"
     },
@@ -44,7 +45,7 @@
   "scripts": {
     "dev": "next dev --turbo --port 3005",
     "dev:webpack": "next dev --port 3005",
-    "build": "next build",
+    "build": "cross-env BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ) next build",
     "start": "next start --port 3005",
     "lint": "next lint",
     "electron": "electron .",
@@ -55,7 +56,7 @@
     "dev:socket": "node socket-server.js",
     "test:shifts": "node scripts/run-shift-tests.js",
     "electron-dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3005 && cross-env NODE_ENV=development electron electron/main.js\"",
-    "electron-pack": "npm run build && electron-builder",
+    "electron-pack": "npm run build && electron-builder --publish=never",
     "dist": "npm run build && electron-builder --publish=never"
   },
   "dependencies": {
@@ -113,7 +114,6 @@
     "sonner": "^2.0.7",
     "sound-play": "^1.1.0",
     "tailwind-merge": "^3.3.1",
-    "update-electron-app": "^3.1.1",
     "zod": "^4.1.9"
   },
   "devDependencies": {
