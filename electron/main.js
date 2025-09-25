@@ -6,12 +6,6 @@ const isDev = process.env.NODE_ENV === 'development' ;
 // Set the application name IMMEDIATELY - must be before any app events
 app.setName('ShoreAgents Dashboard');
 
-// Check if this is a restart
-const isRestart = process.argv.includes('--restart');
-if (isRestart) {
-  global.isRestarting = true;
-}
-
 // Set app user model ID for Windows (helps with notifications and taskbar)
 if (process.platform === 'win32') {
   app.setAppUserModelId('com.shoreagents.dashboard');
@@ -1559,12 +1553,6 @@ function createWindow() {
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
     
-    // If this is a restart, ensure the window is focused and visible
-    if (global.isRestarting) {
-      mainWindow.focus();
-      mainWindow.moveTop();
-    }
-    
     // Initialize activity tracker after window is ready
     try {
       activityTracker = new ActivityTracker(mainWindow);
@@ -1593,7 +1581,7 @@ function createWindow() {
 
   // Handle window close - minimize to tray instead of quitting
   mainWindow.on('close', (event) => {
-    if (!isQuitting && !global.isRestarting) {
+    if (!isQuitting) {
       event.preventDefault();
       mainWindow.hide();
       
@@ -2281,15 +2269,6 @@ app.whenReady().then(async () => {
   // Remove menu completely
   Menu.setApplicationMenu(null);
   await createTray();
-  
-  // If this is a restart, ensure the window is shown and focused
-  if (global.isRestarting) {
-    global.isRestarting = false; // Reset the flag
-    if (mainWindow) {
-      mainWindow.show();
-      mainWindow.focus();
-    }
-  }
   
   // Check authentication state on app start and clear notifications if not logged in
   setTimeout(async () => {
@@ -3020,38 +2999,6 @@ ipcMain.handle('resume-activity-tracking', () => {
     return { success: false, error: error.message };
   }
 });
-// Handle app restart request
-ipcMain.on('restart-app', () => {
-  try {
-    console.log('Restarting app due to update...')
-    
-    // Notify renderer process that app is restarting
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('app-restarting')
-    }
-    
-    // Set a flag to indicate this is a restart, not a normal close
-    global.isRestarting = true
-    
-    // Give a brief moment for the renderer to save any state
-    setTimeout(() => {
-      // Close all windows gracefully
-      const windows = BrowserWindow.getAllWindows()
-      windows.forEach(window => {
-        if (!window.isDestroyed()) {
-          window.close()
-        }
-      })
-      
-      // Restart the app with a flag to indicate it's a restart
-      app.relaunch({ args: process.argv.slice(1).concat(['--restart']) })
-      app.exit(0)
-    }, 500) // Small delay to allow renderer to process the restart notification
-  } catch (error) {
-    console.error('Error restarting app:', error)
-  }
-})
-
 // Handle system notifications
 ipcMain.on('show-notification', (event, data) => {
   if (Notification.isSupported()) {

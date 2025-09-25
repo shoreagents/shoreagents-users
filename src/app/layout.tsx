@@ -29,7 +29,6 @@ import { AppWrapper } from "@/components/app-wrapper";
 import { TutorialOverlay } from "@/components/tutorial-overlay";
 import { AnnouncementsLayoutWrapper } from "@/components/announcements/announcements-layout-wrapper";
 import { AnnouncementsProvider } from '@/contexts/announcements-context';
-import { UpdateNotification } from "@/components/update-notification";
 import { Toaster } from "sonner";
 
 
@@ -94,7 +93,6 @@ export default function RootLayout({
                                     <GlobalLoadingIndicator />
                                     <GlobalRestroomQuickAction />
                                     <TutorialOverlay />
-                                    <UpdateNotification />
                                     <Toaster position="top-right" richColors />
                                   </TeamStatusProvider>
                                   </ActivityProvider>

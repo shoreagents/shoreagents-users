@@ -2431,12 +2431,6 @@ io.on('connection', (socket) => {
    
    // Global socket disconnect handler
    socket.on('disconnect', () => {
-                  // Clean up build monitoring
-                  if (socket.buildCheckInterval) {
-                    clearInterval(socket.buildCheckInterval);
-                    socket.buildCheckInterval = null;
-                  }
-                  
                   // Clean up user connection tracking
              const userData = connectedUsers.get(socket.id);
              console.log(`🔌 Socket ${socket.id} disconnecting. Connected users before cleanup: ${connectedUsers.size}`);
@@ -3303,126 +3297,8 @@ io.on('connection', (socket) => {
        lastSeen: new Date().toISOString()
      });
      
-    console.log(`User ${emailString} logged in - status set to online`);
-  });
-
-  // Handle app update notifications
-  socket.on('check-app-update', async () => {
-    try {
-      console.log(`App update check requested from socket ${socket.id}`);
-      
-      // Get current build info
-      const packageJson = require('./package.json');
-      const version = packageJson.version || '0.1.0';
-      const gitCommitHash = process.env.VERCEL_GIT_COMMIT_SHA || process.env.GIT_COMMIT_SHA || 'unknown';
-      
-      // Use stable build ID for development, real build time for production
-      const buildId = process.env.BUILD_TIME 
-        ? `${version}-${gitCommitHash.substring(0, 8)}-${process.env.BUILD_TIME}`
-        : `${version}-${gitCommitHash.substring(0, 8)}-dev-stable`;
-      
-      const buildTime = process.env.BUILD_TIME || 'dev-mode';
-      
-      // Emit current build info to the requesting client (initial check only)
-      socket.emit('app-build-info', {
-        buildTime,
-        version,
-        buildId,
-        gitCommitHash,
-        timestamp: Date.now(),
-        isInitialCheck: true // Flag to indicate this is initial check, not a new build
-      });
-      
-      console.log(`Sent app build info to socket ${socket.id}: version ${version}, buildId ${buildId}`);
-    } catch (error) {
-      console.error('Error handling app update check:', error);
-      socket.emit('app-update-error', { message: 'Failed to get app build info' });
-    }
-  });
-
-  // Handle periodic build checks (every 30 seconds)
-  socket.on('start-build-monitoring', () => {
-    console.log(`Starting build monitoring for socket ${socket.id}`);
-    
-    // Store the last known build ID to avoid false positives
-    const getCurrentBuildId = () => {
-      const packageJson = require('./package.json');
-      const version = packageJson.version || '0.1.0';
-      const gitCommitHash = process.env.VERCEL_GIT_COMMIT_SHA || process.env.GIT_COMMIT_SHA || 'unknown';
-      
-      // In development mode, use a stable build ID that doesn't change
-      // In production (Vercel), use the actual build time
-      const buildId = process.env.BUILD_TIME 
-        ? `${version}-${gitCommitHash.substring(0, 8)}-${process.env.BUILD_TIME}`
-        : `${version}-${gitCommitHash.substring(0, 8)}-dev-stable`;
-      
-      console.log(`Current build ID: ${buildId} (isProduction: ${!!process.env.BUILD_TIME}, gitHash: ${gitCommitHash})`);
-      return buildId;
-    };
-    
-    let lastKnownBuildId = getCurrentBuildId();
-    
-    const checkInterval = setInterval(async () => {
-      try {
-        // Get current build info
-        const currentBuildId = getCurrentBuildId();
-        const buildTime = process.env.BUILD_TIME || 'dev-mode';
-        const packageJson = require('./package.json');
-        const version = packageJson.version || '0.1.0';
-        const gitCommitHash = process.env.VERCEL_GIT_COMMIT_SHA || process.env.GIT_COMMIT_SHA || 'unknown';
-        
-        // Only emit if build ID actually changed (indicating a real deployment)
-        if (currentBuildId !== lastKnownBuildId) {
-          console.log(`Build ID changed from ${lastKnownBuildId} to ${currentBuildId}`);
-          lastKnownBuildId = currentBuildId;
-          
-          // Emit build info to this specific client
-          socket.emit('app-build-info', {
-            buildTime,
-            version,
-            buildId: currentBuildId,
-            gitCommitHash,
-            timestamp: Date.now(),
-            isNewBuild: true // Flag to indicate this is a new build
-          });
-        }
-      } catch (error) {
-        console.error('Error in build monitoring:', error);
-      }
-    }, 30000); // Check every 30 seconds
-    
-    // Store interval ID for cleanup
-    socket.buildCheckInterval = checkInterval;
-  });
-
-  // Stop build monitoring when socket disconnects
-  socket.on('stop-build-monitoring', () => {
-    if (socket.buildCheckInterval) {
-      clearInterval(socket.buildCheckInterval);
-      socket.buildCheckInterval = null;
-      console.log(`Stopped build monitoring for socket ${socket.id}`);
-    }
-  });
-
-  // Handle app update broadcast requests (for admin users)
-  socket.on('broadcast-app-update', async (data) => {
-    try {
-      console.log(`App update broadcast requested:`, data);
-      
-      // Broadcast to all connected clients
-      io.emit('app-update-available', {
-        buildTime: data.buildTime,
-        version: data.version,
-        message: data.message || 'A new version of the app is available. Please restart to get the latest features.',
-        timestamp: Date.now()
-      });
-      
-      console.log(`Broadcasted app update to all connected clients`);
-    } catch (error) {
-      console.error('Error broadcasting app update:', error);
-      socket.emit('app-update-error', { message: 'Failed to broadcast app update' });
-    }
-  });
+     console.log(`User ${emailString} logged in - status set to online`);
+   });
 });
 
 const PORT = process.env.SOCKET_PORT || 3004;
