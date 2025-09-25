@@ -1730,76 +1730,64 @@ async function createTray() {
   });
 }
 
-// Function to create a tray icon with red indicator - using Electron native APIs only
+// Function to create a tray icon with red indicator - in memory
 async function createTrayIconWithIndicator(count) {
   try {
+    const sharp = require('sharp');
     const { nativeImage } = require('electron');
     
-    // If there are notifications, create a complete icon with red dot
+    // Get the correct path for both development and production
+    const logoPath = getAppResourcePath('public/ShoreAgents-Logo-only-256.png');
+    
+    if (!fs.existsSync(logoPath)) {
+      console.error('ShoreAgents logo not found at:', logoPath);
+      return null;
+    }
+    
+    // Load and resize the logo to 32x32 for tray icon
+    const logoBuffer = await sharp(logoPath)
+      .resize(32, 32)
+      .png()
+      .toBuffer();
+    
+    // If there are notifications, add a red dot overlay
     if (count > 0) {
-      return await createTrayIconWithNativeRedDot(count);
+      // Load the red dot PNG file
+      const redDotPath = getAppResourcePath('public/red-dot.png');
+      
+      if (!fs.existsSync(redDotPath)) {
+        console.error('Red dot PNG not found at:', redDotPath);
+        // Fallback to just the logo without red dot
+        return nativeImage.createFromBuffer(logoBuffer);
+      }
+      
+      // Load and resize the red dot to appropriate size
+      const redDotBuffer = await sharp(redDotPath)
+        .resize(16, 16) // Smaller red dot for tray icon
+        .png()
+        .toBuffer();
+      
+      // Composite the red dot over the logo (positioned at bottom-right)
+      const finalBuffer = await sharp(logoBuffer)
+        .composite([{ 
+          input: redDotBuffer, 
+          blend: 'over',
+          top: 18, // Position from top (32-16+2 for bottom alignment)
+          left: 18 // Position from left (32-16+2 for right alignment)
+        }])
+        .png()
+        .toBuffer();
+      
+      // Create NativeImage from buffer - no temp file needed!
+      return nativeImage.createFromBuffer(finalBuffer);
     } else {
-      // No notifications, use the base logo
-      return getBaseTrayIcon();
+      // No notifications, just use the logo
+      // Create NativeImage from buffer - no temp file needed!
+      return nativeImage.createFromBuffer(logoBuffer);
     }
   } catch (error) {
     console.error('Error creating tray icon with indicator:', error);
-    return getBaseTrayIcon();
-  }
-}
-
-// Get the base tray icon (without red dot)
-function getBaseTrayIcon() {
-  try {
-    const { nativeImage } = require('electron');
-    
-    // Try ICO first for better compatibility
-    const icoPath = getAppResourcePath('public/ShoreAgents-Logo-only-256.ico');
-    if (fs.existsSync(icoPath)) {
-      return nativeImage.createFromPath(icoPath);
-    }
-    
-    // Fallback to PNG
-    const pngPath = getAppResourcePath('public/ShoreAgents-Logo-only-256.png');
-    if (fs.existsSync(pngPath)) {
-      return nativeImage.createFromPath(pngPath);
-    }
-    
-    console.error('No logo file found for tray icon');
     return null;
-  } catch (error) {
-    console.error('Error getting base tray icon:', error);
-    return null;
-  }
-}
-
-// Create complete tray icon with red dot using Electron native APIs only
-async function createTrayIconWithNativeRedDot(count) {
-  try {
-    const { nativeImage } = require('electron');
-    
-    // Create a complete 32x32 icon with red dot using SVG
-    const iconSvg = `
-      <svg width="32" height="32" xmlns="http://www.w3.org/2000/svg">
-        <!-- Background circle for the icon -->
-        <circle cx="16" cy="16" r="15" fill="#2d3748" stroke="#4a5568" stroke-width="1"/>
-        <!-- Main icon area (simplified S shape) -->
-        <path d="M8 12 Q12 8 16 12 Q20 16 16 20 Q12 24 8 20" stroke="#68d391" stroke-width="2" fill="none" stroke-linecap="round"/>
-        <path d="M8 20 Q12 16 16 20" stroke="#48bb78" stroke-width="2" fill="none" stroke-linecap="round"/>
-        <!-- Red notification dot -->
-        <circle cx="24" cy="8" r="6" fill="#ff0000" stroke="#ffffff" stroke-width="1"/>
-        <text x="24" y="12" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="8" font-weight="bold">${count > 9 ? '9+' : count}</text>
-      </svg>
-    `;
-    
-    // Create the icon from SVG
-    const iconDataUrl = `data:image/svg+xml;base64,${Buffer.from(iconSvg).toString('base64')}`;
-    return nativeImage.createFromDataURL(iconDataUrl);
-    
-  } catch (error) {
-    console.error('Error creating native red dot icon:', error);
-    // Fallback: return base icon without red dot
-    return getBaseTrayIcon();
   }
 }
 
