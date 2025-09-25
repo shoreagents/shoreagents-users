@@ -1839,6 +1839,10 @@ io.on('connection', (socket) => {
       // Handle both object format { email } and direct email string
       const email = typeof data === 'string' ? data : data?.email;
       
+      // Initialize variables that need to be accessible in catch block
+      let authTimeout = null;
+      let emailString = '';
+      
       try {
        if (!email || typeof email !== 'string') {
          console.log('Authentication failed: Invalid email format');
@@ -1849,7 +1853,7 @@ io.on('connection', (socket) => {
        console.log(`Authenticating user with email: ${email}`);
       
       // Get or create user data
-      const emailString = String(email);
+      emailString = String(email);
       
       // Check if authentication is already in progress for this user
       if (authenticationInProgress.has(emailString)) {
@@ -2427,25 +2431,25 @@ io.on('connection', (socket) => {
         );
         const fullName = userResult.rows[0]?.full_name || emailString;
         
-        const userData = { 
+        const userSessionData = { 
           userId: userInfo.userId, 
           email: emailString, 
           userInfo,
           fullName 
         };
         
-        connectedUsers.set(socket.id, userData);
+        connectedUsers.set(socket.id, userSessionData);
         
         // Store session in Redis for scalability
-        await storeUserSession(socket.id, userData);
+        await storeUserSession(socket.id, userSessionData);
         
         console.log(`AUTHENTICATION COMPLETED: Socket ${socket.id} now associated with user ${emailString}`);
         console.log(`Connected users map now contains:`, Array.from(connectedUsers.entries()).map(([id, data]) => `${id} -> ${data.email}`));
         // User authentication completed with data
         
         // Clean up any temporary user data that might exist
-        for (const [socketId, userData] of connectedUsers.entries()) {
-          if (userData.email.startsWith('temp_') && userData.email === `temp_${socketId}`) {
+        for (const [socketId, userSessionData] of connectedUsers.entries()) {
+          if (userSessionData.email.startsWith('temp_') && userSessionData.email === `temp_${socketId}`) {
             console.log(`🧹 Cleaning up temporary user data for socket ${socketId}`);
             connectedUsers.delete(socketId);
           }
