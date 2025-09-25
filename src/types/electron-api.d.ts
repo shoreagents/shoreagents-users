@@ -80,6 +80,9 @@ declare global {
       getVersion: () => string;
       platform: string;
       
+      // Sound testing
+      testSoundPlayback: (type?: string) => Promise<{ success: boolean; error?: string }>;
+      
     };
   }
 }

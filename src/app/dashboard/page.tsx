@@ -54,6 +54,20 @@ export default function DashboardPage() {
   const [selectedPeriod, setSelectedPeriod] = useState<'7D' | '30D'>('7D')
   const days = selectedPeriod === '7D' ? 7 : 30
   
+  // Test sound function
+  const testSound = async (type: string = 'inactivity') => {
+    try {
+      if (window.electronAPI?.testSoundPlayback) {
+        const result = await window.electronAPI.testSoundPlayback(type)
+        console.log('Sound test result:', result)
+      } else {
+        console.log('Electron API not available')
+      }
+    } catch (error) {
+      console.error('Sound test error:', error)
+    }
+  }
+  
 
   // Use React Query hooks for all dashboard data
   const {
@@ -224,6 +238,23 @@ export default function DashboardPage() {
               <h1 className="text-3xl font-bold text-foreground">Overview</h1>
               <p className="text-muted-foreground">Your activity, tasks, meetings, and recent tickets at a glance</p>
             </div>
+            {/* Sound Test Buttons - Remove in production */}
+            {typeof window !== 'undefined' && window.electronAPI && (
+              <div className="flex gap-2">
+                <button
+                  onClick={() => testSound('inactivity')}
+                  className="px-3 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600"
+                >
+                  Test Inactivity Sound
+                </button>
+                <button
+                  onClick={() => testSound('main')}
+                  className="px-3 py-1 text-xs bg-green-500 text-white rounded hover:bg-green-600"
+                >
+                  Test Main Sound
+                </button>
+              </div>
+            )}
             <div className="flex gap-2">
               <div className="flex items-center gap-2">
                 <div className="flex bg-muted rounded-lg p-1">

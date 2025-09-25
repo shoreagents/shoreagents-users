@@ -13,16 +13,43 @@ if (process.platform === 'win32') {
 // Optional sound library (not required at runtime if unavailable)
 let soundPlay = null;
 try {
+  console.log('Attempting to load sound-play library...');
   soundPlay = require('sound-play');
+  console.log('sound-play library loaded successfully');
 } catch (error) {
+  console.error('Failed to load sound-play library:', error);
   soundPlay = null;
 }
 const ActivityTracker = require('./activity-tracker');
 
 // Helper function to get the correct path for both development and production
 function getAppResourcePath(relativePath) {
-  const appPath = isDev ? path.join(__dirname, '..') : app.getAppPath();
-  return path.join(appPath, relativePath);
+  let appPath;
+  
+  if (isDev) {
+    // In development, files are in the project root
+    appPath = path.join(__dirname, '..');
+  } else {
+    // In production, files are in the app.asar or unpacked resources
+    appPath = app.getAppPath();
+    
+    // Check if we're running from asar
+    if (appPath.includes('.asar')) {
+      // If running from asar, try to find the unpacked resources
+      const asarPath = appPath;
+      const unpackedPath = asarPath.replace('.asar', '.asar.unpacked');
+      
+      // Check if unpacked resources exist
+      if (fs.existsSync(path.join(unpackedPath, relativePath))) {
+        appPath = unpackedPath;
+      }
+    }
+  }
+  
+  const fullPath = path.join(appPath, relativePath);
+  console.log('getAppResourcePath:', { isDev, appPath, relativePath, fullPath, exists: fs.existsSync(fullPath) });
+  
+  return fullPath;
 }
 
 
@@ -1051,9 +1078,13 @@ function getSoundPath(type = 'main') {
           getAppResourcePath('public/notification.wav'),
         ]
 
-    return candidates.find(p => fs.existsSync(p)) || null
-  } catch {
-    return null
+    console.log('getSoundPath candidates for', type, ':', candidates.map(p => ({ path: p, exists: fs.existsSync(p) })));
+    const found = candidates.find(p => fs.existsSync(p)) || null;
+    console.log('getSoundPath result for', type, ':', found);
+    return found;
+  } catch (error) {
+    console.error('getSoundPath error for', type, ':', error);
+    return null;
   }
 }
 
@@ -1064,27 +1095,41 @@ function hasCustomSoundAvailable(type = 'main') {
 
 function playCustomNotificationSound(type = 'main') {
   try {
+    console.log('playCustomNotificationSound called for type:', type);
     const soundPath = getSoundPath(type)
+    console.log('playCustomNotificationSound - soundPath:', soundPath);
+    console.log('playCustomNotificationSound - soundPlay available:', !!(soundPlay && typeof soundPlay.play === 'function'));
     
     if (soundPath && soundPlay && typeof soundPlay.play === 'function') {
+      console.log('Playing custom sound:', soundPath);
       // Fire and forget; do not await to keep UI responsive
-      soundPlay.play(soundPath).catch(() => {
+      soundPlay.play(soundPath).catch((error) => {
+        console.error('Sound playback failed:', error);
         // Fallback to system beep if playback fails
         try { 
+          console.log('Falling back to system beep due to playback error');
           shell.beep(); 
-        } catch {}
+        } catch (beepError) {
+          console.error('System beep also failed:', beepError);
+        }
       });
     } else {
+      console.log('No custom sound available, using system beep');
       // Fallback to system beep if no custom sound available
       try { 
         shell.beep(); 
-      } catch {}
+      } catch (beepError) {
+        console.error('System beep failed:', beepError);
+      }
     }
-  } catch {
+  } catch (error) {
+    console.error('playCustomNotificationSound error:', error);
     // Final fallback to system beep
     try { 
       shell.beep(); 
-    } catch {}
+    } catch (beepError) {
+      console.error('Final fallback system beep failed:', beepError);
+    }
   }
 }
 
@@ -1451,6 +1496,18 @@ ipcMain.handle('clear-system-notifications', async (event) => {
 
 ipcMain.handle('get-notification-count', async (event) => {
   return { count: systemNotifications.length };
+});
+
+// IPC handler to test sound playback
+ipcMain.handle('test-sound-playback', async (event, type = 'inactivity') => {
+  try {
+    console.log('Testing sound playback for type:', type);
+    playCustomNotificationSound(type);
+    return { success: true };
+  } catch (error) {
+    console.error('Error testing sound playback:', error);
+    return { success: false, error: error.message };
+  }
 });
 
 // Handle notification count changes from renderer
