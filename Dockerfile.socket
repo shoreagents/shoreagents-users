@@ -1,5 +1,5 @@
 # Use a more reliable base image
-FROM mcr.microsoft.com/node:18-slim
+FROM node:20-slim
 
 # Set working directory
 WORKDIR /app
