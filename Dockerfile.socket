@@ -1,14 +1,12 @@
 # Use a more reliable base image
-FROM ubuntu:22.04
+FROM mcr.microsoft.com/azure-functions/node:4-node18
 
 # Set working directory
 WORKDIR /app
 
-# Install Node.js and system dependencies
+# Install system dependencies
 RUN apt-get update && \
-    apt-get install -y curl python3 make g++ && \
-    curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
-    apt-get install -y nodejs && \
+    apt-get install -y python3 make g++ && \
     rm -rf /var/lib/apt/lists/* && \
     apt-get clean
 
