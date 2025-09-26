@@ -51,6 +51,7 @@ try {
     getStatus: () => ipcRenderer.invoke('get-activity-status')
   },
 
+
   // Inactivity notification methods
   inactivityNotifications: {
     show: (data) => ipcRenderer.invoke('show-inactivity-notification', data),

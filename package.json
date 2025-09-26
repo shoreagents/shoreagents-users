@@ -19,11 +19,13 @@
       "dist/**/*",
       "electron/**/*",
       "public/**/*",
-      "node_modules/sharp/**/*"
+      "node_modules/sharp/**/*",
+      "node_modules/uiohook-napi/**/*"
     ],
     "asarUnpack": [
       "node_modules/sharp/**/*",
-      "public/**/*"
+      "public/**/*",
+      "node_modules/uiohook-napi/**/*"
     ],
     "mac": {
       "category": "public.app-category.productivity",
@@ -104,7 +106,6 @@
     "lucide-react": "^0.525.0",
     "motion": "^12.23.15",
     "next": "^15.5.3",
-    "node-global-key-listener": "^0.3.0",
     "pg": "^8.16.3",
     "postgres": "^3.4.7",
     "process": "^0.11.10",
@@ -120,6 +121,7 @@
     "sonner": "^2.0.7",
     "sound-play": "^1.1.0",
     "tailwind-merge": "^3.3.1",
+    "uiohook-napi": "^1.5.4",
     "zod": "^4.1.9"
   },
   "devDependencies": {

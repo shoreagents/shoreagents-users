@@ -1,5 +1,5 @@
 const { ipcMain } = require('electron');
-const { GlobalKeyboardListener } = require('node-global-key-listener');
+const { uIOhook } = require('uiohook-napi');
 
 class KeyboardTracker {
   constructor(activityTracker = null) {
@@ -8,6 +8,7 @@ class KeyboardTracker {
     this.maxHistorySize = 1000; // Limit history to prevent memory issues
     this.keyListener = null;
     this.lastKeyPress = {}; // Track last key press to prevent duplicates
+    this.pressedKeys = new Set(); // Track currently pressed keys
     this.activityTracker = activityTracker; // Reference to activity tracker
     
     // Anti-cheat measures
@@ -22,43 +23,8 @@ class KeyboardTracker {
   }
 
   setupIpcHandlers() {
-    // Start keyboard tracking
-    ipcMain.handle('start-keyboard-tracking', () => {
-      try {
-        this.startTracking();
-        return { success: true, message: 'Keyboard tracking started' };
-      } catch (error) {
-        console.error('Error starting keyboard tracking:', error);
-        return { success: false, message: error.message };
-      }
-    });
-
-    // Stop keyboard tracking
-    ipcMain.handle('stop-keyboard-tracking', () => {
-      try {
-        this.stopTracking();
-        return { success: true, message: 'Keyboard tracking stopped' };
-      } catch (error) {
-        console.error('Error stopping keyboard tracking:', error);
-        return { success: false, message: error.message };
-      }
-    });
-
-    // Check if tracking is active
-    ipcMain.handle('is-keyboard-tracking', () => {
-      return this.isTracking;
-    });
-
-    // Clear keyboard history
-    ipcMain.handle('clear-keyboard-history', () => {
-      try {
-        this.keyPressHistory = [];
-        return { success: true, message: 'Keyboard history cleared' };
-      } catch (error) {
-        console.error('Error clearing keyboard history:', error);
-        return { success: false, message: error.message };
-      }
-    });
+    // No IPC handlers needed since keyboard tracking is only used internally
+    // for activity monitoring, not exposed to the frontend
   }
 
   startTracking() {
@@ -74,90 +40,127 @@ class KeyboardTracker {
 
     // Register key listeners
     this.registerKeyListeners();
+    
+    // If keyboard listener failed to initialize, log a warning but continue
+    if (!this.keyListener) {
+      console.warn('Keyboard listener failed to initialize. Keyboard tracking will be limited.');
+    }
   }
 
   stopTracking() {
     // Don't actually stop tracking, just clear history
     this.keyPressHistory = [];
     this.keyPressPatterns = []; // Reset pattern analysis
+    this.lastKeyPress = {}; // Clear last key press tracking
+    this.pressedKeys.clear(); // Clear pressed keys
   }
 
   registerKeyListeners() {
     try {
       // Stop existing listener if any
       if (this.keyListener) {
-        this.keyListener.stop();
+        uIOhook.stop();
         this.keyListener = null;
       }
-      
-      // Create a new global keyboard listener
-      this.keyListener = new GlobalKeyboardListener();
       
       // Define the allowed keys
       const allowedKeys = ['A', 'E', 'I', 'O', 'U', 'C', 'Backspace'];
       
-      // Start the listener
-      this.keyListener.start();
+      // Start the listener with error handling
+      try {
+        uIOhook.start();
+        console.log('Global keyboard listener started successfully');
+        this.keyListener = true; // Mark as active
+      } catch (startError) {
+        console.error('Failed to start global keyboard listener:', startError);
+        // If we can't start the listener, we'll fall back to a mock implementation
+        this.keyListener = null;
+        return;
+      }
       
-      // Listen for key events
-      this.keyListener.addListener((e, down) => {
-        // Check if the specific key is being pressed down (not released)
-        const isKeyDown = down && down[e.name] === true;
-        
-        // Only process key down events to avoid duplicates
-        if (this.isTracking && isKeyDown && this.isAllowedKey(e.name)) {
-          // Map the key name to our format
-          const keyMappings = {
-            'KeyA': 'A',
-            'KeyE': 'E', 
-            'KeyI': 'I',
-            'KeyO': 'O',
-            'KeyU': 'U',
-            'KeyC': 'C',
-            'Backspace': 'Backspace',
-            'BACKSPACE': 'Backspace'
-          };
-          
-          const keyName = keyMappings[e.name] || e.name;
-          const modifiers = {
-            ctrl: e.ctrlKey || false,
-            alt: e.altKey || false,
-            shift: e.shiftKey || false,
-            meta: e.metaKey || false
-          };
-          
-          this.handleKeyPress(keyName, keyName, modifiers.ctrl, modifiers.alt, modifiers.shift, modifiers.meta);
+      // Listen for key down events
+      uIOhook.on('keydown', (e) => {
+        try {
+          // Only process key down events to avoid duplicates
+          if (this.isTracking && this.isAllowedKey(e.keycode)) {
+            const keyId = `${e.keycode}-${e.ctrlKey}-${e.altKey}-${e.shiftKey}-${e.metaKey}`;
+            
+            // Check if this key combination is already being pressed
+            if (this.pressedKeys.has(keyId)) {
+              return;
+            }
+            
+            // Mark key as pressed
+            this.pressedKeys.add(keyId);
+            
+            // Map the keycode to our format
+            const keyMappings = {
+              30: 'A',    // KeyA
+              18: 'E',    // KeyE
+              23: 'I',    // KeyI
+              24: 'O',    // KeyO
+              22: 'U',    // KeyU
+              46: 'C',    // KeyC
+              14: 'Backspace' // Backspace
+            };
+            
+            const keyName = keyMappings[e.keycode] || 'Unknown';
+            const modifiers = {
+              ctrl: e.ctrlKey || false,
+              alt: e.altKey || false,
+              shift: e.shiftKey || false,
+              meta: e.metaKey || false
+            };
+            
+            this.handleKeyPress(keyName, keyName, modifiers.ctrl, modifiers.alt, modifiers.shift, modifiers.meta);
+          }
+        } catch (listenerError) {
+          console.error('Error in keyboard listener callback:', listenerError);
+        }
+      });
+      
+      // Listen for key up events to clear pressed state
+      uIOhook.on('keyup', (e) => {
+        try {
+          if (this.isTracking && this.isAllowedKey(e.keycode)) {
+            const keyId = `${e.keycode}-${e.ctrlKey}-${e.altKey}-${e.shiftKey}-${e.metaKey}`;
+            this.pressedKeys.delete(keyId);
+          }
+        } catch (listenerError) {
+          console.error('Error in keyboard up listener callback:', listenerError);
         }
       });
       
     } catch (error) {
       console.error('Error starting global keyboard listener:', error);
+      // Set keyListener to null to indicate failure
+      this.keyListener = null;
     }
   }
 
-  isAllowedKey(key) {
-    const allowedKeys = ['A', 'E', 'I', 'O', 'U', 'C', 'Backspace'];
-    // Handle different key name formats that the library might use
-    const keyMappings = {
-      'KeyA': 'A',
-      'KeyE': 'E', 
-      'KeyI': 'I',
-      'KeyO': 'O',
-      'KeyU': 'U',
-      'KeyC': 'C',
-      'Backspace': 'Backspace',
-      'BACKSPACE': 'Backspace'
+  isAllowedKey(keycode) {
+    // Define allowed keycodes for uiohook-napi
+    const allowedKeycodes = {
+      30: 'A',    // KeyA
+      18: 'E',    // KeyE
+      23: 'I',    // KeyI
+      24: 'O',    // KeyO
+      22: 'U',    // KeyU
+      46: 'C',    // KeyC
+      14: 'Backspace' // Backspace
     };
     
-    const mappedKey = keyMappings[key] || key;
-    return allowedKeys.includes(mappedKey);
+    return allowedKeycodes.hasOwnProperty(keycode);
   }
 
   unregisterKeyListeners() {
     try {
       if (this.keyListener) {
-        this.keyListener.stop();
+        uIOhook.stop();
         this.keyListener = null;
+        // Clear any remaining pressed keys
+        this.lastKeyPress = {};
+        this.pressedKeys.clear();
       }
     } catch (error) {
       console.error('Error stopping global keyboard listener:', error);
@@ -170,12 +173,37 @@ class KeyboardTracker {
     const now = Date.now();
     const keyId = `${key}-${ctrl}-${alt}-${shift}-${meta}`;
     
-    // Debounce: ignore if same key pressed within 50ms
-    if (this.lastKeyPress[keyId] && (now - this.lastKeyPress[keyId]) < 50) {
+    // Enhanced debounce: ignore if same key pressed within 200ms
+    if (this.lastKeyPress[keyId] && (now - this.lastKeyPress[keyId]) < 200) {
       return;
     }
     
     this.lastKeyPress[keyId] = now;
+
+    // Clean up old key press records to prevent memory leaks
+    const cleanupThreshold = 5000; // 5 seconds
+    Object.keys(this.lastKeyPress).forEach(id => {
+      if (now - this.lastKeyPress[id] > cleanupThreshold) {
+        delete this.lastKeyPress[id];
+      }
+    });
+
+    // Additional duplicate check: look at recent history
+    const recentThreshold = 300; // 300ms
+    const recentKeyPress = this.keyPressHistory
+      .slice(-5) // Check last 5 key presses
+      .find(kp => 
+        kp.key === key && 
+        kp.modifiers.ctrl === ctrl && 
+        kp.modifiers.alt === alt && 
+        kp.modifiers.shift === shift && 
+        kp.modifiers.meta === meta && 
+        (now - kp.timestamp) < recentThreshold
+      );
+    
+    if (recentKeyPress) {
+      return;
+    }
 
     // Always track the key press for display purposes
     const keyPress = {
@@ -198,8 +226,7 @@ class KeyboardTracker {
       this.keyPressHistory = this.keyPressHistory.slice(-this.maxHistorySize);
     }
 
-    // Send to renderer process
-    this.sendKeyPressToRenderer(keyPress);
+    // Keyboard tracking is now only used for internal activity monitoring
 
     // Only update activity if it's valid (anti-cheat check)
     if (this.isValidActivity(key)) {
@@ -210,18 +237,6 @@ class KeyboardTracker {
     }
   }
 
-  sendKeyPressToRenderer(keyPress) {
-    // Get the main window and send the key press event
-    const { BrowserWindow } = require('electron');
-    
-    // Get all windows and find the main one
-    const windows = BrowserWindow.getAllWindows();
-    const mainWindow = windows.find(window => !window.isDestroyed());
-    
-    if (mainWindow) {
-      mainWindow.webContents.send('key-press', keyPress);
-    }
-  }
 
   // Get current tracking status
   getStatus() {
@@ -306,6 +321,14 @@ class KeyboardTracker {
     this.unregisterKeyListeners();
     this.keyPressHistory = [];
     this.keyPressPatterns = [];
+    this.pressedKeys.clear();
+    
+    // Ensure uiohook is stopped
+    try {
+      uIOhook.stop();
+    } catch (error) {
+      console.error('Error stopping uiohook during cleanup:', error);
+    }
   }
 }
 
