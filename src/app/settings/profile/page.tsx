@@ -27,9 +27,10 @@ import {
 import { ProfileSkeleton } from "@/components/skeleton-loaders"
 import { useProfile, UserProfile } from "@/hooks/use-profile"
 import { useTutorial } from "@/contexts/tutorial-context"
+import { ProfilePictureUpload } from "@/components/profile-picture-upload"
 
 export default function ProfilePage() {
-  const { profile, isLoading, error, isCached } = useProfile()
+  const { profile, isLoading, error, isCached, refreshProfile } = useProfile()
   const { startTutorial, resetTutorial } = useTutorial()
   
   const getInitials = (first?: string, last?: string, email?: string) => {
@@ -403,79 +404,41 @@ export default function ProfilePage() {
 
             {/* Sidebar */}
             <div className="space-y-6">
-              {/* Profile Picture */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Profile Picture</CardTitle>
-                  <CardDescription>
-                    Your profile photo
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-center">
-                    <div className="relative">
-                      {profile.profile_picture ? (
-                        <Image 
-                          src={profile.profile_picture} 
-                          alt="Profile"
-                          width={96}
-                          height={96}
-                          className="w-24 h-24 rounded-full object-cover"
-                        />
-                      ) : (
-                        <div className="w-24 h-24 bg-muted rounded-full flex items-center justify-center">
-                          <span className="text-xl font-semibold text-muted-foreground">
-                            {getInitials(profile.first_name, profile.last_name, profile.email)}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  {profile.company_logo && (
-                    <div className="text-center">
-                      <p className="text-xs text-muted-foreground mb-2">Company Logo</p>
-                      <Image 
-                        src={profile.company_logo} 
-                        alt="Company Logo"
-                        width={32}
-                        height={32}
-                        className="h-8 mx-auto"
-                      />
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+              {/* Profile Picture Upload */}
+              <ProfilePictureUpload
+                currentProfilePicture={profile.profile_picture}
+                firstName={profile.first_name}
+                lastName={profile.last_name}
+                email={profile.email}
+                onUploadSuccess={() => {
+                  // Refresh the profile data to show the new picture
+                  refreshProfile()
+                }}
+              />
 
-              {/* Experience Points (for Agents) */}
-              {profile.user_type === 'Agent' && (
+              {/* Company Logo Display */}
+              {profile.company_logo && (
                 <Card>
                   <CardHeader>
-                    <CardTitle className="text-lg">Experience Points</CardTitle>
+                    <CardTitle className="text-lg">Company Logo</CardTitle>
                     <CardDescription>
-                      Your agent experience and progress
+                      Your company's logo
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="text-center">
-                      <div className="text-3xl font-bold text-primary">
-                        {profile.exp_points || 0}
-                      </div>
-                      <p className="text-sm text-muted-foreground">Total XP</p>
-                    </div>
-                    <div className="w-full bg-muted rounded-full h-2">
-                      <div 
-                        className="bg-primary h-2 rounded-full transition-all duration-300"
-                        style={{ 
-                          width: `${Math.min(((profile.exp_points || 0) % 1000) / 10, 100)}%` 
-                        }}
+                      <Image 
+                        src={profile.company_logo} 
+                        alt="Company Logo"
+                        width={64}
+                        height={64}
+                        className="h-16 mx-auto"
                       />
                     </div>
-                    <p className="text-xs text-center text-muted-foreground">
-                      {1000 - ((profile.exp_points || 0) % 1000)} XP to next level
-                    </p>
                   </CardContent>
                 </Card>
               )}
+
 
               {/* Account Status */}
               <Card>
@@ -497,28 +460,10 @@ export default function ProfilePage() {
                   </div>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <CheckCircle className="h-4 w-4 text-blue-600" />
-                      <span className="text-sm">Email Verified</span>
-                    </div>
-                    <Badge variant="outline" className="text-xs">
-                      Verified
-                    </Badge>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
                       <Calendar className="h-4 w-4 text-purple-600" />
                       <span className="text-sm">Start Date</span>
                     </div>
                     <span className="text-sm text-muted-foreground">{profile.start_date}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <User className="h-4 w-4 text-orange-600" />
-                      <span className="text-sm">User Type</span>
-                    </div>
-                    <Badge variant="outline" className="text-xs">
-                      {profile.user_type}
-                    </Badge>
                   </div>
                   {profile.member_status && (
                     <div className="flex items-center justify-between">

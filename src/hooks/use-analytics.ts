@@ -25,6 +25,7 @@ type LeaderboardRow = {
   rank: number
   userId: string
   name: string
+  profilePicture?: string
   productivityScore: number 
 }
 
@@ -169,6 +170,7 @@ export function useAnalyticsLeaderboard() {
           rank: entry.rank,
           userId: entry.userId,
           name: entry.name,
+          profilePicture: entry.profilePicture,
           productivityScore: entry.productivityScore
         }))
       

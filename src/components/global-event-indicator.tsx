@@ -5,6 +5,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useEventsContext } from '@/contexts/events-context'
 import { useMeeting } from '@/contexts/meeting-context'
 import { useSocket } from '@/contexts/socket-context'
+import { useBreak } from '@/contexts/break-context'
+import { useRestroom } from '@/contexts/restroom-context'
 import { Button } from '@/components/ui/button'
 import { 
   Dialog,
@@ -46,6 +48,8 @@ export const GlobalEventIndicator = React.memo(function GlobalEventIndicator({ c
   
   const { endCurrentMeeting, currentMeeting } = useMeeting()
   const { socket, isConnected } = useSocket()
+  const { isBreakActive } = useBreak()
+  const { isInRestroom, updateRestroomStatus } = useRestroom()
   
   const [isVisible, setIsVisible] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
@@ -56,6 +60,8 @@ export const GlobalEventIndicator = React.memo(function GlobalEventIndicator({ c
   const [isLeaving, setIsLeaving] = useState(false)
   const [showMeetingBlockedDialog, setShowMeetingBlockedDialog] = useState(false)
   const [isEndingMeeting, setIsEndingMeeting] = useState(false)
+  const [showRestroomBlockedDialog, setShowRestroomBlockedDialog] = useState(false)
+  const [isEndingRestroom, setIsEndingRestroom] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
   // Save position to localStorage whenever it changes
@@ -99,20 +105,21 @@ export const GlobalEventIndicator = React.memo(function GlobalEventIndicator({ c
   }, [])
 
   // Show indicator when there's an active event (started today) AND it has actually started
+  // BUT NOT when the agent is on break
   useEffect(() => {
-    if (currentEvent && hasEventStarted(currentEvent)) {
+    if (currentEvent && hasEventStarted(currentEvent) && !isBreakActive) {
       setIsVisible(true)
     } else {
       setIsVisible(false)
     }
-  }, [currentEvent, hasEventStarted])
+  }, [currentEvent, hasEventStarted, isBreakActive])
 
   // Listen for real-time socket events to update immediately
   useEffect(() => {
     if (!socket || !isConnected) return
     const handleEventChange = (data: any) => {
       // Force a refresh of the events context
-      if (currentEvent && hasEventStarted(currentEvent)) {
+      if (currentEvent && hasEventStarted(currentEvent) && !isBreakActive) {
         setIsVisible(true)
       } else {
         setIsVisible(false)
@@ -121,7 +128,7 @@ export const GlobalEventIndicator = React.memo(function GlobalEventIndicator({ c
 
     const handleEventUpdated = (data: any) => {
       // Force a refresh of the events context
-      if (currentEvent && hasEventStarted(currentEvent)) {
+      if (currentEvent && hasEventStarted(currentEvent) && !isBreakActive) {
         setIsVisible(true)
       } else {
         setIsVisible(false)
@@ -136,14 +143,14 @@ export const GlobalEventIndicator = React.memo(function GlobalEventIndicator({ c
       socket.off('event-change', handleEventChange)
       socket.off('event-updated', handleEventUpdated)
     }
-  }, [socket, isConnected, currentEvent, hasEventStarted])
+  }, [socket, isConnected, currentEvent, hasEventStarted, isBreakActive])
 
   // Set up a timer to check periodically if an event has started (fallback)
   useEffect(() => {
     if (!currentEvent) return
 
     // Check immediately
-    if (hasEventStarted(currentEvent)) {
+    if (hasEventStarted(currentEvent) && !isBreakActive) {
       setIsVisible(true)
     } else {
       setIsVisible(false)
@@ -151,7 +158,7 @@ export const GlobalEventIndicator = React.memo(function GlobalEventIndicator({ c
 
     // Set up interval to check every 1 second for immediate updates
     const interval = setInterval(() => {
-      if (currentEvent && hasEventStarted(currentEvent)) {
+      if (currentEvent && hasEventStarted(currentEvent) && !isBreakActive) {
         setIsVisible(true)
       } else {
         setIsVisible(false)
@@ -159,7 +166,7 @@ export const GlobalEventIndicator = React.memo(function GlobalEventIndicator({ c
     }, 1000) // Check every 1 second for immediate updates
 
     return () => clearInterval(interval)
-  }, [currentEvent, hasEventStarted])
+  }, [currentEvent, hasEventStarted, isBreakActive])
 
   // Handle drag start
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -239,6 +246,12 @@ export const GlobalEventIndicator = React.memo(function GlobalEventIndicator({ c
   const handleJoinEvent = async () => {
     if (!currentEvent || isJoining) return
     
+    // Check if agent is in restroom before joining event/activity
+    if (isInRestroom) {
+      setShowRestroomBlockedDialog(true)
+      return
+    }
+    
     try {
       setIsJoining(true)
       await joinEvent(currentEvent.event_id)
@@ -284,6 +297,37 @@ export const GlobalEventIndicator = React.memo(function GlobalEventIndicator({ c
     } finally {
       setIsEndingMeeting(false)
     }
+  }
+
+  // Handle end restroom and join event
+  const handleEndRestroomAndJoin = async () => {
+    if (isEndingRestroom) return
+    try {
+      setIsEndingRestroom(true)
+      
+      // End the restroom session
+      await updateRestroomStatus(false)
+      
+      // Wait a moment for restroom status to update
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      
+      // Close restroom dialog
+      setShowRestroomBlockedDialog(false)
+      
+      // After ending restroom, try to join the event
+      if (currentEvent) {
+        await joinEvent(currentEvent.event_id)
+      }
+    } catch (error) {
+      console.error('Failed to end restroom:', error)
+    } finally {
+      setIsEndingRestroom(false)
+    }
+  }
+
+  // Handle cancel restroom end
+  const handleCancelRestroomEnd = () => {
+    setShowRestroomBlockedDialog(false)
   }
 
   // Get event type color
@@ -504,10 +548,10 @@ export const GlobalEventIndicator = React.memo(function GlobalEventIndicator({ c
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <AlertCircle className="h-5 w-5 text-amber-500" />
-            Cannot Join Event
+            Cannot Join {getEventTypeDisplayName(currentEvent?.event_type || 'event')}
           </DialogTitle>
           <DialogDescription>
-            You cannot join the event while you are currently in a meeting. Please end your meeting first before joining the event.
+            You cannot join the {getEventTypeDisplayName(currentEvent?.event_type || 'event').toLowerCase()} while you are currently in a meeting. Please end your meeting first before joining the {getEventTypeDisplayName(currentEvent?.event_type || 'event').toLowerCase()}.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter className="flex gap-2">
@@ -530,7 +574,47 @@ export const GlobalEventIndicator = React.memo(function GlobalEventIndicator({ c
             ) : (
               <>
                 <Square className="h-4 w-4 mr-2" />
-                End Meeting & Join Event
+                End Meeting & Join {getEventTypeDisplayName(currentEvent?.event_type || 'event')}
+              </>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    {/* Restroom Blocked Dialog */}
+    <Dialog open={showRestroomBlockedDialog} onOpenChange={setShowRestroomBlockedDialog}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <AlertCircle className="h-5 w-5 text-amber-500" />
+            Cannot Join {getEventTypeDisplayName(currentEvent?.event_type || 'event')}
+          </DialogTitle>
+          <DialogDescription>
+            You cannot join the {getEventTypeDisplayName(currentEvent?.event_type || 'event').toLowerCase()} while you are currently in the restroom. Please finish your restroom session first before joining the {getEventTypeDisplayName(currentEvent?.event_type || 'event').toLowerCase()}.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="flex gap-2">
+          <Button 
+            onClick={handleCancelRestroomEnd}
+            variant="outline"
+          >
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleEndRestroomAndJoin}
+            variant="destructive"
+            disabled={isEndingRestroom}
+          >
+            {isEndingRestroom ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Finishing Restroom...
+              </>
+            ) : (
+              <>
+                <Square className="h-4 w-4 mr-2" />
+                Finish Restroom & Join {getEventTypeDisplayName(currentEvent?.event_type || 'event')}
               </>
             )}
           </Button>

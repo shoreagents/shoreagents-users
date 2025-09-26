@@ -41,7 +41,21 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { useHealthCheckSocketContext, HealthCheckRecord } from "@/hooks/use-health-check-socket-context"
 import { useHealth } from "@/contexts/health-context"
+import { useRestroom } from "@/contexts/restroom-context"
+import { useMeeting } from "@/contexts/meeting-context"
+import { useEventsContext } from "@/contexts/events-context"
 import { getCurrentUser } from "@/lib/ticket-utils"
+
+// Helper function to get event type display name
+const getEventTypeDisplayName = (eventType: string) => {
+  switch (eventType) {
+    case 'activity':
+      return 'Activity'
+    case 'event':
+    default:
+      return 'Event'
+  }
+}
 
 export default function HealthPage() {
   const [currentTime, setCurrentTime] = useState(new Date())
@@ -110,6 +124,11 @@ export default function HealthPage() {
     handleGoingToClinic,
     handleBackToStation
   } = useHealth()
+
+  // Use other status contexts to check if agent is busy
+  const { isInRestroom } = useRestroom()
+  const { isInMeeting } = useMeeting()
+  const { isInEvent, currentEvent } = useEventsContext()
 
   // Fetch data on mount
   useEffect(() => {
@@ -750,6 +769,20 @@ export default function HealthPage() {
                            </p>
                          </div>
                        )}
+
+                       {/* Show status message when agent is busy */}
+                       {(isInRestroom || isInMeeting || isInEvent) && (
+                         <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                           <p className="text-sm text-amber-800">
+                             <strong>Notice:</strong> You cannot request a health check while you are currently {
+                               isInRestroom ? 'in the restroom' :
+                               isInMeeting ? 'in a meeting' :
+                               isInEvent ? `in an ${getEventTypeDisplayName(currentEvent?.event_type || 'event').toLowerCase()}` :
+                               'busy'
+                             }. Please finish your current activity first.
+                           </p>
+                         </div>
+                       )}
                     </div>
 
                     {/* Show different buttons based on request status */}
@@ -861,7 +894,7 @@ export default function HealthPage() {
                     ) : (
                       <Button 
                         onClick={handleStartNewRequest}
-                        disabled={isLoadingAvailability || isNurseStatusLoading || !nurseOnDuty || userHasPendingRequest || (currentApprovedRequest && !currentApprovedRequest.done)}
+                        disabled={isLoadingAvailability || isNurseStatusLoading || !nurseOnDuty || userHasPendingRequest || (currentApprovedRequest && !currentApprovedRequest.done) || isInRestroom || isInMeeting || isInEvent}
                         className="w-full"
                         size="lg"
                       >

@@ -73,8 +73,10 @@ export async function GET(
                c.comment,
                to_char(c.created_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS') || '+08:00' as created_at_ph,
                u.email,
+               u.user_type,
                COALESCE(pi.first_name,'') AS first_name,
-               COALESCE(pi.last_name,'') AS last_name
+               COALESCE(pi.last_name,'') AS last_name,
+               COALESCE(pi.profile_picture,'') AS profile_picture
         FROM ticket_comments c
         JOIN users u ON c.user_id = u.id
         LEFT JOIN personal_info pi ON pi.user_id = u.id
@@ -89,6 +91,8 @@ export async function GET(
         createdAt: r.created_at_ph,
         authorName: `${(r.first_name || '').trim()} ${(r.last_name || '').trim()}`.trim() || r.email,
         authorEmail: r.email,
+        userType: r.user_type,
+        profilePicture: r.profile_picture || '',
       }))
 
       const responseData = { success: true, comments: items }

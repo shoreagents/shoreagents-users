@@ -15,6 +15,8 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ArrowLeft, Send, CheckCircle, FileText, Mail, Phone, Upload, X, AlertTriangle, MessageSquare } from "lucide-react"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { getCurrentUser } from "@/lib/ticket-utils"
 import { useCreateTicket } from "@/hooks/use-tickets"
@@ -28,6 +30,7 @@ interface UploadedFile {
 }
 
 export default function NewTicketPage() {
+  const router = useRouter()
   const [isSubmitted, setIsSubmitted] = useState(false)
   const [ticketId, setTicketId] = useState<string>('')
   const [files, setFiles] = useState<File[]>([])
@@ -45,6 +48,17 @@ export default function NewTicketPage() {
   
   // Maximum file size: 10MB
   const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB in bytes
+
+  // Auto-redirect to my tickets page after successful submission
+  useEffect(() => {
+    if (isSubmitted && ticketId) {
+      const timer = setTimeout(() => {
+        router.push('/forms/my-tickets')
+      }, 3000) // Redirect after 3 seconds
+      
+      return () => clearTimeout(timer)
+    }
+  }, [isSubmitted, ticketId, router])
 
   // Fetch categories only
   useEffect(() => {
@@ -251,111 +265,7 @@ export default function NewTicketPage() {
     )
   }
 
-  if (isSubmitted) {
-    return (
-      <SidebarProvider>
-        <AppSidebar />
-        <SidebarInset>
-          <AppHeader />
-          <div className="flex flex-1 flex-col gap-6 p-6 pt-2">
-            
-            <div className="flex items-center justify-center min-h-[60vh]">
-              <Card className="max-w-2xl w-full border-2 border-primary/20 shadow-xl">
-                <CardHeader className="text-center pb-6">
-                  <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-primary/10 animate-pulse">
-                    <div className="h-12 w-12 rounded-full bg-primary/20 flex items-center justify-center">
-                      <CheckCircle className="h-8 w-8 text-primary" />
-                    </div>
-                  </div>
-                  <CardTitle className="text-3xl font-bold text-primary mb-2">
-                    Ticket Submitted Successfully!
-                  </CardTitle>
-                  <p className="text-lg">
-                    Your support ticket has been created and is now in our system
-                  </p>
-                </CardHeader>
-                
-                <CardContent className="space-y-8">
-                  {/* Ticket ID Section */}
-                  <div className="text-center">
-                    <div className="inline-flex items-center gap-3 bg-primary/5 border border-primary/20 rounded-full px-6 py-3">
-                      <FileText className="h-5 w-5 text-primary" />
-                      <span className="font-mono font-semibold text-primary">
-                        {ticketId}
-                      </span>
-                    </div>
-                    <p className="text-sm text-muted-foreground mt-2">
-                      Please save this ticket ID for future reference
-                    </p>
-                  </div>
-
-                  {/* Next Steps Section */}
-                  <div className="bg-gradient-to-br from-primary/5 to-secondary/5 rounded-xl p-6 border border-primary/10">
-                    <div className="flex items-center gap-3 mb-4">
-                      <div className="p-2 bg-primary/10 rounded-lg">
-                        <MessageSquare className="h-5 w-5 text-primary" />
-                      </div>
-                      <h4 className="font-semibold text-lg">What happens next?</h4>
-                    </div>
-                    <div className="grid gap-3">
-                      <div className="flex items-start gap-3">
-                        <div className="w-2 h-2 rounded-full bg-primary mt-2 flex-shrink-0"></div>
-                        <p className="text-sm">Your ticket has been assigned to our support team</p>
-                      </div>
-                      <div className="flex items-start gap-3">
-                        <div className="w-2 h-2 rounded-full bg-primary mt-2 flex-shrink-0"></div>
-                        <p className="text-sm">Our team will review and respond within 24-48 hours</p>
-                      </div>
-                      <div className="flex items-start gap-3">
-                        <div className="w-2 h-2 rounded-full bg-primary mt-2 flex-shrink-0"></div>
-                        <p className="text-sm">You can track your ticket status in the dashboard</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Action Buttons */}
-                  <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                    <Link href="/forms/my-tickets" className="flex-1 sm:flex-none">
-                      <Button variant="outline" className="w-full sm:w-auto">
-                        <ArrowLeft className="mr-2 h-4 w-4" />
-                        View All My Tickets
-                      </Button>
-                    </Link>
-                    <Button 
-                      onClick={() => {
-                        // Comprehensive reset of all form states
-                        setIsSubmitted(false)
-                        setTicketId("")
-                        setFiles([])
-                        setUploadedFiles([]) // Reset uploaded files when creating another ticket
-                        setFileError("")
-                        setDragActive(false)
-                        setUploadingFiles(false)
-                      }}
-                      className="w-full sm:w-auto bg-primary hover:bg-primary/90"
-                    >
-                      <FileText className="mr-2 h-4 w-4" />
-                      Create Another Ticket
-                    </Button>
-                  </div>
-
-                  {/* Additional Info */}
-                  <div className="text-center pt-4 border-t border-border/50">
-                    <p className="text-sm text-muted-foreground">
-                      Need immediate assistance? Contact our support team at{' '}
-                      <a href="mailto:support@shoreagents.com" className="text-primary hover:underline">
-                        support@shoreagents.com
-                      </a>
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-        </SidebarInset>
-      </SidebarProvider>
-    )
-  }
+  // Success dialog - no need for early return, we'll show it as a dialog
 
   return (
     <SidebarProvider>
@@ -690,6 +600,82 @@ export default function NewTicketPage() {
           </div>
         </div>
       </SidebarInset>
+
+      {/* Success Dialog */}
+      <Dialog open={isSubmitted} onOpenChange={() => {}}>
+        <DialogContent className="max-w-2xl w-full border-2 border-primary/20 shadow-xl">
+          <DialogHeader className="text-center pb-6">
+            <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-primary/10 animate-pulse">
+              <div className="h-12 w-12 rounded-full bg-primary/20 flex items-center justify-center">
+                <CheckCircle className="h-8 w-8 text-primary" />
+              </div>
+            </div>
+            <DialogTitle className="text-3xl font-bold text-primary mb-2 text-center">
+              Ticket Submitted Successfully!
+            </DialogTitle>
+            <DialogDescription className="text-lg">
+              Your support ticket has been created and is now in our system
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-8">
+            {/* Ticket ID Section */}
+            <div className="text-center">
+              <div className="inline-flex items-center gap-3 bg-primary/5 border border-primary/20 rounded-full px-6 py-3">
+                <FileText className="h-5 w-5 text-primary" />
+                <span className="font-mono font-semibold text-primary">
+                  {ticketId}
+                </span>
+              </div>
+              <p className="text-sm text-muted-foreground mt-2">
+                Please save this ticket ID for future reference
+              </p>
+            </div>
+
+            {/* Next Steps Section */}
+            <div className="bg-gradient-to-br from-primary/5 to-secondary/5 rounded-xl p-6 border border-primary/10">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 bg-primary/10 rounded-lg">
+                  <MessageSquare className="h-5 w-5 text-primary" />
+                </div>
+                <h4 className="font-semibold text-lg">What happens next?</h4>
+              </div>
+              <div className="grid gap-3">
+                <div className="flex items-start gap-3">
+                  <div className="w-2 h-2 rounded-full bg-primary mt-2 flex-shrink-0"></div>
+                  <p className="text-sm">Your ticket has been assigned to our support team</p>
+                </div>
+                <div className="flex items-start gap-3">
+                  <div className="w-2 h-2 rounded-full bg-primary mt-2 flex-shrink-0"></div>
+                  <p className="text-sm">Our team will review and respond within 24-48 hours</p>
+                </div>
+                <div className="flex items-start gap-3">
+                  <div className="w-2 h-2 rounded-full bg-primary mt-2 flex-shrink-0"></div>
+                  <p className="text-sm">You can track your ticket status in the dashboard</p>
+                </div>
+              </div>
+            </div>
+
+
+            {/* Additional Info */}
+            <div className="text-center pt-4 border-t border-border/50">
+              <p className="text-sm text-muted-foreground">
+                Need immediate assistance? Contact our support team at{' '}
+                <a href="mailto:support@shoreagents.com" className="text-primary hover:underline">
+                  support@shoreagents.com
+                </a>
+              </p>
+            </div>
+
+            {/* Auto-redirect notice */}
+            <div className="text-center">
+              <p className="text-xs text-muted-foreground">
+                You will be automatically redirected to your tickets in a few seconds...
+              </p>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </SidebarProvider>
   )
 } 

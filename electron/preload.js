@@ -105,7 +105,8 @@ try {
     getActive: () => ipcRenderer.invoke('get-break-active'),
     confirmEndDueToFocusLoss: () => ipcRenderer.invoke('confirm-break-end-due-to-focus-loss'),
     returnToBreak: () => ipcRenderer.invoke('return-to-break'),
-    emergencyEscape: () => ipcRenderer.invoke('emergency-escape')
+    emergencyEscape: () => ipcRenderer.invoke('emergency-escape'),
+    cleanupKeyboardShortcuts: () => ipcRenderer.invoke('cleanup-keyboard-shortcuts')
   },
   
   // Kiosk mode methods
@@ -114,6 +115,7 @@ try {
     disable: () => ipcRenderer.invoke('set-kiosk-mode', false),
     setActive: (enabled) => ipcRenderer.invoke('set-kiosk-mode', enabled)
   },
+  
   
   // Window control methods
   minimize: () => ipcRenderer.invoke('window-minimize'),

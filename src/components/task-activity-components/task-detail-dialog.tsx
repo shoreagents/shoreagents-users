@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Separator } from "@/components/ui/separator"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Calendar } from "@/components/ui/calendar"
@@ -126,7 +126,7 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
   }, [])
   const [activeTab, setActiveTab] = useState("details")
   const [comment, setComment] = useState("")
-  const [taskComments, setTaskComments] = useState<Array<{id:string; user_id:number; content:string; created_at:string; updated_at:string; author_name?:string; author_email?:string}>>([])
+  const [taskComments, setTaskComments] = useState<Array<{id:string; user_id:number; content:string; created_at:string; updated_at:string; author_name?:string; author_email?:string; user_type?:string; profile_picture?:string}>>([])
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
   const [editingCommentText, setEditingCommentText] = useState<string>("")
   const [commentActionsVisibleId, setCommentActionsVisibleId] = useState<string | null>(null)
@@ -1534,6 +1534,7 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                                       >
                                         <div className="flex items-center gap-3">
                                           <Avatar className="h-6 w-6">
+                                            <AvatarImage src={assignee.avatar} alt={assignee.name} />
                                             <AvatarFallback className="text-xs">
                                               {assignee.name.split(' ').map((n: string) => n[0]).join('').toUpperCase()}
                                             </AvatarFallback>
@@ -1654,10 +1655,11 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                           selectedAssignees.slice(0, 5).map((assignee) => (
                             <div key={assignee.id} className="flex items-center gap-1.5 border rounded-md px-1.5 py-0.5 text-xs">
                               <Avatar className="h-5 w-5">
+                                <AvatarImage src={assignee.avatar} alt={assignee.name} />
                                 <AvatarFallback className="text-[10px]">
                                   {assignee.name.split(' ').map((n: string) => n[0]).join('').toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
+                                </AvatarFallback>
+                              </Avatar>
                                       <span className="text-xs">
                       {assignee.name}
                       {currentEmail && assignee.email && assignee.email.toLowerCase() === currentEmail && (
@@ -2566,14 +2568,22 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                                   >
                                     <div className="flex items-start gap-2">
                                       <Avatar className="h-6 w-6">
+                                        <AvatarImage src={c.profile_picture} alt={c.author_name || c.author_email} />
                                         <AvatarFallback className="text-[10px]">
                                           {getInitials(c.author_name || c.author_email)}
                                         </AvatarFallback>
                                       </Avatar>
                                       <div className="flex-1 min-w-0">
-                                        <div className="font-medium text-foreground truncate">
-                                          {c.author_name || c.author_email || 'User'}
-                        </div>
+                                        <div className="flex items-center gap-2">
+                                          <div className="font-medium text-foreground truncate">
+                                            {c.author_name || c.author_email || 'User'}
+                                          </div>
+                                          {c.user_type && (
+                                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0.5 h-4">
+                                              {c.user_type}
+                                            </Badge>
+                                          )}
+                                        </div>
                                         <div className="mt-1 whitespace-pre-wrap text-muted-foreground">
                                       {isEditing ? (
                                         <div className="space-y-2">

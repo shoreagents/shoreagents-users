@@ -14,7 +14,7 @@ import {
 import { Separator } from "@/components/ui/separator"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { getCurrentUser } from "@/lib/ticket-utils"
-import { Bell, CheckCircle, AlertCircle, Info, Clock, ArrowRight, CheckSquare, FileText, Sun, Moon, Users, Heart, Calendar } from "lucide-react"
+import { Bell, CheckCircle, AlertCircle, Info, Clock, ArrowRight, CheckSquare, FileText, Sun, Moon, Users, Heart, Calendar, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -93,6 +93,7 @@ export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser =
   const [unreadCount, setUnreadCount] = useState(0)
   const [loadingBell, setLoadingBell] = useState(true)
   const [activeTab, setActiveTab] = useState<'all' | 'unread'>('all')
+  const [isMarkingAllRead, setIsMarkingAllRead] = useState(false)
   // Trigger periodic re-render so formatTimeAgo updates (e.g., "Just now" -> "1 minute ago")
   const [nowTick, setNowTick] = useState<number>(() => Date.now())
 
@@ -298,7 +299,7 @@ export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser =
       setUser({
         name: currentUser.name || "Agent User",
         email: currentUser.email || "agent@shoreagents.com",
-        avatar: "/shoreagents-dp.png",
+        avatar: "/shoreagents-dp.png", // Default fallback
       })
           
           // Try to fetch fresh profile data from API
@@ -319,7 +320,7 @@ export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser =
                 setUser({
                   name: `${profile.first_name} ${profile.last_name}`.trim() || currentUser.name || "Agent User",
                   email: profile.email || currentUser.email || "agent@shoreagents.com",
-                  avatar: "/shoreagents-dp.png",
+                  avatar: profile.profile_picture || "/shoreagents-dp.png", // Use uploaded profile picture or fallback
                 })
               }
             }
@@ -766,8 +767,10 @@ export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser =
                       variant="ghost"
                       size="sm"
                       className="h-7 px-2 text-xs"
+                      disabled={isMarkingAllRead}
                       onClick={async () => {
                         try {
+                          setIsMarkingAllRead(true)
                           const currentUser = getCurrentUser()
                           if (currentUser?.id) {
                             // Use the socket context function to mark all as read
@@ -781,10 +784,19 @@ export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser =
                           }
                         } catch (error) {
                           console.error('Error marking all notifications as read:', error)
+                        } finally {
+                          setIsMarkingAllRead(false)
                         }
                       }}
                     >
-                      Mark all read
+                      {isMarkingAllRead ? (
+                        <>
+                          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                          Marking...
+                        </>
+                      ) : (
+                        'Mark all read'
+                      )}
                     </Button>
                   )}
                 </div>

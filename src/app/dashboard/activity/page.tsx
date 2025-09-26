@@ -9,7 +9,7 @@ import { AppSidebar } from '@/components/app-sidebar'
 import { AppHeader } from '@/components/app-header'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Clock, RefreshCw, BarChart3, Loader2 } from 'lucide-react'
 import WeeklyActivityDisplay from '@/components/weekly-activity-display'
 import MonthlyActivityDisplay from '@/components/monthly-activity-display'
@@ -295,8 +295,47 @@ export default function TestActivityPage() {
   }
 
   useEffect(() => {
-    const user = getCurrentUser()
-    setCurrentUser(user)
+    const loadUserData = async () => {
+      try {
+        const user = getCurrentUser()
+        if (user) {
+          setCurrentUser({
+            ...user,
+            avatar: "/shoreagents-dp.png" // Default fallback
+          })
+          
+          // Try to fetch fresh profile data from API
+          try {
+            const userEmail = user.email;
+            const apiUrl = userEmail 
+              ? `/api/profile/?email=${encodeURIComponent(userEmail)}`
+              : '/api/profile/';
+              
+            const response = await fetch(apiUrl, {
+              credentials: 'include'
+            })
+            if (response.ok) {
+              const profileData = await response.json()
+              if (profileData.success && profileData.profile) {
+                const profile = profileData.profile
+                setCurrentUser({
+                  ...user,
+                  name: `${profile.first_name} ${profile.last_name}`.trim() || user.name || "Agent User",
+                  email: profile.email || user.email || "agent@shoreagents.com",
+                  avatar: profile.profile_picture || "/shoreagents-dp.png",
+                })
+              }
+            }
+          } catch (apiError) {
+            console.warn('Failed to fetch profile from API, using localStorage data')
+          }
+        }
+      } catch (error) {
+        console.error('Error loading user data:', error)
+      }
+    }
+    
+    loadUserData()
   }, [])
 
   // Format seconds to readable time (e.g., 8h 1m 30s)
@@ -367,6 +406,7 @@ export default function TestActivityPage() {
               <CardHeader className="pb-4">
                 <CardTitle className="flex items-center gap-2 text-lg">
                   <Avatar className="w-10 h-10">
+                    <AvatarImage src={currentUser?.avatar} alt={currentUser?.name} />
                     <AvatarFallback className="text-lg font-bold">
                       {currentUser?.name?.charAt(0) || 'U'}
                     </AvatarFallback>

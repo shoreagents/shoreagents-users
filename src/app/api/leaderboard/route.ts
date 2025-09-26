@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '10');
 
     // Check Redis cache first
-    const cacheKey = cacheKeys.leaderboard(limit)
+    const cacheKey = cacheKeys.leaderboard(limit, monthYear)
     const cachedData = await redisCache.get(cacheKey)
     
     if (cachedData) {
@@ -48,6 +48,7 @@ export async function GET(request: NextRequest) {
           u.email,
           pi.first_name,
           pi.last_name,
+          pi.profile_picture,
           COALESCE(ps.productivity_score, 0) as productivity_score,
           COALESCE(ps.total_active_seconds, 0) as total_active_seconds,
           COALESCE(ps.total_inactive_seconds, 0) as total_inactive_seconds,
@@ -81,6 +82,7 @@ export async function GET(request: NextRequest) {
           u.email,
           pi.first_name,
           pi.last_name,
+          pi.profile_picture,
           0 as productivity_score,
           0 as total_active_seconds,
           0 as total_inactive_seconds,
@@ -108,6 +110,7 @@ export async function GET(request: NextRequest) {
       rank: index + 1,
       userId: row.email,
       name: `${row.first_name || ''} ${row.last_name || ''}`.trim() || 'Unknown User',
+      profilePicture: row.profile_picture || '',
       productivityScore: parseFloat(row.productivity_score || 0),
       totalActiveTime: parseInt(row.total_active_seconds || 0),
       totalInactiveTime: parseInt(row.total_inactive_seconds || 0),

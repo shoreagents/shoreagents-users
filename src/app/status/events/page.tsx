@@ -35,9 +35,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { getCurrentUserInfo } from "@/lib/user-profiles"
 import { useEventsContext } from "@/contexts/events-context"
 import { useMeeting } from "@/contexts/meeting-context"
+import { useRestroom } from "@/contexts/restroom-context"
 import { 
   type Event 
 } from "@/hooks/use-events"
@@ -110,6 +110,13 @@ export default function EventsPage() {
   
   // Meeting context
   const { endCurrentMeeting, currentMeeting } = useMeeting()
+  
+  // Restroom context
+  const { isInRestroom, updateRestroomStatus } = useRestroom()
+  
+  // Restroom dialog state
+  const [showRestroomBlockedDialog, setShowRestroomBlockedDialog] = useState(false)
+  const [isEndingRestroom, setIsEndingRestroom] = useState(false)
   
   // Initialize state from URL parameters
   useEffect(() => {
@@ -193,6 +200,13 @@ export default function EventsPage() {
 
   // Handle going to event
   const handleGoing = async (eventId: number) => {
+    // Check if agent is in restroom before joining event/activity
+    if (isInRestroom) {
+      setPendingEventId(eventId)
+      setShowRestroomBlockedDialog(true)
+      return
+    }
+    
     try {
       await joinEvent(eventId)
     } catch (error) {
@@ -222,6 +236,37 @@ export default function EventsPage() {
       setIsEndingMeeting(false)
       setPendingEventId(null)
     }
+  }
+
+  // Handle end restroom and join event
+  const handleEndRestroomAndJoin = async () => {
+    if (isEndingRestroom || !pendingEventId) return
+    try {
+      setIsEndingRestroom(true)
+      
+      // End the restroom session
+      await updateRestroomStatus(false)
+      
+      // Wait a moment for restroom status to update
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      
+      // Close restroom dialog
+      setShowRestroomBlockedDialog(false)
+      
+      // After ending restroom, try to join the event
+      await joinEvent(pendingEventId)
+    } catch (error) {
+      console.error('Failed to end restroom:', error)
+    } finally {
+      setIsEndingRestroom(false)
+      setPendingEventId(null)
+    }
+  }
+
+  // Handle cancel restroom end
+  const handleCancelRestroomEnd = () => {
+    setShowRestroomBlockedDialog(false)
+    setPendingEventId(null)
   }
 
   // Handle coming back from event
@@ -680,10 +725,10 @@ export default function EventsPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-amber-500" />
-              Cannot Join Event
+              Cannot Join {getEventTypeDisplayName(events.find(e => e.event_id === pendingEventId)?.event_type || 'event')}
             </DialogTitle>
             <DialogDescription>
-              You cannot join the event while you are currently in a meeting. Please end your meeting first before joining the event.
+              You cannot join the {getEventTypeDisplayName(events.find(e => e.event_id === pendingEventId)?.event_type || 'event').toLowerCase()} while you are currently in a meeting. Please end your meeting first before joining the {getEventTypeDisplayName(events.find(e => e.event_id === pendingEventId)?.event_type || 'event').toLowerCase()}.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="flex gap-2">
@@ -709,7 +754,47 @@ export default function EventsPage() {
               ) : (
                 <>
                   <Square className="h-4 w-4 mr-2" />
-                  End Meeting & Join Event
+                  End Meeting & Join {getEventTypeDisplayName(events.find(e => e.event_id === pendingEventId)?.event_type || 'event')}
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Restroom Blocked Dialog */}
+      <Dialog open={showRestroomBlockedDialog} onOpenChange={setShowRestroomBlockedDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              Cannot Join {getEventTypeDisplayName(events.find(e => e.event_id === pendingEventId)?.event_type || 'event')}
+            </DialogTitle>
+            <DialogDescription>
+              You cannot join the {getEventTypeDisplayName(events.find(e => e.event_id === pendingEventId)?.event_type || 'event').toLowerCase()} while you are currently in the restroom. Please finish your restroom session first before joining the {getEventTypeDisplayName(events.find(e => e.event_id === pendingEventId)?.event_type || 'event').toLowerCase()}.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex gap-2">
+            <Button 
+              onClick={handleCancelRestroomEnd}
+              variant="outline"
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleEndRestroomAndJoin}
+              variant="destructive"
+              disabled={isEndingRestroom}
+            >
+              {isEndingRestroom ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                  Finishing Restroom...
+                </>
+              ) : (
+                <>
+                  <Square className="h-4 w-4 mr-2" />
+                  Finish Restroom & Join {getEventTypeDisplayName(events.find(e => e.event_id === pendingEventId)?.event_type || 'event')}
                 </>
               )}
             </Button>

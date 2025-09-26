@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useMeeting } from '@/contexts/meeting-context'
 import { useSocket } from '@/contexts/socket-context'
+import { useBreak } from '@/contexts/break-context'
 import { Button } from '@/components/ui/button'
 import { 
   Video, 
@@ -29,6 +30,7 @@ export const GlobalMeetingIndicator = React.memo(function GlobalMeetingIndicator
     isLoading 
   } = useMeeting()
   const { socket, isConnected } = useSocket()
+  const { isBreakActive } = useBreak()
   const [isEnding, setIsEnding] = useState(false)
   const [currentTime, setCurrentTime] = useState(new Date())
   const [position, setPosition] = useState({ x: 24, y: 24 }) // Default top-right position
@@ -200,11 +202,13 @@ export const GlobalMeetingIndicator = React.memo(function GlobalMeetingIndicator
     damping: 30
   }
 
-  // Don't render if not in a meeting or if we're still loading and there's no indication of an active meeting
+  // Don't render if not in a meeting, if we're still loading and there's no indication of an active meeting,
+  // or if the agent is on break
   // Only show loading state if we have some indication there might be an active meeting
-  if (!isInMeeting || !currentMeeting) {
+  if (!isInMeeting || !currentMeeting || isBreakActive) {
     // If we're loading but have no meeting data yet, don't show anything
     // This prevents the loading indicator from showing when there are no meetings
+    // Also hide when agent is on break
     return null
   }
 

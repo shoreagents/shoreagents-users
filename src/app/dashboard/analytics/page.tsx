@@ -6,6 +6,7 @@ import { AppHeader } from "@/components/app-header"
 import { DashboardSkeleton } from "@/components/skeleton-loaders"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { TrendingUp, Target, Award } from "lucide-react"
 import { useAnalyticsData } from "@/hooks/use-analytics"
 import { 
@@ -68,7 +69,16 @@ export default function AnalyticsPage() {
     }
   }, [leaderboard])
 
-  const top3 = useMemo(() => leaderboard.slice(0, 3), [leaderboard])
+  const top3 = useMemo(() => {
+    const firstThree = leaderboard.slice(0, 3)
+    // Reorder to put #1 in the center: [2nd, 1st, 3rd]
+    if (firstThree.length >= 3) {
+      return [firstThree[1], firstThree[0], firstThree[2]]
+    } else if (firstThree.length === 2) {
+      return [firstThree[1], firstThree[0]]
+    }
+    return firstThree
+  }, [leaderboard])
   const podiumMax = useMemo(() => Math.max(1, ...top3.map(p => Number(p.productivityScore || 0))), [top3])
   const formatMonthLabel = useMemo(() => {
     if (!leaderboardMonth) return ''
@@ -190,19 +200,35 @@ export default function AnalyticsPage() {
                   {top3.map((p, idx) => {
                     const score = Number(p.productivityScore || 0)
                     const height = Math.max(12, Math.round((score / podiumMax) * 140)) // 12-140px
-                    const ringColor = idx === 0 ? '#f59e0b' : idx === 1 ? '#94a3b8' : '#fb923c'
-                    const barGradient = idx === 0 ? 'from-yellow-600/30 to-yellow-800/30' : idx === 1 ? 'from-slate-400/30 to-slate-600/30' : 'from-orange-500/30 to-orange-700/30'
+                    
+                    // Determine actual rank based on position in reordered array
+                    let actualRank
+                    if (top3.length >= 3) {
+                      // [2nd, 1st, 3rd] -> actual ranks are [2, 1, 3]
+                      actualRank = idx === 0 ? 2 : idx === 1 ? 1 : 3
+                    } else if (top3.length === 2) {
+                      // [2nd, 1st] -> actual ranks are [2, 1]
+                      actualRank = idx === 0 ? 2 : 1
+                    } else {
+                      actualRank = idx + 1
+                    }
+                    
+                    const ringColor = actualRank === 1 ? '#f59e0b' : actualRank === 2 ? '#94a3b8' : '#fb923c'
+                    const barGradient = actualRank === 1 ? 'from-yellow-600/30 to-yellow-800/30' : actualRank === 2 ? 'from-slate-400/30 to-slate-600/30' : 'from-orange-500/30 to-orange-700/30'
                     return (
                       <div key={p.name + idx} className="flex flex-col items-center gap-2">
                         <div className="relative">
-                          <div
-                            className="w-14 h-14 rounded-full flex items-center justify-center text-sm font-semibold bg-card text-foreground"
+                          <Avatar
+                            className="w-14 h-14"
                             style={{ border: `3px solid ${ringColor}` }}
                           >
-                            {getInitials(p.name)}
-                          </div>
-                          <span className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-card text-foreground text-xs font-bold grid place-items-center" style={{ border: `2px solid ${ringColor}` }}>
-                            {idx + 1}
+                            <AvatarImage src={p.profilePicture} alt={p.name} />
+                            <AvatarFallback className="text-sm font-semibold bg-card text-foreground">
+                              {getInitials(p.name)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-card text-foreground text-xs font-bold grid place-items-center" style={{ border: `2px solid ${ringColor}` }}>
+                            {actualRank}
                           </span>
                         </div>
                         <div className={`w-24 rounded-t-md bg-gradient-to-b ${barGradient}`} style={{ height }}></div>

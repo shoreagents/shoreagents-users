@@ -42,7 +42,9 @@ export async function GET(request: NextRequest) {
         (c.created_at AT TIME ZONE 'Asia/Manila') AS created_at,
         (c.updated_at AT TIME ZONE 'Asia/Manila') AS updated_at,
         COALESCE(NULLIF(TRIM(COALESCE(pi.first_name,'') || ' ' || COALESCE(pi.last_name,'')), ''), u.email) AS author_name,
-        u.email AS author_email
+        u.email AS author_email,
+        u.user_type,
+        COALESCE(pi.profile_picture, '') AS profile_picture
       FROM task_comments c
       JOIN users u ON u.id = c.user_id
       LEFT JOIN personal_info pi ON pi.user_id = u.id

@@ -31,6 +31,7 @@ export function WindowControls() {
         className="h-8 w-8 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-none transition-colors text-gray-500 hover:text-gray-900 dark:hover:text-white "
         onClick={handleMinimize}
         aria-label="Minimize"
+        title="Minimize"
       >
         <Minus className="h-3 w-3" />
       </Button>
@@ -40,6 +41,7 @@ export function WindowControls() {
         className="h-8 w-8 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-none transition-colors text-gray-500 hover:text-gray-900 dark:hover:text-white "
         onClick={handleMaximize}
         aria-label="Maximize"
+        title="Maximize"
       >
         <Square className="h-3 w-3" />
       </Button>
@@ -49,6 +51,7 @@ export function WindowControls() {
         className="h-8 w-8 hover:!bg-red-500 rounded-none transition-colors text-gray-500 hover:text-white "
         onClick={handleClose}
         aria-label="Close"
+        title="Close"
       >
         <X className="h-3 w-3" />
       </Button>

@@ -44,6 +44,7 @@ import { Calendar24 } from "@/components/ui/date-picker"
 import { canCreateMeeting, type Meeting } from "@/lib/meeting-utils"
 import { useMeeting } from "@/contexts/meeting-context"
 import { useEventsContext } from "@/contexts/events-context"
+import { useBreak } from "@/contexts/break-context"
 import { useSocket } from "@/contexts/socket-context"
 import { GlobalLoadingIndicator } from "@/components/global-loading-indicator"
 import { toast } from "sonner"
@@ -77,8 +78,9 @@ function MeetingCard({
   formatTime, 
   getStatusColor, 
   getTypeIcon,
-  isInEvent
-}: MeetingCardProps & { isInEvent: boolean }) {
+  isInEvent,
+  isBreakActive
+}: MeetingCardProps & { isInEvent: boolean; isBreakActive: boolean }) {
   const TypeIcon = getTypeIcon(meeting.meeting_type)
   const isActive = meeting.status === 'in-progress'
   const now = new Date()
@@ -90,7 +92,8 @@ function MeetingCard({
   const canStart = meeting.status === 'scheduled' && 
     meetingStartTime <= new Date(now.getTime() - schedulerBufferMs) && 
     (now.getTime() - meetingStartTime.getTime()) <= gracePeriodMs &&
-    !isInEvent // Don't show starting automatically if user is in an event
+    !isInEvent && // Don't show starting automatically if user is in an event
+    !isBreakActive // Don't show starting automatically if user is on break
 
   return (
     <Card className={`relative transition-all duration-200 ${isActive ? 'ring-2 ring-green-500 shadow-md' : 'hover:shadow-sm'}`}>
@@ -179,6 +182,8 @@ function MeetingCard({
             <span className="text-green-600 font-medium">Starting automatically...</span>
           ) : isInEvent ? (
             <span className="text-amber-600 font-medium">Waiting for event to end</span>
+          ) : isBreakActive ? (
+            <span className="text-orange-600 font-medium">Waiting for break to end</span>
           ) : (
             <span>Scheduled for {formatTime(meeting.start_time)}</span>
           )}
@@ -311,9 +316,19 @@ export default function MeetingsPage() {
     isLoading: contextLoading,
     refreshMeetings: contextRefreshMeetings
   } = useMeeting()
+
+  // Clear loading state immediately if agent is already in a meeting when page loads
+  useEffect(() => {
+    if (contextIsInMeeting && contextCurrentMeeting) {
+      setIsScheduledMeetingLoading(false)
+    }
+  }, [contextIsInMeeting, contextCurrentMeeting])
   
   // Use events context for leave event functionality
   const { currentEvent, leaveEvent, isInEvent } = useEventsContext()
+  
+  // Use break context to check if agent is on break
+  const { isBreakActive } = useBreak()
   
   // Use socket context for real-time updates
   const { socket, isConnected } = useSocket()
@@ -679,6 +694,13 @@ export default function MeetingsPage() {
   // Periodic refresh for scheduled meetings to catch automatic starts
   // Only poll if user is NOT in an event to prevent unnecessary API calls
   useEffect(() => {
+    // Use meeting context as primary source of truth for current meeting status
+    if (contextIsInMeeting && contextCurrentMeeting) {
+      // Agent is already in a meeting - clear loading state immediately
+      setIsScheduledMeetingLoading(false)
+      return
+    }
+
     // Check if there are any scheduled meetings that should have started
     // Use allMeetings instead of meetings to check ALL meetings, not just current page
     const now = new Date()
@@ -694,8 +716,8 @@ export default function MeetingsPage() {
 
     // Debug logging removed for production
 
-    if (!hasScheduledMeetingsWaiting || isInEvent || hasInProgressMeetings) {
-      // No scheduled meetings waiting, user is in event, or meetings have started
+    if (!hasScheduledMeetingsWaiting || isInEvent || isBreakActive || hasInProgressMeetings) {
+      // No scheduled meetings waiting, user is in event, user is on break, or meetings have started
       // Clear loading state - no meetings waiting or meeting started
       setIsScheduledMeetingLoading(false)
       return
@@ -766,7 +788,7 @@ export default function MeetingsPage() {
       clearTimeout(loadingTimeout)
       setIsScheduledMeetingLoading(false)
     }
-  }, [allMeetings, refetchMeetings, isInEvent, socketClearedLoading, startMeetingMutation])
+  }, [allMeetings, refetchMeetings, isInEvent, isBreakActive, socketClearedLoading, startMeetingMutation, contextIsInMeeting, contextCurrentMeeting])
 
   // Periodic sync check to ensure UI consistency
   useEffect(() => {
@@ -1194,6 +1216,7 @@ export default function MeetingsPage() {
                     getStatusColor={getStatusColor}
                     getTypeIcon={getTypeIcon}
                     isInEvent={isInEvent}
+                    isBreakActive={isBreakActive}
                   />
                 ))}
               </div>
@@ -1245,6 +1268,7 @@ export default function MeetingsPage() {
                     getStatusColor={getStatusColor}
                     getTypeIcon={getTypeIcon}
                     isInEvent={isInEvent}
+                    isBreakActive={isBreakActive}
                   />
                 ))}
               </div>
@@ -1296,6 +1320,7 @@ export default function MeetingsPage() {
                     getStatusColor={getStatusColor}
                     getTypeIcon={getTypeIcon}
                     isInEvent={isInEvent}
+                    isBreakActive={isBreakActive}
                   />
                 ))}
               </div>
@@ -1347,6 +1372,7 @@ export default function MeetingsPage() {
                     getStatusColor={getStatusColor}
                     getTypeIcon={getTypeIcon}
                     isInEvent={isInEvent}
+                    isBreakActive={isBreakActive}
                   />
                 ))}
               </div>
@@ -1398,6 +1424,7 @@ export default function MeetingsPage() {
                     getStatusColor={getStatusColor}
                     getTypeIcon={getTypeIcon}
                     isInEvent={isInEvent}
+                    isBreakActive={isBreakActive}
                   />
                 ))}
               </div>

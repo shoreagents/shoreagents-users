@@ -14,7 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { 
   ArrowLeft, 
   FileText, 
@@ -657,13 +657,19 @@ export default function TicketDetailsPage() {
                                 >
                                     <div className="flex items-start gap-2">
                                       <Avatar className="h-6 w-6">
+                                        <AvatarImage src={comment.profilePicture} alt={comment.authorName} />
                                         <AvatarFallback className="text-[10px]">
-                                          {getInitials(comment.author || comment.email)}
+                                          {getInitials(comment.authorName || comment.authorEmail)}
                                         </AvatarFallback>
                                       </Avatar>
                                       <div className="flex-1 min-w-0">
-                                        <div className="flex items-center gap-2">
+                                        <div className="flex items-center">
                                           <div className="font-medium text-foreground truncate">{comment.author}</div>
+                                          {comment.userType && (
+                                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0.5 h-4">
+                                              {comment.userType}
+                                            </Badge>
+                                          )}
                                           {canEdit && (
                                             <div className={`absolute right-2 top-0.5 transition-opacity duration-150 ${actionsVisibleId === comment.id ? 'opacity-100' : 'opacity-0 pointer-events-none'} group-hover:opacity-100 group-hover:pointer-events-auto`}>
                                               <DropdownMenu>

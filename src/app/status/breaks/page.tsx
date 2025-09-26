@@ -41,6 +41,7 @@ import { useBreak } from "@/contexts/break-context"
 import { useTimer } from "@/contexts/timer-context"
 import { useMeeting } from "@/contexts/meeting-context"
 import { useEventsContext } from "@/contexts/events-context"
+import { useRestroom } from "@/contexts/restroom-context"
 
 import { endMeeting } from "@/lib/meeting-utils"
 
@@ -89,14 +90,17 @@ export default function BreaksPage() {
   const [autoEnding, setAutoEnding] = useState(false)
   const [showMeetingEndDialog, setShowMeetingEndDialog] = useState(false)
   const [showEventLeaveDialog, setShowEventLeaveDialog] = useState(false)
+  const [showRestroomEndDialog, setShowRestroomEndDialog] = useState(false)
   const [pendingBreakId, setPendingBreakId] = useState<BreakType | null>(null)
   const [isLeavingEvent, setIsLeavingEvent] = useState(false)
+  const [isEndingRestroom, setIsEndingRestroom] = useState(false)
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
   const [availableBreaks, setAvailableBreaks] = useState<BreakInfo[]>([])
   const { setBreakActive, setBreakActiveAfterEventLeave, isBreakActive, activeBreakId, isInitialized, canStartBreak, breakBlockedReason } = useBreak()
   const { isBreakActive: timerBreakActive, breakStatus: timerBreakStatus, refreshBreakStatus } = useTimer()
   const { isInMeeting, currentMeeting } = useMeeting()
   const { isInEvent, currentEvent, leaveEvent } = useEventsContext()
+  const { isInRestroom, updateRestroomStatus } = useRestroom()
 
   // Load user profile and generate available breaks
   useEffect(() => {
@@ -153,7 +157,7 @@ export default function BreaksPage() {
           if (status.is_on_break && status.active_break) {
             // Check if the active break is outside its valid time window
             const breakInfo = availableBreaks.find(b => b.id === status.active_break?.break_type)
-            if (breakInfo && userProfile && !isBreakTimeValid(breakInfo, userProfile as ShiftInfo, currentTime)) {
+            if (breakInfo && userProfile && !isBreakTimeValid(breakInfo, userProfile as ShiftInfo, new Date())) {
               
               setAutoEnding(true)
               try {
@@ -263,7 +267,7 @@ export default function BreaksPage() {
 
     // No continuous polling - break status will be updated when user takes actions
     // The page will refresh break status when user interacts with break buttons
-  }, [setBreakActive, availableBreaks, currentTime, refreshBreakStatus, userProfile])
+  }, [setBreakActive, availableBreaks, refreshBreakStatus, userProfile])
 
   // Check localStorage for active break (fallback for compatibility)
   useEffect(() => {
@@ -282,16 +286,7 @@ export default function BreaksPage() {
     checkLocalStorage()
   }, [activeBreak, setBreakActive])
 
-  // Update current time every second for real-time validation
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentTime(new Date())
-    }, 1000) // Check every second instead of every minute
-
-    return () => clearInterval(interval)
-  }, [])
-
-  // Auto-end breaks that are outside their valid time window
+  // Update current time every second and check for invalid breaks
   useEffect(() => {
     const checkAndEndInvalidBreaks = async () => {
       // Check if we have an active break (including paused breaks)
@@ -303,7 +298,8 @@ export default function BreaksPage() {
       if (!breakInfo || !userProfile) return
 
       // Check if current time is outside the valid time window
-      if (!isBreakTimeValid(breakInfo, userProfile as ShiftInfo, currentTime)) {
+      if (!isBreakTimeValid(breakInfo, userProfile as ShiftInfo, new Date())) {
+        console.log(`⏰ Auto-ending ${breakInfo.name} - outside valid time window`)
         
         setAutoEnding(true)
         try {
@@ -311,6 +307,8 @@ export default function BreaksPage() {
           const result = await endBreak()
           
           if (result.success) {
+            console.log(`✅ Successfully auto-ended ${breakInfo.name}`)
+            
             // Clear break state
             setActiveBreak(null)
             setBreakActive(false)
@@ -333,49 +331,14 @@ export default function BreaksPage() {
       }
     }
 
-    // Check immediately when component mounts or when break status changes
-    checkAndEndInvalidBreaks()
-
-    // Set up interval to check every 5 seconds for more responsive auto-end
-    const interval = setInterval(checkAndEndInvalidBreaks, 5000)
+    const interval = setInterval(() => {
+      setCurrentTime(new Date())
+      // Check for invalid breaks every second
+      checkAndEndInvalidBreaks()
+    }, 1000) // Check every second
 
     return () => clearInterval(interval)
-  }, [breakStatus, currentTime, setBreakActive, refreshBreakStatus, availableBreaks, userProfile])
-
-  // Real-time validation when current time changes
-  useEffect(() => {
-    if (breakStatus?.active_break) {
-      const currentBreak = breakStatus.active_break
-      const breakInfo = availableBreaks.find(b => b.id === currentBreak.break_type)
-      
-      if (breakInfo && userProfile && !isBreakTimeValid(breakInfo, userProfile as ShiftInfo, currentTime)) {
-        
-        setAutoEnding(true)
-        endBreak().then(result => {
-          if (result.success) {
-            
-            // Clear break state
-            setActiveBreak(null)
-            setBreakActive(false)
-            localStorage.removeItem('currentBreak')
-            
-            // Refresh break status
-            getBreakStatus().then(({ success, status }) => {
-              if (success && status) {
-                setBreakStatus(status)
-              }
-            })
-            // Refresh timer context
-            refreshBreakStatus()
-          } 
-        }).catch(error => {
-          console.error(`❌ Error real-time auto-ending ${breakInfo.name}:`, error)
-        }).finally(() => {
-          setAutoEnding(false)
-        })
-      }
-    }
-  }, [currentTime, breakStatus, setBreakActive, refreshBreakStatus, availableBreaks, userProfile])
+  }, [breakStatus, setBreakActive, refreshBreakStatus, availableBreaks, userProfile])
 
   // Cleanup black screens when component unmounts or user navigates away
   useEffect(() => {
@@ -407,6 +370,15 @@ export default function BreaksPage() {
         // Show dialog asking if they want to leave the event first
         setPendingBreakId(breakId)
         setShowEventLeaveDialog(true)
+        setBreakLoadingStates(prev => ({ ...prev, [breakId]: false }))
+        return
+      }
+
+      // Check if agent is in restroom before starting break
+      if (isInRestroom) {
+        // Show dialog asking if they want to end restroom first
+        setPendingBreakId(breakId)
+        setShowRestroomEndDialog(true)
         setBreakLoadingStates(prev => ({ ...prev, [breakId]: false }))
         return
       }
@@ -480,10 +452,44 @@ export default function BreaksPage() {
       // Wait a moment for meeting status to update
       await new Promise(resolve => setTimeout(resolve, 1000))
       
-      // Now start the break
-      const result = await startBreak(pendingBreakId)
+      // Check if agent is in restroom after ending meeting
+      if (isInRestroom) {
+        // Show dialog asking if they want to end restroom first
+        setShowMeetingEndDialog(false) // Close meeting dialog
+        setShowRestroomEndDialog(true) // Show restroom dialog
+        setLoading(false)
+        return
+      }
+      
+      // Check if we're resuming a paused break or starting a new one
+      const currentBreak = getCurrentBreak()
+      const isResuming = currentBreak && currentBreak.is_paused
+      
+      let result
+      if (isResuming) {
+        // Resume the paused break
+        result = await resumeBreak()
+      } else {
+        // Start a new break
+        result = await startBreak(pendingBreakId)
+      }
       
       if (result.success && result.breakSession) {
+        if (isResuming) {
+          // Update localStorage with resumed break info for timer
+          const resumedBreak = {
+            id: result.breakSession.id,
+            break_type: pendingBreakId,
+            start_time: result.breakSession.start_time,
+            agent_user_id: result.breakSession.agent_user_id,
+            is_paused: false,
+            pause_used: true,
+            time_remaining_seconds: result.breakSession.time_remaining_seconds
+          }
+          
+          localStorage.setItem('currentBreak', JSON.stringify(resumedBreak))
+        }
+        
         setActiveBreak(pendingBreakId)
         setBreakActive(true, pendingBreakId.toLowerCase())
         
@@ -496,7 +502,7 @@ export default function BreaksPage() {
           }
         }
         
-        // Refresh break status after starting
+        // Refresh break status after starting/resuming
         const { success, status } = await getBreakStatus()
         if (success && status) {
           setBreakStatus(status)
@@ -505,7 +511,7 @@ export default function BreaksPage() {
         // Refresh timer context break status
         await refreshBreakStatus()
       } else {
-        setError(result.message || 'Failed to start break')
+        setError(result.message || `Failed to ${isResuming ? 'resume' : 'start'} break`)
       }
       
       // Close dialog and clear pending state
@@ -513,8 +519,8 @@ export default function BreaksPage() {
       setPendingBreakId(null)
       
     } catch (error) {
-      console.error('Error ending meeting and starting break:', error)
-      setError('Failed to end meeting and start break')
+      console.error('Error ending meeting and starting/resuming break:', error)
+      setError('Failed to end meeting and start/resume break')
     } finally {
       setLoading(false)
     }
@@ -532,6 +538,15 @@ export default function BreaksPage() {
       
       // Wait a moment for event status to update
       await new Promise(resolve => setTimeout(resolve, 500))
+      
+      // Check if agent is in restroom after leaving event
+      if (isInRestroom) {
+        // Show dialog asking if they want to end restroom first
+        setShowEventLeaveDialog(false) // Close event dialog
+        setShowRestroomEndDialog(true) // Show restroom dialog
+        setIsLeavingEvent(false)
+        return
+      }
       
       // Check if this is a resume operation (check if there's a paused break)
       const currentBreak = getCurrentBreak()
@@ -605,6 +620,89 @@ export default function BreaksPage() {
 
   const handleCancelEventLeave = () => {
     setShowEventLeaveDialog(false)
+    setPendingBreakId(null)
+  }
+
+  const handleEndRestroomAndStartBreak = async () => {
+    try {
+      if (!pendingBreakId) return
+
+      setIsEndingRestroom(true)
+      setError(null)
+      
+      // End the restroom session
+      await updateRestroomStatus(false)
+      
+      // Wait a moment for restroom status to update
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      
+      // Check if we're resuming a paused break or starting a new one
+      const currentBreak = getCurrentBreak()
+      const isResuming = currentBreak && currentBreak.is_paused
+      
+      let result
+      if (isResuming) {
+        // Resume the paused break
+        result = await resumeBreak()
+      } else {
+        // Start a new break
+        result = await startBreak(pendingBreakId)
+      }
+      
+      if (result.success && result.breakSession) {
+        if (isResuming) {
+          // Update localStorage with resumed break info for timer
+          const resumedBreak = {
+            id: result.breakSession.id,
+            break_type: pendingBreakId,
+            start_time: result.breakSession.start_time,
+            agent_user_id: result.breakSession.agent_user_id,
+            is_paused: false,
+            pause_used: true,
+            time_remaining_seconds: result.breakSession.time_remaining_seconds
+          }
+          
+          localStorage.setItem('currentBreak', JSON.stringify(resumedBreak))
+        }
+        
+        setActiveBreak(pendingBreakId)
+        setBreakActive(true, pendingBreakId.toLowerCase())
+        
+        // Start black screens on secondary monitors for break
+        if (typeof window !== 'undefined' && window.electronAPI?.multiMonitor) {
+          try {
+            await window.electronAPI.multiMonitor.createBlackScreens()
+          } catch (error) {
+            console.warn('Failed to create black screens:', error)
+          }
+        }
+        
+        // Refresh break status after starting/resuming
+        const { success, status } = await getBreakStatus()
+        if (success && status) {
+          setBreakStatus(status)
+        }
+        
+        // Refresh timer context break status
+        await refreshBreakStatus()
+      } else {
+        setError(result.message || `Failed to ${isResuming ? 'resume' : 'start'} break`)
+      }
+      
+      // Close dialog and clear pending state
+      setShowRestroomEndDialog(false)
+      setPendingBreakId(null)
+      
+    } catch (error) {
+      console.error('Error ending restroom and starting/resuming break:', error)
+      setError('Failed to end restroom and start/resume break')
+    } finally {
+      setIsEndingRestroom(false)
+    }
+  }
+
+  const handleCancelRestroomEnd = () => {
+    setShowRestroomEndDialog(false)
     setPendingBreakId(null)
   }
 
@@ -721,6 +819,24 @@ export default function BreaksPage() {
         // Show dialog asking if they want to leave the event first
         setPendingBreakId(breakId)
         setShowEventLeaveDialog(true)
+        setBreakLoadingStates(prev => ({ ...prev, [breakId]: false }))
+        return
+      }
+
+      // Check if agent is in restroom before resuming break
+      if (isInRestroom) {
+        // Show dialog asking if they want to end restroom first
+        setPendingBreakId(breakId)
+        setShowRestroomEndDialog(true)
+        setBreakLoadingStates(prev => ({ ...prev, [breakId]: false }))
+        return
+      }
+
+      // Check if agent is in a meeting before resuming break
+      if (isInMeeting && currentMeeting) {
+        // Show dialog asking if they want to end the meeting first
+        setPendingBreakId(breakId)
+        setShowMeetingEndDialog(true)
         setBreakLoadingStates(prev => ({ ...prev, [breakId]: false }))
         return
       }
@@ -854,7 +970,36 @@ export default function BreaksPage() {
   }
 
   if (activeBreak) {
-    const breakInfo = availableBreaks.find(b => b.id === activeBreak)!
+    const breakInfo = availableBreaks.find(b => b.id === activeBreak)
+    
+    // If breakInfo is not found, show error or fallback
+    if (!breakInfo) {
+      return (
+        <SidebarProvider>
+          <AppSidebar />
+          <SidebarInset>
+            <AppHeader />
+            <div className="flex flex-1 flex-col gap-6 p-6 pt-2">
+              <div className="flex items-center justify-center h-64">
+                <div className="text-center">
+                  <AlertTriangle className="h-8 w-8 mx-auto mb-4 text-destructive" />
+                  <p className="text-destructive font-medium">Break configuration not found</p>
+                  <p className="text-muted-foreground text-sm">Unable to find break configuration for: {activeBreak}</p>
+                  <Button 
+                    onClick={() => window.location.reload()} 
+                    variant="outline" 
+                    className="mt-4"
+                  >
+                    Retry
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </SidebarInset>
+        </SidebarProvider>
+      )
+    }
+    
     const currentBreak = getCurrentBreak()
     const isResumedBreak = currentBreak && currentBreak.pause_used
     
@@ -1203,11 +1348,11 @@ export default function BreaksPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-yellow-500" />
-              End Meeting to Start Break?
+              End Meeting to {getCurrentBreak()?.is_paused ? 'Resume' : 'Start'} Break?
             </DialogTitle>
             <DialogDescription>
               You're currently in a meeting "{currentMeeting?.title || 'Untitled Meeting'}". 
-              To start your {pendingBreakId} break, you'll need to end the meeting first.
+              To {getCurrentBreak()?.is_paused ? 'resume' : 'start'} your {pendingBreakId} break, you'll need to end the meeting first.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="flex-col gap-2 sm:flex-row">
@@ -1223,7 +1368,7 @@ export default function BreaksPage() {
               disabled={loading}
               className="bg-yellow-500 hover:bg-yellow-600 text-white"
             >
-              {loading ? 'Processing...' : 'End Meeting & Start Break'}
+              {loading ? 'Processing...' : `End Meeting & ${getCurrentBreak()?.is_paused ? 'Resume' : 'Start'} Break`}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1256,6 +1401,38 @@ export default function BreaksPage() {
               className="bg-orange-500 hover:bg-orange-600 text-white"
             >
               {isLeavingEvent ? 'Processing...' : `Leave ${getEventTypeDisplayName(currentEvent?.event_type || 'event')} & ${getCurrentBreak()?.is_paused ? 'Resume' : 'Start'} Break`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Restroom End Dialog */}
+      <Dialog open={showRestroomEndDialog} onOpenChange={setShowRestroomEndDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-orange-500" />
+              End Restroom to {getCurrentBreak()?.is_paused ? 'Resume' : 'Start'} Break?
+            </DialogTitle>
+            <DialogDescription>
+              You're currently in the restroom. 
+              To {getCurrentBreak()?.is_paused ? 'resume' : 'start'} your {pendingBreakId} break, you'll need to end your restroom session first.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col gap-2 sm:flex-row">
+            <Button 
+              variant="outline" 
+              onClick={handleCancelRestroomEnd}
+              disabled={isEndingRestroom}
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleEndRestroomAndStartBreak}
+              disabled={isEndingRestroom}
+              className="bg-orange-500 hover:bg-orange-600 text-white"
+            >
+              {isEndingRestroom ? 'Processing...' : `End Restroom & ${getCurrentBreak()?.is_paused ? 'Resume' : 'Start'} Break`}
             </Button>
           </DialogFooter>
         </DialogContent>

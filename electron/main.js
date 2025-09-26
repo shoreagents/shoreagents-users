@@ -21,6 +21,7 @@ try {
   soundPlay = null;
 }
 const ActivityTracker = require('./activity-tracker');
+const KeyboardTracker = require('./keyboard-tracker');
 
 // Helper function to get the correct path for both development and production
 function getAppResourcePath(relativePath) {
@@ -47,7 +48,6 @@ function getAppResourcePath(relativePath) {
   }
   
   const fullPath = path.join(appPath, relativePath);
-  console.log('getAppResourcePath:', { isDev, appPath, relativePath, fullPath, exists: fs.existsSync(fullPath) });
   
   return fullPath;
 }
@@ -934,7 +934,68 @@ function setBreakActiveState(active) {
   } else {
     // Unregister global shortcuts when break becomes inactive
     try {
+      // First, unregister break-specific shortcuts
+      const breakCleanupResult = unregisterBreakShortcuts();
+      
+      // Then unregister all remaining shortcuts to ensure complete cleanup
       globalShortcut.unregisterAll();
+      
+      // Re-register non-break related shortcuts that should remain active
+      setTimeout(() => {
+        try {
+          // Re-register development shortcuts
+          globalShortcut.register('CommandOrControl+Shift+I', () => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.toggleDevTools();
+            }
+          });
+          
+          globalShortcut.register('F12', () => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.toggleDevTools();
+            }
+          });
+          
+          globalShortcut.register('CommandOrControl+R', () => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.reload();
+            }
+          });
+          
+          globalShortcut.register('CommandOrControl+Shift+R', () => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.reloadIgnoringCache();
+            }
+          });
+          
+          // Re-register zoom shortcuts
+          if (process.platform === 'win32' || process.platform === 'linux') {
+            globalShortcut.register('CommandOrControl+Plus', () => {
+              if (mainWindow && !mainWindow.isDestroyed()) {
+                const currentZoom = mainWindow.webContents.getZoomFactor();
+                mainWindow.webContents.setZoomFactor(currentZoom + 0.1);
+              }
+            });
+            
+            globalShortcut.register('CommandOrControl+-', () => {
+              if (mainWindow && !mainWindow.isDestroyed()) {
+                const currentZoom = mainWindow.webContents.getZoomFactor();
+                mainWindow.webContents.setZoomFactor(Math.max(0.5, currentZoom - 0.1));
+              }
+            });
+            
+            globalShortcut.register('CommandOrControl+0', () => {
+              if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.setZoomFactor(1.0);
+              }
+            });
+          }
+          
+        } catch (reRegisterError) {
+          console.warn('Error re-registering non-break shortcuts:', reRegisterError.message);
+        }
+      }, 100); // Small delay to ensure cleanup is complete
+      
     } catch (shortcutError) {
       console.warn('Error unregistering global shortcuts:', shortcutError.message);
     }
@@ -947,6 +1008,30 @@ function setBreakActiveState(active) {
     
     // Reset focus monitoring setup flag
     focusMonitoringSetup = false;
+    
+    // Close black screen windows when break ends
+    try {
+      const blackScreenResult = closeBlackScreenWindows();
+      if (blackScreenResult.success) {
+        console.log('Black screen windows closed successfully');
+      } else {
+        console.warn('Failed to close black screen windows:', blackScreenResult.error);
+      }
+    } catch (error) {
+      console.warn('Error closing black screen windows:', error.message);
+    }
+    
+    // Restore window to normal state when break ends
+    try {
+      const restoreResult = restoreWindowToNormalState();
+      if (restoreResult.success) {
+        console.log('Window restored to normal state after break ended');
+      } else {
+        console.warn('Failed to restore window to normal state:', restoreResult.error);
+      }
+    } catch (error) {
+      console.warn('Error restoring window to normal state:', error.message);
+    }
   }
   
   return { success: true, breakActive: active };
@@ -955,6 +1040,46 @@ function setBreakActiveState(active) {
 // Function to get break active state
 function getBreakActiveState() {
   return { success: true, breakActive: breakActive };
+}
+
+// Function to unregister break-specific shortcuts
+function unregisterBreakShortcuts() {
+  try {
+    const breakShortcuts = [
+      'Meta+Tab',
+      'Meta+Ctrl+D',
+      'Meta+Ctrl+Left',
+      'Meta+Ctrl+Right',
+      'Meta+Ctrl+F4',
+      'Alt+Tab',
+      'F11',
+      'Meta',
+      'Ctrl+Escape',
+      'Meta+Space',
+      'Meta+D',
+      'Meta+M',
+      'Meta+Ctrl+Shift+D',
+      'Meta+Ctrl+Shift+Left',
+      'Meta+Ctrl+Shift+Right'
+    ];
+    
+    let unregisteredCount = 0;
+    breakShortcuts.forEach(shortcut => {
+      try {
+        if (globalShortcut.isRegistered(shortcut)) {
+          globalShortcut.unregister(shortcut);
+          unregisteredCount++;
+        }
+      } catch (error) {
+        console.warn(`Error unregistering shortcut ${shortcut}:`, error.message);
+      }
+    });
+    
+    return { success: true, unregisteredCount };
+  } catch (error) {
+    console.error('Error unregistering break shortcuts:', error);
+    return { success: false, error: error.message };
+  }
 }
 
 // Function to restore window to normal state
@@ -967,13 +1092,8 @@ function restoreWindowToNormalState() {
       // Exit fullscreen
       mainWindow.setFullScreen(false);
       
-      // Restore normal window size and position
-      mainWindow.setBounds({
-        x: mainWindow.getBounds().x,
-        y: mainWindow.getBounds().y,
-        width: 1200,
-        height: 800
-      });
+      // Restore fullscreen state (since the app was fullscreen before break)
+      mainWindow.setFullScreen(true);
       
       // Show menu bar
       mainWindow.setMenuBarVisibility(true);
@@ -1057,6 +1177,7 @@ function restoreWindowToNormalState() {
 // Keep a global reference of the window object
 let mainWindow;
 let activityTracker;
+let keyboardTracker;
 let inactivityNotification = null;
 let tray = null;
 let isQuitting = false;
@@ -1616,6 +1737,15 @@ function createWindow() {
       console.error('Failed to initialize activity tracker:', error);
     }
 
+    // Initialize keyboard tracker after window is ready
+    try {
+      keyboardTracker = new KeyboardTracker(activityTracker);
+      // Start tracking immediately
+      keyboardTracker.startTracking();
+    } catch (error) {
+      console.error('Failed to initialize keyboard tracker:', error);
+    }
+
     // Update tray menu after window is ready and can access localStorage
     setTimeout(updateTrayMenu, 1000);
   });
@@ -1625,6 +1755,10 @@ function createWindow() {
     if (activityTracker) {
       activityTracker.cleanup();
       activityTracker = null;
+    }
+    if (keyboardTracker) {
+      keyboardTracker.cleanup();
+      keyboardTracker = null;
     }
     mainWindow = null;
   });
@@ -1794,7 +1928,6 @@ async function createTrayIconWithIndicator(count) {
     // Get the correct path for both development and production
     const logoPath = getAppResourcePath('public/ShoreAgents-Logo-only-256.png');
     
-    console.log('Creating tray icon with indicator:', { count, logoPath, isDev });
     
     if (!fs.existsSync(logoPath)) {
       console.error('ShoreAgents logo not found at:', logoPath);
@@ -1805,9 +1938,7 @@ async function createTrayIconWithIndicator(count) {
     if (count > 0) {
       // Try to use a different icon or create a simple indicator
       try {
-        console.log('Attempting to load sharp library for red dot...');
         const sharp = require('sharp');
-        console.log('Sharp library loaded successfully for red dot');
         
         // Load and resize the logo to 32x32 for tray icon
         const logoBuffer = await sharp(logoPath)
@@ -1817,7 +1948,6 @@ async function createTrayIconWithIndicator(count) {
         
         // Try to load the red dot PNG file
         const redDotPath = getAppResourcePath('public/red-dot.png');
-        console.log('Red dot path:', redDotPath, 'exists:', fs.existsSync(redDotPath));
         
         if (fs.existsSync(redDotPath)) {
           // Load and resize the red dot to appropriate size
@@ -1846,7 +1976,6 @@ async function createTrayIconWithIndicator(count) {
         }
       } catch (sharpError) {
         console.warn('Sharp not available or failed:', sharpError.message, '- using fallback method');
-        console.log('Sharp error details:', sharpError);
         // Fallback: use a simple approach - just return the logo with a different style
         return await createTrayIconWithAlternativeFile(count);
       }
@@ -1878,7 +2007,6 @@ async function createSimpleNotificationIcon(logoPath, count) {
     
     // For now, just return the logo - in a real implementation,
     // we could modify the logo to have a red tint or border
-    console.log('Using simple notification icon fallback');
     return nativeImage.createFromPath(logoPath);
   } catch (error) {
     console.error('Error creating simple notification icon:', error);
@@ -1895,7 +2023,6 @@ async function createTrayIconWithAlternativeFile(count) {
     const notificationIconPath = getAppResourcePath('public/ShoreAgents-Logo-only-256.png');
     
     if (fs.existsSync(notificationIconPath)) {
-      console.log('Using alternative notification icon file');
       return nativeImage.createFromPath(notificationIconPath);
     }
     
@@ -3000,6 +3127,81 @@ ipcMain.handle('emergency-escape', () => {
     return { success: false, error: 'Break not active' };
   } catch (error) {
     console.error('Error in emergency-escape:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Handle manual cleanup of keyboard shortcuts
+ipcMain.handle('cleanup-keyboard-shortcuts', () => {
+  try {
+    // Unregister break-specific shortcuts
+    const breakCleanupResult = unregisterBreakShortcuts();
+    
+    // Unregister all shortcuts
+    globalShortcut.unregisterAll();
+    
+    // Re-register non-break shortcuts
+    setTimeout(() => {
+      try {
+        // Re-register development shortcuts
+        globalShortcut.register('CommandOrControl+Shift+I', () => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.toggleDevTools();
+          }
+        });
+        
+        globalShortcut.register('F12', () => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.toggleDevTools();
+          }
+        });
+        
+        globalShortcut.register('CommandOrControl+R', () => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.reload();
+          }
+        });
+        
+        globalShortcut.register('CommandOrControl+Shift+R', () => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.reloadIgnoringCache();
+          }
+        });
+        
+        // Re-register zoom shortcuts
+        if (process.platform === 'win32' || process.platform === 'linux') {
+          globalShortcut.register('CommandOrControl+Plus', () => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              const currentZoom = mainWindow.webContents.getZoomFactor();
+              mainWindow.webContents.setZoomFactor(currentZoom + 0.1);
+            }
+          });
+          
+          globalShortcut.register('CommandOrControl+-', () => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              const currentZoom = mainWindow.webContents.getZoomFactor();
+              mainWindow.webContents.setZoomFactor(Math.max(0.5, currentZoom - 0.1));
+            }
+          });
+          
+          globalShortcut.register('CommandOrControl+0', () => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.setZoomFactor(1.0);
+            }
+          });
+        }
+      } catch (reRegisterError) {
+        console.warn('Error re-registering shortcuts during manual cleanup:', reRegisterError.message);
+      }
+    }, 100);
+    
+    return { 
+      success: true, 
+      breakShortcutsUnregistered: breakCleanupResult.unregisteredCount || 0,
+      message: 'Keyboard shortcuts cleaned up successfully'
+    };
+  } catch (error) {
+    console.error('Error in manual keyboard cleanup:', error);
     return { success: false, error: error.message };
   }
 });

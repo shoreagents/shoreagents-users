@@ -143,7 +143,7 @@ export const cacheKeys = {
   taskStats: () => 'task-statistics',
   weeklyActivity: (email: string, weeksToKeep: number) => `weekly-activity:${email}:${weeksToKeep}`,
   monthlyActivity: (email: string, monthsToKeep: number) => `monthly-activity:${email}:${monthsToKeep}`,
-  leaderboard: (limit: number) => `leaderboard:${limit}`,
+  leaderboard: (limit: number, monthYear?: string) => `leaderboard:${limit}:${monthYear || 'current'}`,
   productivity: (email: string, monthsBack: number) => `productivity:${email}:${monthsBack}`,
   // Task activity cache keys
   taskActivity: (email: string) => `task-activity:${email}`,
