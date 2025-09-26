@@ -682,23 +682,23 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
     <div className="fixed inset-0 bg-background z-50 flex items-center justify-center p-4">
       <div className="w-full h-full flex items-center justify-center">
         <Card className="border-2 border-primary/20 w-full h-full max-w-none max-h-none m-0 rounded-none">
-          <CardHeader className="text-center pt-8">
-            <div className="flex justify-center mb-4">
+          <CardHeader className="text-center pt-6">
+            <div className="flex justify-center">
               <Image
                 src="/shoreagents-logo.png"
                 alt="ShoreAgents"
-                width={64}
-                height={64}
-                className="h-12 sm:h-16 object-contain"
+                width={500}
+                height={200}
+                className="h-32 sm:h-40 md:h-48 object-contain"
                 priority
               />
             </div>
-            <div className="flex items-center justify-center gap-4 mb-4">
+            <div className="flex items-center justify-center gap-4">
               <div className={`p-4 rounded-full ${breakInfo.color} text-white`}>
                 <Icon className="h-12 w-12" />
               </div>
               <div>
-                <CardTitle className="text-4xl sm:text-5xl font-bold leading-tight">{breakInfo.name}</CardTitle>
+                <CardTitle className="text-3xl sm:text-4xl font-bold leading-tight">{breakInfo.name}</CardTitle>
                 <p className="text-lg text-muted-foreground">{breakInfo.description}</p>
               </div>
             </div>
@@ -717,12 +717,12 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
 
           <CardContent className="space-y-8 flex-1 flex flex-col justify-center">
             {/* Timer Display */}
-            <div className="text-center flex-1 flex flex-col justify-center">
+            <div className="text-center flex flex-col justify-center h-fit">
               <div className="font-mono font-bold text-primary  text-[clamp(8rem,20vw,20rem)]">
                 {formatTime(timeLeft)}
               </div>
               
-              <div className="relative mb-6">
+              <div className="relative">
                 <div className="w-full h-4 bg-gray-50 rounded-full overflow-hidden border border-gray-200">
                   <div 
                     className={`h-full rounded-full transition-all duration-1000 ease-out ${
@@ -739,25 +739,18 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
                   />
                 </div>
               </div>
-              
-              <div className="flex items-center justify-center gap-2 text-lg text-muted-foreground">
-                <Clock className="h-5 w-5" />
-                <span>
-                  {Math.floor(progress)}% complete • {Math.floor(timeLeft / 60)}m {timeLeft % 60}s remaining
-                </span>
-              </div>
             </div>
 
             {showPauseWarning && (
-              <div className="text-center p-6 bg-orange-50 border border-orange-200 rounded-lg mb-6">
-                <AlertTriangle className="h-12 w-12 text-orange-600 mx-auto mb-4" />
+              <div className="text-center p-6 bg-orange-50 border border-orange-200 rounded-lg">
+                <AlertTriangle className="h-12 w-12 text-orange-600 mx-auto" />
                 <p className="text-orange-800 font-medium text-xl">Pause already used!</p>
                 <p className="text-orange-600 text-lg">Only one pause attempt allowed per break.</p>
               </div>
             )}
 
             {/* Control Buttons */}
-            <div className="flex gap-6 justify-center mb-8">
+            <div className="flex gap-6 justify-center">
               {isPaused && !hasEnded ? (
                 <Button onClick={handleResume} size="lg" className="flex-1 max-w-xs text-lg px-8 py-4">
                   <Play className="mr-3 h-6 w-6" />

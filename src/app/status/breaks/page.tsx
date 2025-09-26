@@ -96,7 +96,7 @@ export default function BreaksPage() {
   const [isEndingRestroom, setIsEndingRestroom] = useState(false)
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
   const [availableBreaks, setAvailableBreaks] = useState<BreakInfo[]>([])
-  const { setBreakActive, setBreakActiveAfterEventLeave, isBreakActive, activeBreakId, isInitialized, canStartBreak, breakBlockedReason } = useBreak()
+  const { setBreakActive, setBreakActiveAfterEventLeave, canStartBreak } = useBreak()
   const { isBreakActive: timerBreakActive, breakStatus: timerBreakStatus, refreshBreakStatus } = useTimer()
   const { isInMeeting, currentMeeting } = useMeeting()
   const { isInEvent, currentEvent, leaveEvent } = useEventsContext()
