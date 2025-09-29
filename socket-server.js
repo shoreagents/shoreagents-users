@@ -15,81 +15,19 @@ const AnnouncementScheduler = require('./scripts/announcement-scheduler');
 const app = express();
 app.use(cors());
 
-// Server readiness tracking
-let isServerReady = false;
-let startupStartTime = Date.now();
-
-// Simple readiness endpoint for Railway health checks
-app.get('/health', (req, res) => {
-  const uptime = process.uptime();
-  const startupTime = Date.now() - startupStartTime;
-  
-  if (!isServerReady) {
-    return res.status(503).json({
-      status: 'starting',
-      message: 'Server is still starting up',
-      timestamp: new Date().toISOString(),
-      startupTime: startupTime,
-      uptime: uptime
-    });
-  }
-
-  // Simple health check - just return ready status
-  res.json({
-    status: 'ready',
-    timestamp: new Date().toISOString(),
-    uptime: uptime,
-    startupTime: startupTime
-  });
-});
-
-// Status endpoint to monitor schedulers and server readiness
+// Status endpoint to monitor schedulers
 app.get('/status', (req, res) => {
-  const uptime = process.uptime();
-  const startupTime = Date.now() - startupStartTime;
-  
-  // Check if server is ready
-  if (!isServerReady) {
-    return res.status(503).json({
-      status: 'starting',
-      message: 'Server is still starting up',
-      timestamp: new Date().toISOString(),
-      startupTime: startupTime,
-      uptime: uptime
-    });
-  }
-
-  // Check database connection
-  pool.query('SELECT 1', (err) => {
-    if (err) {
-      return res.status(503).json({
-        status: 'unhealthy',
-        message: 'Database connection failed',
-        timestamp: new Date().toISOString(),
-        error: err.message,
-        uptime: uptime
-      });
-    }
-
-    // Server is healthy
-    res.json({
-      status: 'healthy',
-      timestamp: new Date().toISOString(),
-      schedulers: {
-        breakReminder: breakReminderScheduler.getStatus(),
-        taskNotification: taskNotificationScheduler.getStatus(),
-        meeting: meetingScheduler.getStatus(),
-        eventReminder: eventReminderScheduler.getStatus(),
-        announcement: announcementScheduler.getStatus()
-      },
-      uptime: uptime,
-      startupTime: startupTime,
-      connections: {
-        total: connectionMetrics.totalConnections,
-        active: connectionMetrics.activeConnections,
-        errors: connectionMetrics.errors
-      }
-    });
+  res.json({
+    status: 'running',
+    timestamp: new Date().toISOString(),
+    schedulers: {
+      breakReminder: breakReminderScheduler.getStatus(),
+      taskNotification: taskNotificationScheduler.getStatus(),
+      meeting: meetingScheduler.getStatus(),
+      eventReminder: eventReminderScheduler.getStatus(),
+      announcement: announcementScheduler.getStatus()
+    },
+    uptime: process.uptime()
   });
 });
 
@@ -132,44 +70,28 @@ const io = new Server(server, {
     origin: process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_APP_URL,
     methods: ["GET", "POST"]
   },
-  // Railway-optimized ping/pong settings for better stability
-  pingTimeout: 120000, // 2 minutes (increased for Railway's network latency)
-  pingInterval: 30000, // 30 seconds (increased for stability)
-  upgradeTimeout: 15000, // 15 seconds for upgrade handshake
+  // Configure ping/pong settings to handle network latency and prevent premature disconnections
+  pingTimeout: 60000, // 60 seconds (default is 20s) - time to wait for pong response
+  pingInterval: 25000, // 25 seconds (default is 25s) - interval between pings
+  upgradeTimeout: 10000, // 10 seconds for upgrade handshake
   allowEIO3: true, // Allow Engine.IO v3 clients for better compatibility
-  transports: ['polling', 'websocket'], // Prioritize polling for Railway stability
+  transports: ['websocket', 'polling'], // Allow both transports
   // Add connection state management
   connectionStateRecovery: {
-    maxDisconnectionDuration: 5 * 60 * 1000, // 5 minutes (increased for Railway)
+    maxDisconnectionDuration: 2 * 60 * 1000, // 2 minutes
     skipMiddlewares: true
-  },
-  // Additional Railway-specific optimizations
-  serveClient: false, // Don't serve client files
-  allowEIO3: true,
-  // Increase buffer sizes for Railway
-  maxHttpBufferSize: 1e6, // 1MB
-  // Add graceful shutdown handling
-  closeOnDisconnect: false
+  }
 });
 
-// Database connection - Railway-optimized settings
+// Database connection - use the same Railway database as Next.js app
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL || 'postgresql://postgres:poEVEBPjHAzsGZwjIkBBEaRScUwhguoX@maglev.proxy.rlwy.net:41493/railway',
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  // Railway-optimized connection settings
-  max: 10, // Reduced for Railway stability
-  min: 2, // Minimum connections
-  idleTimeoutMillis: 60000, // 1 minute (increased for stability)
-  connectionTimeoutMillis: 10000, // 10 seconds (increased for Railway)
-  maxUses: 1000, // Reduced to prevent connection exhaustion
-  // Add keep-alive settings for Railway
-  keepAlive: true,
-  keepAliveInitialDelayMillis: 10000,
-  // Add statement timeout
-  statement_timeout: 30000,
-  query_timeout: 30000,
-  // Add application name for debugging
-  application_name: 'socket-server-railway'
+  // Add connection resilience settings
+  max: 20, // Maximum number of clients in the pool
+  idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
+  connectionTimeoutMillis: 2000, // Return an error after 2 seconds if connection could not be established
+  maxUses: 7500, // Close (and replace) a connection after it has been used 7500 times
 });
 
 // Add error handling for the pool
@@ -186,27 +108,21 @@ pool.on('connect', (client) => {
   });
 });
 
-// Redis client for cache invalidation - Railway optimized
+// Redis client for cache invalidation
 const redisClient = redis.createClient({
   url: process.env.REDIS_URL || 'redis://localhost:6379',
-  // Railway-optimized retry settings
+  // Add retry settings for better resilience
   socket: {
-    connectTimeout: 10000, // 10 seconds
-    lazyConnect: true, // Don't connect immediately
     reconnectStrategy: (retries) => {
-      if (retries > 20) { // Increased retries for Railway
+      if (retries > 10) {
         console.log('Redis: Max retries reached, giving up');
         return new Error('Max retries reached');
       }
-      const delay = Math.min(retries * 100, 2000); // Increased delay
+      const delay = Math.min(retries * 50, 500);
       console.log(`Redis: Retrying connection in ${delay}ms (attempt ${retries})`);
       return delay;
     }
-  },
-  // Add Redis-specific settings for Railway
-  retryDelayOnFailover: 100,
-  maxRetriesPerRequest: 3,
-  lazyConnect: true
+  }
 });
 
 redisClient.on('error', (err) => {
@@ -291,85 +207,40 @@ process.on('unhandledRejection', (reason, promise) => {
   // Don't exit the process, just log the error
 });
 
-// Connect to Redis with better error handling
-redisClient.connect().catch((error) => {
-  console.error('Failed to connect to Redis:', error);
-  // Don't exit the process, continue without Redis
-});
+// Connect to Redis
+redisClient.connect().catch(console.error);
 
-// Add Redis connection monitoring
-redisClient.on('connect', () => {
-  console.log('✅ Redis connected successfully');
-});
-
-redisClient.on('ready', () => {
-  console.log('✅ Redis ready for operations');
-});
-
-redisClient.on('reconnecting', () => {
-  console.log('🔄 Redis reconnecting...');
-});
-
-redisClient.on('end', () => {
-  console.log('❌ Redis connection ended');
-});
-
-// Initialize server startup sequence
-async function initializeServer() {
-  console.log('🚀 Starting server initialization...');
-  
-  try {
-    // Test database connection
-    await new Promise((resolve, reject) => {
-      pool.query('SELECT NOW()', (err, result) => {
-        if (err) {
-          console.error('❌ Database connection failed:', err.message);
-          reject(err);
-        } else {
-          console.log('✅ Database connected successfully');
-          resolve(result);
-        }
-      });
-    });
-
-    // Test Redis connection (optional - don't fail if Redis is down)
-    try {
-      await redisClient.ping();
-      console.log('✅ Redis connected successfully');
-    } catch (redisError) {
-      console.warn('⚠️ Redis connection failed (continuing without Redis):', redisError.message);
-    }
-
-    // Initialize schedulers
-    console.log('📅 Initializing schedulers...');
-    breakReminderScheduler.start();
-    taskNotificationScheduler.start();
-    meetingScheduler.start();
-    eventReminderScheduler.start();
-    announcementScheduler.start();
-    console.log('✅ All schedulers started');
-
-    // Mark server as ready
-    isServerReady = true;
-    const startupTime = Date.now() - startupStartTime;
-    console.log(`🎉 Server initialization complete in ${startupTime}ms`);
-    console.log('✅ Server is now ready to accept connections');
-
-  } catch (error) {
-    console.error('❌ Server initialization failed:', error);
-    process.exit(1);
+// Test database connection with better error handling
+pool.query('SELECT NOW()', (err, result) => {
+  if (err) {
+    console.error('Database connection failed:', err.message);
+    // Don't exit the process, just log the error
+  } else {
+    console.log('Database connected successfully');
   }
-}
+});
 
-// Initialize schedulers first
+// Initialize schedulers
 const breakReminderScheduler = new BreakReminderScheduler();
 const taskNotificationScheduler = new TaskNotificationScheduler();
 const meetingScheduler = new MeetingScheduler();
 const eventReminderScheduler = new EventReminderScheduler();
 const announcementScheduler = new AnnouncementScheduler();
 
-// Start server initialization
-initializeServer();
+console.log('Initializing break reminder scheduler...');
+breakReminderScheduler.start();
+
+console.log('Initializing task notification scheduler...');
+taskNotificationScheduler.start();
+
+console.log('Initializing meeting scheduler...');
+meetingScheduler.start();
+
+console.log('Initializing event reminder scheduler...');
+eventReminderScheduler.start();
+
+console.log('Initializing announcement scheduler...');
+announcementScheduler.start();
 
 // Initialize global notification listener
 let globalNotificationClient = null;
@@ -956,107 +827,6 @@ setInterval(() => {
     connectionMetrics.lastReset = Date.now();
   }
 }, 300000); // Every 5 minutes // Check every minute
-
-// Check for shift resets every 30 seconds
-setInterval(async () => {
-  try {
-    // Check shift resets for all connected users
-    for (const [email, userInfo] of userData.entries()) {
-      if (userInfo && userInfo.userId) {
-        await checkShiftReset(email, userInfo.userId);
-      }
-    }
-  } catch (error) {
-    console.error('Error in shift reset check interval:', error);
-  }
-}, 30000); // 30 seconds
-
-// Add connection health monitoring and reconnection logic
-setInterval(() => {
-  const now = Date.now();
-  const staleConnections = [];
-  const disconnectedUsers = [];
-  
-  // Check for stale connections (no heartbeat for 5 minutes)
-  for (const [socketId, userData] of connectedUsers.entries()) {
-    if (userData.lastHeartbeat && (now - userData.lastHeartbeat) > 300000) { // 5 minutes
-      staleConnections.push(socketId);
-      // Store user info for reconnection attempt
-      if (userData.email) {
-        disconnectedUsers.push({
-          email: userData.email,
-          userId: userData.userId,
-          userInfo: userData.userInfo
-        });
-      }
-    }
-  }
-  
-  // Clean up stale connections
-  staleConnections.forEach(socketId => {
-    console.log(`🧹 Cleaning up stale connection: ${socketId}`);
-    const socket = io.sockets.sockets.get(socketId);
-    if (socket) {
-      socket.disconnect(true);
-    }
-  });
-  
-  // Attempt to reconnect disconnected users
-  if (disconnectedUsers.length > 0) {
-    console.log(`🔄 Attempting to reconnect ${disconnectedUsers.length} disconnected users`);
-    disconnectedUsers.forEach(user => {
-      // Try to find if user has reconnected with a new socket
-      const existingConnection = Array.from(connectedUsers.values()).find(u => u.email === user.email);
-      if (!existingConnection) {
-        // User hasn't reconnected, try to trigger reconnection
-        console.log(`🔄 Triggering reconnection for user: ${user.email}`);
-        // Emit a reconnection event to all sockets (client will handle filtering)
-        io.emit('user-reconnect-needed', {
-          email: user.email,
-          userId: user.userId,
-          reason: 'stale_connection'
-        });
-      }
-    });
-  }
-  
-  // Log connection health
-  if (connectedUsers.size > 0) {
-    console.log(`📊 Connection Health: ${connectedUsers.size} active, ${staleConnections.length} stale`);
-  }
-}, 60000); // Check every minute
-
-// Add graceful shutdown handling for Railway
-process.on('SIGTERM', () => {
-  console.log('🛑 SIGTERM received, shutting down gracefully...');
-  
-  // Notify all clients about shutdown
-  io.emit('server-shutdown', { message: 'Server is shutting down, please reconnect' });
-  
-  // Close all connections
-  io.close(() => {
-    console.log('✅ All socket connections closed');
-    
-    // Close database pool
-    pool.end(() => {
-      console.log('✅ Database pool closed');
-      
-      // Close Redis connection
-      redisClient.quit().then(() => {
-        console.log('✅ Redis connection closed');
-        process.exit(0);
-      }).catch(() => {
-        console.log('✅ Redis connection closed (with error)');
-        process.exit(0);
-      });
-    });
-  });
-});
-
-process.on('SIGINT', () => {
-  console.log('🛑 SIGINT received, shutting down gracefully...');
-  process.emit('SIGTERM');
-});
 
 // In-memory storage for testing (since PostgreSQL is not running)
 const connectedUsers = new Map();
@@ -1724,17 +1494,11 @@ async function checkShiftReset(email, userId) {
       return false;
     }
 
-    const shiftInfo = userShiftInfo.get(email);
-    if (!shiftInfo) {
-      return false;
-    }
-
-    const currentTime = new Date();
-    const currentShiftId = getCurrentShiftId(currentTime, shiftInfo);
-
     // FIXED: Only prevent reset if we're still in the same shift period
     // This allows legitimate shift resets while preventing multiple resets within the same shift
     if (userInfo.lastResetAt && userInfo.lastShiftId) {
+      const currentShiftId = getCurrentShiftId(currentTime, shiftInfo);
+      
       // If we're in the same shift period, don't reset again
       if (userInfo.lastShiftId === currentShiftId) {
         const timeSinceLastReset = Date.now() - userInfo.lastResetAt;
@@ -1742,6 +1506,14 @@ async function checkShiftReset(email, userId) {
       }
       // If we're in a new shift period, allow reset regardless of time since last reset
     }
+
+    const shiftInfo = userShiftInfo.get(email);
+    if (!shiftInfo) {
+      return false;
+    }
+
+    const currentTime = new Date();
+    const currentShiftId = getCurrentShiftId(currentTime, shiftInfo);
     
     // Check if we need to reset for a new shift period
     if (userInfo.lastShiftId && userInfo.lastShiftId === currentShiftId) {
@@ -2012,7 +1784,7 @@ io.on('connection', (socket) => {
     socket.emit('pong');
   });
   
-  // Handle connection errors with better Railway-specific handling
+  // Handle connection errors
   socket.on('error', (error) => {
     console.error(`Socket ${socket.id} error:`, error.message);
     connectionMetrics.errors++;
@@ -2035,23 +1807,6 @@ io.on('connection', (socket) => {
         console.log('🔄 Circuit breaker CLOSED - attempting recovery');
       }, circuitBreaker.timeout);
     }
-    
-    // For Railway, don't disconnect on individual socket errors
-    // Let the client handle reconnection
-  });
-
-  // Add Railway-specific connection monitoring
-  socket.on('disconnect', (reason) => {
-    console.log(`🔌 Socket ${socket.id} disconnected: ${reason}`);
-    
-    // Log specific Railway-related disconnection reasons
-    if (reason === 'transport close') {
-      console.log('🚨 Transport close detected - possible Railway network issue');
-    } else if (reason === 'ping timeout') {
-      console.log('🚨 Ping timeout detected - possible Railway latency issue');
-    } else if (reason === 'server namespace disconnect') {
-      console.log('🚨 Server namespace disconnect - possible Railway restart');
-    }
   });
 
   // Heartbeat mechanism for active connection monitoring
@@ -2070,58 +1825,6 @@ io.on('connection', (socket) => {
     if (connectedUsers.has(socket.id)) {
       const userData = connectedUsers.get(socket.id);
       userData.lastHeartbeatAck = Date.now();
-    }
-  });
-
-  // Handle reconnection requests from clients
-  socket.on('request-reconnection', async (data) => {
-    try {
-      const { email, userId } = data;
-      
-      if (!email || !userId) {
-        socket.emit('reconnection-error', { message: 'Missing email or userId' });
-        return;
-      }
-
-      console.log(`🔄 Reconnection request from ${email}`);
-      
-      // Check if user exists in our data
-      const userInfo = userData.get(email);
-      if (!userInfo) {
-        socket.emit('reconnection-error', { message: 'User not found' });
-        return;
-      }
-
-      // Update connection tracking
-      connectedUsers.set(socket.id, {
-        email: email,
-        userId: userId,
-        userInfo: userInfo,
-        lastHeartbeat: Date.now(),
-        lastHeartbeatAck: Date.now(),
-        socketId: socket.id
-      });
-
-      // Send current user data to reconnected client
-      const currentData = {
-        userId: userInfo.userId,
-        email: email,
-        isActive: userInfo.isActive,
-        activeSeconds: userInfo.activeSeconds,
-        inactiveSeconds: userInfo.inactiveSeconds,
-        sessionStart: userInfo.sessionStart,
-        shiftInfo: userShiftInfo.get(email) || null,
-        reconnection: true
-      };
-
-      socket.emit('reconnection-success', currentData);
-      socket.emit('timerUpdated', currentData);
-      
-      console.log(`✅ User ${email} reconnected successfully`);
-      
-    } catch (error) {
-      console.error('Error handling reconnection request:', error);
-      socket.emit('reconnection-error', { message: 'Reconnection failed' });
     }
   });
 
