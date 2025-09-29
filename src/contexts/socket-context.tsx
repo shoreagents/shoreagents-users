@@ -80,10 +80,10 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     const socketServerUrl = (process.env.NEXT_PUBLIC_SOCKET_URL || process.env.SOCKET_SERVER_URL || 'http://localhost:3004') as string
     const newSocket = io(socketServerUrl, {
       reconnection: true,
-      reconnectionAttempts: 5, // Increased from 3
+      reconnectionAttempts: 10, // Increased for better reliability
       reconnectionDelay: 1000, // Start with 1s delay
-      reconnectionDelayMax: 10000, // Max 10s delay
-      timeout: 20000, // Increased from 10s to match server pingTimeout
+      reconnectionDelayMax: 15000, // Max 15s delay for Railway
+      timeout: 25000, // Increased for Railway network latency
       transports: ['websocket', 'polling'],
       upgrade: true, // Allow transport upgrades
       rememberUpgrade: true // Remember successful transport
@@ -170,12 +170,58 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       setIsConnected(false)
     })
 
+    // Handle server-initiated reconnection requests
+    newSocket.on('user-reconnect-needed', (data) => {
+      console.log('🔄 Server requesting reconnection:', data)
+      // Check if this reconnection request is for the current user
+      if (data.email === email) {
+        console.log('🔄 Reconnecting for current user...')
+        // Force reconnection
+        newSocket.disconnect()
+        setTimeout(() => {
+          newSocket.connect()
+        }, 1000)
+      }
+    })
+
+    // Handle reconnection success
+    newSocket.on('reconnection-success', (data) => {
+      console.log('✅ Reconnection successful:', data)
+      setIsConnected(true)
+      // Dispatch reconnection event for other components
+      window.dispatchEvent(new CustomEvent('socket-reconnected', { detail: data }))
+    })
+
+    // Handle reconnection errors
+    newSocket.on('reconnection-error', (error) => {
+      console.error('❌ Reconnection error:', error)
+      // Try to reconnect again after a delay
+      setTimeout(() => {
+        if (!newSocket.connected) {
+          newSocket.connect()
+        }
+      }, 5000)
+    })
+
     newSocket.on('authenticated', (data) => {
+      console.log('✅ Socket authenticated successfully')
+      setIsConnected(true)
+      
+      // Request reconnection if this is a reconnection attempt
+      if (data.reconnection) {
+        console.log('🔄 This is a reconnection, requesting user data...')
+        newSocket.emit('request-reconnection', {
+          email: email,
+          userId: data.userId
+        })
+      }
       
       // Dispatch connection event for UI updates
       const event = new CustomEvent('socket-connected', { 
         detail: { 
-          timestamp: new Date().toISOString() 
+          timestamp: new Date().toISOString(),
+          isConnected: true,
+          data
         } 
       });
       window.dispatchEvent(event);

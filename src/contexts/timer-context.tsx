@@ -11,6 +11,7 @@ import { useHealth } from './health-context'
 import { useRestroom } from './restroom-context'
 import { isBreakTimeValid, getBreaksForShift } from '@/lib/shift-break-utils'
 import { parseShiftTime } from '@/lib/shift-utils'
+import { useReconnection, createSocketReconnectionHandler } from '@/lib/reconnection-utils'
 
 interface TimerContextType {
   timerData: any
@@ -75,6 +76,9 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
   const { isInEvent } = useEventsContext()
   const { isGoingToClinic, isInClinic } = useHealth()
   const { isInRestroom } = useRestroom()
+  
+  // Reconnection management
+  const { startReconnection, stopReconnection, isReconnecting } = useReconnection('timer-context')
 
   // Helper functions
   const refreshBreakStatus = useCallback(async () => {
@@ -765,16 +769,68 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
+    // Handle reconnection events
+    const handleReconnection = (data: any) => {
+      console.log('🔄 Timer context received reconnection data:', data)
+      // Update timer data with reconnected data
+      if (data.activeSeconds !== undefined) {
+        setLiveActiveSeconds(data.activeSeconds)
+      }
+      if (data.inactiveSeconds !== undefined) {
+        setLiveInactiveSeconds(data.inactiveSeconds)
+      }
+      if (data.isActive !== undefined) {
+        setLastActivityState(data.isActive)
+        setActivityState(data.isActive)
+      }
+    }
+
     // Listen for Socket.IO events
     socket.on('shiftReset', handleShiftReset)
     socket.on('timerUpdated', handleTimerUpdated)
+    socket.on('reconnection-success', handleReconnection)
     
     return () => {
       socket.off('shiftReset', handleShiftReset)
       socket.off('timerUpdated', handleTimerUpdated)
+      socket.off('reconnection-success', handleReconnection)
       socket.offAny()
     }
   }, [isAuthenticated, hasLoggedIn, socket, isResetting, timerData, setActivityState])
+
+  // Handle automatic reconnection when socket disconnects
+  useEffect(() => {
+    if (!socket || !isAuthenticated || !hasLoggedIn) return
+
+    const handleDisconnect = () => {
+      console.log('🔄 Socket disconnected, starting reconnection process...')
+      
+      // Create reconnection handler
+      const reconnectHandler = createSocketReconnectionHandler(socket, 'timer-context', {
+        maxAttempts: 10,
+        baseDelay: 2000,
+        maxDelay: 30000
+      })
+
+      // Start reconnection process
+      startReconnection(reconnectHandler)
+    }
+
+    const handleReconnect = () => {
+      console.log('✅ Socket reconnected successfully')
+      stopReconnection()
+    }
+
+    // Listen for socket events
+    socket.on('disconnect', handleDisconnect)
+    socket.on('reconnect', handleReconnect)
+
+    return () => {
+      socket.off('disconnect', handleDisconnect)
+      socket.off('reconnect', handleReconnect)
+      stopReconnection()
+    }
+  }, [socket, isAuthenticated, hasLoggedIn, startReconnection, stopReconnection])
 
   // Handle shift reset countdown reaching zero (fallback for manual reset)
   useEffect(() => {

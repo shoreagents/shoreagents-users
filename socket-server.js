@@ -884,15 +884,24 @@ setInterval(async () => {
   }
 }, 30000); // 30 seconds
 
-// Add connection health monitoring
+// Add connection health monitoring and reconnection logic
 setInterval(() => {
   const now = Date.now();
   const staleConnections = [];
+  const disconnectedUsers = [];
   
   // Check for stale connections (no heartbeat for 5 minutes)
   for (const [socketId, userData] of connectedUsers.entries()) {
     if (userData.lastHeartbeat && (now - userData.lastHeartbeat) > 300000) { // 5 minutes
       staleConnections.push(socketId);
+      // Store user info for reconnection attempt
+      if (userData.email) {
+        disconnectedUsers.push({
+          email: userData.email,
+          userId: userData.userId,
+          userInfo: userData.userInfo
+        });
+      }
     }
   }
   
@@ -904,6 +913,25 @@ setInterval(() => {
       socket.disconnect(true);
     }
   });
+  
+  // Attempt to reconnect disconnected users
+  if (disconnectedUsers.length > 0) {
+    console.log(`🔄 Attempting to reconnect ${disconnectedUsers.length} disconnected users`);
+    disconnectedUsers.forEach(user => {
+      // Try to find if user has reconnected with a new socket
+      const existingConnection = Array.from(connectedUsers.values()).find(u => u.email === user.email);
+      if (!existingConnection) {
+        // User hasn't reconnected, try to trigger reconnection
+        console.log(`🔄 Triggering reconnection for user: ${user.email}`);
+        // Emit a reconnection event to all sockets (client will handle filtering)
+        io.emit('user-reconnect-needed', {
+          email: user.email,
+          userId: user.userId,
+          reason: 'stale_connection'
+        });
+      }
+    });
+  }
   
   // Log connection health
   if (connectedUsers.size > 0) {
@@ -1955,6 +1983,58 @@ io.on('connection', (socket) => {
     if (connectedUsers.has(socket.id)) {
       const userData = connectedUsers.get(socket.id);
       userData.lastHeartbeatAck = Date.now();
+    }
+  });
+
+  // Handle reconnection requests from clients
+  socket.on('request-reconnection', async (data) => {
+    try {
+      const { email, userId } = data;
+      
+      if (!email || !userId) {
+        socket.emit('reconnection-error', { message: 'Missing email or userId' });
+        return;
+      }
+
+      console.log(`🔄 Reconnection request from ${email}`);
+      
+      // Check if user exists in our data
+      const userInfo = userData.get(email);
+      if (!userInfo) {
+        socket.emit('reconnection-error', { message: 'User not found' });
+        return;
+      }
+
+      // Update connection tracking
+      connectedUsers.set(socket.id, {
+        email: email,
+        userId: userId,
+        userInfo: userInfo,
+        lastHeartbeat: Date.now(),
+        lastHeartbeatAck: Date.now(),
+        socketId: socket.id
+      });
+
+      // Send current user data to reconnected client
+      const currentData = {
+        userId: userInfo.userId,
+        email: email,
+        isActive: userInfo.isActive,
+        activeSeconds: userInfo.activeSeconds,
+        inactiveSeconds: userInfo.inactiveSeconds,
+        sessionStart: userInfo.sessionStart,
+        shiftInfo: userShiftInfo.get(email) || null,
+        reconnection: true
+      };
+
+      socket.emit('reconnection-success', currentData);
+      socket.emit('timerUpdated', currentData);
+      
+      console.log(`✅ User ${email} reconnected successfully`);
+      
+    } catch (error) {
+      console.error('Error handling reconnection request:', error);
+      socket.emit('reconnection-error', { message: 'Reconnection failed' });
     }
   });
 

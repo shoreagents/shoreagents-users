@@ -222,6 +222,30 @@ export const useSocketTimer = (email: string | null): UseSocketTimerReturn => {
         
       })
 
+      // Handle reconnection success events
+      socket.on('reconnection-success', (data: TimerData) => {
+        if (!isActive.current) return
+        
+        console.log('🔄 Timer data restored after reconnection:', data)
+        setTimerData(data)
+        setConnectionStatus('connected')
+        setError(null)
+        
+        // Emit reconnection event for other components
+        window.dispatchEvent(new CustomEvent('timer-reconnected', { 
+          detail: data
+        }))
+      })
+
+      // Handle reconnection errors
+      socket.on('reconnection-error', (error: any) => {
+        if (!isActive.current) return
+        
+        console.error('❌ Timer reconnection error:', error)
+        setConnectionStatus('error')
+        setError('Reconnection failed: ' + error.message)
+      })
+
       // When client-side countdown detects 0s, ask server to force a reset write
       window.addEventListener('shiftResetCountdownZero', () => {
         try {
