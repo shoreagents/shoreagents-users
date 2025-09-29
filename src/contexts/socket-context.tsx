@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react'
 import { io, Socket } from 'socket.io-client'
+import { getCurrentUser } from '@/lib/ticket-utils'
 
 interface SocketContextType {
   socket: Socket | null
@@ -119,7 +120,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     })
 
     // Send periodic heartbeats to server
-    const heartbeatInterval = setInterval(() => {
+    const heartbeatIntervalRef1 = setInterval(() => {
       if (newSocket && newSocket.connected) {
         newSocket.emit('heartbeat')
       }
@@ -127,7 +128,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
     // Clean up heartbeat interval on disconnect
     newSocket.on('disconnect', () => {
-      clearInterval(heartbeatInterval)
+      clearInterval(heartbeatIntervalRef1)
     })
 
     newSocket.on('disconnect', (reason) => {
@@ -181,8 +182,74 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       window.dispatchEvent(event);
     })
 
+    // Handle reconnection events from server
+    newSocket.on('user-reconnect-needed', (data) => {
+      console.log('🔄 Server requesting reconnection for user:', data.email)
+      // Check if this is for the current user
+      const currentUser = getCurrentUser()
+      if (currentUser?.email === data.email) {
+        console.log('🔄 Reconnecting current user...')
+        // Request reconnection with current user data
+        newSocket.emit('request-reconnection', {
+          email: currentUser.email,
+          userId: currentUser.id
+        })
+      }
+    })
+
+    // Handle reconnection success
+    newSocket.on('reconnection-success', (data) => {
+      console.log('✅ Reconnection successful:', data)
+      // Dispatch reconnection event for UI updates
+      const event = new CustomEvent('socket-reconnected', { 
+        detail: { 
+          timestamp: new Date().toISOString(),
+          data: data
+        } 
+      });
+      window.dispatchEvent(event);
+    })
+
+    // Handle reconnection errors
+    newSocket.on('reconnection-error', (error) => {
+      console.error('❌ Reconnection failed:', error)
+    })
+
+    // Handle server shutdown
+    newSocket.on('server-shutdown', (data) => {
+      console.log('🛑 Server is shutting down:', data.message)
+      // Attempt to reconnect after a delay
+      setTimeout(() => {
+        if (newSocket && !newSocket.connected) {
+          console.log('🔄 Attempting to reconnect after server shutdown...')
+          newSocket.connect()
+        }
+      }, 5000) // 5 second delay
+    })
+
+    // Handle heartbeat
+    newSocket.on('heartbeat-ack', (data) => {
+      // Heartbeat acknowledged, connection is healthy
+    })
+
     socketRef.current = newSocket
     setSocket(newSocket)
+
+    // Start heartbeat interval
+    const heartbeatIntervalRef = setInterval(() => {
+      if (newSocket && newSocket.connected) {
+        newSocket.emit('heartbeat', { timestamp: Date.now() })
+      }
+    }, 30000) // Send heartbeat every 30 seconds
+
+    // Cleanup heartbeat on disconnect
+    newSocket.on('disconnect', () => {
+      clearInterval(heartbeatIntervalRef)
+    })
+
+    return () => {
+      clearInterval(heartbeatIntervalRef)
+    }
   }, [isActiveProvider])
 
   const disconnect = useCallback(() => {
