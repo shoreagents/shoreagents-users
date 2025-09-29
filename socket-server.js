@@ -828,6 +828,20 @@ setInterval(() => {
   }
 }, 300000); // Every 5 minutes // Check every minute
 
+// Check for shift resets every 30 seconds
+setInterval(async () => {
+  try {
+    // Check shift resets for all connected users
+    for (const [email, userInfo] of userData.entries()) {
+      if (userInfo && userInfo.userId) {
+        await checkShiftReset(email, userInfo.userId);
+      }
+    }
+  } catch (error) {
+    console.error('Error in shift reset check interval:', error);
+  }
+}, 30000); // 30 seconds
+
 // In-memory storage for testing (since PostgreSQL is not running)
 const connectedUsers = new Map();
 const userData = new Map(); // Store user activity data in memory
@@ -1494,19 +1508,6 @@ async function checkShiftReset(email, userId) {
       return false;
     }
 
-    // FIXED: Only prevent reset if we're still in the same shift period
-    // This allows legitimate shift resets while preventing multiple resets within the same shift
-    if (userInfo.lastResetAt && userInfo.lastShiftId) {
-      const currentShiftId = getCurrentShiftId(currentTime, shiftInfo);
-      
-      // If we're in the same shift period, don't reset again
-      if (userInfo.lastShiftId === currentShiftId) {
-        const timeSinceLastReset = Date.now() - userInfo.lastResetAt;
-        return false;
-      }
-      // If we're in a new shift period, allow reset regardless of time since last reset
-    }
-
     const shiftInfo = userShiftInfo.get(email);
     if (!shiftInfo) {
       return false;
@@ -1514,6 +1515,17 @@ async function checkShiftReset(email, userId) {
 
     const currentTime = new Date();
     const currentShiftId = getCurrentShiftId(currentTime, shiftInfo);
+
+    // FIXED: Only prevent reset if we're still in the same shift period
+    // This allows legitimate shift resets while preventing multiple resets within the same shift
+    if (userInfo.lastResetAt && userInfo.lastShiftId) {
+      // If we're in the same shift period, don't reset again
+      if (userInfo.lastShiftId === currentShiftId) {
+        const timeSinceLastReset = Date.now() - userInfo.lastResetAt;
+        return false;
+      }
+      // If we're in a new shift period, allow reset regardless of time since last reset
+    }
     
     // Check if we need to reset for a new shift period
     if (userInfo.lastShiftId && userInfo.lastShiftId === currentShiftId) {
