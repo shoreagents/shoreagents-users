@@ -13,12 +13,12 @@ class ActivityTracker {
     this.mousePosition = { x: 0, y: 0 };
     this.mouseTrackingInterval = null;
     this.isSystemSuspended = false;
-    this.systemIdleThreshold = 30000; // 1 minute system idle threshold
-    this.systemIdleCheckInterval = null;
     
     // Bind methods
     this.handleSystemSuspend = this.handleSystemSuspend.bind(this);
     this.handleSystemResume = this.handleSystemResume.bind(this);
+    this.handleSystemLock = this.handleSystemLock.bind(this);
+    this.handleSystemUnlock = this.handleSystemUnlock.bind(this);
     this.setupPowerMonitoring();
   }
 
@@ -27,8 +27,8 @@ class ActivityTracker {
       // Listen for system suspend/resume events
       powerMonitor.on('suspend', this.handleSystemSuspend);
       powerMonitor.on('resume', this.handleSystemResume);
-      powerMonitor.on('lock-screen', this.handleSystemSuspend);
-      powerMonitor.on('unlock-screen', this.handleSystemResume);
+      powerMonitor.on('lock-screen', this.handleSystemLock);
+      powerMonitor.on('unlock-screen', this.handleSystemUnlock);
       
     } catch (error) {
       console.error('Error setting up power monitoring:', error);
@@ -68,6 +68,39 @@ class ActivityTracker {
     }
   }
 
+  handleSystemLock() {
+    this.isSystemSuspended = true;
+    this.pauseMouseTracking();
+    
+    // Notify renderer about system lock
+    try {
+      if (this.mainWindow && !this.mainWindow.isDestroyed() && this.mainWindow.webContents) {
+        this.mainWindow.webContents.send('system-lock');
+      }
+    } catch (error) {
+      console.error('Error sending system lock notification:', error);
+    }
+  }
+
+  handleSystemUnlock() {
+    this.isSystemSuspended = false;
+    if (this.isTracking) {
+      this.startMouseTracking();
+      // Reset activity time on unlock to avoid false inactivity
+      this.lastActivityTime = Date.now();
+      this.updateActivity();
+    }
+    
+    // Notify renderer about system unlock
+    try {
+      if (this.mainWindow && !this.mainWindow.isDestroyed() && this.mainWindow.webContents) {
+        this.mainWindow.webContents.send('system-unlock');
+      }
+    } catch (error) {
+      console.error('Error sending system unlock notification:', error);
+    }
+  }
+
   startTracking() {
     if (this.isTracking) return;
     
@@ -79,11 +112,6 @@ class ActivityTracker {
     this.activityCheckInterval = setInterval(() => {
       this.checkInactivity();
     }, 1000); // Check every second (renderer expects ~30s consistency)
-    
-    // Start system idle checking
-    this.systemIdleCheckInterval = setInterval(() => {
-      this.checkSystemIdle();
-    }, 1000); // Check every 5 seconds
     
     // Start mouse tracking
     this.startMouseTracking();
@@ -105,11 +133,6 @@ class ActivityTracker {
       cleanupCount++;
     }
     
-    if (this.systemIdleCheckInterval) {
-      clearInterval(this.systemIdleCheckInterval);
-      this.systemIdleCheckInterval = null;
-      cleanupCount++;
-    }
     
     this.pauseMouseTracking();
   }
@@ -151,28 +174,6 @@ class ActivityTracker {
     } 
   }
 
-  checkSystemIdle() {
-    if (!this.isTracking || this.isSystemSuspended) return;
-    
-    try {
-      // Get system idle time using powerMonitor
-      const systemIdleTime = powerMonitor.getSystemIdleTime() * 1000; // Convert to milliseconds
-      
-      // If system has been idle for longer than our threshold, don't record activity
-      if (systemIdleTime > this.systemIdleThreshold) {
-        // System is idle, pause mouse tracking to prevent false activity
-        this.pauseMouseTracking();
-      } else if (!this.mouseTrackingInterval) {
-        // System is active again, resume mouse tracking
-        this.startMouseTracking();
-        // Update activity time since system is active
-        this.lastActivityTime = Date.now();
-        this.updateActivity();
-      }
-    } catch (error) {
-      console.warn('Error checking system idle time:', error.message);
-    }
-  }
 
   updateActivity() {
     if (this.isSystemSuspended) return;
@@ -200,13 +201,6 @@ class ActivityTracker {
     const currentTime = Date.now();
     const timeSinceLastActivity = currentTime - this.lastActivityTime;
     
-    // Prefer our own high-frequency tracker for consistent thresholding.
-    // Use system idle time only as additional context, not as a hard gate.
-    let systemIdleTime = null;
-    try {
-      systemIdleTime = powerMonitor.getSystemIdleTime() * 1000;
-    } catch (_) {}
-
     if (timeSinceLastActivity >= this.inactivityThreshold) {
       this.showInactivityWindow();
       try {
@@ -214,7 +208,6 @@ class ActivityTracker {
           this.mainWindow.webContents.send('inactivity-alert', {
             inactiveTime: timeSinceLastActivity,
             threshold: this.inactivityThreshold,
-            systemIdleTime: systemIdleTime,
           });
         }
       } catch (error) {
@@ -277,8 +270,6 @@ class ActivityTracker {
 
   setInactivityThreshold(threshold) {
     this.inactivityThreshold = threshold;
-    // Also update system idle threshold to be double the inactivity threshold
-    this.systemIdleThreshold = Math.max(threshold * 2, 60000); // Minimum 1 minute
   }
 
   pauseTracking() {
@@ -291,10 +282,6 @@ class ActivityTracker {
       this.activityCheckInterval = null;
     }
     
-    if (this.systemIdleCheckInterval) {
-      clearInterval(this.systemIdleCheckInterval);
-      this.systemIdleCheckInterval = null;
-    }
     
     this.pauseMouseTracking();
     
@@ -311,11 +298,6 @@ class ActivityTracker {
       this.checkInactivity();
     }, 1000); // Check every second
     
-    // Start system idle checking
-    this.systemIdleCheckInterval = setInterval(() => {
-      this.checkSystemIdle();
-    }, 1000); // Check every 5 seconds
-    
     // Start mouse tracking if system is not suspended
     if (!this.isSystemSuspended) {
       this.startMouseTracking();
@@ -324,20 +306,12 @@ class ActivityTracker {
   }
 
   getCurrentActivity() {
-    let systemIdleTime = null;
-    try {
-      systemIdleTime = powerMonitor.getSystemIdleTime() * 1000;
-    } catch (error) {
-      // System idle time not available
-    }
-    
     return {
       lastActivityTime: this.lastActivityTime,
       isTracking: this.isTracking,
       mousePosition: this.mousePosition,
       timeSinceLastActivity: Date.now() - this.lastActivityTime,
-      isSystemSuspended: this.isSystemSuspended,
-      systemIdleTime: systemIdleTime
+      isSystemSuspended: this.isSystemSuspended
     };
   }
 
@@ -345,8 +319,8 @@ class ActivityTracker {
     try {
       powerMonitor.off('suspend', this.handleSystemSuspend);
       powerMonitor.off('resume', this.handleSystemResume);
-      powerMonitor.off('lock-screen', this.handleSystemSuspend);
-      powerMonitor.off('unlock-screen', this.handleSystemResume);
+      powerMonitor.off('lock-screen', this.handleSystemLock);
+      powerMonitor.off('unlock-screen', this.handleSystemUnlock);
     } catch (error) {
       console.error('Error cleaning up power monitoring:', error);
     }

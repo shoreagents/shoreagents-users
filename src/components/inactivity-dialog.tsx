@@ -12,7 +12,6 @@ import {
 } from "@/components/ui/dialog"
 import { Progress } from "@/components/ui/progress"
 import { Clock, MousePointer } from "lucide-react"
-import Image from "next/image"
 
 interface InactivityDialogProps {
   open: boolean
@@ -118,3 +117,6 @@ export function InactivityDialog({
     </Dialog>
   )
 } 
+
+
+

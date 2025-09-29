@@ -1013,7 +1013,6 @@ function setBreakActiveState(active) {
     try {
       const blackScreenResult = closeBlackScreenWindows();
       if (blackScreenResult.success) {
-        console.log('Black screen windows closed successfully');
       } else {
         console.warn('Failed to close black screen windows:', blackScreenResult.error);
       }
@@ -1199,9 +1198,7 @@ function getSoundPath(type = 'main') {
           getAppResourcePath('public/notification.wav'),
         ]
 
-    console.log('getSoundPath candidates for', type, ':', candidates.map(p => ({ path: p, exists: fs.existsSync(p) })));
     const found = candidates.find(p => fs.existsSync(p)) || null;
-    console.log('getSoundPath result for', type, ':', found);
     return found;
   } catch (error) {
     console.error('getSoundPath error for', type, ':', error);
@@ -1216,26 +1213,20 @@ function hasCustomSoundAvailable(type = 'main') {
 
 function playCustomNotificationSound(type = 'main') {
   try {
-    console.log('playCustomNotificationSound called for type:', type);
     const soundPath = getSoundPath(type)
-    console.log('playCustomNotificationSound - soundPath:', soundPath);
-    console.log('playCustomNotificationSound - soundPlay available:', !!(soundPlay && typeof soundPlay.play === 'function'));
     
     if (soundPath && soundPlay && typeof soundPlay.play === 'function') {
-      console.log('Playing custom sound:', soundPath);
       // Fire and forget; do not await to keep UI responsive
       soundPlay.play(soundPath).catch((error) => {
         console.error('Sound playback failed:', error);
         // Fallback to system beep if playback fails
         try { 
-          console.log('Falling back to system beep due to playback error');
           shell.beep(); 
         } catch (beepError) {
           console.error('System beep also failed:', beepError);
         }
       });
     } else {
-      console.log('No custom sound available, using system beep');
       // Fallback to system beep if no custom sound available
       try { 
         shell.beep(); 

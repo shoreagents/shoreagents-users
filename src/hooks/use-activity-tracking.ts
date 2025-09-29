@@ -1,6 +1,58 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { getCurrentUser } from '@/lib/ticket-utils';
 
+// Function to record system events in the database
+const recordSystemEvent = async (eventType: 'suspend' | 'resume' | 'lock' | 'unlock', metadata?: any) => {
+  try {
+    // Use a persistent session ID that doesn't change for the user
+    // This ensures all events always update the same row for the current user
+    const currentUser = getCurrentUser();
+    const sessionKey = `currentSystemSessionId_${currentUser?.email || 'default'}`;
+    
+    let sessionId = localStorage.getItem(sessionKey);
+    
+    // Always check if we need to update the session ID based on current date
+    const now = new Date();
+    // Get Manila time properly by using toLocaleDateString with Manila timezone
+    const today = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' }); // YYYY-MM-DD format
+    const expectedSessionId = `system_${currentUser?.email?.replace('@', '_').replace('.', '_') || 'user'}_${today}`;
+    
+    if (!sessionId || !sessionId.includes(today)) {
+      // Create new session ID if none exists or if date has changed
+      sessionId = expectedSessionId;
+      localStorage.setItem(sessionKey, sessionId);
+    }
+    
+    const response = await fetch('/api/system-events', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        eventType,
+        sessionId,
+        metadata: {
+          ...metadata,
+          timestamp: new Date().toISOString(),
+          userAgent: navigator.userAgent
+        }
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Failed to record system event:', errorText);
+      throw new Error(`HTTP ${response.status}: ${errorText}`);
+    }
+
+    const result = await response.json();
+    return result;
+  } catch (error) {
+    console.error('Error recording system event:', error);
+    throw error;
+  }
+};
+
 interface ActivityData {
   timestamp: number;
   position: { x: number; y: number };
@@ -19,7 +71,7 @@ interface ActivityStatus {
   timeSinceLastActivity: number;
 }
 
-export const useActivityTracking = (setActivityState?: (isActive: boolean) => void) => {
+export const useActivityTracking = (setActivityState?: (isActive: boolean, isSystemEvent?: boolean) => void) => {
   const [isTracking, setIsTracking] = useState(false);
   const [lastActivity, setLastActivity] = useState<ActivityData | null>(null);
   const [showInactivityDialog, setShowInactivityDialog] = useState(false);
@@ -304,23 +356,117 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean) => vo
   }, [setActivityState]);
 
   // Handle system suspend events
-  const handleSystemSuspend = useCallback(() => {
+  const handleSystemSuspend = useCallback(async () => {
     const currentUser = getCurrentUser();
     if (currentUser) {
-      // TODO: Replace with database-driven system suspend
-      // pauseActivityForSystemSuspend(currentUser.email);
+      // Record the suspend event in database
+      try {
+        await recordSystemEvent('suspend', {
+          reason: 'system_suspend',
+          userEmail: currentUser.email,
+          timestamp: new Date().toISOString()
+        });
+        console.log('✅ System suspend event recorded for user:', currentUser.email);
+      } catch (error) {
+        console.error('❌ Failed to record system suspend event:', error);
+      }
     }
+    
+    // CRITICAL: Pause activity timer immediately when system is suspended
+    if (setActivityState) {
+      setActivityState(false, true); // true = isSystemEvent
+      console.log('⏸️ Activity timer paused due to system suspend');
+    }
+    
     setShowInactivityDialog(false); // Close any inactivity dialogs
-  }, []);
+  }, [setActivityState]);
 
   // Handle system resume events
-  const handleSystemResume = useCallback(() => {
+  const handleSystemResume = useCallback(async () => {
     const currentUser = getCurrentUser();
     if (currentUser) {
-      // TODO: Replace with database-driven system resume
-      // resumeActivityFromSystemSuspend(currentUser.email);
+      // Record the resume event in database
+      try {
+        await recordSystemEvent('resume', {
+          reason: 'system_resume',
+          userEmail: currentUser.email,
+          timestamp: new Date().toISOString()
+        });
+        console.log('✅ System resume event recorded for user:', currentUser.email);
+      } catch (error) {
+        console.error('❌ Failed to record system resume event:', error);
+      }
     }
-  }, []);
+    
+    // CRITICAL: Resume activity timer when system resumes
+    if (setActivityState) {
+      setActivityState(true, true); // true = isSystemEvent
+      console.log('▶️ Activity timer resumed due to system resume');
+    }
+  }, [setActivityState]);
+
+  // Handle system lock events
+  const handleSystemLock = useCallback(async () => {
+    const currentUser = getCurrentUser();
+    if (currentUser) {
+      // Record the lock event in database
+      try {
+        await recordSystemEvent('lock', {
+          reason: 'system_lock',
+          userEmail: currentUser.email,
+          timestamp: new Date().toISOString()
+        });
+        console.log('✅ System lock event recorded for user:', currentUser.email);
+      } catch (error) {
+        console.error('❌ Failed to record system lock event:', error);
+      }
+    }
+    
+    // CRITICAL: Set activity state to inactive when system is locked
+    if (setActivityState) {
+      setActivityState(false, true); // true = isSystemEvent
+      console.log('⏸️ Activity state set to inactive due to system lock');
+    }
+    
+    // Trigger inactivity alert after threshold time when system is locked
+    const inactivityThreshold = 0; // 30 seconds
+    setTimeout(() => {
+      // Check if system is still locked (activity state is still false)
+      const alertData = {
+        inactiveTime: inactivityThreshold,
+        threshold: inactivityThreshold,
+        systemIdleTime: null
+      };
+      setInactivityData(alertData);
+      setShowInactivityDialog(true);
+      console.log('🔔 Inactivity alert triggered after system lock threshold');
+    }, inactivityThreshold);
+    
+  }, [setActivityState, setInactivityData, setShowInactivityDialog]);
+
+  // Handle system unlock events
+  const handleSystemUnlock = useCallback(async () => {
+    const currentUser = getCurrentUser();
+    if (currentUser) {
+      // Record the unlock event in database
+      try {
+        await recordSystemEvent('unlock', {
+          reason: 'system_unlock',
+          userEmail: currentUser.email,
+          timestamp: new Date().toISOString()
+        });
+        console.log('✅ System unlock event recorded for user:', currentUser.email);
+      } catch (error) {
+        console.error('❌ Failed to record system unlock event:', error);
+      }
+    }
+    
+    // CRITICAL: Resume activity timer when system is unlocked
+    if (setActivityState) {
+      setActivityState(true, true); // true = isSystemEvent
+      console.log('▶️ Activity timer resumed due to system unlock');
+    }
+  }, [setActivityState]);
 
   // Update inactive time dynamically when dialog is shown
   useEffect(() => {
@@ -363,6 +509,8 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean) => vo
       // Listen for system suspend/resume events
       window.electronAPI.receive('system-suspend', handleSystemSuspend);
       window.electronAPI.receive('system-resume', handleSystemResume);
+      window.electronAPI.receive('system-lock', handleSystemLock);
+      window.electronAPI.receive('system-unlock', handleSystemUnlock);
 
       listenersSetupRef.current = true;
     }
@@ -378,6 +526,8 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean) => vo
             window.electronAPI.removeAllListeners('activity-reset');
             window.electronAPI.removeAllListeners('system-suspend');
             window.electronAPI.removeAllListeners('system-resume');
+            window.electronAPI.removeAllListeners('system-lock');
+            window.electronAPI.removeAllListeners('system-unlock');
           }
         } catch (error) {
           console.warn('Error removing event listeners:', error);

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { Pool } from 'pg'
 import { redisCache, cacheKeys, cacheTTL } from '@/lib/redis-cache'
 import { getOptimizedClient } from '@/lib/database-optimized'
+import { slackService } from '@/lib/slack-service'
 
 // Database configuration
 const databaseConfig = {
@@ -504,6 +505,65 @@ export async function PUT(
       await redisCache.del(userTicketsCacheKey)
       await redisCache.del(individualTicketCacheKey)
 
+      // Send Slack notification for status update if status changed
+      if (status !== undefined && status !== ticket.current_status) {
+        try {
+          // Get full ticket details for Slack notification
+          const fullTicketQuery = `
+            SELECT t.id, t.ticket_id, t.concern, t.details, t.status, t.created_at,
+                   t.supporting_files, t.file_count,
+                   u.email as user_email,
+                   tc.name as category_name,
+                   COALESCE(pi.first_name || ' ' || pi.last_name, u.email) as user_name
+            FROM tickets t 
+            LEFT JOIN users u ON t.user_id = u.id 
+            LEFT JOIN ticket_categories tc ON t.category_id = tc.id
+            LEFT JOIN personal_info pi ON u.id = pi.user_id
+            WHERE t.ticket_id = $1
+          `
+          const fullTicketResult = await client.query(fullTicketQuery, [ticketId])
+          
+          if (fullTicketResult.rows.length > 0) {
+            const fullTicket = fullTicketResult.rows[0]
+            
+            // Parse supporting_files if it's a JSON string
+            let supportingFiles = []
+            if (fullTicket.supporting_files) {
+              try {
+                supportingFiles = typeof fullTicket.supporting_files === 'string' 
+                  ? JSON.parse(fullTicket.supporting_files) 
+                  : fullTicket.supporting_files
+              } catch (error) {
+                console.error('Error parsing supporting_files:', error)
+                supportingFiles = []
+              }
+            }
+            
+            const slackTicketData = {
+              id: fullTicket.id.toString(),
+              ticket_id: fullTicket.ticket_id,
+              concern: fullTicket.concern,
+              details: fullTicket.details,
+              category: fullTicket.category_name || 'Unknown',
+              status: fullTicket.status,
+              created_at: fullTicket.created_at,
+              user_name: fullTicket.user_name || 'Unknown User', // Use name from personal_info table
+              user_email: fullTicket.user_email,
+              supporting_files: supportingFiles,
+              file_count: fullTicket.file_count || 0
+            }
+            
+            // Send notification asynchronously (don't wait for it)
+            slackService.sendTicketStatusUpdate(slackTicketData, ticket.current_status).catch(error => {
+              console.error('Failed to send Slack status update notification:', error)
+            })
+          }
+        } catch (error) {
+          console.error('Error preparing Slack status update notification:', error)
+          // Don't fail the ticket update if Slack fails
+        }
+      }
+
       return NextResponse.json({
         success: true,
         ticket: {
@@ -585,7 +645,7 @@ export async function PATCH(
       try {
       // Check if ticket exists and user has permission
       const ticketQuery = `
-        SELECT t.id, t.user_id, u.email as user_email 
+        SELECT t.id, t.user_id, u.email as user_email, t.file_count as previous_file_count
         FROM tickets t 
         LEFT JOIN users u ON t.user_id = u.id 
         WHERE t.ticket_id = $1
@@ -641,6 +701,83 @@ export async function PATCH(
       const individualTicketCacheKey = cacheKeys.ticket(ticketId)
       await redisCache.del(userTicketsCacheKey)
       await redisCache.del(individualTicketCacheKey)
+
+      // Send Slack notification when files are uploaded
+      console.log('PATCH endpoint - filesArray:', filesArray)
+      console.log('PATCH endpoint - filesArray.length:', filesArray.length)
+      
+      if (filesArray.length > 0) {
+        console.log('Files uploaded to ticket:', ticketId, 'sending notification')
+        
+        try {
+          // Get full ticket details for Slack notification
+          const fullTicketQuery = `
+            SELECT t.id, t.ticket_id, t.concern, t.details, t.status, t.created_at,
+                   t.supporting_files, t.file_count,
+                   u.email as user_email,
+                   tc.name as category_name,
+                   COALESCE(pi.first_name || ' ' || pi.last_name, u.email) as user_name
+            FROM tickets t 
+            LEFT JOIN users u ON t.user_id = u.id 
+            LEFT JOIN ticket_categories tc ON t.category_id = tc.id
+            LEFT JOIN personal_info pi ON u.id = pi.user_id
+            WHERE t.ticket_id = $1
+          `
+          const fullTicketResult = await client.query(fullTicketQuery, [ticketId])
+          
+          if (fullTicketResult.rows.length > 0) {
+            const fullTicket = fullTicketResult.rows[0]
+            
+            // Parse supporting_files if it's a JSON string
+            let supportingFiles = []
+            if (fullTicket.supporting_files) {
+              try {
+                supportingFiles = typeof fullTicket.supporting_files === 'string' 
+                  ? JSON.parse(fullTicket.supporting_files) 
+                  : fullTicket.supporting_files
+              } catch (error) {
+                console.error('Error parsing supporting_files:', error)
+                supportingFiles = []
+              }
+            }
+            
+            const slackTicketData = {
+              id: fullTicket.id.toString(),
+              ticket_id: fullTicket.ticket_id,
+              concern: fullTicket.concern,
+              details: fullTicket.details,
+              category: fullTicket.category_name || 'Unknown',
+              status: fullTicket.status,
+              created_at: fullTicket.created_at,
+              user_name: fullTicket.user_name || 'Unknown User',
+              user_email: fullTicket.user_email,
+              supporting_files: supportingFiles,
+              file_count: fullTicket.file_count || 0
+            }
+            
+            // Send notification - use new ticket notification if this is the first notification
+            // Use updated ticket notification if ticket was already notified
+            const previousFileCount = ticket.previous_file_count || 0
+            if (previousFileCount === 0) {
+              // This is the first notification for this ticket
+              console.log('Sending first notification for ticket:', ticketId)
+              slackService.sendNewTicketNotification(slackTicketData).catch(error => {
+                console.error('Failed to send Slack notification:', error)
+              })
+            } else {
+              // This is an update to an existing ticket
+              console.log('Sending update notification for ticket:', ticketId)
+              slackService.sendUpdatedTicketNotification(slackTicketData).catch(error => {
+                console.error('Failed to send updated Slack notification:', error)
+              })
+            }
+          }
+        } catch (error) {
+          console.error('Error preparing Slack notification:', error)
+        }
+      } else {
+        console.log('No files uploaded, skipping Slack notification')
+      }
 
       return NextResponse.json({
         success: true,

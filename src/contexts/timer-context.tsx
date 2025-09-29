@@ -62,6 +62,9 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
   // Track when a meeting just ended to force active state
   const meetingJustEndedRef = useRef(false)
   
+  // Track system lock state to prevent inactive timer counting during lock
+  const [isSystemLocked, setIsSystemLocked] = useState(false)
+  
   // Real-time activity data state
   const [realtimeActivityData, setRealtimeActivityData] = useState<any>(null)
   const [lastRealtimeUpdate, setLastRealtimeUpdate] = useState<Date | null>(null)
@@ -635,7 +638,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     }, 1000) // Changed back to 1000ms (1 second) for real-time updates
 
     return () => clearInterval(interval)
-  }, [timerData?.isActive, lastActivityState, isAuthenticated, hasLoggedIn, isBreakActive, breakStatus?.is_paused, isInMeeting, isInEvent, isGoingToClinic, isInClinic, isInRestroom, shiftInfo, userProfile, liveActiveSeconds, liveInactiveSeconds, setActivityState, updateTimerData, validateInactiveState, timerData])
+  }, [timerData?.isActive, lastActivityState, isAuthenticated, hasLoggedIn, isBreakActive, breakStatus?.is_paused, isInMeeting, isInEvent, isGoingToClinic, isInClinic, isInRestroom, shiftInfo, userProfile, liveActiveSeconds, liveInactiveSeconds, setActivityState, updateTimerData, validateInactiveState, timerData, isSystemLocked])
 
 
   // Real-time countdown timer for shift reset
@@ -954,11 +957,37 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         setActivityState(true);
       };
 
+      // Handle system lock events
+      const handleSystemLock = () => {
+        setIsSystemLocked(true);
+        setActivityState(false, true); // true = isSystemEvent
+      };
+
+      const handleSystemUnlock = () => {
+        setIsSystemLocked(false);
+        setActivityState(true, true); // true = isSystemEvent
+      };
+
+      // Handle system suspend/resume events
+      const handleSystemSuspend = () => {
+        setIsSystemLocked(true);
+        setActivityState(false, true); // true = isSystemEvent
+      };
+
+      const handleSystemResume = () => {
+        setIsSystemLocked(false);
+        setActivityState(true, true); // true = isSystemEvent
+      };
+
       // Listen for Electron activity events
       if (window.electronAPI.receive) {
         window.electronAPI.receive('activity-update', handleActivityUpdate);
         window.electronAPI.receive('inactivity-alert', handleInactivityAlert);
         window.electronAPI.receive('activity-reset', handleActivityReset);
+        window.electronAPI.receive('system-lock', handleSystemLock);
+        window.electronAPI.receive('system-unlock', handleSystemUnlock);
+        window.electronAPI.receive('system-suspend', handleSystemSuspend);
+        window.electronAPI.receive('system-resume', handleSystemResume);
       }
 
       return () => {
@@ -966,6 +995,10 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
           window.electronAPI.removeAllListeners('activity-update');
           window.electronAPI.removeAllListeners('inactivity-alert');
           window.electronAPI.removeAllListeners('activity-reset');
+          window.electronAPI.removeAllListeners('system-lock');
+          window.electronAPI.removeAllListeners('system-unlock');
+          window.electronAPI.removeAllListeners('system-suspend');
+          window.electronAPI.removeAllListeners('system-resume');
         }
       };
     } else {

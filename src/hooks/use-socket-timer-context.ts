@@ -22,7 +22,7 @@ interface UseSocketTimerContextReturn {
   timerData: TimerData | null
   connectionStatus: 'connecting' | 'connected' | 'disconnected' | 'error'
   error: string | null
-  setActivityState: (isActive: boolean) => void
+  setActivityState: (isActive: boolean, isSystemEvent?: boolean) => void
   isAuthenticated: boolean
   updateTimerData: (activeSeconds: number, inactiveSeconds: number) => void
 }
@@ -129,7 +129,7 @@ export const useSocketTimerContext = (email: string | null): UseSocketTimerConte
   }, [socket, email])
 
   // Set activity state
-  const setActivityState = useCallback((isActive: boolean) => {
+  const setActivityState = useCallback((isActive: boolean, isSystemEvent = false) => {
     if (!socket || !email) return
 
     // Only emit if state actually changed
@@ -148,8 +148,8 @@ export const useSocketTimerContext = (email: string | null): UseSocketTimerConte
         email: email
       })
       
-      // Emit to server for persistence
-      socket.emit('activityChange', isActive)
+      // Emit to server for persistence with system event flag
+      socket.emit('activityChange', { isActive, isSystemEvent })
     }
   }, [socket, email])
 

@@ -25,9 +25,6 @@ import {
   Tag,
   Eye,
   Target,
-  TrendingUp,
-  AlertCircle,
-  CheckSquare,
   ExternalLink
 } from "lucide-react"
 import Link from "next/link"

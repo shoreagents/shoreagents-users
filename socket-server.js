@@ -2899,10 +2899,14 @@ io.on('connection', (socket) => {
   global.emitProductivityScoreUpdate = emitProductivityScoreUpdate;
 
   // Handle activity state changes
-  socket.on('activityChange', async (isActive) => {
+  socket.on('activityChange', async (data) => {
     try {
       const userData = connectedUsers.get(socket.id);
       if (!userData) return;
+
+      // Handle both old format (boolean) and new format (object)
+      const isActive = typeof data === 'boolean' ? data : data.isActive;
+      const isSystemEvent = typeof data === 'object' ? data.isSystemEvent : false;
 
       // Update in-memory data
       const userInfo = userData.userInfo;
@@ -2923,16 +2927,18 @@ io.on('connection', (socket) => {
           sessionStart: userInfo.sessionStart
         };
         
-        // Throttle activity update emissions: only emit every 15 seconds to reduce client load
+        // Throttle activity update emissions: only emit every 5 seconds to reduce client load
+        // But allow immediate updates for system events (lock/unlock)
         const lastActivityEmit = userInfo.lastActivityEmit || 0;
         const timeSinceLastActivityEmit = Date.now() - lastActivityEmit;
-        const shouldEmitActivity = timeSinceLastActivityEmit >= 15000; // 15 seconds
+        const shouldEmitActivity = isSystemEvent || timeSinceLastActivityEmit >= 5000; // Bypass throttle for system events
         
         if (shouldEmitActivity) {
           console.log(`Sending activity update to ${userSockets.size} connections for ${userData.email}:`, {
             activeSeconds: activityData.activeSeconds,
             inactiveSeconds: activityData.inactiveSeconds,
-            isActive: activityData.isActive
+            isActive: activityData.isActive,
+            isSystemEvent: isSystemEvent
           });
           
           userSockets.forEach(socketId => {
