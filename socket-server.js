@@ -15,19 +15,81 @@ const AnnouncementScheduler = require('./scripts/announcement-scheduler');
 const app = express();
 app.use(cors());
 
-// Status endpoint to monitor schedulers
-app.get('/status', (req, res) => {
+// Server readiness tracking
+let isServerReady = false;
+let startupStartTime = Date.now();
+
+// Simple readiness endpoint for Railway health checks
+app.get('/health', (req, res) => {
+  const uptime = process.uptime();
+  const startupTime = Date.now() - startupStartTime;
+  
+  if (!isServerReady) {
+    return res.status(503).json({
+      status: 'starting',
+      message: 'Server is still starting up',
+      timestamp: new Date().toISOString(),
+      startupTime: startupTime,
+      uptime: uptime
+    });
+  }
+
+  // Simple health check - just return ready status
   res.json({
-    status: 'running',
+    status: 'ready',
     timestamp: new Date().toISOString(),
-    schedulers: {
-      breakReminder: breakReminderScheduler.getStatus(),
-      taskNotification: taskNotificationScheduler.getStatus(),
-      meeting: meetingScheduler.getStatus(),
-      eventReminder: eventReminderScheduler.getStatus(),
-      announcement: announcementScheduler.getStatus()
-    },
-    uptime: process.uptime()
+    uptime: uptime,
+    startupTime: startupTime
+  });
+});
+
+// Status endpoint to monitor schedulers and server readiness
+app.get('/status', (req, res) => {
+  const uptime = process.uptime();
+  const startupTime = Date.now() - startupStartTime;
+  
+  // Check if server is ready
+  if (!isServerReady) {
+    return res.status(503).json({
+      status: 'starting',
+      message: 'Server is still starting up',
+      timestamp: new Date().toISOString(),
+      startupTime: startupTime,
+      uptime: uptime
+    });
+  }
+
+  // Check database connection
+  pool.query('SELECT 1', (err) => {
+    if (err) {
+      return res.status(503).json({
+        status: 'unhealthy',
+        message: 'Database connection failed',
+        timestamp: new Date().toISOString(),
+        error: err.message,
+        uptime: uptime
+      });
+    }
+
+    // Server is healthy
+    res.json({
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      schedulers: {
+        breakReminder: breakReminderScheduler.getStatus(),
+        taskNotification: taskNotificationScheduler.getStatus(),
+        meeting: meetingScheduler.getStatus(),
+        eventReminder: eventReminderScheduler.getStatus(),
+        announcement: announcementScheduler.getStatus()
+      },
+      uptime: uptime,
+      startupTime: startupTime,
+      connections: {
+        total: connectionMetrics.totalConnections,
+        active: connectionMetrics.activeConnections,
+        errors: connectionMetrics.errors
+      }
+    });
   });
 });
 
@@ -252,37 +314,62 @@ redisClient.on('end', () => {
   console.log('❌ Redis connection ended');
 });
 
-// Test database connection with better error handling
-pool.query('SELECT NOW()', (err, result) => {
-  if (err) {
-    console.error('Database connection failed:', err.message);
-    // Don't exit the process, just log the error
-  } else {
-    console.log('Database connected successfully');
-  }
-});
+// Initialize server startup sequence
+async function initializeServer() {
+  console.log('🚀 Starting server initialization...');
+  
+  try {
+    // Test database connection
+    await new Promise((resolve, reject) => {
+      pool.query('SELECT NOW()', (err, result) => {
+        if (err) {
+          console.error('❌ Database connection failed:', err.message);
+          reject(err);
+        } else {
+          console.log('✅ Database connected successfully');
+          resolve(result);
+        }
+      });
+    });
 
-// Initialize schedulers
+    // Test Redis connection (optional - don't fail if Redis is down)
+    try {
+      await redisClient.ping();
+      console.log('✅ Redis connected successfully');
+    } catch (redisError) {
+      console.warn('⚠️ Redis connection failed (continuing without Redis):', redisError.message);
+    }
+
+    // Initialize schedulers
+    console.log('📅 Initializing schedulers...');
+    breakReminderScheduler.start();
+    taskNotificationScheduler.start();
+    meetingScheduler.start();
+    eventReminderScheduler.start();
+    announcementScheduler.start();
+    console.log('✅ All schedulers started');
+
+    // Mark server as ready
+    isServerReady = true;
+    const startupTime = Date.now() - startupStartTime;
+    console.log(`🎉 Server initialization complete in ${startupTime}ms`);
+    console.log('✅ Server is now ready to accept connections');
+
+  } catch (error) {
+    console.error('❌ Server initialization failed:', error);
+    process.exit(1);
+  }
+}
+
+// Initialize schedulers first
 const breakReminderScheduler = new BreakReminderScheduler();
 const taskNotificationScheduler = new TaskNotificationScheduler();
 const meetingScheduler = new MeetingScheduler();
 const eventReminderScheduler = new EventReminderScheduler();
 const announcementScheduler = new AnnouncementScheduler();
 
-console.log('Initializing break reminder scheduler...');
-breakReminderScheduler.start();
-
-console.log('Initializing task notification scheduler...');
-taskNotificationScheduler.start();
-
-console.log('Initializing meeting scheduler...');
-meetingScheduler.start();
-
-console.log('Initializing event reminder scheduler...');
-eventReminderScheduler.start();
-
-console.log('Initializing announcement scheduler...');
-announcementScheduler.start();
+// Start server initialization
+initializeServer();
 
 // Initialize global notification listener
 let globalNotificationClient = null;

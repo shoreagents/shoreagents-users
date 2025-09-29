@@ -31,9 +31,9 @@ USER nextjs
 # Expose port
 EXPOSE 3004
 
-# Health check - Railway optimized
-HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=5 \
-  CMD curl -f http://localhost:3004/status || exit 1
+# Health check - Railway optimized with longer startup time
+HEALTHCHECK --interval=30s --timeout=15s --start-period=120s --retries=10 \
+  CMD curl -f http://localhost:3004/health || exit 1
 
 # Start the application
 CMD ["node", "socket-server.js"]
