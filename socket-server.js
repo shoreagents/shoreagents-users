@@ -70,28 +70,44 @@ const io = new Server(server, {
     origin: process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_APP_URL,
     methods: ["GET", "POST"]
   },
-  // Configure ping/pong settings to handle network latency and prevent premature disconnections
-  pingTimeout: 60000, // 60 seconds (default is 20s) - time to wait for pong response
-  pingInterval: 25000, // 25 seconds (default is 25s) - interval between pings
-  upgradeTimeout: 10000, // 10 seconds for upgrade handshake
+  // Railway-optimized ping/pong settings for better stability
+  pingTimeout: 120000, // 2 minutes (increased for Railway's network latency)
+  pingInterval: 30000, // 30 seconds (increased for stability)
+  upgradeTimeout: 15000, // 15 seconds for upgrade handshake
   allowEIO3: true, // Allow Engine.IO v3 clients for better compatibility
-  transports: ['websocket', 'polling'], // Allow both transports
+  transports: ['polling', 'websocket'], // Prioritize polling for Railway stability
   // Add connection state management
   connectionStateRecovery: {
-    maxDisconnectionDuration: 2 * 60 * 1000, // 2 minutes
+    maxDisconnectionDuration: 5 * 60 * 1000, // 5 minutes (increased for Railway)
     skipMiddlewares: true
-  }
+  },
+  // Additional Railway-specific optimizations
+  serveClient: false, // Don't serve client files
+  allowEIO3: true,
+  // Increase buffer sizes for Railway
+  maxHttpBufferSize: 1e6, // 1MB
+  // Add graceful shutdown handling
+  closeOnDisconnect: false
 });
 
-// Database connection - use the same Railway database as Next.js app
+// Database connection - Railway-optimized settings
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL || 'postgresql://postgres:poEVEBPjHAzsGZwjIkBBEaRScUwhguoX@maglev.proxy.rlwy.net:41493/railway',
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  // Add connection resilience settings
-  max: 20, // Maximum number of clients in the pool
-  idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
-  connectionTimeoutMillis: 2000, // Return an error after 2 seconds if connection could not be established
-  maxUses: 7500, // Close (and replace) a connection after it has been used 7500 times
+  // Railway-optimized connection settings
+  max: 10, // Reduced for Railway stability
+  min: 2, // Minimum connections
+  idleTimeoutMillis: 60000, // 1 minute (increased for stability)
+  connectionTimeoutMillis: 10000, // 10 seconds (increased for Railway)
+  maxUses: 1000, // Reduced to prevent connection exhaustion
+  // Add keep-alive settings for Railway
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10000,
+  // Add statement timeout
+  statement_timeout: 30000,
+  query_timeout: 30000,
+  // Add application name for debugging
+  application_name: 'socket-server-railway'
 });
 
 // Add error handling for the pool
@@ -108,21 +124,27 @@ pool.on('connect', (client) => {
   });
 });
 
-// Redis client for cache invalidation
+// Redis client for cache invalidation - Railway optimized
 const redisClient = redis.createClient({
   url: process.env.REDIS_URL || 'redis://localhost:6379',
-  // Add retry settings for better resilience
+  // Railway-optimized retry settings
   socket: {
+    connectTimeout: 10000, // 10 seconds
+    lazyConnect: true, // Don't connect immediately
     reconnectStrategy: (retries) => {
-      if (retries > 10) {
+      if (retries > 20) { // Increased retries for Railway
         console.log('Redis: Max retries reached, giving up');
         return new Error('Max retries reached');
       }
-      const delay = Math.min(retries * 50, 500);
+      const delay = Math.min(retries * 100, 2000); // Increased delay
       console.log(`Redis: Retrying connection in ${delay}ms (attempt ${retries})`);
       return delay;
     }
-  }
+  },
+  // Add Redis-specific settings for Railway
+  retryDelayOnFailover: 100,
+  maxRetriesPerRequest: 3,
+  lazyConnect: true
 });
 
 redisClient.on('error', (err) => {
@@ -207,8 +229,28 @@ process.on('unhandledRejection', (reason, promise) => {
   // Don't exit the process, just log the error
 });
 
-// Connect to Redis
-redisClient.connect().catch(console.error);
+// Connect to Redis with better error handling
+redisClient.connect().catch((error) => {
+  console.error('Failed to connect to Redis:', error);
+  // Don't exit the process, continue without Redis
+});
+
+// Add Redis connection monitoring
+redisClient.on('connect', () => {
+  console.log('✅ Redis connected successfully');
+});
+
+redisClient.on('ready', () => {
+  console.log('✅ Redis ready for operations');
+});
+
+redisClient.on('reconnecting', () => {
+  console.log('🔄 Redis reconnecting...');
+});
+
+redisClient.on('end', () => {
+  console.log('❌ Redis connection ended');
+});
 
 // Test database connection with better error handling
 pool.query('SELECT NOW()', (err, result) => {
@@ -841,6 +883,65 @@ setInterval(async () => {
     console.error('Error in shift reset check interval:', error);
   }
 }, 30000); // 30 seconds
+
+// Add connection health monitoring
+setInterval(() => {
+  const now = Date.now();
+  const staleConnections = [];
+  
+  // Check for stale connections (no heartbeat for 5 minutes)
+  for (const [socketId, userData] of connectedUsers.entries()) {
+    if (userData.lastHeartbeat && (now - userData.lastHeartbeat) > 300000) { // 5 minutes
+      staleConnections.push(socketId);
+    }
+  }
+  
+  // Clean up stale connections
+  staleConnections.forEach(socketId => {
+    console.log(`🧹 Cleaning up stale connection: ${socketId}`);
+    const socket = io.sockets.sockets.get(socketId);
+    if (socket) {
+      socket.disconnect(true);
+    }
+  });
+  
+  // Log connection health
+  if (connectedUsers.size > 0) {
+    console.log(`📊 Connection Health: ${connectedUsers.size} active, ${staleConnections.length} stale`);
+  }
+}, 60000); // Check every minute
+
+// Add graceful shutdown handling for Railway
+process.on('SIGTERM', () => {
+  console.log('🛑 SIGTERM received, shutting down gracefully...');
+  
+  // Notify all clients about shutdown
+  io.emit('server-shutdown', { message: 'Server is shutting down, please reconnect' });
+  
+  // Close all connections
+  io.close(() => {
+    console.log('✅ All socket connections closed');
+    
+    // Close database pool
+    pool.end(() => {
+      console.log('✅ Database pool closed');
+      
+      // Close Redis connection
+      redisClient.quit().then(() => {
+        console.log('✅ Redis connection closed');
+        process.exit(0);
+      }).catch(() => {
+        console.log('✅ Redis connection closed (with error)');
+        process.exit(0);
+      });
+    });
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('🛑 SIGINT received, shutting down gracefully...');
+  process.emit('SIGTERM');
+});
 
 // In-memory storage for testing (since PostgreSQL is not running)
 const connectedUsers = new Map();
@@ -1796,7 +1897,7 @@ io.on('connection', (socket) => {
     socket.emit('pong');
   });
   
-  // Handle connection errors
+  // Handle connection errors with better Railway-specific handling
   socket.on('error', (error) => {
     console.error(`Socket ${socket.id} error:`, error.message);
     connectionMetrics.errors++;
@@ -1818,6 +1919,23 @@ io.on('connection', (socket) => {
         circuitBreaker.lastReset = Date.now();
         console.log('🔄 Circuit breaker CLOSED - attempting recovery');
       }, circuitBreaker.timeout);
+    }
+    
+    // For Railway, don't disconnect on individual socket errors
+    // Let the client handle reconnection
+  });
+
+  // Add Railway-specific connection monitoring
+  socket.on('disconnect', (reason) => {
+    console.log(`🔌 Socket ${socket.id} disconnected: ${reason}`);
+    
+    // Log specific Railway-related disconnection reasons
+    if (reason === 'transport close') {
+      console.log('🚨 Transport close detected - possible Railway network issue');
+    } else if (reason === 'ping timeout') {
+      console.log('🚨 Ping timeout detected - possible Railway latency issue');
+    } else if (reason === 'server namespace disconnect') {
+      console.log('🚨 Server namespace disconnect - possible Railway restart');
     }
   });
 
