@@ -14,6 +14,7 @@ import {
   Clock,
   Toilet,
 } from "lucide-react"
+import { NewTicketDialog } from "@/components/new-ticket-dialog"
 import { useActivityStatus } from "@/hooks/use-activity-status"
 import { useMeeting } from "@/contexts/meeting-context"
 import { useEventsContext } from "@/contexts/events-context"
@@ -44,6 +45,7 @@ export const AppSidebar = React.memo(function AppSidebar({ ...props }: React.Com
   const { isGoingToClinic, isInClinic } = useHealth()
   const { isInRestroom, restroomCount } = useRestroom()
   const [notStartedTaskCount, setNotStartedTaskCount] = React.useState(0)
+  const [isNewTicketDialogOpen, setIsNewTicketDialogOpen] = React.useState(false)
 
   // Activity status indicator component
   const ActivityStatusIndicator = () => (
@@ -224,7 +226,8 @@ export const AppSidebar = React.memo(function AppSidebar({ ...props }: React.Com
         items: [
           {
             title: "New Ticket",
-            url: "/forms/new",
+            url: "#",
+            onClick: () => setIsNewTicketDialogOpen(true),
           },
           {
             title: "My Tickets",
@@ -318,8 +321,9 @@ export const AppSidebar = React.memo(function AppSidebar({ ...props }: React.Com
     quickActions: [
       {
         name: "New Ticket",
-        url: "/forms/new",
+        url: "#",
         icon: Plus,
+        onClick: () => setIsNewTicketDialogOpen(true),
       },
       {
         name: "Breaks",
@@ -340,31 +344,39 @@ export const AppSidebar = React.memo(function AppSidebar({ ...props }: React.Com
   }
 
   return (
-    <Sidebar collapsible="icon" {...props} data-sidebar>
-      <SidebarHeader>
-        <TeamSwitcher teams={data.teams} />
-      </SidebarHeader>
-      <SidebarContent>
-        <ScrollArea className="flex-1 px-2">
-          <div className="space-y-2">
-            <NavMain items={data.navMain} />
-            
-            {/* Leaderboard Section - Only show when not collapsed */}
-            {state === "expanded" && (
-              <div className="px-1 py-2">
-                <Leaderboard />
-              </div>
-            )}
+    <>
+      <Sidebar collapsible="icon" {...props} data-sidebar>
+        <SidebarHeader>
+          <TeamSwitcher teams={data.teams} />
+        </SidebarHeader>
+        <SidebarContent>
+          <ScrollArea className="flex-1 px-2">
+            <div className="space-y-2">
+              <NavMain items={data.navMain} />
+              
+              {/* Leaderboard Section - Only show when not collapsed */}
+              {state === "expanded" && (
+                <div className="px-1 py-2">
+                  <Leaderboard />
+                </div>
+              )}
+            </div>
+          </ScrollArea>
+        </SidebarContent>
+        <SidebarFooter>
+          <div className="px-2 pb-2" data-quick-actions>
+            <NavProjects projects={data.quickActions} />
           </div>
-        </ScrollArea>
-      </SidebarContent>
-      <SidebarFooter>
-        <div className="px-2 pb-2" data-quick-actions>
-          <NavProjects projects={data.quickActions} />
-        </div>
-      </SidebarFooter>
-      <SidebarRail />
-    </Sidebar>
+        </SidebarFooter>
+        <SidebarRail />
+      </Sidebar>
+      
+      {/* New Ticket Dialog */}
+      <NewTicketDialog 
+        open={isNewTicketDialogOpen} 
+        onOpenChange={setIsNewTicketDialogOpen} 
+      />
+    </>
   )
 })
 

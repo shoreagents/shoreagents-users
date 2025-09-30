@@ -19,6 +19,7 @@ import { ArrowLeft, Search, Filter, FileText, Calendar, User, Mail, Tag, Eye, Cl
 import Link from "next/link"
 import { Ticket, getCurrentUser } from "@/lib/ticket-utils"
 import { useTickets, type Ticket as ReactQueryTicket } from "@/hooks/use-tickets"
+import { NewTicketDialog } from "@/components/new-ticket-dialog"
 
 export default function MyTicketsPage() {
   const [searchTerm, setSearchTerm] = useState("")
@@ -28,6 +29,7 @@ export default function MyTicketsPage() {
   const [currentPage, setCurrentPage] = useState(1)
   const [showFilters, setShowFilters] = useState(false)
   const [isUpdating, setIsUpdating] = useState(false)
+  const [isNewTicketDialogOpen, setIsNewTicketDialogOpen] = useState(false)
   const ticketsPerPage = 5
 
   // Use React Query to fetch tickets
@@ -485,12 +487,10 @@ export default function MyTicketsPage() {
                   </p>
                 )}
               </div>
-              <Link href="/forms/new">
-                <Button>
-                  <FileText className="mr-2 h-4 w-4" />
-                  Create New Ticket
-                </Button>
-              </Link>
+              <Button onClick={() => setIsNewTicketDialogOpen(true)}>
+                <FileText className="mr-2 h-4 w-4" />
+                Create New Ticket
+              </Button>
             </div>
 
             {filteredTickets.length === 0 ? (
@@ -504,11 +504,9 @@ export default function MyTicketsPage() {
                       : "No tickets match your current filters."
                     }
                   </p>
-                  <Link href="/forms/new">
-                    <Button>
-                      Create Your First Ticket
-                    </Button>
-                  </Link>
+                  <Button onClick={() => setIsNewTicketDialogOpen(true)}>
+                    Create Your First Ticket
+                  </Button>
                 </CardContent>
               </Card>
             ) : (
@@ -596,6 +594,12 @@ export default function MyTicketsPage() {
           </div>
         </div>
       </SidebarInset>
+      
+      {/* New Ticket Dialog */}
+      <NewTicketDialog 
+        open={isNewTicketDialogOpen} 
+        onOpenChange={setIsNewTicketDialogOpen} 
+      />
     </SidebarProvider>
   )
 } 

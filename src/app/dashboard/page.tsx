@@ -28,6 +28,7 @@ import {
   ExternalLink
 } from "lucide-react"
 import Link from "next/link"
+import { NewTicketDialog } from "@/components/new-ticket-dialog"
 import {
   AreaChart,
   Area,
@@ -46,6 +47,7 @@ import {
 export default function DashboardPage() {
   // Track user activity to prevent away status
   useActivityTracker()
+  const [isNewTicketDialogOpen, setIsNewTicketDialogOpen] = useState(false)
 
   // State for time period selection
   const [selectedPeriod, setSelectedPeriod] = useState<'7D' | '30D'>('7D')
@@ -252,12 +254,10 @@ export default function DashboardPage() {
                   Task Board
                 </Button>
               </Link>
-              <Link href="/forms/new">
-                <Button>
-                  <Plus className="mr-2 h-4 w-4" />
-                  New Ticket
-                </Button>
-              </Link>
+              <Button onClick={() => setIsNewTicketDialogOpen(true)}>
+                <Plus className="mr-2 h-4 w-4" />
+                New Ticket
+              </Button>
             </div>
           </div>
           {/* KPI Cards */}
@@ -612,6 +612,12 @@ export default function DashboardPage() {
           </Card>
         </div>
       </SidebarInset>
+      
+      {/* New Ticket Dialog */}
+      <NewTicketDialog 
+        open={isNewTicketDialogOpen} 
+        onOpenChange={setIsNewTicketDialogOpen} 
+      />
     </SidebarProvider>
   )
 }

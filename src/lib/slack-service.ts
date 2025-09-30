@@ -35,14 +35,6 @@ class SlackService {
       username: process.env.SLACK_BOT_NAME || 'ShoreAgents Support Bot',
       iconEmoji: process.env.SLACK_BOT_ICON || ':ticket:'
     }
-    
-    // Debug logging
-    console.log('Slack Service Config:', {
-      webhookUrl: this.config.webhookUrl ? `${this.config.webhookUrl.substring(0, 30)}...` : 'NOT SET',
-      channel: this.config.channel,
-      username: this.config.username,
-      iconEmoji: this.config.iconEmoji
-    })
   }
 
   /**
@@ -106,9 +98,6 @@ class SlackService {
       return false
     }
 
-    console.log('Sending Slack message to URL:', this.config.webhookUrl)
-    console.log('Message payload:', JSON.stringify(message, null, 2))
-
     try {
       const response = await fetch(this.config.webhookUrl, {
         method: 'POST',
@@ -125,12 +114,7 @@ class SlackService {
 
       if (!response.ok) {
         const errorText = await response.text()
-        console.error('Slack API Error Details:', {
-          status: response.status,
-          statusText: response.statusText,
-          errorBody: errorText,
-          url: this.config.webhookUrl
-        })
+        console.error('Slack API Error Details:')
         throw new Error(`Slack API error: ${response.status} ${response.statusText} - ${errorText}`)
       }
 
@@ -146,17 +130,15 @@ class SlackService {
    */
   private formatNewTicketMessage(ticket: TicketData): SlackMessage {
     const ticketUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/forms/${ticket.id}`
-    const priority = this.getPriorityFromCategory(ticket.category)
-    const priorityColor = this.getPriorityColor(priority)
 
     return {
-      text: `🎫 New Support Ticket: ${ticket.ticket_id}`,
+      text: `New Support Ticket: ${ticket.ticket_id}`,
       blocks: [
         {
           type: 'header',
           text: {
             type: 'plain_text',
-            text: `🎫 New Support Ticket: ${ticket.ticket_id}`
+            text: `New Support Ticket: ${ticket.ticket_id}`
           }
         },
         {
@@ -164,19 +146,11 @@ class SlackService {
           fields: [
             {
               type: 'mrkdwn',
-              text: `*Ticket ID:*\n${ticket.ticket_id}`
-            },
-            {
-              type: 'mrkdwn',
               text: `*Status:*\n${ticket.status}`
             },
             {
               type: 'mrkdwn',
               text: `*Category:*\n${ticket.category}`
-            },
-            {
-              type: 'mrkdwn',
-              text: `*Priority:*\n${priority}`
             },
             {
               type: 'mrkdwn',
@@ -248,7 +222,6 @@ class SlackService {
   private formatStatusUpdateMessage(ticket: TicketData, oldStatus: string): SlackMessage {
     const ticketUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/forms/${ticket.id}`
     const statusEmoji = this.getStatusEmoji(ticket.status)
-    const statusColor = this.getStatusColor(ticket.status)
 
     return {
       text: `${statusEmoji} Ticket ${ticket.ticket_id} status updated: ${oldStatus} → ${ticket.status}`,
@@ -318,8 +291,6 @@ class SlackService {
    */
   private formatUpdatedTicketMessage(ticket: TicketData): SlackMessage {
     const ticketUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/forms/${ticket.id}`
-    const priority = this.getPriorityFromCategory(ticket.category)
-    const priorityColor = this.getPriorityColor(priority)
     
     // Format file list with clickable links
     const fileList = ticket.supporting_files && ticket.supporting_files.length > 0 
@@ -331,13 +302,13 @@ class SlackService {
       : 'No files attached'
 
     return {
-      text: `🎫 Support Ticket Updated: ${ticket.ticket_id}`,
+      text: `Support Ticket Updated: ${ticket.ticket_id}`,
       blocks: [
         {
           type: 'header',
           text: {
             type: 'plain_text',
-            text: `🎫 Support Ticket Updated: ${ticket.ticket_id}`
+            text: `Support Ticket Updated: ${ticket.ticket_id}`
           }
         },
         {
@@ -345,19 +316,11 @@ class SlackService {
           fields: [
             {
               type: 'mrkdwn',
-              text: `*Ticket ID:*\n${ticket.ticket_id}`
-            },
-            {
-              type: 'mrkdwn',
               text: `*Status:*\n${ticket.status}`
             },
             {
               type: 'mrkdwn',
               text: `*Category:*\n${ticket.category}`
-            },
-            {
-              type: 'mrkdwn',
-              text: `*Priority:*\n${priority}`
             },
             {
               type: 'mrkdwn',
@@ -436,13 +399,13 @@ class SlackService {
     }).join('\n')
 
     return {
-      text: `📎 Files uploaded to ticket ${ticket.ticket_id}`,
+      text: `Files uploaded to ticket ${ticket.ticket_id}`,
       blocks: [
         {
           type: 'header',
           text: {
             type: 'plain_text',
-            text: `📎 Files Uploaded to Ticket ${ticket.ticket_id}`
+            text: `Files Uploaded to Ticket ${ticket.ticket_id}`
           }
         },
         {
@@ -513,35 +476,6 @@ class SlackService {
     }
   }
 
-  /**
-   * Get priority level based on category
-   */
-  private getPriorityFromCategory(category: string): string {
-    const highPriorityCategories = ['urgent', 'critical', 'system down', 'security']
-    const mediumPriorityCategories = ['technical', 'bug', 'feature request']
-    
-    const categoryLower = category.toLowerCase()
-    
-    if (highPriorityCategories.some(term => categoryLower.includes(term))) {
-      return 'High'
-    } else if (mediumPriorityCategories.some(term => categoryLower.includes(term))) {
-      return 'Medium'
-    }
-    
-    return 'Normal'
-  }
-
-  /**
-   * Get color for priority level
-   */
-  private getPriorityColor(priority: string): string {
-    switch (priority.toLowerCase()) {
-      case 'high': return '#ff6b6b'
-      case 'medium': return '#ffa726'
-      case 'normal': return '#66bb6a'
-      default: return '#9e9e9e'
-    }
-  }
 
   /**
    * Get emoji for status
@@ -555,21 +489,6 @@ class SlackService {
       case 'completed': return '🎉'
       case 'resolved': return '✅'
       default: return '📋'
-    }
-  }
-
-  /**
-   * Get color for status
-   */
-  private getStatusColor(status: string): string {
-    switch (status.toLowerCase()) {
-      case 'for approval': return '#ffa726'
-      case 'on hold': return '#ff6b6b'
-      case 'in progress': return '#42a5f5'
-      case 'approved': return '#66bb6a'
-      case 'completed': return '#66bb6a'
-      case 'resolved': return '#66bb6a'
-      default: return '#9e9e9e'
     }
   }
 }

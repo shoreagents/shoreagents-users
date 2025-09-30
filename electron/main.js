@@ -13,9 +13,7 @@ if (process.platform === 'win32') {
 // Optional sound library (not required at runtime if unavailable)
 let soundPlay = null;
 try {
-  console.log('Attempting to load sound-play library...');
   soundPlay = require('sound-play');
-  console.log('sound-play library loaded successfully');
 } catch (error) {
   console.error('Failed to load sound-play library:', error);
   soundPlay = null;

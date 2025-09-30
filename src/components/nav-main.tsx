@@ -38,11 +38,13 @@ export function NavMain({
     icon?: LucideIcon
     isActive?: boolean
     statusIndicator?: React.ReactNode
+    onClick?: () => void
     items?: {
       title: string
       url: string
       statusIndicator?: React.ReactNode
       badge?: string
+      onClick?: () => void
     }[]
   }[]
 }) {
@@ -141,26 +143,49 @@ export function NavMain({
                       const isSubItemActive = pathname === subItem.url
                       return (
                         <DropdownMenuItem key={subItem.title} asChild>
-                          <Link 
-                            href={subItem.url}
-                            className={`flex items-center justify-between w-full ${
-                              isSubItemActive ? "bg-primary/10 text-primary" : ""
-                            }`}
-                          >
-                            <span>{subItem.title}</span>
-                            <div className="flex items-center gap-2">
-                              {subItem.statusIndicator && (
-                                <span>
-                                  {subItem.statusIndicator}
-                                </span>
-                              )}
-                              {subItem.badge && (
-                                <Badge className="bg-red-500 text-white text-[10px] px-1 py-0.5 rounded-full min-w-[16px] h-4 flex items-center justify-center">
-                                  {subItem.badge}
-                                </Badge>
-                              )}
-                            </div>
-                          </Link>
+                          {subItem.onClick ? (
+                            <button
+                              onClick={subItem.onClick}
+                              className={`flex items-center justify-between w-full px-2 py-1.5 text-sm cursor-pointer ${
+                                isSubItemActive ? "bg-primary/10 text-primary" : ""
+                              }`}
+                            >
+                              <span>{subItem.title}</span>
+                              <div className="flex items-center gap-2">
+                                {subItem.statusIndicator && (
+                                  <span>
+                                    {subItem.statusIndicator}
+                                  </span>
+                                )}
+                                {subItem.badge && (
+                                  <Badge className="bg-red-500 text-white text-[10px] px-1 py-0.5 rounded-full min-w-[16px] h-4 flex items-center justify-center">
+                                    {subItem.badge}
+                                  </Badge>
+                                )}
+                              </div>
+                            </button>
+                          ) : (
+                            <Link 
+                              href={subItem.url}
+                              className={`flex items-center justify-between w-full ${
+                                isSubItemActive ? "bg-primary/10 text-primary" : ""
+                              }`}
+                            >
+                              <span>{subItem.title}</span>
+                              <div className="flex items-center gap-2">
+                                {subItem.statusIndicator && (
+                                  <span>
+                                    {subItem.statusIndicator}
+                                  </span>
+                                )}
+                                {subItem.badge && (
+                                  <Badge className="bg-red-500 text-white text-[10px] px-1 py-0.5 rounded-full min-w-[16px] h-4 flex items-center justify-center">
+                                    {subItem.badge}
+                                  </Badge>
+                                )}
+                              </div>
+                            </Link>
+                          )}
                         </DropdownMenuItem>
                       )
                     })}
@@ -190,12 +215,12 @@ export function NavMain({
                         const isSubItemActive = pathname === subItem.url
                         return (
                           <SidebarMenuSubItem key={subItem.title}>
-                            <SidebarMenuSubButton 
-                              asChild 
-                              isActive={isSubItemActive}
-                              className={isSubItemActive ? "bg-primary/15 text-primary font-medium border-l-2 border-primary ml-2" : ""}
-                            >
-                              <Link href={subItem.url}>
+                            {subItem.onClick ? (
+                              <SidebarMenuSubButton 
+                                onClick={subItem.onClick}
+                                isActive={isSubItemActive}
+                                className={`cursor-pointer ${isSubItemActive ? "bg-primary/15 text-primary font-medium border-l-2 border-primary ml-2" : ""}`}
+                              >
                                 <span>{subItem.title}</span>
                                 <div className="ml-auto flex items-center gap-2">
                                   {subItem.statusIndicator && (
@@ -209,8 +234,30 @@ export function NavMain({
                                     </Badge>
                                   )}
                                 </div>
-                              </Link>
-                            </SidebarMenuSubButton>
+                              </SidebarMenuSubButton>
+                            ) : (
+                              <SidebarMenuSubButton 
+                                asChild 
+                                isActive={isSubItemActive}
+                                className={isSubItemActive ? "bg-primary/15 text-primary font-medium border-l-2 border-primary ml-2" : ""}
+                              >
+                                <Link href={subItem.url}>
+                                  <span>{subItem.title}</span>
+                                  <div className="ml-auto flex items-center gap-2">
+                                    {subItem.statusIndicator && (
+                                      <span className="mr-2">
+                                        {subItem.statusIndicator}
+                                      </span>
+                                    )}
+                                    {subItem.badge && (
+                                      <Badge className="bg-red-500 text-white text-[10px] px-1 py-0.5 rounded-full min-w-[16px] h-4 flex items-center justify-center">
+                                        {subItem.badge}
+                                      </Badge>
+                                    )}
+                                  </div>
+                                </Link>
+                              </SidebarMenuSubButton>
+                            )}
                           </SidebarMenuSubItem>
                         )
                       })}

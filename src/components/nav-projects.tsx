@@ -28,6 +28,7 @@ export function NavProjects({
     name: string
     url: string
     icon: LucideIcon
+    onClick?: () => void
   }[]
 }) {
   const { isMobile, state } = useSidebar()
@@ -58,27 +59,47 @@ export function NavProjects({
                       Quick Action
                     </div>
                     <DropdownMenuItem asChild>
-                      <Link 
-                        href={item.url}
-                        className="flex items-center justify-between w-full"
-                      >
-                        <span>{item.name}</span>
-                      </Link>
+                      {item.onClick ? (
+                        <button
+                          onClick={item.onClick}
+                          className="flex items-center justify-between w-full px-2 py-1.5 text-sm cursor-pointer"
+                        >
+                          <span>{item.name}</span>
+                        </button>
+                      ) : (
+                        <Link 
+                          href={item.url}
+                          className="flex items-center justify-between w-full"
+                        >
+                          <span>{item.name}</span>
+                        </Link>
+                      )}
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               ) : (
                 // When expanded, show normal button with text
-                <SidebarMenuButton 
-                  asChild 
-                  isActive={isActive}
-                  className={isActive ? "bg-primary/10 text-primary border-l-2 border-primary" : ""}
-                >
-                  <Link href={item.url}>
+                item.onClick ? (
+                  <SidebarMenuButton 
+                    onClick={item.onClick}
+                    isActive={isActive}
+                    className={`cursor-pointer ${isActive ? "bg-primary/10 text-primary border-l-2 border-primary" : ""}`}
+                  >
                     <item.icon />
                     <span>{item.name}</span>
-                  </Link>
-                </SidebarMenuButton>
+                  </SidebarMenuButton>
+                ) : (
+                  <SidebarMenuButton 
+                    asChild 
+                    isActive={isActive}
+                    className={isActive ? "bg-primary/10 text-primary border-l-2 border-primary" : ""}
+                  >
+                    <Link href={item.url}>
+                      <item.icon />
+                      <span>{item.name}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                )
               )}
             </SidebarMenuItem>
           )

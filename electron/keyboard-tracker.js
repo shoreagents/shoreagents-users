@@ -30,11 +30,9 @@ class KeyboardTracker {
   startTracking() {
     // Always start tracking when the app starts
     if (this.isTracking) {
-      console.log('Keyboard tracking is already active');
       return;
     }
 
-    console.log('Starting keyboard tracking...');
     this.isTracking = true;
     this.keyPressHistory = [];
 
@@ -69,7 +67,6 @@ class KeyboardTracker {
       // Start the listener with error handling
       try {
         uIOhook.start();
-        console.log('Global keyboard listener started successfully');
         this.keyListener = true; // Mark as active
       } catch (startError) {
         console.error('Failed to start global keyboard listener:', startError);

@@ -226,6 +226,41 @@ process.on('unhandledRejection', (reason, promise) => {
 // Connect to Redis
 redisClient.connect().catch(console.error);
 
+// Helper function to check if pool is available
+function isPoolAvailable() {
+  return pool && !pool.ended;
+}
+
+// Helper function to find and emit to user sockets
+function emitToUserSockets(userId, targetEmail, eventName, payload) {
+  // First try to get sockets from userConnections map
+  let userSockets = userConnections.get(targetEmail);
+  
+  // If not found in userConnections, try to find all sockets for this user in connectedUsers
+  if (!userSockets || userSockets.size === 0) {
+    console.log(`User ${targetEmail} not found in userConnections, searching connectedUsers directly`);
+    const directSockets = [];
+    for (const [socketId, userData] of connectedUsers.entries()) {
+      if (userData.email === targetEmail) {
+        directSockets.push(socketId);
+      }
+    }
+    if (directSockets.length > 0) {
+      console.log(`Found ${directSockets.length} direct connections for user ${targetEmail}`);
+      directSockets.forEach(socketId => {
+        io.to(socketId).emit(eventName, payload);
+      });
+    } else {
+      console.log(`No active connections found for user ${userId} (${targetEmail})`);
+    }
+  } else {
+    console.log(`Broadcasting ${eventName} to ${userSockets.size} connections for user ${userId} (${targetEmail})`);
+    userSockets.forEach(socketId => {
+      io.to(socketId).emit(eventName, payload);
+    });
+  }
+}
+
 // Test database connection with better error handling
 pool.query('SELECT NOW()', (err, result) => {
   if (err) {
@@ -295,10 +330,12 @@ async function initializeGlobalNotificationListener() {
             
             // Find the user's email by looking through all connected users
             let targetEmail = null;
+            let foundUserData = null;
             for (const [socketId, userData] of connectedUsers.entries()) {
-              console.log(`Checking socket ${socketId}: userId=${userData.userId}, email=${userData.email}, payload.user_id=${payload.user_id}, match=${userData.userId === payload.user_id}`);
-              if (userData.userId === payload.user_id) {
+              console.log(`Checking socket ${socketId}: userId=${userData.userId}, email=${userData.email}, payload.user_id=${payload.user_id}, match=${String(userData.userId) === String(payload.user_id)}`);
+              if (String(userData.userId) === String(payload.user_id)) {
                 targetEmail = userData.email;
+                foundUserData = userData;
                 console.log(`Found matching user: ${targetEmail}`);
                 break;
               }
@@ -340,17 +377,7 @@ async function initializeGlobalNotificationListener() {
             }
             
             if (targetEmail) {
-              const userSockets = userConnections.get(targetEmail);
-              if (userSockets && userSockets.size > 0) {
-                console.log(`Broadcasting notification to ${userSockets.size} connections for user ${payload.user_id} (${targetEmail})`);
-                userSockets.forEach(socketId => {
-                  io.to(socketId).emit('db-notification', payload);
-                });
-              } else {
-                console.log(`No active connections found for user ${payload.user_id} (${targetEmail})`);
-              }
-            } else {
-              console.log(`User ${payload.user_id} not found in connected users or database`);
+              emitToUserSockets(payload.user_id, targetEmail, 'db-notification', payload);
             }
           }
         } else if (msg.channel === 'ticket_comments') {
@@ -376,21 +403,15 @@ async function initializeGlobalNotificationListener() {
               
               for (const userId of userIdsToNotify) {
                 let targetEmail = null;
-                for (const [socketId, userData] of connectedUsers.entries()) {
-                  if (userData.userId === userId) {
-                    targetEmail = userData.email;
-                    break;
-                  }
-                }
+            for (const [socketId, userData] of connectedUsers.entries()) {
+              if (String(userData.userId) === String(userId)) {
+                targetEmail = userData.email;
+                break;
+              }
+            }
                 
                 if (targetEmail) {
-                  const userSockets = userConnections.get(targetEmail);
-                  if (userSockets && userSockets.size > 0) {
-                    console.log(`Emitting ticket-comment to user ${userId} (${targetEmail})`);
-                    userSockets.forEach(socketId => {
-                      io.to(socketId).emit('ticket-comment', payload);
-                    });
-                  }
+                  emitToUserSockets(userId, targetEmail, 'ticket-comment', payload);
                 }
               }
             }
@@ -407,7 +428,7 @@ async function initializeGlobalNotificationListener() {
           // Fallback to looking up by user_id if email not provided
           if (!targetEmail) {
             for (const [socketId, userData] of connectedUsers.entries()) {
-              if (userData.userId === payload.user_id) {
+              if (String(userData.userId) === String(payload.user_id)) {
                 targetEmail = userData.email;
                 break;
               }
@@ -415,13 +436,7 @@ async function initializeGlobalNotificationListener() {
           }
           
           if (targetEmail) {
-            const userSockets = userConnections.get(targetEmail);
-            if (userSockets && userSockets.size > 0) {
-              console.log(`Broadcasting health check event to ${userSockets.size} connections for user ${payload.user_id} (${targetEmail})`);
-              userSockets.forEach(socketId => {
-                io.to(socketId).emit('health_check_event', payload);
-              });
-            } 
+            emitToUserSockets(payload.user_id, targetEmail, 'health_check_event', payload);
           } 
         } else if (msg.channel === 'weekly_activity_change') {
           const payload = JSON.parse(msg.payload);
@@ -432,7 +447,7 @@ async function initializeGlobalNotificationListener() {
             
             // Find the user by database ID in the connected users
             for (const [socketId, userData] of connectedUsers.entries()) {
-              if (userData.userId === payload.user_id) {
+              if (String(userData.userId) === String(payload.user_id)) {
                 targetEmail = userData.email;
                 console.log(`Found user ${payload.user_id} with email ${targetEmail}`);
                 break;
@@ -440,14 +455,7 @@ async function initializeGlobalNotificationListener() {
             }
             
             if (targetEmail) {
-              const userSockets = userConnections.get(targetEmail);
-              if (userSockets && userSockets.size > 0) {
-                userSockets.forEach(socketId => {
-                  io.to(socketId).emit('weekly-activity-update', payload);
-                });
-              } else {
-                console.log(`No active connections found for user ${payload.user_id} (${targetEmail})`);
-              }
+              emitToUserSockets(payload.user_id, targetEmail, 'weekly-activity-update', payload);
             } 
           }
         } else if (msg.channel === 'activity_data_change') {
@@ -457,23 +465,14 @@ async function initializeGlobalNotificationListener() {
           if (payload.user_id) {
             let targetEmail = null;
             for (const [socketId, userData] of connectedUsers.entries()) {
-              if (userData.userId === payload.user_id) {
+              if (String(userData.userId) === String(payload.user_id)) {
                 targetEmail = userData.email;
                 break;
               }
             }
             
             if (targetEmail) {
-              const userSockets = userConnections.get(targetEmail);
-              if (userSockets && userSockets.size > 0) {
-                userSockets.forEach(socketId => {
-                  io.to(socketId).emit('activity-data-updated', payload);
-                });
-              } else {
-                console.log(`No active connections found for user ${payload.user_id} (${targetEmail})`);
-              }
-            } else {
-              console.log(`User ${payload.user_id} not found in connected users`);
+              emitToUserSockets(payload.user_id, targetEmail, 'activity-data-updated', payload);
             }
           }
         } else if (msg.channel === 'monthly_activity_change') {
@@ -485,7 +484,7 @@ async function initializeGlobalNotificationListener() {
             
             // Find the user by database ID in the connected users
             for (const [socketId, userData] of connectedUsers.entries()) {
-              if (userData.userId === payload.user_id) {
+              if (String(userData.userId) === String(payload.user_id)) {
                 targetEmail = userData.email;
                 console.log(`Found user ${payload.user_id} with email ${targetEmail}`);
                 break;
@@ -493,16 +492,7 @@ async function initializeGlobalNotificationListener() {
             }
             
             if (targetEmail) {
-              const userSockets = userConnections.get(targetEmail);
-              if (userSockets && userSockets.size > 0) {
-                userSockets.forEach(socketId => {
-                  io.to(socketId).emit('monthly-activity-update', payload);
-                });
-              } else {
-                console.log(`No active connections found for user ${payload.user_id} (${targetEmail})`);
-              }
-            } else {
-              console.log(`User ${payload.user_id} not found in connected users`);
+              emitToUserSockets(payload.user_id, targetEmail, 'monthly-activity-update', payload);
             }
           }
         } else if (msg.channel === 'meeting_status_change' || msg.channel === 'meeting-update') {
@@ -515,7 +505,7 @@ async function initializeGlobalNotificationListener() {
             
             // Find the user by database ID in the connected users
             for (const [socketId, userData] of connectedUsers.entries()) {
-              if (userData.userId === payload.agent_user_id) {
+              if (String(userData.userId) === String(payload.agent_user_id)) {
                 targetEmail = userData.email;
                 console.log(`Found user ${payload.agent_user_id} with email ${targetEmail}`);
                 break;
@@ -536,52 +526,42 @@ async function initializeGlobalNotificationListener() {
                 console.error('Error invalidating cache:', cacheError.message);
               }
 
-              const userSockets = userConnections.get(targetEmail);
-              if (userSockets && userSockets.size > 0) {
-                console.log(`Broadcasting meeting status update to ${userSockets.size} connections for user ${payload.agent_user_id} (${targetEmail})`);
-                
-                // Determine the event type based on the operation
-                let eventType = 'meeting-update';
-                if (payload.operation === 'meeting_ended') {
-                  eventType = 'meeting_ended';
-                } else if (payload.is_in_meeting === true) {
-                  eventType = 'meeting_started';
-                }
-                
-                userSockets.forEach(socketId => {
-                  io.to(socketId).emit(eventType, {
-                    email: targetEmail,
-                    type: eventType,
-                    meeting: {
-                      id: payload.meeting_id,
-                      title: payload.title,
-                      status: payload.status,
-                      is_in_meeting: payload.is_in_meeting,
-                      start_time: payload.start_time,
-                      end_time: payload.end_time
-                    },
-                    timestamp: payload.timestamp
-                  });
-                  console.log(`Emitted ${eventType} to socket ${socketId}`);
-                });
-
-                // Also broadcast agent status update for meeting status changes
-                if (payload.is_in_meeting !== undefined) {
-                  userSockets.forEach(socketId => {
-                    io.to(socketId).emit('agent-status-update', {
-                      email: targetEmail,
-                      isInMeeting: payload.is_in_meeting,
-                      meetingId: payload.meeting_id,
-                      timestamp: payload.timestamp
-                    });
-                    console.log(`Emitted agent-status-update to socket ${socketId}: isInMeeting=${payload.is_in_meeting}`);
-                  });
-                }
-              } else {
-                console.log(`No active connections found for user ${payload.agent_user_id} (${targetEmail})`);
+              // Determine the event type based on the operation
+              let eventType = 'meeting-update';
+              if (payload.operation === 'meeting_ended') {
+                eventType = 'meeting_ended';
+              } else if (payload.is_in_meeting === true) {
+                eventType = 'meeting_started';
               }
-            } else {
-              console.log(`User ${payload.agent_user_id} not found in connected users`);
+              
+              // Create the meeting event payload
+              const meetingEventPayload = {
+                email: targetEmail,
+                type: eventType,
+                meeting: {
+                  id: payload.meeting_id,
+                  title: payload.title,
+                  status: payload.status,
+                  is_in_meeting: payload.is_in_meeting,
+                  start_time: payload.start_time,
+                  end_time: payload.end_time
+                },
+                timestamp: payload.timestamp
+              };
+              
+              // Emit the meeting event
+              emitToUserSockets(payload.agent_user_id, targetEmail, eventType, meetingEventPayload);
+              
+              // Also broadcast agent status update for meeting status changes
+              if (payload.is_in_meeting !== undefined) {
+                const agentStatusPayload = {
+                  email: targetEmail,
+                  isInMeeting: payload.is_in_meeting,
+                  meetingId: payload.meeting_id,
+                  timestamp: payload.timestamp
+                };
+                emitToUserSockets(payload.agent_user_id, targetEmail, 'agent-status-update', agentStatusPayload);
+              }
             }
           }
         } else if (msg.channel === 'event_changes') {
@@ -629,34 +609,26 @@ async function initializeGlobalNotificationListener() {
           // Find the user's email by looking through all connected users
           let targetEmail = null;
           for (const [socketId, userData] of connectedUsers.entries()) {
-            if (userData.userId === payload.user_id) {
+            if (String(userData.userId) === String(payload.user_id)) {
               targetEmail = userData.email;
               break;
             }
           }
           
           if (targetEmail) {
-            const userSockets = userConnections.get(targetEmail);
-            if (userSockets && userSockets.size > 0) {
-              userSockets.forEach(socketId => {
-                io.to(socketId).emit('event-attendance-change', {
-                  type: payload.type,
-                  eventId: payload.event_id,
-                  userId: payload.user_id,
-                  isGoing: payload.is_going,
-                  isBack: payload.is_back,
-                  goingAt: payload.going_at,
-                  backAt: payload.back_at,
-                  eventData: payload.event_data,
-                  userData: payload.user_data,
-                  timestamp: new Date().toISOString()
-                });
-              });
-            } else {
-              console.log(`No active connections found for user ${payload.user_id} (${targetEmail})`);
-            }
-          } else {
-            console.log(`User ${payload.user_id} not found in connected users`);
+            const eventAttendancePayload = {
+              type: payload.type,
+              eventId: payload.event_id,
+              userId: payload.user_id,
+              isGoing: payload.is_going,
+              isBack: payload.is_back,
+              goingAt: payload.going_at,
+              backAt: payload.back_at,
+              eventData: payload.event_data,
+              userData: payload.user_data,
+              timestamp: new Date().toISOString()
+            };
+            emitToUserSockets(payload.user_id, targetEmail, 'event-attendance-change', eventAttendancePayload);
           }
           
           // Also broadcast to all users since event attendance affects event visibility
@@ -681,65 +653,40 @@ async function initializeGlobalNotificationListener() {
             // Send to specific user
             let targetEmail = null;
             for (const [socketId, userData] of connectedUsers.entries()) {
-              if (userData.userId === payload.user_id) {
+              if (String(userData.userId) === String(payload.user_id)) {
                 targetEmail = userData.email;
                 break;
               }
             }
             
             if (targetEmail) {
-              const userSockets = userConnections.get(targetEmail);
-              if (userSockets && userSockets.size > 0) {
-                console.log(`Broadcasting announcement to ${userSockets.size} connections for user ${payload.user_id} (${targetEmail})`);
-                userSockets.forEach(socketId => {
-                  io.to(socketId).emit('announcement', payload);
-                });
-              } else {
-                console.log(`No active connections found for user ${payload.user_id} (${targetEmail})`);
-              }
-            } else {
-              console.log(`User ${payload.user_id} not found in connected users`);
+              emitToUserSockets(payload.user_id, targetEmail, 'announcement', payload);
             }
           } else if (payload.type === 'announcement_expired' && payload.user_id) {
             // Send expiration notification to specific user
             let targetEmail = null;
             for (const [socketId, userData] of connectedUsers.entries()) {
-              if (userData.userId === payload.user_id) {
+              if (String(userData.userId) === String(payload.user_id)) {
                 targetEmail = userData.email;
                 break;
               }
             }
             
             if (targetEmail) {
-              const userSockets = userConnections.get(targetEmail);
-              if (userSockets && userSockets.size > 0) {
-                console.log(`Broadcasting announcement expiration to ${userSockets.size} connections for user ${payload.user_id} (${targetEmail})`);
-                userSockets.forEach(socketId => {
-                  io.to(socketId).emit('announcement', payload);
-                });
-              } else {
-                console.log(`No active connections found for user ${payload.user_id} (${targetEmail})`);
-              }
-            } else {
-              console.log(`User ${payload.user_id} not found in connected users`);
+              emitToUserSockets(payload.user_id, targetEmail, 'announcement', payload);
             }
           } else if (payload.type === 'announcement_dismissed' && payload.user_id) {
             // Send dismissal confirmation to specific user
             let targetEmail = null;
             for (const [socketId, userData] of connectedUsers.entries()) {
-              if (userData.userId === payload.user_id) {
+              if (String(userData.userId) === String(payload.user_id)) {
                 targetEmail = userData.email;
                 break;
               }
             }
             
             if (targetEmail) {
-              const userSockets = userConnections.get(targetEmail);
-              if (userSockets && userSockets.size > 0) {
-                userSockets.forEach(socketId => {
-                  io.to(socketId).emit('announcement', payload);
-                });
-              }
+              emitToUserSockets(payload.user_id, targetEmail, 'announcement', payload);
             }
           } else if (payload.type === 'announcement_change') {
             // Broadcast announcement changes to all users (for admin updates)
@@ -982,25 +929,11 @@ function parseShiftTime(shiftTimeString, referenceDate = new Date()) {
     const nowManila = new Date(referenceDate.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
     const today = new Date(nowManila);
     today.setSeconds(0, 0); // Reset seconds and milliseconds
-    
-    console.log(`🔍 parseShiftTime debug:`, {
-      referenceDate: referenceDate.toISOString(),
-      nowManila: nowManila.toISOString(),
-      today: today.toISOString(),
-      shiftTimeString
-    });
 
     const startTime = parseTimeString(startTimeStr, today);
     let endTime = parseTimeString(endTimeStr, today);
 
-    console.log(`🔍 parseShiftTime times:`, {
-      startTimeStr,
-      endTimeStr,
-      startTime: startTime.toISOString(),
-      endTime: endTime.toISOString(),
-      startTimeManila: startTime.toLocaleString('en-US', { timeZone: 'Asia/Manila' }),
-      endTimeManila: endTime.toLocaleString('en-US', { timeZone: 'Asia/Manila' })
-    });
+    
 
     // If end time is before start time, it means shift crosses midnight
     const isNightShift = endTime <= startTime;
@@ -1070,15 +1003,7 @@ function parseShiftTime(shiftTimeString, referenceDate = new Date()) {
       isNightShift: false
     };
     
-    console.log(`🔍 parseShiftTime final result:`, {
-      period: result.period,
-      time: result.time,
-      startTime: result.startTime.toISOString(),
-      endTime: result.endTime.toISOString(),
-      startTimeManila: result.startTime.toLocaleString('en-US', { timeZone: 'Asia/Manila' }),
-      endTimeManila: result.endTime.toLocaleString('en-US', { timeZone: 'Asia/Manila' }),
-      isNightShift: result.isNightShift
-    });
+    
     
     return result;
   } catch (error) {
@@ -1111,25 +1036,38 @@ function parseTimeString(timeStr, baseDate) {
   const manilaTimeString = `${year}-${month}-${day}T${hour}:${minute}:00+08:00`;
   const utcTime = new Date(manilaTimeString);
   
-  console.log(`🔍 parseTimeString debug:`, {
-    timeStr,
-    hour24,
-    minutes,
-    baseDate: baseDate.toISOString(),
-    manilaTimeString,
-    utcTime: utcTime.toISOString(),
-    utcTimeManila: utcTime.toLocaleString('en-US', { timeZone: 'Asia/Manila' })
-  });
+  
   
   return utcTime;
 }
 
 // Function to check if current time has passed shift start time since last activity
 function shouldResetForShift(lastActivityTime, currentTime, shiftInfo) {
+  // Ensure lastActivityTime is a Date object
+  let lastActivityDate;
+  if (!lastActivityTime) {
+    // If no last activity time, treat as new day
+    return true;
+  } else if (typeof lastActivityTime === 'string') {
+    lastActivityDate = new Date(lastActivityTime);
+  } else if (lastActivityTime instanceof Date) {
+    lastActivityDate = lastActivityTime;
+  } else {
+    // If it's neither string nor Date, treat as new day
+    console.warn('Invalid lastActivityTime type:', typeof lastActivityTime, lastActivityTime);
+    return true;
+  }
+
+  // Validate the date
+  if (isNaN(lastActivityDate.getTime())) {
+    console.warn('Invalid lastActivityTime value:', lastActivityTime);
+    return true;
+  }
+
   if (!shiftInfo) {
     // Fallback to daily reset if no shift info
     // Use Manila time-based date comparison to avoid timezone issues
-    const lastDate = new Date(lastActivityTime.getTime() + (8 * 60 * 60 * 1000)).toISOString().split('T')[0];
+    const lastDate = new Date(lastActivityDate.getTime() + (8 * 60 * 60 * 1000)).toISOString().split('T')[0];
     const currentDate = new Date(currentTime.getTime() + (8 * 60 * 60 * 1000)).toISOString().split('T')[0];
     return lastDate !== currentDate;
   }
@@ -1143,7 +1081,7 @@ function shouldResetForShift(lastActivityTime, currentTime, shiftInfo) {
       const currentShiftStart = getShiftStartForDate(currentTime, shiftInfo);
       
       // Get the last shift start time (when the last recorded activity's night shift started)
-      const lastShiftStart = getShiftStartForDate(lastActivityTime, shiftInfo);
+      const lastShiftStart = getShiftStartForDate(lastActivityDate, shiftInfo);
       
       // For night shifts, we only reset when we move to a completely new night shift period
       // This means the last activity was from a different night shift start time
@@ -1157,12 +1095,12 @@ function shouldResetForShift(lastActivityTime, currentTime, shiftInfo) {
       
       // FIXED: Check if this is a NEW DAY's shift, not just continuing the same shift
       // Get the date of the last activity and current time in Manila timezone
-      const lastActivityDate = new Date(lastActivityTime.getTime() + (8 * 60 * 60 * 1000)).toISOString().split('T')[0];
+      const lastActivityDateStr = new Date(lastActivityDate.getTime() + (8 * 60 * 60 * 1000)).toISOString().split('T')[0];
       const currentDate = new Date(currentTime.getTime() + (8 * 60 * 60 * 1000)).toISOString().split('T')[0];
       
       // FIXED: Only reset when we're on a completely NEW DAY
       // Don't reset when continuing the same shift on the same day
-      const isNewDay = lastActivityDate !== currentDate;
+      const isNewDay = lastActivityDateStr !== currentDate;
       
       if (isNewDay) {
         return true;
@@ -1173,7 +1111,7 @@ function shouldResetForShift(lastActivityTime, currentTime, shiftInfo) {
   } catch (error) {
     console.error('Error in shouldResetForShift:', error);
     // Fallback to daily reset on error
-    const lastDate = new Date(lastActivityTime.getTime() + (8 * 60 * 60 * 1000)).toISOString().split('T')[0];
+    const lastDate = new Date(lastActivityDate.getTime() + (8 * 60 * 60 * 1000)).toISOString().split('T')[0];
     const currentDate = new Date(currentTime.getTime() + (8 * 60 * 60 * 1000)).toISOString().split('T')[0];
     return lastDate !== currentDate;
   }
@@ -1271,19 +1209,11 @@ async function getUserShiftInfo(userId) {
     if (result.rows.length > 0) {
       const shiftData = result.rows[0];
       const currentTime = new Date();
-      console.log(`🔍 getUserShiftInfo: Parsing shift time "${shiftData.shift_time}" for user ${userId} at ${currentTime.toISOString()}`);
       const shiftInfo = parseShiftTime(shiftData.shift_time, currentTime);
       
       if (shiftInfo) {
         shiftInfo.period = shiftData.shift_period || shiftInfo.period;
         shiftInfo.schedule = shiftData.shift_schedule || shiftInfo.schedule;
-        console.log(`🔍 getUserShiftInfo: Parsed shift info:`, {
-          period: shiftInfo.period,
-          time: shiftInfo.time,
-          startTime: shiftInfo.startTime?.toISOString(),
-          endTime: shiftInfo.endTime?.toISOString(),
-          isNightShift: shiftInfo.isNightShift
-        });
         return shiftInfo;
       }
     }
@@ -2090,7 +2020,13 @@ io.on('connection', (socket) => {
           if (activityResult.rows.length > 0) {
             const dbData = activityResult.rows[0];
             const dbDate = dbData.today_date.toISOString().split('T')[0]; // Convert to YYYY-MM-DD format
-            const lastActivityTime = new Date(dbData.last_session_start || dbData.today_date);
+            let lastActivityTime = dbData.last_session_start ? new Date(dbData.last_session_start) : new Date(dbData.today_date);
+            
+            // Validate the date object
+            if (isNaN(lastActivityTime.getTime())) {
+              console.warn(`Invalid lastActivityTime for ${emailString}, using today_date instead`);
+              lastActivityTime = new Date(dbData.today_date);
+            }
             
             console.log(`User ${emailString} (ID: ${userId}) - Last Activity: ${lastActivityTime.toISOString()}, Current: ${currentTime.toISOString()}`);
             
@@ -2309,7 +2245,13 @@ io.on('connection', (socket) => {
             if (activityResult.rows.length > 0) {
               const dbData = activityResult.rows[0];
               const dbDate = dbData.today_date.toISOString().split('T')[0]; // Convert to YYYY-MM-DD format
-              const lastActivityTime = new Date(dbData.last_session_start || dbData.today_date);
+              let lastActivityTime = dbData.last_session_start ? new Date(dbData.last_session_start) : new Date(dbData.today_date);
+              
+              // Validate the date object
+              if (isNaN(lastActivityTime.getTime())) {
+                console.warn(`Invalid lastActivityTime for ${emailString}, using today_date instead`);
+                lastActivityTime = new Date(dbData.today_date);
+              }
               
               console.log(`Refresh check for ${emailString} - Last Activity: ${lastActivityTime.toISOString()}, Current: ${currentTime.toISOString()}`);
               
@@ -3013,20 +2955,41 @@ io.on('connection', (socket) => {
   // Function to emit productivity score updates to connected users
   async function emitProductivityScoreUpdate(userId, monthYear) {
     try {
+      // Check if pool is still available
+      if (!isPoolAvailable()) {
+        console.warn('Database pool is not available, skipping productivity score update');
+        return;
+      }
+
       // Get the updated productivity score
-      const scoreResult = await pool.query(`
-        SELECT 
-          ps.user_id,
-          ps.productivity_score,
-          ps.total_active_seconds,
-          ps.total_inactive_seconds,
-          ps.updated_at,
-          u.email
-        FROM productivity_scores ps
-        JOIN users u ON ps.user_id = u.id
-        WHERE ps.user_id = $1 AND ps.month_year = $2
-        LIMIT 1
-      `, [userId, monthYear]);
+      let scoreResult;
+      try {
+        // Double-check pool availability right before query
+        if (!isPoolAvailable()) {
+          console.warn('Database pool became unavailable before query, skipping productivity score update');
+          return;
+        }
+        
+        scoreResult = await pool.query(`
+          SELECT 
+            ps.user_id,
+            ps.productivity_score,
+            ps.total_active_seconds,
+            ps.total_inactive_seconds,
+            ps.updated_at,
+            u.email
+          FROM productivity_scores ps
+          JOIN users u ON ps.user_id = u.id
+          WHERE ps.user_id = $1 AND ps.month_year = $2
+          LIMIT 1
+        `, [userId, monthYear]);
+      } catch (poolError) {
+        if (poolError.message.includes('Cannot use a pool after calling end')) {
+          console.warn('Database pool was closed, skipping productivity score update');
+          return;
+        }
+        throw poolError; // Re-throw other errors
+      }
       
       if (scoreResult.rows.length > 0) {
         const score = scoreResult.rows[0];

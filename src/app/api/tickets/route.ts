@@ -370,57 +370,8 @@ export async function POST(request: NextRequest) {
       const cacheKey = cacheKeys.tickets(user.email)
       await redisCache.del(cacheKey)
 
-      // Send Slack notification for new ticket
-      // Only send notification if files are provided initially
-      // If no files are provided, notification will be sent from PATCH endpoint when files are uploaded
-      console.log('POST endpoint - files:', files)
-      console.log('POST endpoint - files.length:', files.length)
-      
-      if (files.length > 0) {
-        try {
-          // Parse supporting_files if it's a JSON string
-          let supportingFiles = []
-          if (newTicket.supporting_files) {
-            try {
-              supportingFiles = typeof newTicket.supporting_files === 'string' 
-                ? JSON.parse(newTicket.supporting_files) 
-                : newTicket.supporting_files
-            } catch (error) {
-              console.error('Error parsing supporting_files:', error)
-              supportingFiles = []
-            }
-          }
-
-          const slackTicketData = {
-            id: newTicket.id.toString(),
-            ticket_id: newTicket.ticket_id,
-            concern: newTicket.concern,
-            details: newTicket.details,
-            category: category,
-            status: newTicket.status,
-            created_at: newTicket.created_at,
-            user_name: user.name || 'Unknown User',
-            user_email: user.email,
-            supporting_files: supportingFiles,
-            file_count: newTicket.file_count || 0
-          }
-          
-          console.log('Sending initial Slack notification (with files):', {
-            ticket_id: slackTicketData.ticket_id,
-            file_count: slackTicketData.file_count
-          })
-          
-          // Send notification asynchronously (don't wait for it)
-          slackService.sendNewTicketNotification(slackTicketData).catch(error => {
-            console.error('Failed to send Slack notification:', error)
-          })
-        } catch (error) {
-          console.error('Error preparing Slack notification:', error)
-          // Don't fail the ticket creation if Slack fails
-        }
-      } else {
-        console.log('No files provided initially - notification will be sent from PATCH endpoint when files are uploaded')
-      }
+      // Slack notifications are handled by the PATCH endpoint
+      // This prevents duplicate notifications for tickets with attachments
 
       // Return the created ticket
       return NextResponse.json({

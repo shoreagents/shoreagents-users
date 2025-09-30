@@ -1,5 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { getCurrentUser } from '@/lib/ticket-utils';
+import { useBreak } from '@/contexts/break-context';
+import { useMeeting } from '@/contexts/meeting-context';
+import { useEventsContext } from '@/contexts/events-context';
+import { useHealth } from '@/contexts/health-context';
+import { useRestroom } from '@/contexts/restroom-context';
 
 // Function to record system events in the database
 const recordSystemEvent = async (eventType: 'suspend' | 'resume' | 'lock' | 'unlock', metadata?: any) => {
@@ -78,8 +83,39 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean, isSys
   const [inactivityData, setInactivityData] = useState<InactivityAlert | null>(null);
   const [activityStatus, setActivityStatus] = useState<ActivityStatus | null>(null);
   
+  // Get status contexts to check for conditions that should prevent inactivity alerts
+  const { isBreakActive } = useBreak();
+  const { isInMeeting } = useMeeting();
+  const { isInEvent } = useEventsContext();
+  const { isGoingToClinic, isInClinic } = useHealth();
+  const { isInRestroom } = useRestroom();
+  
+  // Ref to track if we should prevent inactivity alerts
+  const preventInactivityRef = useRef(false);
+  
   // Ref to track if listeners are already set up for this instance
   const listenersSetupRef = useRef(false);
+  
+  // Ref for debouncing inactivity alerts
+  const inactivityAlertTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Update preventInactivityRef based on status conditions
+  useEffect(() => {
+    const shouldPreventInactivity = isBreakActive || isInMeeting || isInEvent || isGoingToClinic || isInClinic || isInRestroom;
+    preventInactivityRef.current = shouldPreventInactivity;
+    
+    // If any status becomes active and dialog is open, close it immediately
+    if (shouldPreventInactivity && showInactivityDialog) {
+      setShowInactivityDialog(false);
+      setInactivityData(null);
+    }
+    
+    // If any status becomes active, cancel any pending inactivity alerts
+    if (shouldPreventInactivity && inactivityAlertTimeoutRef.current) {
+      clearTimeout(inactivityAlertTimeoutRef.current);
+      inactivityAlertTimeoutRef.current = null;
+    }
+  }, [isBreakActive, isInMeeting, isInEvent, isGoingToClinic, isInClinic, isInRestroom, showInactivityDialog]);
   
   // Periodic status check to sync React state with actual tracker state
   useEffect(() => {
@@ -318,19 +354,42 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean, isSys
       return;
     }
     
-    const alertData = data as InactivityAlert;
-    setInactivityData(alertData);
-    setShowInactivityDialog(true);
+    // Check if any status is active that should prevent inactivity alerts
+    // Use both current state and ref for maximum reliability
+    const shouldPreventInactivity = isBreakActive || isInMeeting || isInEvent || isGoingToClinic || isInClinic || isInRestroom || preventInactivityRef.current;
     
-    // CRITICAL: Set activity state to inactive when inactivity is detected
-    if (setActivityState) {
-      setActivityState(false);
+    if (shouldPreventInactivity) {
+      return; // Don't show inactivity dialog when in any of these statuses
     }
+    
+    // Clear any existing timeout
+    if (inactivityAlertTimeoutRef.current) {
+      clearTimeout(inactivityAlertTimeoutRef.current);
+    }
+    
+    // Add a small delay to prevent flashing when status changes rapidly
+    inactivityAlertTimeoutRef.current = setTimeout(() => {
+      // Double-check status conditions after delay
+      const stillShouldPrevent = isBreakActive || isInMeeting || isInEvent || isGoingToClinic || isInClinic || isInRestroom || preventInactivityRef.current;
+      
+      if (stillShouldPrevent) {
+        return;
+      }
+      
+      const alertData = data as InactivityAlert;
+      setInactivityData(alertData);
+      setShowInactivityDialog(true);
+      
+      // CRITICAL: Set activity state to inactive when inactivity is detected
+      if (setActivityState) {
+        setActivityState(false);
+      }
+    }, 100); // 100ms delay to prevent flashing
     
     // Start inactive session when inactivity is detected
     // TODO: Replace with database-driven inactive session
     // startInactiveSession(currentUser.email);
-  }, [isTracking, stopTracking, setActivityState]);
+  }, [isTracking, stopTracking, setActivityState, isBreakActive, isInMeeting, isInEvent, isGoingToClinic, isInClinic, isInRestroom]);
 
   // Handle activity reset
   const handleActivityReset = useCallback((data: unknown) => {
@@ -366,7 +425,6 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean, isSys
           userEmail: currentUser.email,
           timestamp: new Date().toISOString()
         });
-        console.log('✅ System suspend event recorded for user:', currentUser.email);
       } catch (error) {
         console.error('❌ Failed to record system suspend event:', error);
       }
@@ -374,8 +432,7 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean, isSys
     
     // CRITICAL: Pause activity timer immediately when system is suspended
     if (setActivityState) {
-      setActivityState(false, true); // true = isSystemEvent
-      console.log('⏸️ Activity timer paused due to system suspend');
+      setActivityState(false, true); // true = isSystemEvent  
     }
     
     setShowInactivityDialog(false); // Close any inactivity dialogs
@@ -392,7 +449,6 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean, isSys
           userEmail: currentUser.email,
           timestamp: new Date().toISOString()
         });
-        console.log('✅ System resume event recorded for user:', currentUser.email);
       } catch (error) {
         console.error('❌ Failed to record system resume event:', error);
       }
@@ -401,7 +457,6 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean, isSys
     // CRITICAL: Resume activity timer when system resumes
     if (setActivityState) {
       setActivityState(true, true); // true = isSystemEvent
-      console.log('▶️ Activity timer resumed due to system resume');
     }
   }, [setActivityState]);
 
@@ -416,7 +471,6 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean, isSys
           userEmail: currentUser.email,
           timestamp: new Date().toISOString()
         });
-        console.log('✅ System lock event recorded for user:', currentUser.email);
       } catch (error) {
         console.error('❌ Failed to record system lock event:', error);
       }
@@ -425,7 +479,6 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean, isSys
     // CRITICAL: Set activity state to inactive when system is locked
     if (setActivityState) {
       setActivityState(false, true); // true = isSystemEvent
-      console.log('⏸️ Activity state set to inactive due to system lock');
     }
     
     // Trigger inactivity alert after threshold time when system is locked
@@ -439,7 +492,6 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean, isSys
       };
       setInactivityData(alertData);
       setShowInactivityDialog(true);
-      console.log('🔔 Inactivity alert triggered after system lock threshold');
     }, inactivityThreshold);
     
   }, [setActivityState, setInactivityData, setShowInactivityDialog]);
@@ -455,7 +507,6 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean, isSys
           userEmail: currentUser.email,
           timestamp: new Date().toISOString()
         });
-        console.log('✅ System unlock event recorded for user:', currentUser.email);
       } catch (error) {
         console.error('❌ Failed to record system unlock event:', error);
       }
@@ -464,7 +515,6 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean, isSys
     // CRITICAL: Resume activity timer when system is unlocked
     if (setActivityState) {
       setActivityState(true, true); // true = isSystemEvent
-      console.log('▶️ Activity timer resumed due to system unlock');
     }
   }, [setActivityState]);
 
@@ -517,6 +567,12 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean, isSys
 
     // Cleanup listeners on unmount
     return () => {
+      // Clear any pending inactivity alert timeout
+      if (inactivityAlertTimeoutRef.current) {
+        clearTimeout(inactivityAlertTimeoutRef.current);
+        inactivityAlertTimeoutRef.current = null;
+      }
+      
       if (window.electronAPI && listenersSetupRef.current) {
         // Use removeAllListeners as a fallback since removeListener might not exist
         try {

@@ -1,23 +1,14 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { AppSidebar } from "@/components/app-sidebar"
-import { AppHeader } from "@/components/app-header"
-import { NewTicketSkeleton } from "@/components/skeleton-loaders"
-import {
-  SidebarInset,
-  SidebarProvider,
-  SidebarTrigger,
-} from "@/components/ui/sidebar"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ArrowLeft, Send, CheckCircle, FileText, Mail, Phone, Upload, X, AlertTriangle, MessageSquare } from "lucide-react"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { useRouter } from "next/navigation"
-import Link from "next/link"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { getCurrentUser } from "@/lib/ticket-utils"
 import { useCreateTicket } from "@/hooks/use-tickets"
 
@@ -29,19 +20,28 @@ interface UploadedFile {
   type: string
 }
 
-export default function NewTicketPage() {
-  const router = useRouter()
+interface NewTicketDialogProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}
+
+export function NewTicketDialog({ open, onOpenChange }: NewTicketDialogProps) {
   const [isSubmitted, setIsSubmitted] = useState(false)
   const [ticketId, setTicketId] = useState<string>('')
   const [files, setFiles] = useState<File[]>([])
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([])
   const [dragActive, setDragActive] = useState(false)
   const [fileError, setFileError] = useState<string>('')
-  const [loading, setLoading] = useState(true)
   const [categories, setCategories] = useState<Array<{id: number, name: string}>>([])
   const [categoriesLoading, setCategoriesLoading] = useState(true)
   const [uploadingFiles, setUploadingFiles] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [formData, setFormData] = useState({
+    concern: '',
+    category: '',
+    details: ''
+  })
+  const formRef = useRef<HTMLFormElement>(null)
   
   // Use React Query for creating tickets
   const createTicketMutation = useCreateTicket()
@@ -49,62 +49,78 @@ export default function NewTicketPage() {
   // Maximum file size: 10MB
   const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB in bytes
 
-  // Auto-redirect to my tickets page after successful submission
-  useEffect(() => {
-    if (isSubmitted && ticketId) {
-      const timer = setTimeout(() => {
-        router.push('/forms/my-tickets')
-      }, 3000) // Redirect after 3 seconds
-      
-      return () => clearTimeout(timer)
-    }
-  }, [isSubmitted, ticketId, router])
+  // Check if form is valid (at least concern and category are filled)
+  const isFormValid = formData.concern.trim() !== '' && formData.category !== ''
 
-  // Fetch categories only
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        // Fetch categories
-        const categoriesResponse = await fetch('/api/ticket-categories', {
-          credentials: 'include'
-        })
-        
-        if (categoriesResponse.ok) {
-          const categoriesData = await categoriesResponse.json()
-          if (categoriesData.success) {
-            setCategories(categoriesData.categories)
-          } else {
-            console.error('Failed to load categories:', categoriesData.error)
-          }
-        } else {
-          console.error('Failed to load categories')
-        }
-      } catch (error) {
-        console.error('Error fetching data:', error)
-      } finally {
-        setLoading(false)
-        setCategoriesLoading(false)
-      }
-    }
+  // Handle form field changes
+  const handleFieldChange = (field: string, value: string) => {
+    setFormData(prev => ({
+      ...prev,
+      [field]: value
+    }))
+  }
 
-    fetchData()
-  }, [])
-
-  // Reset form state when component mounts (for "Create Another Ticket")
+  // Reset form state when dialog opens
   useEffect(() => {
-    const resetFormState = () => {
+    if (open) {
       setIsSubmitted(false)
       setTicketId("")
       setFiles([])
-      setUploadedFiles([]) // Reset uploaded files state
+      setUploadedFiles([])
       setFileError("")
       setDragActive(false)
       setUploadingFiles(false)
       setIsSubmitting(false)
+      setFormData({
+        concern: '',
+        category: '',
+        details: ''
+      })
     }
-    
-    resetFormState()
-  }, [])
+  }, [open])
+
+  // Auto-redirect to my tickets page after successful submission
+  useEffect(() => {
+    if (isSubmitted && ticketId) {
+      const timer = setTimeout(() => {
+        onOpenChange(false) // Close dialog first
+        window.location.href = '/forms/my-tickets' // Then redirect
+      }, 2000) // Redirect after 2 seconds
+      
+      return () => clearTimeout(timer)
+    }
+  }, [isSubmitted, ticketId, onOpenChange])
+
+  // Fetch categories when dialog opens
+  useEffect(() => {
+    if (open) {
+      const fetchData = async () => {
+        try {
+          // Fetch categories
+          const categoriesResponse = await fetch('/api/ticket-categories', {
+            credentials: 'include'
+          })
+          
+          if (categoriesResponse.ok) {
+            const categoriesData = await categoriesResponse.json()
+            if (categoriesData.success) {
+              setCategories(categoriesData.categories)
+            } else {
+              console.error('Failed to load categories:', categoriesData.error)
+            }
+          } else {
+            console.error('Failed to load categories')
+          }
+         } catch (error) {
+           console.error('Error fetching data:', error)
+         } finally {
+           setCategoriesLoading(false)
+         }
+      }
+
+      fetchData()
+    }
+  }, [open])
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault()
@@ -152,7 +168,7 @@ export default function NewTicketPage() {
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     
-    setIsSubmitting(true) // Set overall submission state
+    setIsSubmitting(true)
     
     // Capture files at the beginning to avoid state changes during async operations
     const filesToUpload = [...files]
@@ -164,11 +180,6 @@ export default function NewTicketPage() {
     
     try {
       const formData = new FormData(e.currentTarget)
-      
-      // Get user info from session/profile with fallbacks
-      const currentUser = getCurrentUser()
-      const fullName = currentUser?.name || 'Unknown User'
-      const userEmail = currentUser?.email || 'unknown@email.com'
       
       // First, create the ticket to get the ticket ID
       const ticketData = {
@@ -182,9 +193,9 @@ export default function NewTicketPage() {
       const result = await createTicketMutation.mutateAsync(ticketData)
       const newTicketId = result.ticket.id
       
-      // Now upload files to Supabase storage using server-side API
+      // Handle file uploads and ticket updates
       if (filesToUpload.length > 0) {
-        setUploadingFiles(true) // Set uploading state to true
+        setUploadingFiles(true)
         
         // Create FormData for file upload
         const uploadFormData = new FormData()
@@ -232,11 +243,27 @@ export default function NewTicketPage() {
         } else {
           console.warn('Failed to upload files, but ticket was created')
         }
+      } else {
+        // For tickets without attachments, still call PATCH to trigger notification
+        const updateResponse = await fetch(`/api/tickets/${newTicketId}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          credentials: 'include',
+          body: JSON.stringify({
+            supporting_files: [],
+            file_count: 0
+          })
+        })
+        
+        if (!updateResponse.ok) {
+          const errorData = await updateResponse.json()
+          console.error('Failed to update ticket for notification:', errorData)
+        }
       }
       
       if (result.success) {
-        // Notification now handled server-side via database + sockets
-        
         // Save ticket ID for success display
         setTicketId(result.ticket.id)
         setIsSubmitted(true)
@@ -253,38 +280,43 @@ export default function NewTicketPage() {
     }
   }
 
-  if (loading) {
-    return (
-      <SidebarProvider>
-        <AppSidebar />
-        <SidebarInset>
-          <AppHeader />
-          <NewTicketSkeleton />
-        </SidebarInset>
-      </SidebarProvider>
-    )
+  const handleClose = () => {
+    if (!isSubmitting) {
+      onOpenChange(false)
+    }
   }
 
-  // Success dialog - no need for early return, we'll show it as a dialog
 
   return (
-    <SidebarProvider>
-      <AppSidebar />
-      <SidebarInset>
-        <AppHeader />
-        <div className="flex flex-1 flex-col gap-6 p-6 pt-2">
-          <div className="flex items-center gap-4">
-            <div>
-              <h1 className="text-3xl font-bold text-foreground">New Support Ticket</h1>
-              <p className="text-muted-foreground">Submit a support request to our team</p>
-            </div>
-          </div>
+    <>
+      {/* Main Dialog */}
+      <Dialog open={open && !isSubmitted} onOpenChange={handleClose}>
+        <DialogContent className="max-w-3xl w-full h-[90vh] flex flex-col p-0">
+          {/* Fixed Header */}
+           <DialogHeader className="px-6 py-4 border-b bg-background sticky top-0 z-10">
+             <div className="flex items-center justify-between">
+               <div>
+                 <DialogTitle className="text-2xl font-bold">New Support Ticket</DialogTitle>
+                 <DialogDescription>Submit a support request to our team</DialogDescription>
+               </div>
+               <Button
+                 variant="ghost"
+                 size="sm"
+                 onClick={handleClose}
+                 className="h-8 w-8 p-0"
+                 disabled={isSubmitting}
+               >
+                 <X className="h-4 w-4" />
+               </Button>
+             </div>
+           </DialogHeader>
           
-          
-          <div className="grid gap-6 lg:grid-cols-3">
-            {/* Main Form */}
-            <div className="lg:col-span-2 space-y-6">
-              <Card>
+           {/* Scrollable Content */}
+           <ScrollArea className="flex-1 ">
+             <div className="space-y-6">
+             {/* Main Form */}
+             <div className="space-y-6">
+              <Card className="border-none">
                 <CardHeader>
                   <div className="flex items-center gap-3">
                     <div className="p-2 bg-primary/10 rounded-lg">
@@ -299,47 +331,8 @@ export default function NewTicketPage() {
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                  <form onSubmit={handleSubmit} className="space-y-6">
+                  <form ref={formRef} onSubmit={handleSubmit} className="space-y-6">
                   
-                  {/* User Info Display Section */}
-                  {(getCurrentUser()) && (
-                    <div className="bg-muted/30 rounded-lg p-4 border border-muted">
-                      <div className="flex items-center gap-2 mb-3">
-                        <div className="p-1.5 bg-primary/10 rounded-lg">
-                          <FileText className="h-4 w-4 text-primary" />
-                        </div>
-                        <h3 className="font-semibold text-sm">Ticket Information</h3>
-                      </div>
-                      <div className="grid gap-3 text-sm">
-                        <div className="grid gap-2 sm:grid-cols-2">
-                          <div className="flex flex-col sm:flex-row sm:items-center gap-1">
-                            <span className="text-muted-foreground whitespace-nowrap">Submitted by:</span>
-                            <span className="font-medium">
-                              {getCurrentUser()?.name || 'Unknown User'}
-                            </span>
-                          </div>
-                          <div className="flex flex-col sm:flex-row sm:items-center gap-1">
-                            <span className="text-muted-foreground whitespace-nowrap">Email:</span>
-                            <span className="font-medium break-all text-xs sm:text-sm">
-                              {getCurrentUser()?.email || 'unknown@email.com'}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="grid gap-2 sm:grid-cols-2">
-                          <div className="flex flex-col sm:flex-row sm:items-center gap-1">
-                            <span className="text-muted-foreground whitespace-nowrap">Submission Date:</span>
-                            <span className="font-medium">{new Date().toLocaleDateString()}</span>
-                          </div>
-                          <div className="flex flex-col sm:flex-row sm:items-center gap-1">
-                            <span className="text-muted-foreground whitespace-nowrap">Department:</span>
-                            <span className="font-medium">
-                              Agent
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
 
                   {/* Basic Information */}
                   <div className="space-y-4">
@@ -351,17 +344,22 @@ export default function NewTicketPage() {
                         placeholder="Briefly describe your concern..."
                         rows={3}
                         required
+                        value={formData.concern}
+                        onChange={(e) => handleFieldChange('concern', e.target.value)}
                       />
                     </div>
                   </div>
-
-
 
                   {/* Category */}
                   <div className="space-y-4">
                     <div className="space-y-2">
                       <Label htmlFor="category">What is your support ticket related to? *</Label>
-                      <Select name="category" required>
+                      <Select 
+                        name="category" 
+                        required
+                        value={formData.category}
+                        onValueChange={(value) => handleFieldChange('category', value)}
+                      >
                         <SelectTrigger>
                           <SelectValue placeholder={categoriesLoading ? "Loading categories..." : "Select a category"} />
                         </SelectTrigger>
@@ -385,6 +383,8 @@ export default function NewTicketPage() {
                         name="details"
                         placeholder="Provide additional context, specific details, or any other information that might help us understand your situation better..."
                         rows={4}
+                        value={formData.details}
+                        onChange={(e) => handleFieldChange('details', e.target.value)}
                       />
                     </div>
                   </div>
@@ -517,89 +517,45 @@ export default function NewTicketPage() {
                     )}
                   </div>
 
-                  <div className="flex flex-col sm:flex-row gap-4 justify-end pt-6 border-t">
-                    <Link href="/dashboard" className="w-full sm:w-auto">
-                      <Button type="button" variant="outline" className="w-full sm:w-auto">
-                        Cancel
-                      </Button>
-                    </Link>
-                    <Button type="submit" disabled={isSubmitting} className="w-full sm:w-auto min-w-[140px]">
-                      {isSubmitting ? (
-                        <>
-                          <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                          Submitting...
-                        </>
-                      ) : (
-                        <>
-                          <Send className="mr-2 h-4 w-4" />
-                          Submit Ticket
-                        </>
-                      )}
-                    </Button>
-                  </div>
                 </form>
               </CardContent>
             </Card>
             </div>
-
-            {/* Sidebar */}
-            <div className="lg:col-span-1 space-y-6">
-              {/* Important Notes */}
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center gap-2">
-                    <AlertTriangle className="h-4 w-4 text-blue-600" />
-                    <CardTitle className="text-sm">Important Notes</CardTitle>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3 text-sm">
-                  <div className="flex items-start gap-2">
-                    <div className="w-1.5 h-1.5 bg-blue-600 rounded-full mt-2 flex-shrink-0"></div>
-                    <p>Please provide as much detail as possible to help us assist you quickly</p>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <div className="w-1.5 h-1.5 bg-blue-600 rounded-full mt-2 flex-shrink-0"></div>
-                    <p>For technical issues, include error messages and screenshots if possible</p>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <div className="w-1.5 h-1.5 bg-blue-600 rounded-full mt-2 flex-shrink-0"></div>
-                    <p>We typically respond within 24-48 hours during business days</p>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <div className="w-1.5 h-1.5 bg-blue-600 rounded-full mt-2 flex-shrink-0"></div>
-                    <p>You&apos;ll receive a unique ticket ID for tracking your request</p>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Contact Info */}
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center gap-2">
-                    <MessageSquare className="h-4 w-4 text-primary" />
-                    <CardTitle className="text-sm">Need Help?</CardTitle>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3 text-sm">
-                  <p className="text-muted-foreground">
-                    If you need immediate assistance, please contact our support team directly.
-                  </p>
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <Mail className="h-3 w-3 text-muted-foreground" />
-                      <span>support@shoreagents.com</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Phone className="h-3 w-3 text-muted-foreground" />
-                      <span>+1 (555) 123-4567</span>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
             </div>
-          </div>
-        </div>
-      </SidebarInset>
+           </ScrollArea>
+          
+           {/* Fixed Footer with Buttons */}
+           <div className="px-6 py-4 border-t bg-background flex-shrink-0">
+             <div className="flex flex-col sm:flex-row gap-4 justify-end">
+               <Button type="button" variant="outline" onClick={handleClose} className="w-full sm:w-auto hover:text-red-500 hover:!border-red-500">
+                 Cancel
+               </Button>
+               <Button 
+                 type="button" 
+                 disabled={isSubmitting || !isFormValid} 
+                 className="w-full sm:w-auto min-w-[140px]"
+                 onClick={() => {
+                   if (formRef.current) {
+                     formRef.current.requestSubmit()
+                   }
+                 }}
+               >
+                 {isSubmitting ? (
+                   <>
+                     <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                     Submitting...
+                   </>
+                 ) : (
+                   <>
+                     <Send className="mr-2 h-4 w-4" />
+                     Submit Ticket
+                   </>
+                 )}
+               </Button>
+             </div>
+           </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Success Dialog */}
       <Dialog open={isSubmitted} onOpenChange={() => {}}>
@@ -656,7 +612,6 @@ export default function NewTicketPage() {
               </div>
             </div>
 
-
             {/* Additional Info */}
             <div className="text-center pt-4 border-t border-border/50">
               <p className="text-sm text-muted-foreground">
@@ -667,15 +622,9 @@ export default function NewTicketPage() {
               </p>
             </div>
 
-            {/* Auto-redirect notice */}
-            <div className="text-center">
-              <p className="text-xs text-muted-foreground">
-                You will be automatically redirected to your tickets in a few seconds...
-              </p>
-            </div>
           </div>
         </DialogContent>
       </Dialog>
-    </SidebarProvider>
+    </>
   )
-} 
+}

@@ -119,36 +119,14 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
     const isWithinShift = isWithinShiftHours(shiftInfo)
     const isShiftEnded = checkIfShiftEnded(shiftInfo)
     const isShiftNotStarted = checkIfShiftNotStarted(shiftInfo)
-    
-    console.log('🔍 isWithinShiftHours result:', isWithinShift)
-    console.log('🔍 shiftInfo received:', shiftInfo)
-   
-    // DEBUG: Log all conditions to understand why tracking might not start
-    console.log('🔍 Activity Tracking Debug:', {
-      hasLoggedIn,
-      isTracking,
-      isBreakActive,
-      isInMeeting,
-      isInEvent,
-      isGoingToClinic,
-      isInClinic,
-      isInRestroom,
-      isWithinShift,
-      isShiftEnded,
-      isShiftNotStarted,
-      pathname: window.location.pathname,
-      shiftInfo
-    })
    
     // Only start tracking if shift is active (not ended and not started) and not in health check or restroom
     if (hasLoggedIn && !isTracking && !isBreakActive && !isInMeeting && !isInEvent && !isGoingToClinic && !isInClinic && !isInRestroom && isWithinShift && !isShiftEnded && !isShiftNotStarted && window.location.pathname !== '/') {
-      console.log('✅ Starting activity tracking - all conditions met')
       // Set inactivity threshold from environment variable or default to 30 seconds (30000ms)
       const inactivityThreshold = 30000
       setInactivityThreshold(inactivityThreshold)
       startTracking()
     } else {
-      console.log('❌ Not starting activity tracking - conditions not met')
     }
   }, [hasLoggedIn, isTracking, isBreakActive, isInMeeting, isInEvent, isGoingToClinic, isInClinic, isInRestroom, shiftInfo, startTracking, setInactivityThreshold, checkIfShiftEnded, checkIfShiftNotStarted])
 
@@ -287,7 +265,7 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
     const isShiftEnded = checkIfShiftEnded(shiftInfo)
     const isShiftNotStarted = checkIfShiftNotStarted(shiftInfo)
     
-    if (showInactivityDialog && !notificationShown && inactivityData && !isInMeeting && !isInEvent && isWithinShift && !isShiftEnded && !isShiftNotStarted) {
+    if (showInactivityDialog && !notificationShown && inactivityData && !isInMeeting && !isInEvent && !isBreakActive && !isInRestroom && !isGoingToClinic && !isInClinic && isWithinShift && !isShiftEnded && !isShiftNotStarted) {
       // Show system notification
       if (window.electronAPI?.inactivityNotifications) {
         window.electronAPI.inactivityNotifications.show({
@@ -299,13 +277,13 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
             // Start updating notification every 3 seconds with dynamic time
             let currentInactiveTime = 0; // Start from 0 seconds
             notificationUpdateIntervalRef.current = setInterval(() => {
-              // Check if still in meeting - if so, stop updating and close notification
-              if (isInMeeting || isInEvent) {
+              // Check if still in any status that should pause inactivity - if so, stop updating and close notification
+              if (isInMeeting || isInEvent || isBreakActive || isInRestroom || isGoingToClinic || isInClinic) {
                 if (notificationUpdateIntervalRef.current) {
                   clearInterval(notificationUpdateIntervalRef.current)
                   notificationUpdateIntervalRef.current = null
                 }
-                // Close the notification if in meeting
+                // Close the notification if in any status
                 if (window.electronAPI?.inactivityNotifications) {
                   window.electronAPI.inactivityNotifications.close()
                 }
@@ -318,7 +296,7 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
               if (window.electronAPI?.inactivityNotifications) {
                 window.electronAPI.inactivityNotifications.update({
                   inactiveTime: currentInactiveTime,
-                  skipUpdate: isInMeeting || isInEvent // Skip update if in meeting
+                  skipUpdate: isInMeeting || isInEvent || isBreakActive || isInRestroom || isGoingToClinic || isInClinic // Skip update if in any status
                 })
               }
             }, 3000) // Update every 3 seconds
@@ -328,12 +306,12 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
         })
       }
     }
-  }, [showInactivityDialog, notificationShown, inactivityData, isInMeeting, isInEvent, checkIfShiftEnded, checkIfShiftNotStarted, shiftInfo])
+  }, [showInactivityDialog, notificationShown, inactivityData, isInMeeting, isInEvent, isBreakActive, isInRestroom, isGoingToClinic, isInClinic, checkIfShiftEnded, checkIfShiftNotStarted, shiftInfo])
 
-  // Close inactivity dialog and notification when meeting starts
+  // Close inactivity dialog and notification when any status starts
   useEffect(() => {
-    if (isInMeeting || isInEvent) {
-      // Close the inactivity dialog immediately when meeting starts
+    if (isInMeeting || isInEvent || isBreakActive || isInRestroom || isGoingToClinic || isInClinic) {
+      // Close the inactivity dialog immediately when any status starts
       setShowInactivityDialog(false)
       
       // Clear notification update interval
@@ -357,7 +335,7 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
         notificationTimeoutRef.current = null
       }
     }
-  }, [isInMeeting, isInEvent, notificationShown, setShowInactivityDialog])
+  }, [isInMeeting, isInEvent, isBreakActive, isInRestroom, isGoingToClinic, isInClinic, notificationShown, setShowInactivityDialog])
 
   // Reset notification flag when dialog closes
   useEffect(() => {
@@ -461,7 +439,7 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
     <ActivityContext.Provider value={value}>
       {children}
       <InactivityDialog
-        open={showInactivityDialog && !isInMeeting && !isInEvent && isWithinShiftHours(shiftInfo) && !checkIfShiftEnded(shiftInfo) && !checkIfShiftNotStarted(shiftInfo)}
+        open={showInactivityDialog && !isInMeeting && !isInEvent && !isBreakActive && !isInRestroom && !isGoingToClinic && !isInClinic && isWithinShiftHours(shiftInfo) && !checkIfShiftEnded(shiftInfo) && !checkIfShiftNotStarted(shiftInfo)}
         onClose={handleCloseDialog}
         onReset={handleResetActivity}
         onAutoLogout={handleInactivityTimeout}

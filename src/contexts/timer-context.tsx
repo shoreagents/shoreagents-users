@@ -429,7 +429,6 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       
       // Extract shift information
       if (timerData.shiftInfo) {
-        console.log('🔍 TimerContext: Received shiftInfo from socket:', timerData.shiftInfo)
         setShiftInfo(timerData.shiftInfo)
         setTimeUntilReset(timerData.shiftInfo.timeUntilReset || 0)
         setFormattedTimeUntilReset(timerData.shiftInfo.formattedTimeUntilReset || '')
@@ -456,7 +455,6 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       
       // Update shift information if it changes
       if (timerData.shiftInfo) {
-        console.log('🔍 TimerContext: Updated shiftInfo from socket:', timerData.shiftInfo)
         setShiftInfo(timerData.shiftInfo)
         setTimeUntilReset(timerData.shiftInfo.timeUntilReset || 0)
         setFormattedTimeUntilReset(timerData.shiftInfo.formattedTimeUntilReset || '')

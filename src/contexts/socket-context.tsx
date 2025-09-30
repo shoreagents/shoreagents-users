@@ -138,7 +138,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       
       // If it's a ping timeout, try to reconnect immediately
       if (reason === 'ping timeout') {
-        console.log('🔄 Ping timeout detected, attempting reconnection...')
         setTimeout(() => {
           if (!newSocket.connected) {
             newSocket.connect()
@@ -184,7 +183,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
     // Handle reconnection events from server
     newSocket.on('user-reconnect-needed', (data) => {
-      console.log('🔄 Server requesting reconnection for user:', data.email)
       // Check if this is for the current user
       const currentUser = getCurrentUser()
       if (currentUser?.email === data.email) {
@@ -199,7 +197,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
     // Handle reconnection success
     newSocket.on('reconnection-success', (data) => {
-      console.log('✅ Reconnection successful:', data)
       // Dispatch reconnection event for UI updates
       const event = new CustomEvent('socket-reconnected', { 
         detail: { 
@@ -217,7 +214,6 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
     // Handle server shutdown
     newSocket.on('server-shutdown', (data) => {
-      console.log('🛑 Server is shutting down:', data.message)
       // Attempt to reconnect after a delay
       setTimeout(() => {
         if (newSocket && !newSocket.connected) {
