@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useRef, useCallback } from 'react'
-import { Toilet, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Toilet, ChevronLeft, Droplets, Clock12 } from 'lucide-react'
 import { useRestroom } from '@/contexts/restroom-context'
 import { cn } from '@/lib/utils'
 import { getCurrentUser } from '@/lib/ticket-utils'
@@ -165,7 +165,11 @@ export function GlobalRestroomQuickAction() {
           {/* Content */}
           <div className="relative h-full w-full flex items-center justify-center">
             {isVisible ? (
-              <Toilet className="h-6 w-6 text-white" />
+              isInRestroom ? (
+                <Clock12 className="h-6 w-6 text-white animate-spin mr-1" />
+              ) : (
+                <Toilet className="h-6 w-6 text-white mr-1" />
+              )
             ) : (
               <div className={cn(
                 "relative",
@@ -174,7 +178,7 @@ export function GlobalRestroomQuickAction() {
                 <ChevronLeft className="h-6 w-6 dark:text-white text-black relative" />
                 {/* Restroom status indicator */}
                 {isInRestroom && (
-                  <div className="absolute top-1.5 w-3 h-3 bg-red-500 rounded-full border-2 border-white dark:border-gray-900" />
+                  <div className="absolute top-1.5 w-3 h-3 bg-red-500 rounded-full border-2 border-white dark:border-gray-900 animate-pulse" />
                 )}
               </div>
             )}
@@ -192,14 +196,21 @@ export function GlobalRestroomQuickAction() {
           />
         </div>
         
-        {/* Small toggle indicator when visible */}
+        {/* Small toggle indicator when visible - Triangular shape */}
         {isVisible && (
           <button
             onClick={handleToggleVisibility}
-            className={`absolute -left-2 top-1/2 transform -translate-y-1/2 h-6 w-6 rounded-tl-full rounded-bl-full flex items-center justify-center transition-all duration-200 z-10 ${isInRestroom ? 'bg-red-500' : 'bg-blue-600'}` }
+            className={`absolute -left-2 top-1/2 transform -translate-y-1/2 w-0 h-0 flex items-center justify-center transition-all duration-200 z-10`}
             title="Hide Restroom Button"
+            style={{
+              borderTop: '12px solid transparent',
+              borderBottom: '12px solid transparent',
+              borderRight: `12px solid ${isInRestroom ? '#ef4444' : '#2563eb'}`,
+            }}
           >
-            <ChevronRight className="h-3 w-3 text-white " />
+            <div className="absolute -right-3 top-1/2 transform -translate-y-1/2">
+              <ChevronLeft className="h-3 w-3 text-white" />
+            </div>
           </button>
         )}
       </div>

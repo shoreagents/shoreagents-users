@@ -1519,7 +1519,7 @@ ipcMain.handle('show-inactivity-notification', async (event, data) => {
     inactivityNotification = await createNotificationWithSound(
       'Inactivity Detected',
       `You've been inactive for ${timeText}. Move your mouse to resume.`,
-      getAppResourcePath('public/ShoreAgents-Logo-only-256.png'),
+      getAppResourcePath('public/warning.png'),
       'inactivity'
     );
     
@@ -1556,7 +1556,7 @@ ipcMain.handle('update-inactivity-notification', async (event, data) => {
         inactivityNotification = await createNotificationWithSound(
           'Inactivity Detected',
           `You've been inactive for ${timeText}. Move your mouse to resume.`,
-          getAppResourcePath('public/ShoreAgents-Logo-only-256.png'),
+          getAppResourcePath('public/warning.png'),
           'inactivity'
         );
       }, 100); // Increased delay for better cleanup

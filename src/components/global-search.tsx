@@ -1,8 +1,8 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { useRouter } from "next/navigation"
-import { Search, Clock, FileText, CheckSquare, Users, Activity, X, Command, Calendar } from "lucide-react"
+import { Search, Clock, FileText, CheckSquare, Users, Activity, X, Command, Calendar, HelpCircle, Toilet } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   CommandDialog,
@@ -38,44 +38,35 @@ function truncateMessage(message: string, maxLength: number = 30): string {
 export function GlobalSearch({ className }: GlobalSearchProps) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
+  const [selectedIndex, setSelectedIndex] = useState(0)
 
   const router = useRouter()
   const inputRef = useRef<HTMLInputElement>(null)
+  const scrollAreaRef = useRef<HTMLDivElement>(null)
   
   // Use React Query hook for debounced search
   const { data: searchData, isLoading: loading, results, isCached } = useDebouncedGlobalSearch(query)
 
-  // Keyboard shortcut handler
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
-        e.preventDefault()
-        setOpen(true)
-      }
-      if (e.key === 'Escape') {
-        setOpen(false)
-      }
-    }
-
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [])
-
-  // Focus input when dialog opens
-  useEffect(() => {
-    if (open && inputRef.current) {
-      setTimeout(() => inputRef.current?.focus(), 100)
-    }
-  }, [open])
-
-  // Navigation handlers
-  const handleSelect = (result: SearchResult) => {
-    setOpen(false)
-    setQuery("")
-    router.push(result.url)
-  }
-
-
+  // Create flattened list of all selectable items
+  const quickActions: SearchResult[] = [
+    { id: 'dashboard', title: 'Dashboard', type: 'page', url: '/dashboard' },
+    { id: 'analytics', title: 'Analytics', type: 'page', url: '/dashboard/analytics' },
+    { id: 'activity', title: 'Activity', type: 'page', url: '/dashboard/activity' },
+    { id: 'my-tickets', title: 'My Tickets', type: 'page', url: '/forms/my-tickets' },
+    { id: 'task', title: 'Task', type: 'page', url: '/productivity/task-activity' },
+    { id: 'notifications', title: 'Notifications', type: 'page', url: '/notifications' },
+    { id: 'Profile', title: 'Profile', type: 'page', url: '/settings/profile' },
+    { id: 'password', title: 'Password', type: 'page', url: '/settings/password' },
+    { id: 'team', title: 'Team', type: 'page', url: '/settings/connected-users' },
+    { id: 'faq', title: 'FAQ', type: 'page', url: '/help/faq' },
+    { id: 'contact', title: 'Contact Support', type: 'page', url: '/help/contact' },
+    { id: 'report', title: 'Report Issues', type: 'page', url: '/help/report' },
+    { id: 'events', title: 'Events & Activities', type: 'page', url: '/status/events' },
+    { id: 'restroom', title: 'Restroom', type: 'page', url: '/status/restroom' },
+    { id: 'clinic', title: 'Clinic', type: 'page', url: '/status/health' },
+    { id: 'meetings', title: 'Meetings', type: 'page', url: '/status/meetings' },
+    { id: 'breaks', title: 'Breaks', type: 'page', url: '/status/breaks' },
+  ]
 
   // Group results by type
   const groupedResults = results.reduce((acc, result) => {
@@ -86,6 +77,102 @@ export function GlobalSearch({ className }: GlobalSearchProps) {
     return acc
   }, {} as Record<string, SearchResult[]>)
 
+  // Create flattened list from grouped results to maintain display order
+  const flattenedResultsFromGroups: SearchResult[] = []
+  Object.entries(groupedResults).forEach(([type, typeResults]) => {
+    typeResults.forEach(result => {
+      flattenedResultsFromGroups.push(result)
+    })
+  })
+
+  const allSelectableItems = query ? flattenedResultsFromGroups : quickActions
+  const maxIndex = allSelectableItems.length - 1
+
+  // Create a map for quick index lookup
+  const resultIndexMap = new Map<string, number>()
+  allSelectableItems.forEach((item, index) => {
+    const key = `${item.id}-${item.type}`
+    resultIndexMap.set(key, index)
+  })
+
+  // Reset selected index when query changes
+  useEffect(() => {
+    setSelectedIndex(0)
+  }, [query])
+
+  // Navigation handlers
+  const handleSelect = useCallback((result: SearchResult) => {
+    setOpen(false)
+    setQuery("")
+    router.push(result.url)
+  }, [router])
+
+  // Auto-scroll to selected item
+  useEffect(() => {
+    if (scrollAreaRef.current && allSelectableItems.length > 0) {
+      const selectedElement = scrollAreaRef.current.querySelector(`[data-index="${selectedIndex}"]`)
+      if (selectedElement) {
+        selectedElement.scrollIntoView({
+          behavior: 'smooth',
+          block: 'nearest'
+        })
+      }
+    }
+  }, [selectedIndex, allSelectableItems.length])
+
+  // Keyboard navigation handler
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (!open) return
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault()
+        setSelectedIndex(prev => prev < maxIndex ? prev + 1 : 0)
+        break
+      case 'ArrowUp':
+        e.preventDefault()
+        setSelectedIndex(prev => prev > 0 ? prev - 1 : maxIndex)
+        break
+      case 'Enter':
+        e.preventDefault()
+        if (allSelectableItems[selectedIndex]) {
+          handleSelect(allSelectableItems[selectedIndex])
+        }
+        break
+      case 'Escape':
+        setOpen(false)
+        break
+    }
+  }, [open, maxIndex, allSelectableItems, selectedIndex, handleSelect])
+
+  // Keyboard shortcut handler
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault()
+        setOpen(true)
+      }
+    }
+
+    document.addEventListener('keydown', handleGlobalKeyDown)
+    return () => document.removeEventListener('keydown', handleGlobalKeyDown)
+  }, [])
+
+  // Add keyboard navigation when dialog is open
+  useEffect(() => {
+    if (open) {
+      document.addEventListener('keydown', handleKeyDown)
+      return () => document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [open, selectedIndex, allSelectableItems, handleKeyDown])
+
+  // Focus input when dialog opens
+  useEffect(() => {
+    if (open && inputRef.current) {
+      setTimeout(() => inputRef.current?.focus(), 100)
+    }
+  }, [open])
+
   const getTypeIcon = (type: string) => {
     switch (type) {
       case 'ticket': return FileText
@@ -94,8 +181,11 @@ export function GlobalSearch({ className }: GlobalSearchProps) {
       case 'meeting': return Users
       case 'event': return Calendar
       case 'health': return Activity
+      case 'clinic': return Activity
+      case 'restroom': return Toilet
       case 'user': return Users
       case 'page': return FileText
+      case 'faq': return HelpCircle
       default: return Search
     }
   }
@@ -108,8 +198,11 @@ export function GlobalSearch({ className }: GlobalSearchProps) {
       case 'meeting': return 'Meetings'
       case 'event': return 'Events & Activities'
       case 'health': return 'Health'
+      case 'clinic': return 'Clinic'
+      case 'restroom': return 'Restroom'
       case 'user': return 'Users'
       case 'page': return 'Pages'
+      case 'faq': return 'Help & FAQ'
       default: return 'Other'
     }
   }
@@ -151,15 +244,15 @@ export function GlobalSearch({ className }: GlobalSearchProps) {
       </Button>
 
       {/* Search Dialog */}
-      <CommandDialog open={open} onOpenChange={setOpen}>
+      <CommandDialog open={open} onOpenChange={setOpen} className="max-w-xl">
         <CommandInput
           ref={inputRef}
           placeholder="Search tickets, tasks, breaks, meetings, events..."
           value={query}
           onValueChange={setQuery}
         />
-        <ScrollArea className="h-[400px]">
-          <div className="p-2">
+        <ScrollArea ref={scrollAreaRef} className="h-[400px]">
+          <div className="p-2 max-w-xl">
             {loading && (
               <div className="p-6 text-center text-sm text-muted-foreground">
                 <div className="flex items-center justify-center gap-2">
@@ -182,84 +275,37 @@ export function GlobalSearch({ className }: GlobalSearchProps) {
                 <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
                   Quick Actions
                 </div>
-                                 <div
-                   onClick={() => handleSelect({ id: 'new-ticket', title: 'New Ticket', type: 'page', url: '/forms/new' })}
-                   className="flex items-center gap-3 p-3 cursor-pointer rounded-sm transition-all duration-200 hover:bg-muted/50"
-                 >
-                   <div className="h-4 w-4 rounded-full border border-muted-foreground/30 flex-shrink-0 transition-colors duration-200 hover:border-muted-foreground/60" />
-                   <div className="flex-1 min-w-0">
-                     <span className="font-medium text-foreground transition-colors duration-200 hover:text-foreground/90">New Ticket</span>
-                   </div>
-                 </div>
-                 <div
-                   onClick={() => handleSelect({ id: 'dashboard', title: 'Dashboard', type: 'page', url: '/dashboard' })}
-                   className="flex items-center gap-3 p-3 cursor-pointer rounded-sm transition-all duration-200 hover:bg-muted/50"
-                 >
-                   <div className="h-4 w-4 rounded-full border border-muted-foreground/30 flex-shrink-0 transition-colors duration-200 hover:border-muted-foreground/60" />
-                   <div className="flex-1 min-w-0">
-                     <span className="font-medium text-foreground transition-colors duration-200 hover:text-foreground/90">Dashboard</span>
-                   </div>
-                 </div>
-                 <div
-                   onClick={() => handleSelect({ id: 'my-tickets', title: 'My Tickets', type: 'page', url: '/forms/my-tickets' })}
-                   className="flex items-center gap-3 p-3 cursor-pointer rounded-sm transition-all duration-200 hover:bg-muted/50"
-                 >
-                   <div className="h-4 w-4 rounded-full border border-muted-foreground/30 flex-shrink-0 transition-colors duration-200 hover:border-muted-foreground/60" />
-                   <div className="flex-1 min-w-0">
-                     <span className="font-medium text-foreground transition-colors duration-200 hover:text-foreground/90">My Tickets</span>
-                   </div>
-                 </div>
-                 <div
-                   onClick={() => handleSelect({ id: 'notifications', title: 'Notifications', type: 'page', url: '/notifications' })}
-                   className="flex items-center gap-3 p-3 cursor-pointer rounded-sm transition-all duration-200 hover:bg-muted/50"
-                 >
-                   <div className="h-4 w-4 rounded-full border border-muted-foreground/30 flex-shrink-0 transition-colors duration-200 hover:border-muted-foreground/60" />
-                   <div className="flex-1 min-w-0">
-                     <span className="font-medium text-foreground transition-colors duration-200 hover:text-foreground/90">Notifications</span>
-                   </div>
-                 </div>
-                
-                <div className="h-px bg-border mx-2 my-2" />
-                
-                <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
-                  Navigation
-                </div>
-                                 <div
-                   onClick={() => handleSelect({ id: 'help', title: 'Help & Support', type: 'page', url: '/help' })}
-                   className="flex items-center gap-3 p-3 cursor-pointer rounded-sm transition-all duration-200 hover:bg-muted/50"
-                 >
-                   <div className="h-4 w-4 rounded-full border border-muted-foreground/30 flex-shrink-0 transition-colors duration-200 hover:border-muted-foreground/60" />
-                   <div className="flex-1 min-w-0">
-                     <span className="font-medium text-foreground transition-colors duration-200 hover:text-foreground/90">Help & Support</span>
-                   </div>
-                 </div>
-                 <div
-                   onClick={() => handleSelect({ id: 'settings', title: 'Settings', type: 'page', url: '/settings/profile' })}
-                   className="flex items-center gap-3 p-3 cursor-pointer rounded-sm transition-all duration-200 hover:bg-muted/50"
-                 >
-                   <div className="h-4 w-4 rounded-full border border-muted-foreground/30 flex-shrink-0 transition-colors duration-200 hover:border-muted-foreground/60" />
-                   <div className="flex-1 min-w-0">
-                     <span className="font-medium text-foreground transition-colors duration-200 hover:text-foreground/90">Settings</span>
-                   </div>
-                 </div>
-                 <div
-                   onClick={() => handleSelect({ id: 'productivity', title: 'Productivity', type: 'page', url: '/productivity/task-activity' })}
-                   className="flex items-center gap-3 p-3 cursor-pointer rounded-sm transition-all duration-200 hover:bg-muted/50"
-                 >
-                   <div className="h-4 w-4 rounded-full border border-muted-foreground/30 flex-shrink-0 transition-colors duration-200 hover:border-muted-foreground/60" />
-                   <div className="flex-1 min-w-0">
-                     <span className="font-medium text-foreground transition-colors duration-200 hover:text-foreground/90">Productivity</span>
-                   </div>
-                 </div>
-                 <div
-                   onClick={() => handleSelect({ id: 'events', title: 'Events & Activities', type: 'page', url: '/status/events' })}
-                   className="flex items-center gap-3 p-3 cursor-pointer rounded-sm transition-all duration-200 hover:bg-muted/50"
-                 >
-                   <div className="h-4 w-4 rounded-full border border-muted-foreground/30 flex-shrink-0 transition-colors duration-200 hover:border-muted-foreground/60" />
-                   <div className="flex-1 min-w-0">
-                     <span className="font-medium text-foreground transition-colors duration-200 hover:text-foreground/90">Events & Activities</span>
-                   </div>
-                 </div>
+                {quickActions.map((action, index) => {
+                  const isSelected = selectedIndex === index
+                  return (
+                    <div
+                      key={action.id}
+                      data-index={index}
+                      onClick={() => handleSelect(action)}
+                      className={cn(
+                        "flex items-center gap-3 p-3 cursor-pointer rounded-sm transition-all duration-200",
+                        isSelected ? "bg-accent text-accent-foreground" : "hover:bg-muted/50"
+                      )}
+                    >
+                      <div className={cn(
+                        "h-4 w-4 rounded-full border flex-shrink-0 transition-colors duration-200",
+                        isSelected 
+                          ? "border-accent-foreground/60" 
+                          : "border-muted-foreground/30 hover:border-muted-foreground/60"
+                      )} />
+                      <div className="flex-1 min-w-0">
+                        <span className={cn(
+                          "font-medium transition-colors duration-200",
+                          isSelected 
+                            ? "text-accent-foreground" 
+                            : "text-foreground hover:text-foreground/90"
+                        )}>
+                          {action.title}
+                        </span>
+                      </div>
+                    </div>
+                  )
+                })}
               </>
             )}
 
@@ -273,47 +319,79 @@ export function GlobalSearch({ className }: GlobalSearchProps) {
                       <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
                         {getTypeLabel(type)}
                       </div>
-                      {typeResults.map((result, index) => (
-                                                 <div
-                           key={result.id}
-                           onClick={() => handleSelect(result)}
-                           className="flex items-center gap-3 p-3 cursor-pointer rounded-sm transition-all duration-200 hover:bg-muted/50"
-                         >
-                          <Icon className="h-4 w-4 text-muted-foreground/60 flex-shrink-0 transition-colors duration-200 hover:text-muted-foreground/80" />
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="font-medium text-foreground transition-colors duration-200 hover:text-foreground/90">{truncateMessage(result.title, 30)}</span>
-                              {result.metadata?.status && (
-                                <Badge 
-                                  variant="secondary" 
-                                  className={cn("text-xs", getStatusColor(result.metadata.status))}
-                                >
-                                  {result.metadata.status}
-                                </Badge>
-                              )}
-                              {result.metadata?.priority && (
-                                <Badge 
-                                  variant="outline" 
-                                  className={cn("text-xs", getStatusColor(result.metadata.priority))}
-                                >
-                                  {result.metadata.priority}
-                                </Badge>
-                              )}
-                            </div>
-                            {result.description && (
-                              <p className="text-sm text-muted-foreground/70">
-                                {truncateMessage(result.description, 70)}
-                              </p>
+                      {typeResults.map((result, index) => {
+                        // Find the global index of this result using the index map
+                        const key = `${result.id}-${result.type}`
+                        const globalIndex = resultIndexMap.get(key) ?? -1
+                        const isSelected = selectedIndex === globalIndex
+                        
+                        return (
+                          <div
+                            key={result.id}
+                            data-index={globalIndex}
+                            onClick={() => handleSelect(result)}
+                            className={cn(
+                              "flex items-center gap-3 p-3 cursor-pointer rounded-sm transition-all duration-200",
+                              isSelected ? "bg-accent text-accent-foreground" : "hover:bg-muted/50"
                             )}
-                            <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground/60">
-                              {result.metadata?.category && (
-                                <span>{result.metadata.category}</span>
+                          >
+                            <Icon className={cn(
+                              "h-4 w-4 flex-shrink-0 transition-colors duration-200",
+                              isSelected 
+                                ? "text-accent-foreground/80" 
+                                : "text-muted-foreground/60 hover:text-muted-foreground/80"
+                            )} />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className={cn(
+                                  "font-medium transition-colors duration-200",
+                                  isSelected 
+                                    ? "text-accent-foreground" 
+                                    : "text-foreground hover:text-foreground/90"
+                                )}>
+                                  {truncateMessage(result.title, 50)}
+                                </span>
+                                {result.metadata?.status && (
+                                  <Badge 
+                                    variant="secondary" 
+                                    className={cn("text-xs", getStatusColor(result.metadata.status))}
+                                  >
+                                    {result.metadata.status}
+                                  </Badge>
+                                )}
+                                {result.metadata?.priority && (
+                                  <Badge 
+                                    variant="outline" 
+                                    className={cn("text-xs", getStatusColor(result.metadata.priority))}
+                                  >
+                                    {result.metadata.priority}
+                                  </Badge>
+                                )}
+                              </div>
+                              {result.description && (
+                                <p className={cn(
+                                  "text-sm transition-colors duration-200 line-clamp-2 max-w-xl w-full",
+                                  isSelected 
+                                    ? "text-accent-foreground/70" 
+                                    : "text-muted-foreground/70"
+                                )}>
+                                  {result.description}
+                                </p>
                               )}
-                              
+                              <div className={cn(
+                                "flex items-center gap-2 mt-1 text-xs transition-colors duration-200",
+                                isSelected 
+                                  ? "text-accent-foreground/60" 
+                                  : "text-muted-foreground/60"
+                              )}>
+                                {result.metadata?.category && (
+                                  <span>{result.metadata.category}</span>
+                                )}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   )
                 })}

@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { executeQuery } from '@/lib/database-server'
 import { redisCache, cacheKeys, cacheTTL } from '@/lib/redis-cache'
+import { searchFAQ } from '@/lib/faq-data'
 
 interface SearchResult {
   id: string
   title: string
   description?: string
-  type: 'ticket' | 'task' | 'break' | 'meeting' | 'health' | 'user' | 'page' | 'event'
+  type: 'ticket' | 'task' | 'break' | 'meeting' | 'health' | 'user' | 'page' | 'event' | 'faq'
   url: string
   metadata?: {
     status?: string
@@ -357,18 +358,20 @@ export async function GET(request: NextRequest) {
          { title: 'Dashboard', description: 'Main dashboard overview', url: '/dashboard', type: 'page' as const },
          { title: 'Activity', description: 'View activity analytics', url: '/dashboard/activity', type: 'page' as const },
          { title: 'Analytics', description: 'View detailed analytics', url: '/dashboard/analytics', type: 'page' as const },
-         { title: 'New Ticket', description: 'Create a new support ticket', url: '/forms/new', type: 'page' as const },
          { title: 'My Tickets', description: 'View your tickets', url: '/forms/my-tickets', type: 'page' as const },
-         { title: 'Task Management', description: 'Manage tasks and activities', url: '/productivity/task-activity', type: 'page' as const },
-         { title: 'Break Management', description: 'Manage breaks and time off', url: '/status/breaks', type: 'page' as const },
-         { title: 'Meeting Management', description: 'Manage meetings', url: '/status/meetings', type: 'page' as const },
+         { title: 'Task', description: 'Manage tasks and activities', url: '/productivity/task-activity', type: 'page' as const },
+         { title: 'Breaks', description: 'Manage breaks and time off', url: '/status/breaks', type: 'page' as const },
+         { title: 'Meetings', description: 'Manage meetings', url: '/status/meetings', type: 'page' as const },
          { title: 'Events & Activities', description: 'Manage events and activities', url: '/status/events', type: 'page' as const },
-         { title: 'Restroom Status', description: 'Manage restroom status', url: '/status/restroom', type: 'page' as const },
-         { title: 'Health Records', description: 'View health records', url: '/status/health', type: 'page' as const },
+         { title: 'Restroom', description: 'Manage restroom', url: '/status/restroom', type: 'page' as const },
+         { title: 'Clinic', description: 'View clinic records', url: '/status/health', type: 'page' as const },
          { title: 'Profile', description: 'User profile settings', url: '/settings/profile', type: 'page' as const },
          { title: 'FAQ', description: 'Frequently asked questions', url: '/help/faq', type: 'page' as const },
-         { title: 'Contact Support', description: 'Contact support team', url: '/help/contact', type: 'page' as const },
-         { title: 'Notifications', description: 'View all notifications', url: '/notifications', type: 'page' as const }
+         { title: 'Contact', description: 'Contact support team', url: '/help/contact', type: 'page' as const },
+         { title: 'Notifications', description: 'View all notifications', url: '/notifications', type: 'page' as const },
+         { title: 'Report', description: 'Report issues', url: '/help/report', type: 'page' as const },
+         { title: 'Team', description: 'View team members', url: '/settings/connected-users', type: 'page' as const },
+         { title: 'Password', description: 'Change password', url: '/settings/password', type: 'page' as const }
        ]
 
       staticPages.forEach(page => {
@@ -382,6 +385,21 @@ export async function GET(request: NextRequest) {
             url: page.url
           })
         }
+      })
+
+      // Search FAQ data for natural language queries
+      const faqResults = searchFAQ(searchQuery)
+      faqResults.forEach(faq => {
+        results.push({
+          id: faq.id,
+          title: faq.question,
+          description: faq.answer,
+          type: 'faq',
+          url: `/help/faq?item=${faq.id}`,
+          metadata: {
+            category: faq.category
+          }
+        })
       })
 
       // Sort results by relevance (exact matches first, then partial matches)

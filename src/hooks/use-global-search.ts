@@ -8,7 +8,7 @@ export interface SearchResult {
   id: string
   title: string
   description?: string
-  type: 'ticket' | 'task' | 'break' | 'meeting' | 'health' | 'user' | 'page' | 'event'
+  type: 'ticket' | 'task' | 'break' | 'meeting' | 'health' | 'user' | 'page' | 'event' | 'faq'
   url: string
   metadata?: {
     status?: string

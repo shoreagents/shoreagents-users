@@ -272,7 +272,7 @@ export const AppSidebar = React.memo(function AppSidebar({ ...props }: React.Com
             statusIndicator: isInRestroom ? <RestroomStatusIndicator /> : null,
           },
           {
-            title: "Clinic Visit",
+            title: "Clinic",
             url: "/status/health",
             statusIndicator: isInClinic ? <InClinicStatusIndicator /> : isGoingToClinic ? <GoingToClinicStatusIndicator /> : null,
           },
@@ -288,11 +288,11 @@ export const AppSidebar = React.memo(function AppSidebar({ ...props }: React.Com
             url: "/help/faq",
           },
           {
-            title: "Contact Support",
+            title: "Contact",
             url: "/help/contact",
           },
           {
-            title: "Report an Issue",
+            title: "Report Issue",
             url: "/help/report",
           },
         ],
@@ -307,11 +307,11 @@ export const AppSidebar = React.memo(function AppSidebar({ ...props }: React.Com
             url: "/settings/profile",
           },
           {
-            title: "Change Password",
+            title: "Password",
             url: "/settings/password",
           },
           {
-            title: "Team Status",
+            title: "Team",
             url: "/settings/connected-users",
           },
         ],
@@ -331,11 +331,6 @@ export const AppSidebar = React.memo(function AppSidebar({ ...props }: React.Com
         icon: Clock,
       },
       {
-        name: "Meetings",
-        url: "/status/meetings",
-        icon: MessageSquare,
-      },
-      {
         name: "Restroom",
         url: "/status/restroom",
         icon: Toilet,
@@ -353,18 +348,17 @@ export const AppSidebar = React.memo(function AppSidebar({ ...props }: React.Com
           <ScrollArea className="flex-1 px-2">
             <div className="space-y-2">
               <NavMain items={data.navMain} />
-              
-              {/* Leaderboard Section - Only show when not collapsed */}
-              {state === "expanded" && (
-                <div className="px-1 py-2">
-                  <Leaderboard />
-                </div>
-              )}
             </div>
           </ScrollArea>
         </SidebarContent>
-        <SidebarFooter>
-          <div className="px-2 pb-2" data-quick-actions>
+        <SidebarFooter className="border-t border-gray-500">
+          {/* Leaderboard Section - Only show when not collapsed */}
+          {state === "expanded" && (
+            <div className="px-1 ">
+              <Leaderboard />
+            </div>
+          )}
+          <div className="px-2" data-quick-actions>
             <NavProjects projects={data.quickActions} />
           </div>
         </SidebarFooter>

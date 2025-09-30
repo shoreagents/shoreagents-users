@@ -23,12 +23,12 @@ export function Leaderboard() {
 
   // Function to format month display
   const formatMonthDisplay = useCallback((monthYear: string) => {
-    if (!monthYear) return "Top Points Leaderboard"
+    if (!monthYear) return "Top 3 Leaderboard"
     
     const [year, month] = monthYear.split('-')
     const date = new Date(parseInt(year), parseInt(month) - 1)
     const monthName = date.toLocaleDateString('en-US', { month: 'long' })
-    return `${monthName} Top Points Leaderboard`
+    return `${monthName} Top 3`
   }, [])
 
   // Function to get current user email
@@ -46,9 +46,16 @@ export function Leaderboard() {
   }, [])
 
   // Extract data from React Query
-  const leaderboard = leaderboardData?.leaderboard || []
+  const leaderboard = useMemo(() => leaderboardData?.leaderboard || [], [leaderboardData?.leaderboard])
   const currentMonth = leaderboardData?.monthYear || ''
-  const currentUserRank = 0 // TODO: Add user rank to the API response
+  
+  // Calculate current user rank
+  const currentUserRank = useMemo(() => {
+    if (!currentUserEmail || leaderboard.length === 0) return null
+    
+    const userEntry = leaderboard.find(entry => entry.userId === currentUserEmail)
+    return userEntry ? userEntry.rank : null
+  }, [currentUserEmail, leaderboard])
 
   // Note: Real-time updates are now handled by React Query cache invalidation
   // The leaderboard will automatically refresh when the cache is invalidated
@@ -65,8 +72,8 @@ export function Leaderboard() {
 
   if (isLoading) {
     return (
-      <Card className="mb-4">
-        <CardHeader className="pb-3">
+      <Card >
+        <CardHeader className="px-3 pt-2">
           <CardTitle className="text-xs flex items-center gap-2">
             <Trophy className="h-4 w-4" />
             {formatMonthDisplay(currentMonth)}
@@ -74,7 +81,7 @@ export function Leaderboard() {
         </CardHeader>
         <CardContent>
           <div className="space-y-2">
-            {[...Array(5)].map((_, i) => (
+            {[...Array(3)].map((_, i) => (
               <div key={i} className="flex items-center gap-2 animate-pulse">
                 <div className="h-4 w-4 bg-muted rounded"></div>
                 <div className="h-3 bg-muted rounded flex-1"></div>
@@ -89,8 +96,8 @@ export function Leaderboard() {
 
   if (leaderboard.length === 0) {
     return (
-      <Card className="mb-4">
-        <CardHeader className="pb-3">
+      <Card>
+        <CardHeader className="px-3 pt-2 ">
           <CardTitle className="text-sm flex items-center gap-2">
             <Trophy className="h-4 w-4" />
             {formatMonthDisplay(currentMonth)}
@@ -106,8 +113,8 @@ export function Leaderboard() {
   }
 
   return (
-    <Card className="mb-4 w-full">
-      <CardHeader className="pb-3">
+    <Card className="w-full py-2">
+      <CardHeader className="px-3 pt-2">
         <CardTitle className="text-xs flex items-center gap-2">
           <Trophy className="h-4 w-4 flex-shrink-0" />
           {formatMonthDisplay(currentMonth)}
@@ -116,7 +123,7 @@ export function Leaderboard() {
       <CardContent className="px-3">
         <TooltipProvider>
         <div className="space-y-2">
-          {leaderboard.map((entry, index) => {
+          {leaderboard.slice(0, 3).map((entry, index) => {
             const isCurrentUser = currentUserEmail && entry.userId === currentUserEmail
             
             return (

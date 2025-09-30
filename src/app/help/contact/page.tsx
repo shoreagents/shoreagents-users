@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { AppSidebar } from "@/components/app-sidebar"
 import { AppHeader } from "@/components/app-header"
+import { NewTicketDialog } from "@/components/new-ticket-dialog"
 
 import {
   SidebarInset,
@@ -48,6 +49,8 @@ const supportHours = [
 
 export default function ContactSupportPage() {
   const [loading, setLoading] = useState(true)
+  const [isNewTicketDialogOpen, setIsNewTicketDialogOpen] = useState(false)
+  
   useEffect(() => {
     const timer = setTimeout(() => setLoading(false), 1000)
     return () => clearTimeout(timer)
@@ -102,11 +105,20 @@ export default function ContactSupportPage() {
                       </CardDescription>
                     </CardHeader>
                     <CardContent className="mt-auto">
-                      <Link href={channel.href}>
-                        <Button className="w-full">
+                      {channel.href === "/forms/new" ? (
+                        <Button 
+                          className="w-full"
+                          onClick={() => setIsNewTicketDialogOpen(true)}
+                        >
                           {channel.action}
                         </Button>
-                      </Link>
+                      ) : (
+                        <Link href={channel.href}>
+                          <Button className="w-full">
+                            {channel.action}
+                          </Button>
+                        </Link>
+                      )}
                     </CardContent>
                   </Card>
                 ))}
@@ -200,6 +212,12 @@ export default function ContactSupportPage() {
           </div>
         </div>
       </SidebarInset>
+      
+      {/* New Ticket Dialog */}
+      <NewTicketDialog 
+        open={isNewTicketDialogOpen} 
+        onOpenChange={setIsNewTicketDialogOpen} 
+      />
     </SidebarProvider>
   )
 } 

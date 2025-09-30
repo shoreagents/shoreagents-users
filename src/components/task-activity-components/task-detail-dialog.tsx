@@ -2243,7 +2243,7 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                       <div className="flex items-center gap-2 mb-2">
                         <span className="text-sm font-medium">Description</span>
                       </div>
-                      <div className="border rounded-md p-3 min-h-[100px]">
+                      <div className="border rounded-md p-3">
                         {isEditingDescription ? (
                           <div>
                             <Textarea
@@ -2261,7 +2261,7 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                           <div className="space-y-2">
                             {task.description ? (
                               <div 
-                                className="text-sm cursor-pointer hover:bg-muted/50 rounded p-2 -m-2"
+                                className="text-sm cursor-pointer hover:bg-muted/50 rounded p-2 -m-2 break-words overflow-wrap-anywhere whitespace-pre-wrap max-h-[100px] overflow-y-auto"
                                 onClick={handleDescriptionEdit}
                               >
                                 {task.description}
