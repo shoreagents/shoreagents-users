@@ -39,11 +39,11 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 export const AppSidebar = React.memo(function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
   const { state } = useSidebar()
-  const { isActive: isActivityActive, isLoading, isShiftEnded } = useActivityStatus()
+  const { isActive: isActivityActive, isLoading, isShiftEnded: isActivityShiftEnded } = useActivityStatus()
   const { isInMeeting } = useMeeting()
   const { isInEvent, currentEvent } = useEventsContext()
   const { isGoingToClinic, isInClinic } = useHealth()
-  const { isInRestroom, restroomCount } = useRestroom()
+  const { isInRestroom, restroomCount, isShiftEnded } = useRestroom()
   const [notStartedTaskCount, setNotStartedTaskCount] = React.useState(0)
   const [isNewTicketDialogOpen, setIsNewTicketDialogOpen] = React.useState(false)
 
@@ -146,11 +146,17 @@ export const AppSidebar = React.memo(function AppSidebar({ ...props }: React.Com
     <div className="flex items-center">
       <div 
         className={`w-2 h-2 rounded-full ${
-          isInRestroom 
-            ? 'bg-red-500 animate-pulse' 
-            : 'bg-gray-300'
+          isShiftEnded
+            ? 'bg-gray-500'
+            : isInRestroom 
+              ? 'bg-red-500 animate-pulse' 
+              : 'bg-gray-300'
         }`}
-        title={isInRestroom ? `In Restroom (${restroomCount} visits today)` : `Not In Restroom (${restroomCount} visits today)`}
+        title={isShiftEnded 
+          ? "Restroom disabled - shift has ended" 
+          : isInRestroom 
+            ? `In Restroom (${restroomCount} visits today)` 
+            : `Not In Restroom (${restroomCount} visits today)`}
       />
     </div>
   )

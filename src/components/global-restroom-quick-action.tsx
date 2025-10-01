@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useRef, useCallback } from 'react'
-import { Toilet, ChevronLeft, Droplets, Clock12 } from 'lucide-react'
+import { Toilet, ChevronLeft, Droplets, Clock12, X } from 'lucide-react'
 import { useRestroom } from '@/contexts/restroom-context'
 import { cn } from '@/lib/utils'
 import { getCurrentUser } from '@/lib/ticket-utils'
@@ -13,7 +13,7 @@ import { useMeeting } from '@/contexts/meeting-context'
 import { useBreak } from '@/contexts/break-context'
 
 export function GlobalRestroomQuickAction() {
-  const { isInRestroom, restroomCount, dailyRestroomCount, updateRestroomStatus, isUpdating } = useRestroom()
+  const { isInRestroom, restroomCount, dailyRestroomCount, updateRestroomStatus, isUpdating, isShiftEnded } = useRestroom()
   const [position, setPosition] = useState(50) // Default to 50% from top
   const [isVisible, setIsVisible] = useState(true) // Default to visible
   const [isDragging, setIsDragging] = useState(false)
@@ -34,7 +34,7 @@ export function GlobalRestroomQuickAction() {
   const currentUser = getCurrentUser()
 
   // Check if restroom should be hidden/disabled
-  const shouldHideRestroom = isInEvent || isGoingToClinic || isInClinic || isInMeeting || isBreakActive
+  const shouldHideRestroom = isInEvent || isGoingToClinic || isInClinic || isInMeeting || isBreakActive 
 
   // Load position and visibility from localStorage on mount
   useEffect(() => {
@@ -156,16 +156,20 @@ export function GlobalRestroomQuickAction() {
           <div className={cn(
             "absolute inset-0 rounded-full transition-all duration-300",
             isVisible 
-              ? (isInRestroom 
-                  ? "bg-red-500" 
-                  : "bg-blue-600")
+              ? (isShiftEnded
+                  ? "bg-gray-500"
+                  : isInRestroom 
+                    ? "bg-red-500" 
+                    : "bg-blue-600")
               : ""
           )} />
           
           {/* Content */}
           <div className="relative h-full w-full flex items-center justify-center">
             {isVisible ? (
-              isInRestroom ? (
+              isShiftEnded ? (
+                <X className="h-6 w-6 text-white mr-1" />
+              ) : isInRestroom ? (
                 <Clock12 className="h-6 w-6 text-white animate-spin mr-1" />
               ) : (
                 <Toilet className="h-6 w-6 text-white mr-1" />
@@ -186,11 +190,15 @@ export function GlobalRestroomQuickAction() {
           
           {/* Click handlers */}
           <button
-            onClick={isVisible ? handleToggleRestroom : handleToggleVisibility}
+            onClick={isVisible && !isShiftEnded ? handleToggleRestroom : handleToggleVisibility}
             disabled={isUpdating && isVisible}
             className="absolute inset-0 w-full h-full rounded-full focus:outline-none focus:ring-2 focus:ring-white/50"
             title={isVisible 
-              ? (isInRestroom ? `Finish Restroom (${dailyRestroomCount} visits today, ${restroomCount} total)` : `Take Restroom (${dailyRestroomCount} visits today, ${restroomCount} total)`)
+              ? (isShiftEnded 
+                  ? "Restroom disabled - shift has ended" 
+                  : isInRestroom 
+                    ? `Finish Restroom (${dailyRestroomCount} visits today, ${restroomCount} total)` 
+                    : `Take Restroom (${dailyRestroomCount} visits today, ${restroomCount} total)`)
               : (isInRestroom ? `Currently in Restroom - Click to finish (${dailyRestroomCount} visits today, ${restroomCount} total)` : "Show Restroom Button")
             }
           />
@@ -205,7 +213,7 @@ export function GlobalRestroomQuickAction() {
             style={{
               borderTop: '12px solid transparent',
               borderBottom: '12px solid transparent',
-              borderRight: `12px solid ${isInRestroom ? '#ef4444' : '#2563eb'}`,
+              borderRight: `12px solid ${isShiftEnded ? '#6b7280' : isInRestroom ? '#ef4444' : '#2563eb'}`,
             }}
           >
             <div className="absolute -right-3 top-1/2 transform -translate-y-1/2">

@@ -27,7 +27,8 @@ export default function RestroomPage() {
     isUpdating, 
     error, 
     updateRestroomStatus,
-    fetchRestroomStatus
+    fetchRestroomStatus,
+    isShiftEnded
   } = useRestroom()
   
   // Get agent state contexts
@@ -37,7 +38,7 @@ export default function RestroomPage() {
   const { isBreakActive } = useBreak()
 
   // Check if restroom should be disabled
-  const shouldDisableRestroom = isInEvent || isGoingToClinic || isInClinic || isInMeeting || isBreakActive
+  const shouldDisableRestroom = isInEvent || isGoingToClinic || isInClinic || isInMeeting || isBreakActive || isShiftEnded
 
   if (isLoading) {
     return (
@@ -168,11 +169,12 @@ export default function RestroomPage() {
       {/* Disabled message */}
       {shouldDisableRestroom && (
         <div className="text-center text-muted-foreground text-sm mt-4">
-          {isInEvent && "Restroom is disabled while in an event/activity"}
-          {isGoingToClinic && "Restroom is disabled while going to clinic"}
-          {isInClinic && "Restroom is disabled while in clinic"}
-          {isInMeeting && "Restroom is disabled while in a meeting"}
-          {isBreakActive && "Restroom is disabled while on break"}
+          {isShiftEnded && "Restroom is disabled - shift has ended"}
+          {isInEvent && !isShiftEnded && "Restroom is disabled while in an event/activity"}
+          {isGoingToClinic && !isShiftEnded && "Restroom is disabled while going to clinic"}
+          {isInClinic && !isShiftEnded && "Restroom is disabled while in clinic"}
+          {isInMeeting && !isShiftEnded && "Restroom is disabled while in a meeting"}
+          {isBreakActive && !isShiftEnded && "Restroom is disabled while on break"}
         </div>
       )}
 

@@ -112,6 +112,45 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
     return 'Critical';                                 // <6% of max
   };
 
+  // Function to update productivity score in real-time without HTTP requests
+  const updateProductivityScoreRealtime = useCallback((activeSeconds: number, inactiveSeconds: number) => {
+    const activeHours = activeSeconds / 3600;
+    const inactiveHours = inactiveSeconds / 3600;
+    const productivityScore = activeHours - inactiveHours;
+    
+    // Update the current month score with real-time data
+    setCurrentMonthScore((prev: any) => ({
+      ...prev,
+      productivity_score: productivityScore,
+      total_active_seconds: activeSeconds,
+      total_inactive_seconds: inactiveSeconds,
+      active_hours: activeHours,
+      inactive_hours: inactiveHours,
+      total_hours: activeHours + inactiveHours,
+      active_percentage: activeSeconds > 0 ? (activeSeconds / (activeSeconds + inactiveSeconds)) * 100 : 0
+    }));
+    
+    // Update the last update timestamp
+    setLastUpdate(new Date().toLocaleTimeString());
+    
+    // Dispatch custom event for leaderboard cache invalidation
+    try {
+      const event = new CustomEvent('productivity-update', {
+        detail: {
+          email: currentUser?.email,
+          userId: currentUser?.id,
+          productivityScore: productivityScore,
+          totalActiveTime: activeSeconds,
+          totalInactiveTime: inactiveSeconds,
+          timestamp: new Date().toISOString()
+        }
+      });
+      window.dispatchEvent(event);
+    } catch (error) {
+      console.error('Failed to dispatch productivity update event:', error);
+    }
+  }, [currentUser?.email, currentUser?.id]);
+
   const fetchAllProductivityDataRef = useRef(async () => {
     if (!currentUser?.email) return;
     
@@ -136,26 +175,10 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
         setAverageScore(data.averageProductivityScore);
         setLastUpdate(new Date().toLocaleTimeString());
         
-          // Emit productivity update to socket server for real-time leaderboard updates
-          // Only dispatch if the score has actually changed
-          if (data.currentMonthScore && data.currentMonthScore.productivity_score !== lastDispatchedScore) {
-            try {
-              const event = new CustomEvent('productivity-update', {
-                detail: {
-                  email: currentUser.email,
-                  userId: currentUser.id,
-                  productivityScore: data.currentMonthScore.productivity_score,
-                  totalActiveTime: data.currentMonthScore.total_active_seconds || 0,
-                  totalInactiveTime: data.currentMonthScore.total_inactive_seconds || 0,
-                  timestamp: new Date().toISOString()
-                }
-              });
-              window.dispatchEvent(event);
-              setLastDispatchedScore(data.currentMonthScore.productivity_score);
-            } catch (error) {
-              console.error('Socket productivity update failed:', error);
-            }
-          }
+        // Set the last dispatched score to prevent duplicate events
+        if (data.currentMonthScore) {
+          setLastDispatchedScore(data.currentMonthScore.productivity_score);
+        }
       } else {
         console.error('API ERROR:', response.status, response.statusText);
       }
@@ -192,25 +215,9 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
           setAverageScore(data.averageProductivityScore);
           setLastUpdate(new Date().toLocaleTimeString());
           
-          // Emit productivity update to socket server for real-time leaderboard updates
-          // Only dispatch if the score has actually changed
-          if (data.currentMonthScore && data.currentMonthScore.productivity_score !== lastDispatchedScore) {
-            try {
-              const event = new CustomEvent('productivity-update', {
-                detail: {
-                  email: currentUser.email,
-                  userId: currentUser.id,
-                  productivityScore: data.currentMonthScore.productivity_score,
-                  totalActiveTime: data.currentMonthScore.total_active_seconds || 0,
-                  totalInactiveTime: data.currentMonthScore.total_inactive_seconds || 0,
-                  timestamp: new Date().toISOString()
-                }
-              });
-              window.dispatchEvent(event);
-              setLastDispatchedScore(data.currentMonthScore.productivity_score);
-            } catch (error) {
-              console.error('Socket productivity update failed:', error);
-            }
+          // Set the last dispatched score to prevent duplicate events
+          if (data.currentMonthScore) {
+            setLastDispatchedScore(data.currentMonthScore.productivity_score);
           }
         } else {
           console.error('API ERROR:', response.status, response.statusText);
@@ -221,7 +228,7 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
         setLoading(false);
       }
     };
-  }, [currentUser?.email, currentUser?.id, lastDispatchedScore]);
+  }, [currentUser?.email, currentUser?.id]);
 
   // Manual refresh function
   const handleManualRefresh = () => {
@@ -271,8 +278,26 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
       }
     };
 
+    // Listen for activity data changes (from database triggers)
+    const handleActivityDataUpdate = (data: any) => {
+      // Check if this update is for the current user
+      if (data.user_id === currentUser.id && data.data) {
+        console.log('Activity data updated, updating productivity score in real-time...');
+        
+        // Update current month score in real-time without HTTP request
+        const newActiveSeconds = data.data.today_active_seconds || 0;
+        const newInactiveSeconds = data.data.today_inactive_seconds || 0;
+        
+        // Use the real-time update function instead of making HTTP requests
+        updateProductivityScoreRealtime(newActiveSeconds, newInactiveSeconds);
+      }
+    };
+
     // Listen for general productivity updates
     socket.on('productivityScoreUpdated', handleProductivityUpdate);
+    
+    // Listen for activity data updates (from database triggers)
+    socket.on('activity-data-updated', handleActivityDataUpdate);
     
     // Also listen for the custom event we dispatch
     const handleCustomProductivityUpdate = (event: CustomEvent) => {
@@ -289,6 +314,7 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
 
     return () => {
       socket.off('productivityScoreUpdated', handleProductivityUpdate);
+      socket.off('activity-data-updated', handleActivityDataUpdate);
       window.removeEventListener('productivity-update', handleCustomProductivityUpdate as EventListener);
     };
   }, [socket, isConnected, currentUser?.email, currentUser?.id]);
@@ -299,13 +325,13 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
       // Initial fetch of productivity data
       fetchAllProductivityDataRef.current();
       
-      // Set up periodic refresh every 2 minutes as a fallback
+      // Set up periodic refresh every 10 minutes as a fallback
       // This ensures data stays fresh even if WebSocket updates fail
       const interval = setInterval(() => {
         if (!isBreakActive && !isInMeeting) {
           fetchAllProductivityDataRef.current();
         }
-      }, 120000); // 2 minutes
+      }, 600000); // 10 minutes
       
       return () => clearInterval(interval);
     }

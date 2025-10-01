@@ -562,6 +562,20 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
           setActivityState(false);
           // Update database immediately when shift ends
           updateTimerData(liveActiveSeconds, liveInactiveSeconds);
+          
+          // Dispatch shift end event for restroom auto-reset
+          try {
+            const event = new CustomEvent('shift-ended', {
+              detail: {
+                timestamp: new Date().toISOString(),
+                shiftEndTime: shiftEndDate.toISOString()
+              }
+            });
+            window.dispatchEvent(event);
+          } catch (error) {
+            console.error('Error dispatching shift end event:', error);
+          }
+          
           return // CRITICAL: Stop counting after shift end
         }
       } catch (error) {
