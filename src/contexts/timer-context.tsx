@@ -543,6 +543,31 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         return // Don't increment counters when in restroom
       }
       
+      // CRITICAL: Check if shift has ended BEFORE determining activity state
+      // This ensures the timer stops immediately when shift ends
+      try {
+        const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
+        let shiftEndDate: Date | null = null
+        
+        if (userProfile?.shift_time) {
+          const parsed = parseShiftTime(userProfile.shift_time, nowPH)
+          if (parsed?.endTime) {
+            shiftEndDate = parsed.endTime
+          }
+        }
+        
+        // If shift has ended, stop counting entirely
+        if (shiftEndDate && nowPH > shiftEndDate) {
+          // Set user to inactive when shift ends
+          setActivityState(false);
+          // Update database immediately when shift ends
+          updateTimerData(liveActiveSeconds, liveInactiveSeconds);
+          return // CRITICAL: Stop counting after shift end
+        }
+      } catch (error) {
+        // Ignore errors in shift end check
+      }
+
       // IMPROVED ACTIVITY STATE DETERMINATION
       // Priority order: local activity state > server state > fallback
       let isActive = false
@@ -590,27 +615,6 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       
       // Activity state determined - no logging needed
       
-      // Check if shift has ended and automatically set to inactive
-      try {
-        const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
-        let shiftEndDate: Date | null = null
-        
-        if (userProfile?.shift_time) {
-          const parsed = parseShiftTime(userProfile.shift_time, nowPH)
-          if (parsed?.endTime) {
-            shiftEndDate = parsed.endTime
-          }
-        }
-        
-        if (shiftEndDate && nowPH > shiftEndDate && isActive) {
-          setActivityState(false);
-          // Update database immediately when shift ends
-          updateTimerData(liveActiveSeconds, liveInactiveSeconds);
-          return // Skip counting after shift end
-        }
-      } catch (error) {
-        // Ignore errors in shift end check
-      }
       
       // Update counters based on determined activity state - Changed back to 1 second increments
       if (isActive) {

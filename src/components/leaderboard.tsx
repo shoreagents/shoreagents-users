@@ -1,16 +1,17 @@
 "use client"
 
-import { useState, useEffect, useMemo, useCallback } from "react"
+import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { Trophy, TrendingUp, User, Crown, Info } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { useAnalyticsLeaderboard } from "@/hooks/use-analytics"
+import { useAnalyticsLeaderboard, useLeaderboardCacheInvalidation } from "@/hooks/use-analytics"
 import { type LeaderboardEntry } from "@/lib/leaderboard-utils"
 
 export function Leaderboard() {
   // Use React Query hook instead of manual API calls
   const { data: leaderboardData, isLoading, error } = useAnalyticsLeaderboard()
+  const { invalidateLeaderboard } = useLeaderboardCacheInvalidation()
   
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null)
   const [isInitialized, setIsInitialized] = useState(false) // Add flag to prevent immediate refresh
@@ -31,8 +32,8 @@ export function Leaderboard() {
     return `${monthName} Top 3`
   }, [])
 
-  // Function to get current user email
-  const getCurrentUserEmail = useCallback(() => {
+  // Function to get current user email - use ref to avoid recreation
+  const getCurrentUserEmailRef = useRef(() => {
     try {
       const authData = localStorage.getItem("shoreagents-auth")
       if (authData) {
@@ -43,7 +44,7 @@ export function Leaderboard() {
       console.error('Error parsing auth data:', error)
     }
     return null
-  }, [])
+  })
 
   // Extract data from React Query
   const leaderboard = useMemo(() => leaderboardData?.leaderboard || [], [leaderboardData?.leaderboard])
@@ -63,10 +64,57 @@ export function Leaderboard() {
   // Initialize when data is loaded
   useEffect(() => {
     if (leaderboardData && !isInitialized) {
-      setCurrentUserEmail(getCurrentUserEmail())
+      setCurrentUserEmail(getCurrentUserEmailRef.current())
       setIsInitialized(true)
     }
-  }, [leaderboardData, isInitialized, getCurrentUserEmail])
+  }, [leaderboardData, isInitialized])
+
+  // Listen for productivity score updates and invalidate leaderboard cache
+  useEffect(() => {
+    let debounceTimer: NodeJS.Timeout | null = null
+
+    const handleProductivityUpdate = () => {
+      console.log('Productivity score updated, invalidating leaderboard cache')
+      // Debounce cache invalidation to prevent rapid successive calls
+      if (debounceTimer) {
+        clearTimeout(debounceTimer)
+      }
+      debounceTimer = setTimeout(() => {
+        invalidateLeaderboard()
+      }, 500) // 500ms debounce
+    }
+
+    // Listen for custom productivity update events
+    window.addEventListener('productivity-update', handleProductivityUpdate)
+    
+    // Listen for WebSocket productivity score updates
+    const handleWebSocketUpdate = (event: any) => {
+      console.log('WebSocket productivity score update received, invalidating leaderboard cache')
+      // Debounce cache invalidation to prevent rapid successive calls
+      if (debounceTimer) {
+        clearTimeout(debounceTimer)
+      }
+      debounceTimer = setTimeout(() => {
+        invalidateLeaderboard()
+      }, 500) // 500ms debounce
+    }
+
+    // Check if we're in a browser environment and add WebSocket listener
+    if (typeof window !== 'undefined') {
+      // Listen for the productivityScoreUpdated event from WebSocket
+      window.addEventListener('productivityScoreUpdated', handleWebSocketUpdate)
+    }
+
+    return () => {
+      if (debounceTimer) {
+        clearTimeout(debounceTimer)
+      }
+      window.removeEventListener('productivity-update', handleProductivityUpdate)
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('productivityScoreUpdated', handleWebSocketUpdate)
+      }
+    }
+  }, [invalidateLeaderboard])
 
   // Note: Real-time updates are handled by React Query cache invalidation
 

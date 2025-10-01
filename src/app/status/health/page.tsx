@@ -45,6 +45,7 @@ import { useRestroom } from "@/contexts/restroom-context"
 import { useMeeting } from "@/contexts/meeting-context"
 import { useEventsContext } from "@/contexts/events-context"
 import { getCurrentUser } from "@/lib/ticket-utils"
+import { HealthPageSkeleton } from "@/components/skeleton-loaders"
 
 // Helper function to get event type display name
 const getEventTypeDisplayName = (eventType: string) => {
@@ -77,6 +78,7 @@ export default function HealthPage() {
   const [isCanceling, setIsCanceling] = useState(false)
   const [showCancelDialog, setShowCancelDialog] = useState(false)
   const [requestToCancel, setRequestToCancel] = useState<number | null>(null)
+  const [isInitialLoading, setIsInitialLoading] = useState(true)
 
   // Get current user
   useEffect(() => {
@@ -133,9 +135,18 @@ export default function HealthPage() {
   // Fetch data on mount
   useEffect(() => {
     if (currentUser?.id) {
-      fetchRecords(currentUser.id, 10, 0)
-      fetchAvailability(1) // Fetch nurse_id 1 availability
-      fetchUserRequests(currentUser.id) // Fetch user requests on mount
+      const loadData = async () => {
+        try {
+          await Promise.all([
+            fetchRecords(currentUser.id, 10, 0),
+            fetchAvailability(1), // Fetch nurse_id 1 availability
+            fetchUserRequests(currentUser.id) // Fetch user requests on mount
+          ])
+        } finally {
+          setIsInitialLoading(false)
+        }
+      }
+      loadData()
     }
   }, [currentUser?.id, fetchRecords, fetchAvailability, fetchUserRequests])
 
@@ -459,6 +470,19 @@ export default function HealthPage() {
     </div>
   )
 
+  // Show skeleton loading while initial data is loading
+  if (isInitialLoading) {
+    return (
+      <SidebarProvider>
+        <AppSidebar />
+        <SidebarInset>
+          <AppHeader />
+          <HealthPageSkeleton />
+        </SidebarInset>
+      </SidebarProvider>
+    )
+  }
+
   // All Health Checks View
   if (showAllHealthChecks) {
     return (
@@ -592,16 +616,6 @@ export default function HealthPage() {
             <div>
               <h1 className="text-3xl font-bold text-foreground">Health Check</h1>
               <p className="text-muted-foreground">Access medical assistance and health services</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Clock className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm font-medium">
-                {currentTime.toLocaleTimeString('en-US', { 
-                  hour: '2-digit', 
-                  minute: '2-digit',
-                  hour12: true 
-                })}
-              </span>
             </div>
           </div>
 

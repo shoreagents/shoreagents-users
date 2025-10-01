@@ -797,7 +797,10 @@ setInterval(async () => {
     // Check shift resets for all connected users
     for (const [email, userInfo] of userData.entries()) {
       if (userInfo && userInfo.userId) {
-        await checkShiftReset(email, userInfo.userId);
+        const resetPerformed = await checkShiftReset(email, userInfo.userId);
+        if (resetPerformed) {
+          console.log(`Shift reset completed for user: ${email}`);
+        }
       }
     }
   } catch (error) {
@@ -1517,71 +1520,53 @@ async function checkShiftReset(email, userId) {
     const currentTime = new Date();
     const currentShiftId = getCurrentShiftId(currentTime, shiftInfo);
 
-    // FIXED: Only prevent reset if we're still in the same shift period
-    // This allows legitimate shift resets while preventing multiple resets within the same shift
-    if (userInfo.lastResetAt && userInfo.lastShiftId) {
-      // If we're in the same shift period, don't reset again
-      if (userInfo.lastShiftId === currentShiftId) {
-        const timeSinceLastReset = Date.now() - userInfo.lastResetAt;
-        return false;
-      }
-      // If we're in a new shift period, allow reset regardless of time since last reset
-    }
-    
-    // Check if we need to reset for a new shift period
-    if (userInfo.lastShiftId && userInfo.lastShiftId === currentShiftId) {
-      return false;
-    }
-    
-    // FIXED: Only prevent reset if we have recent activity data AND we're within the same shift period
-    // This allows legitimate shift resets while preventing false resets on reconnection
-    if (userInfo.sessionStart) {
-      const timeSinceSessionStart = Date.now() - new Date(userInfo.sessionStart).getTime();
-      const oneHour = 60 * 60 * 1000; // 1 hour in milliseconds
-      
-      if (timeSinceSessionStart < oneHour) {
-        // Check if we're actually in a new shift period
-        const currentShiftId = getCurrentShiftId(currentTime, shiftInfo);
-        if (userInfo.lastShiftId && userInfo.lastShiftId === currentShiftId) {
-          return false;
-        }
-        // If we're in a new shift period, allow reset even with recent session
-      }
-    }
-    
-    // FIXED: Only prevent reset if we have accumulated time AND we're within the same shift period
-    // This allows legitimate shift resets while preventing false resets on reconnection
-    if (userInfo.activeSeconds > 0 || userInfo.inactiveSeconds > 0) {
-      // Check if we're actually in a new shift period
-      const currentShiftId = getCurrentShiftId(currentTime, shiftInfo);
-      if (userInfo.lastShiftId && userInfo.lastShiftId === currentShiftId) {
-        return false;
-      }
-      // If we're in a new shift period, allow reset even with accumulated time
-    }
-    
-    // Check if we should reset based on shift schedule
+    // FIRST: Check if we should reset based on shift schedule
+    // This is the primary logic that determines if a reset is needed
     const shouldReset = shouldResetForShift(userInfo.sessionStart, currentTime, shiftInfo);
     
-    if (shouldReset) {
-      // FIXED: For a new shift, always start as active unless explicitly set to inactive
-      // This ensures users start productive work at the beginning of each shift
-      let preserveActive = userInfo.isActive === false ? false : true;
-      
-      // If this is a genuine new shift (not just a reconnection), force active state
-      if (shiftInfo && shouldReset) {
-        preserveActive = true;
+    if (!shouldReset) {
+      return false; // No reset needed based on shift schedule
+    }
+
+    // SECOND: Apply safety checks only AFTER we know a reset is needed
+    // This prevents false resets while allowing legitimate ones
+    
+    // Check if we already reset recently for the same shift period
+    if (userInfo.lastResetAt && userInfo.lastShiftId === currentShiftId) {
+      const timeSinceLastReset = Date.now() - userInfo.lastResetAt;
+      // Only prevent reset if it was very recent (less than 5 minutes)
+      if (timeSinceLastReset < 300000) { // 5 minutes
+        return false;
       }
-      
-      // Reset user data
-      userInfo.activeSeconds = 0;
-      userInfo.inactiveSeconds = 0;
-      userInfo.isActive = preserveActive;
-      userInfo.sessionStart = new Date().toISOString();
-      // FIXED: Update lastShiftBoundaryTime to current time when reset occurs
-      userInfo.lastShiftBoundaryTime = currentTime.toISOString();
-      userInfo.lastResetAt = Date.now();
-      userInfo.lastShiftId = currentShiftId;
+    }
+    
+    // If we reach here, a reset is needed and safe to perform
+    console.log(`Performing shift reset for ${email} - new shift period detected:`, {
+      lastShiftId: userInfo.lastShiftId,
+      currentShiftId: currentShiftId,
+      sessionStart: userInfo.sessionStart,
+      activeSeconds: userInfo.activeSeconds,
+      inactiveSeconds: userInfo.inactiveSeconds
+    });
+    
+    // FIXED: For a new shift, always start as active unless explicitly set to inactive
+    // This ensures users start productive work at the beginning of each shift
+    let preserveActive = userInfo.isActive === false ? false : true;
+    
+    // If this is a genuine new shift, force active state
+    if (shiftInfo && shouldReset) {
+      preserveActive = true;
+    }
+    
+    // Reset user data
+    userInfo.activeSeconds = 0;
+    userInfo.inactiveSeconds = 0;
+    userInfo.isActive = preserveActive;
+    userInfo.sessionStart = new Date().toISOString();
+    // FIXED: Update lastShiftBoundaryTime to current time when reset occurs
+    userInfo.lastShiftBoundaryTime = currentTime.toISOString();
+    userInfo.lastResetAt = Date.now();
+    userInfo.lastShiftId = currentShiftId;
       
       // Get current date in Philippines timezone
       // For night shifts, use the date when the shift started (not current calendar date)
@@ -1649,9 +1634,6 @@ async function checkShiftReset(email, userId) {
       } 
       
       return true;
-    }
-    
-    return false;
   } catch (error) {
     console.error('Error checking shift reset:', error);
     return false;
@@ -2874,9 +2856,17 @@ io.on('connection', (socket) => {
             try {
               // Handle productivity score updates from database triggers
               const updateData = JSON.parse(msg.payload);
+              
+              // Only process if the score actually changed significantly (more than 0.01 points)
+              const scoreChange = Math.abs(updateData.new_score - updateData.old_score);
+              if (scoreChange < 0.01) {
+                console.log(`Skipping productivity update for user ${updateData.user_id}: change too small (${scoreChange})`);
+                return;
+              }
+              
               console.log(`Productivity score update notification received for user ${updateData.user_id}: ${updateData.old_score} -> ${updateData.new_score}`);
               
-              // Emit real-time update to all connected clients
+              // Emit real-time update to specific user only
               emitProductivityScoreUpdate(updateData.user_id, updateData.month_year);
             } catch (error) {
               console.error('Error handling productivity score update notification:', error);
@@ -2960,6 +2950,19 @@ io.on('connection', (socket) => {
         console.warn('Database pool is not available, skipping productivity score update');
         return;
       }
+      
+      // Throttle productivity updates: only allow one update per user per 30 seconds
+      const lastUpdateKey = `productivity_update_${userId}`;
+      const lastUpdate = global[lastUpdateKey] || 0;
+      const timeSinceLastUpdate = Date.now() - lastUpdate;
+      
+      if (timeSinceLastUpdate < 30000) { // 30 seconds throttle
+        console.log(`Throttling productivity update for user ${userId}: too soon (${timeSinceLastUpdate}ms ago)`);
+        return;
+      }
+      
+      // Update the last update timestamp
+      global[lastUpdateKey] = Date.now();
 
       // Get the updated productivity score
       let scoreResult;
@@ -2995,10 +2998,24 @@ io.on('connection', (socket) => {
         const score = scoreResult.rows[0];
         const email = score.email;
         
-        console.log(`Emitting productivity score update for ${email}: ${score.productivity_score} points`);
+        // Invalidate Redis cache for productivity data
+        try {
+          // Invalidate productivity cache for this user
+          const productivityCacheKey = `productivity:${email}:12`;
+          await redisClient.del(productivityCacheKey);
+          
+          // Invalidate leaderboard cache for current month
+          const leaderboardCacheKey = `leaderboard:100:${monthYear}`;
+          await redisClient.del(leaderboardCacheKey);
+          
+          // Also invalidate any other leaderboard cache patterns
+          await redisClient.del('leaderboard:*');
+        } catch (cacheError) {
+          console.error('Error invalidating cache:', cacheError.message);
+        }
         
-        // Emit to all connected users for real-time updates
-        io.emit('productivityScoreUpdated', {
+        // Emit to specific user only for real-time updates
+        emitToUserSockets(score.user_id, email, 'productivityScoreUpdated', {
           email,
           userId: score.user_id,
           productivityScore: score.productivity_score,
@@ -3007,7 +3024,13 @@ io.on('connection', (socket) => {
           timestamp: score.updated_at
         });
         
-        console.log(`Productivity score update emitted for ${email}`);
+        // Only log significant productivity updates (every 0.1 points or more)
+        const roundedScore = Math.round(score.productivity_score * 10) / 10;
+        const lastLoggedScore = global[`last_logged_score_${userId}`] || 0;
+        if (Math.abs(roundedScore - lastLoggedScore) >= 0.1) {
+          console.log(`📊 Productivity update: ${email} → ${score.productivity_score} points`);
+          global[`last_logged_score_${userId}`] = roundedScore;
+        }
       }
     } catch (error) {
       console.error('Error emitting productivity score update:', error);
@@ -3053,13 +3076,6 @@ io.on('connection', (socket) => {
         const shouldEmitActivity = isSystemEvent || timeSinceLastActivityEmit >= 5000; // Bypass throttle for system events
         
         if (shouldEmitActivity) {
-          console.log(`Sending activity update to ${userSockets.size} connections for ${userData.email}:`, {
-            activeSeconds: activityData.activeSeconds,
-            inactiveSeconds: activityData.inactiveSeconds,
-            isActive: activityData.isActive,
-            isSystemEvent: isSystemEvent
-          });
-          
           userSockets.forEach(socketId => {
             io.to(socketId).emit('activityUpdated', activityData);
           });
@@ -3508,25 +3524,8 @@ io.on('connection', (socket) => {
 
 
 
-  // Handle productivity score updates
-  socket.on('productivity-update', async (data) => {
-    const userData = connectedUsers.get(socket.id);
-    if (userData) {
-      const email = userData.email;
-      
-      console.log(`Productivity update for ${email}: ${data.productivityScore} points`);
-      
-      // Broadcast productivity update to all connected users for real-time leaderboard updates
-      io.emit('productivity-update', {
-        email,
-        userId: userData.userId,
-        productivityScore: data.productivityScore,
-        totalActiveTime: data.totalActiveTime,
-        totalInactiveTime: data.totalInactiveTime,
-        timestamp: new Date().toISOString()
-      });
-    }
-  });
+  // Note: Removed productivity-update handler to prevent infinite loops
+  // Productivity updates are now handled via database triggers and emitProductivityScoreUpdate()
 
   // Handle requests for productivity data
   socket.on('requestProductivityData', async (data) => {

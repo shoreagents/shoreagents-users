@@ -90,6 +90,26 @@ export async function POST(request: NextRequest) {
           try {
             await pool.query('SELECT calculate_monthly_productivity_score($1)', [actualUserId]);
             
+            // Invalidate cache after fallback calculation
+            try {
+              const userResult = await pool.query('SELECT email FROM users WHERE id = $1', [actualUserId]);
+              if (userResult.rows.length > 0) {
+                const userEmail = userResult.rows[0].email;
+                
+                // Invalidate productivity cache
+                const productivityCacheKey = cacheKeys.productivity(userEmail, 12);
+                await redisCache.del(productivityCacheKey);
+                
+                // Invalidate leaderboard cache
+                const leaderboardCacheKey = cacheKeys.leaderboard(100, currentMonthYear);
+                await redisCache.del(leaderboardCacheKey);
+                
+                console.log(`🗑️ Invalidated cache after fallback productivity calculation for ${userEmail}`);
+              }
+            } catch (cacheError) {
+              console.error('Error invalidating cache after fallback calculation:', cacheError);
+            }
+            
             // Get the newly created record
             const fallbackResult = await pool.query(
               'SELECT * FROM productivity_scores WHERE user_id = $1 AND month_year = $2',
@@ -146,6 +166,27 @@ export async function POST(request: NextRequest) {
           [actualUserId, monthYear || null]
         );
         const score = scoreResult.rows[0].productivity_score;
+        
+        // Invalidate cache after manual calculation
+        try {
+          const userResult = await pool.query('SELECT email FROM users WHERE id = $1', [actualUserId]);
+          if (userResult.rows.length > 0) {
+            const userEmail = userResult.rows[0].email;
+            const targetMonthYear = monthYear || await getCurrentMonthYear(pool);
+            
+            // Invalidate productivity cache
+            const productivityCacheKey = cacheKeys.productivity(userEmail, 12);
+            await redisCache.del(productivityCacheKey);
+            
+            // Invalidate leaderboard cache
+            const leaderboardCacheKey = cacheKeys.leaderboard(100, targetMonthYear);
+            await redisCache.del(leaderboardCacheKey);
+            
+            console.log(`🗑️ Invalidated cache after manual productivity calculation for ${userEmail}`);
+          }
+        } catch (cacheError) {
+          console.error('Error invalidating cache after manual calculation:', cacheError);
+        }
         
         return NextResponse.json({ 
           message: 'Productivity score calculated',
@@ -206,6 +247,26 @@ export async function POST(request: NextRequest) {
           // Try to trigger manual calculation as a safety net
           try {
             await pool.query('SELECT calculate_monthly_productivity_score($1)', [actualUserId]);
+            
+            // Invalidate cache after fallback calculation
+            try {
+              const userResult = await pool.query('SELECT email FROM users WHERE id = $1', [actualUserId]);
+              if (userResult.rows.length > 0) {
+                const userEmail = userResult.rows[0].email;
+                
+                // Invalidate productivity cache
+                const productivityCacheKey = cacheKeys.productivity(userEmail, 12);
+                await redisCache.del(productivityCacheKey);
+                
+                // Invalidate leaderboard cache
+                const leaderboardCacheKey = cacheKeys.leaderboard(100, scoreCurrentMonthYear);
+                await redisCache.del(leaderboardCacheKey);
+                
+                console.log(`🗑️ Invalidated cache after fallback productivity calculation for ${userEmail}`);
+              }
+            } catch (cacheError) {
+              console.error('Error invalidating cache after fallback calculation:', cacheError);
+            }
             
             // Get the newly created record
             const fallbackResult = await pool.query(

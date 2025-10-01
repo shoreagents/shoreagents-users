@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { AppSidebar } from "@/components/app-sidebar"
 import { AppHeader } from "@/components/app-header"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -26,9 +26,10 @@ export default function RestroomPage() {
     isLoading, 
     isUpdating, 
     error, 
-    updateRestroomStatus 
+    updateRestroomStatus,
+    fetchRestroomStatus
   } = useRestroom()
-
+  
   // Get agent state contexts
   const { isInEvent } = useEventsContext()
   const { isGoingToClinic, isInClinic } = useHealth()

@@ -90,14 +90,13 @@ export function RestroomProvider({ children }: { children: React.ReactNode }) {
     setError(null)
     setIsUpdating(true)
 
-    // Optimistic update - immediately update UI
+    // Optimistic update - only update the status, not the counts
     setRestroomStatus(prev => {
       if (!prev) return prev
+      
       return {
         ...prev,
         is_in_restroom: isInRestroom,
-        restroom_count: isInRestroom ? prev.restroom_count + 1 : prev.restroom_count,
-        daily_restroom_count: isInRestroom ? prev.daily_restroom_count + 1 : prev.daily_restroom_count,
         updated_at: new Date().toISOString()
       }
     })
@@ -130,11 +129,10 @@ export function RestroomProvider({ children }: { children: React.ReactNode }) {
       // Revert optimistic update on error
       setRestroomStatus(prev => {
         if (!prev) return prev
+        
         return {
           ...prev,
           is_in_restroom: !isInRestroom,
-          restroom_count: isInRestroom ? Math.max(0, prev.restroom_count - 1) : prev.restroom_count,
-          daily_restroom_count: isInRestroom ? Math.max(0, prev.daily_restroom_count - 1) : prev.daily_restroom_count,
         }
       })
     } finally {

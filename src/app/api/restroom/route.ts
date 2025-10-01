@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { executeQuery, initializeDatabase } from '@/lib/database-server';
+import { parseShiftTime } from '@/lib/shift-utils';
 
 // Helper function to get user from request (matches pattern from other APIs)
 function getUserFromRequest(request: NextRequest) {
@@ -16,6 +17,60 @@ function getUserFromRequest(request: NextRequest) {
   }
 }
 
+
+// Helper function to get the shift start time for a given date
+function getShiftStartForDate(date: Date, shiftInfo: any): Date {
+  const shiftStart = new Date(date)
+  const [startHour, startMinute] = shiftInfo.startTime.toTimeString().split(':').slice(0, 2).map(Number)
+  
+  shiftStart.setHours(startHour, startMinute, 0, 0)
+  
+  if (shiftInfo.isNightShift) {
+    // For night shifts, if current time is before the start time today,
+    // the shift actually started yesterday
+    const currentTime = date.getHours() * 60 + date.getMinutes()
+    const shiftStartTime = startHour * 60 + startMinute
+    
+    if (currentTime < shiftStartTime) {
+      shiftStart.setDate(shiftStart.getDate() - 1)
+    }
+  }
+  
+  return shiftStart
+}
+
+// Check if restroom count should reset based on shift schedule using updated_at field
+// This handles both automatic reset (when user loads page) and manual reset (when user clicks button)
+function shouldResetBasedOnUpdatedAt(updatedAt: string | null, currentTime: Date, shiftTime: string): boolean {
+  if (!updatedAt || !shiftTime) {
+    return true
+  }
+
+  try {
+    const lastUpdate = new Date(updatedAt)
+    const shiftInfo = parseShiftTime(shiftTime, currentTime)
+    
+    if (!shiftInfo) {
+      return true
+    }
+
+    if (shiftInfo.isNightShift) {
+      // For night shifts, check if we're in a different shift period
+      const currentShiftStart = getShiftStartForDate(currentTime, shiftInfo)
+      const lastShiftStart = getShiftStartForDate(lastUpdate, shiftInfo)
+      return currentShiftStart.getTime() !== lastShiftStart.getTime()
+    } else {
+      // For day shifts, check if it's a different calendar day
+      const lastUpdateDate = lastUpdate.toISOString().split('T')[0]
+      const currentDate = currentTime.toISOString().split('T')[0]
+      return lastUpdateDate !== currentDate
+    }
+  } catch (error) {
+    console.error('Error in shouldResetBasedOnUpdatedAt:', error)
+    return true
+  }
+}
+
 // GET - Get restroom status for a user
 export async function GET(request: NextRequest) {
   try {
@@ -26,9 +81,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
     }
 
-    // Get user ID from database using email
+    // Get user ID and shift information from database using email
     const userResult = await executeQuery<any>(
-      `SELECT id FROM users WHERE email = $1`,
+      `SELECT u.id, ji.shift_time 
+       FROM users u
+       LEFT JOIN job_info ji ON u.id = ji.agent_user_id
+       WHERE u.email = $1`,
       [currentUser.email]
     )
 
@@ -37,11 +95,10 @@ export async function GET(request: NextRequest) {
     }
 
     const userId = userResult[0].id
+    const shiftTime = userResult[0].shift_time
 
-    // Get current date in Philippines timezone
+    // Get current time in Philippines timezone
     const now = new Date()
-    const philippinesTime = new Date(now.toLocaleString("en-US", {timeZone: "Asia/Manila"}))
-    const today = philippinesTime.toISOString().split('T')[0] // YYYY-MM-DD format
 
     // Get restroom status
     const restroomResult = await executeQuery<any>(
@@ -57,7 +114,6 @@ export async function GET(request: NextRequest) {
         is_in_restroom: false,
         restroom_count: 0,
         daily_restroom_count: 0,
-        last_daily_reset: today,
         created_at: null,
         updated_at: null
       })
@@ -65,25 +121,15 @@ export async function GET(request: NextRequest) {
 
     const restroomStatus = restroomResult[0]
     
-    // Check if we need to reset the daily count for a new day
-    // Use database-level date comparison to avoid timezone issues
-    const resetCheckResult = await executeQuery<any>(
-      `SELECT 
-         CASE WHEN last_daily_reset < CURRENT_DATE THEN true ELSE false END as should_reset,
-         last_daily_reset
-       FROM agent_restroom_status 
-       WHERE agent_user_id = $1`,
-      [userId]
-    )
+    // Check if we need to reset based on shift schedule using updated_at field
+    // This automatically resets the count when user loads the page if it's a new shift period
+    const shouldReset = shouldResetBasedOnUpdatedAt(restroomStatus.updated_at, now, shiftTime)
     
-    const shouldReset = resetCheckResult[0]?.should_reset || false
-    
-    // If the last reset was not today, reset the daily count but preserve total count
+    // If it's a new shift period, automatically reset the daily count but preserve total count
     if (shouldReset) {
       const resetResult = await executeQuery<any>(
         `UPDATE agent_restroom_status 
          SET daily_restroom_count = 0, 
-             last_daily_reset = CURRENT_DATE, 
              updated_at = NOW()
          WHERE agent_user_id = $1
          RETURNING *`,
@@ -120,68 +166,78 @@ export async function POST(request: NextRequest) {
       }, { status: 400 })
     }
 
-    // Get user ID and update in a single query
-    const result = await executeQuery<any>(
-      `WITH user_lookup AS (
-         SELECT id FROM users WHERE email = $1
-       ),
-       existing_status AS (
-         SELECT 
-           ars.*,
-           CASE WHEN ars.last_daily_reset < CURRENT_DATE THEN true ELSE false END as should_reset
-         FROM agent_restroom_status ars
-         WHERE ars.agent_user_id = (SELECT id FROM user_lookup)
-       )
-       INSERT INTO agent_restroom_status (agent_user_id, is_in_restroom, restroom_count, daily_restroom_count, last_daily_reset, created_at, updated_at)
-       SELECT 
-         ul.id, 
-         $2, 
-         CASE WHEN $2 = true THEN 1 ELSE 0 END, 
-         CASE WHEN $2 = true THEN 1 ELSE 0 END, 
-         CURRENT_DATE, 
-         NOW(), 
-         NOW()
-       FROM user_lookup ul
-       WHERE NOT EXISTS (SELECT 1 FROM existing_status)
-       
-       UNION ALL
-       
-       SELECT 
-         es.agent_user_id,
-         $2,
-         CASE 
-           WHEN $2 = true AND es.is_in_restroom = false 
-           THEN es.restroom_count + 1
-           ELSE es.restroom_count
-         END,
-         CASE 
-           WHEN es.should_reset = true AND $2 = true THEN 1
-           WHEN $2 = true AND es.is_in_restroom = false 
-           THEN es.daily_restroom_count + 1
-           ELSE es.daily_restroom_count
-         END,
-         CASE 
-           WHEN es.should_reset = true THEN CURRENT_DATE
-           ELSE es.last_daily_reset
-         END,
-         es.created_at,
-         NOW()
-       FROM existing_status es
-       
-       ON CONFLICT (agent_user_id) 
-       DO UPDATE SET 
-         is_in_restroom = EXCLUDED.is_in_restroom,
-         restroom_count = EXCLUDED.restroom_count,
-         daily_restroom_count = EXCLUDED.daily_restroom_count,
-         last_daily_reset = EXCLUDED.last_daily_reset,
-         updated_at = EXCLUDED.updated_at
-       RETURNING *`,
-      [currentUser.email, is_in_restroom]
+    // Get current date in Philippines timezone using Intl.DateTimeFormat
+    const now = new Date()
+
+    // Get user ID and shift information from database
+    const userResult = await executeQuery<any>(
+      `SELECT u.id, ji.shift_time 
+       FROM users u
+       LEFT JOIN job_info ji ON u.id = ji.agent_user_id
+       WHERE u.email = $1`,
+      [currentUser.email]
     )
+
+    if (userResult.length === 0) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 })
+    }
+
+    const userId = userResult[0].id
+    const shiftTime = userResult[0].shift_time
+
+    // Get existing restroom status
+    const existingResult = await executeQuery<any>(
+      `SELECT * FROM agent_restroom_status WHERE agent_user_id = $1`,
+      [userId]
+    )
+
+    let result
+
+    if (existingResult.length === 0) {
+      // Create new record
+      result = await executeQuery<any>(
+        `INSERT INTO agent_restroom_status (agent_user_id, is_in_restroom, restroom_count, daily_restroom_count, created_at, updated_at)
+         VALUES ($1, $2, 0, 0, NOW(), NOW())
+         RETURNING *`,
+        [userId, is_in_restroom]
+      )
+    } else {
+      // Update existing record
+      const existing = existingResult[0]
+      
+      // Check if we need to reset based on shift schedule using updated_at field
+      const shouldReset = shouldResetBasedOnUpdatedAt(existing.updated_at, now, shiftTime)
+      
+      // Only increment counts when transitioning from false to true (entering restroom)
+      const shouldIncrement = is_in_restroom && !existing.is_in_restroom
+      
+      const newRestroomCount = shouldIncrement ? existing.restroom_count + 1 : existing.restroom_count
+      
+      let newDailyCount
+      if (shouldReset) {
+        // If we need to reset, start fresh
+        newDailyCount = shouldIncrement ? 1 : 0
+      } else {
+        // If no reset needed, increment if entering restroom
+        newDailyCount = shouldIncrement ? existing.daily_restroom_count + 1 : existing.daily_restroom_count
+      }
+      
+      result = await executeQuery<any>(
+        `UPDATE agent_restroom_status 
+         SET is_in_restroom = $2,
+             restroom_count = $3,
+             daily_restroom_count = $4,
+             updated_at = NOW()
+         WHERE agent_user_id = $1
+         RETURNING *`,
+        [userId, is_in_restroom, newRestroomCount, newDailyCount]
+      )
+    }
 
     if (result.length === 0) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
+
 
     return NextResponse.json(result[0])
   } catch (error) {
@@ -273,3 +329,4 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
+

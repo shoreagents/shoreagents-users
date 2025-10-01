@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -34,6 +34,7 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
   const [loading, setLoading] = useState(false);
   const [lastFetchTime, setLastFetchTime] = useState<number>(0);
   const [lastUpdate, setLastUpdate] = useState<string>('');
+  const [lastDispatchedScore, setLastDispatchedScore] = useState<number | null>(null);
 
   // Get break and meeting status to pause auto-refresh
   const { isBreakActive } = useTimer();
@@ -72,34 +73,46 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
 
   const getScoreColor = (score: number | string): string => {
     const numericScore = typeof score === 'string' ? parseFloat(score) : score;
-    if (isNaN(numericScore)) return '0.0 pts';
-    if (numericScore >= 8) return 'text-green-600';
-    if (numericScore >= 6) return 'text-blue-600';
-    if (numericScore >= 4) return 'text-yellow-600';
-    if (numericScore >= 2) return 'text-orange-600';
-    return 'text-red-600';
+    if (isNaN(numericScore)) return 'text-gray-500';
+    // Based on 40-hour work week (8h/day × 5 days × 4.33 weeks = ~173 max monthly points)
+    if (numericScore >= 150) return 'text-purple-600';    // Legendary - 87%+
+    if (numericScore >= 130) return 'text-green-600';     // Outstanding - 75%+
+    if (numericScore >= 110) return 'text-blue-600';      // Excellent - 64%+
+    if (numericScore >= 90) return 'text-cyan-600';       // Great - 52%+
+    if (numericScore >= 70) return 'text-yellow-600';     // Good - 40%+
+    if (numericScore >= 50) return 'text-orange-600';     // Fair - 29%+
+    if (numericScore >= 30) return 'text-red-600';        // Poor - 17%+
+    if (numericScore >= 10) return 'text-red-700';        // Very Poor - 6%+
+    return 'text-red-800';                                 // Critical - <6%
   };
 
   const getScoreBadgeVariant = (score: number | string): "default" | "secondary" | "destructive" | "outline" => {
     const numericScore = typeof score === 'string' ? parseFloat(score) : score;
-    if (numericScore >= 8) return 'default';
-    if (numericScore >= 6) return 'secondary';
-    if (numericScore >= 4) return 'outline';
-    return 'destructive';
+    // Based on 40-hour work week (8h/day × 5 days × 4.33 weeks = ~173 max monthly points)
+    if (numericScore >= 150) return 'default';    // Legendary - 87%+ (green)
+    if (numericScore >= 130) return 'default';    // Outstanding - 75%+ (green)
+    if (numericScore >= 110) return 'secondary';  // Excellent - 64%+ (blue)
+    if (numericScore >= 90) return 'secondary';   // Great - 52%+ (cyan)
+    if (numericScore >= 70) return 'outline';     // Good - 40%+ (yellow)
+    if (numericScore >= 50) return 'outline';     // Fair - 29%+ (orange)
+    return 'destructive';                         // Poor, Very Poor, Critical - red
   };
 
   const getScoreLabel = (score: number | string): string => {
     const numericScore = typeof score === 'string' ? parseFloat(score) : score;
-    if (numericScore >= 10) return 'Outstanding';
-    if (numericScore >= 8) return 'Excellent';
-    if (numericScore >= 6) return 'Great';
-    if (numericScore >= 4) return 'Good';
-    if (numericScore >= 2) return 'Fair';
-    if (numericScore >= 1) return 'Poor';
-    return 'Very Poor';
+    // Based on 40-hour work week (8h/day × 5 days × 4.33 weeks = ~173 max monthly points)
+    if (numericScore >= 150) return 'Legendary';      // 87%+ of max (150/173)
+    if (numericScore >= 130) return 'Outstanding';    // 75%+ of max (130/173)
+    if (numericScore >= 110) return 'Excellent';      // 64%+ of max (110/173)
+    if (numericScore >= 90) return 'Great';           // 52%+ of max (90/173)
+    if (numericScore >= 70) return 'Good';            // 40%+ of max (70/173)
+    if (numericScore >= 50) return 'Fair';            // 29%+ of max (50/173)
+    if (numericScore >= 30) return 'Poor';            // 17%+ of max (30/173)
+    if (numericScore >= 10) return 'Very Poor';       // 6%+ of max (10/173)
+    return 'Critical';                                 // <6% of max
   };
 
-  const fetchAllProductivityData = useCallback(async () => {
+  const fetchAllProductivityDataRef = useRef(async () => {
     if (!currentUser?.email) return;
     
     setLoading(true);
@@ -123,24 +136,26 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
         setAverageScore(data.averageProductivityScore);
         setLastUpdate(new Date().toLocaleTimeString());
         
-        // Emit productivity update to socket server for real-time leaderboard updates
-        if (data.currentMonthScore) {
-          try {
-            const event = new CustomEvent('productivity-update', {
-              detail: {
-                email: currentUser.email,
-                userId: currentUser.id,
-                productivityScore: data.currentMonthScore.productivity_score,
-                totalActiveTime: data.currentMonthScore.total_active_seconds || 0,
-                totalInactiveTime: data.currentMonthScore.total_inactive_seconds || 0,
-                timestamp: new Date().toISOString()
-              }
-            });
-            window.dispatchEvent(event);
-          } catch (error) {
-            console.error('Socket productivity update failed:', error);
+          // Emit productivity update to socket server for real-time leaderboard updates
+          // Only dispatch if the score has actually changed
+          if (data.currentMonthScore && data.currentMonthScore.productivity_score !== lastDispatchedScore) {
+            try {
+              const event = new CustomEvent('productivity-update', {
+                detail: {
+                  email: currentUser.email,
+                  userId: currentUser.id,
+                  productivityScore: data.currentMonthScore.productivity_score,
+                  totalActiveTime: data.currentMonthScore.total_active_seconds || 0,
+                  totalInactiveTime: data.currentMonthScore.total_inactive_seconds || 0,
+                  timestamp: new Date().toISOString()
+                }
+              });
+              window.dispatchEvent(event);
+              setLastDispatchedScore(data.currentMonthScore.productivity_score);
+            } catch (error) {
+              console.error('Socket productivity update failed:', error);
+            }
           }
-        }
       } else {
         console.error('API ERROR:', response.status, response.statusText);
       }
@@ -149,11 +164,68 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
     } finally {
       setLoading(false);
     }
-  }, [currentUser?.email, currentUser?.id]);
+  });
+
+  // Update the ref when currentUser changes
+  useEffect(() => {
+    fetchAllProductivityDataRef.current = async () => {
+      if (!currentUser?.email) return;
+      
+      setLoading(true);
+      try {
+        const requestBody = {
+          action: 'get_all',
+          email: currentUser.email,
+          monthsBack: 12
+        };
+        
+        const response = await fetch('/api/activity/productivity', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestBody)
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          setProductivityScores(data.productivityScores || []);
+          setCurrentMonthScore(data.currentMonthScore);
+          setAverageScore(data.averageProductivityScore);
+          setLastUpdate(new Date().toLocaleTimeString());
+          
+          // Emit productivity update to socket server for real-time leaderboard updates
+          // Only dispatch if the score has actually changed
+          if (data.currentMonthScore && data.currentMonthScore.productivity_score !== lastDispatchedScore) {
+            try {
+              const event = new CustomEvent('productivity-update', {
+                detail: {
+                  email: currentUser.email,
+                  userId: currentUser.id,
+                  productivityScore: data.currentMonthScore.productivity_score,
+                  totalActiveTime: data.currentMonthScore.total_active_seconds || 0,
+                  totalInactiveTime: data.currentMonthScore.total_inactive_seconds || 0,
+                  timestamp: new Date().toISOString()
+                }
+              });
+              window.dispatchEvent(event);
+              setLastDispatchedScore(data.currentMonthScore.productivity_score);
+            } catch (error) {
+              console.error('Socket productivity update failed:', error);
+            }
+          }
+        } else {
+          console.error('API ERROR:', response.status, response.statusText);
+        }
+      } catch (error) {
+        console.error('Error fetching productivity data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+  }, [currentUser?.email, currentUser?.id, lastDispatchedScore]);
 
   // Manual refresh function
   const handleManualRefresh = () => {
-    fetchAllProductivityData();
+    fetchAllProductivityDataRef.current();
   };
 
   // Set up real-time productivity score updates via WebSocket
@@ -178,6 +250,23 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
           
           // Update the last update timestamp
           setLastUpdate(new Date().toLocaleTimeString());
+          
+          // Dispatch custom event for leaderboard cache invalidation
+          try {
+            const event = new CustomEvent('productivity-update', {
+              detail: {
+                email: currentUser.email,
+                userId: currentUser.id,
+                productivityScore: data.productivityScore,
+                totalActiveTime: data.totalActiveTime || 0,
+                totalInactiveTime: data.totalInactiveTime || 0,
+                timestamp: new Date().toISOString()
+              }
+            });
+            window.dispatchEvent(event);
+          } catch (error) {
+            console.error('Failed to dispatch productivity update event:', error);
+          }
         }
       }
     };
@@ -208,19 +297,19 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
   useEffect(() => {
     if (currentUser?.email) {
       // Initial fetch of productivity data
-      fetchAllProductivityData();
+      fetchAllProductivityDataRef.current();
       
       // Set up periodic refresh every 2 minutes as a fallback
       // This ensures data stays fresh even if WebSocket updates fail
       const interval = setInterval(() => {
         if (!isBreakActive && !isInMeeting) {
-          fetchAllProductivityData();
+          fetchAllProductivityDataRef.current();
         }
       }, 120000); // 2 minutes
       
       return () => clearInterval(interval);
     }
-  }, [currentUser?.email, isBreakActive, isInMeeting, fetchAllProductivityData]);
+  }, [currentUser?.email, isBreakActive, isInMeeting]);
 
   return (
     <div className="space-y-6">
@@ -241,11 +330,17 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
                 </TooltipTrigger>
                 <TooltipContent>
                   <div className="space-y-2">
-                    <p className="font-medium">Productivity Scoring</p>
+                    <p className="font-medium">Productivity Scoring (Monthly)</p>
                     <p className="text-sm">+1 point per hour active, -1 point per hour inactive</p>
                     <p className="text-sm">Final score = active points - inactive points</p>
+                    <p className="text-sm">Max possible: ~173 points (8h/day × 5 days × 4.33 weeks)</p>
                     <p className="text-sm">Current Month: {currentMonthScore ? formatScore(currentMonthScore.productivity_score) : 'N/A'}</p>
                     <p className="text-sm">Average: {formatScore(averageScore)}</p>
+                    <div className="text-xs text-muted-foreground pt-2 border-t">
+                      <p>Legendary: 150+ pts (87%+)</p>
+                      <p>Outstanding: 130+ pts (75%+)</p>
+                      <p>Excellent: 110+ pts (64%+)</p>
+                    </div>
                   </div>
                 </TooltipContent>
               </Tooltip>

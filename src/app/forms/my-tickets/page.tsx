@@ -15,9 +15,10 @@ import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Pagination, PaginationContent, PaginationEllipsis, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@/components/ui/pagination"
-import { ArrowLeft, Search, Filter, FileText, Calendar, User, Mail, Tag, Eye, Clock, AlertTriangle, CheckCircle, X } from "lucide-react"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Search, Filter, FileText, Calendar,  Eye, Clock, AlertTriangle, CheckCircle, X } from "lucide-react"
 import Link from "next/link"
-import { Ticket, getCurrentUser } from "@/lib/ticket-utils"
+import { Ticket } from "@/lib/ticket-utils"
 import { useTickets, type Ticket as ReactQueryTicket } from "@/hooks/use-tickets"
 import { NewTicketDialog } from "@/components/new-ticket-dialog"
 
@@ -30,7 +31,7 @@ export default function MyTicketsPage() {
   const [showFilters, setShowFilters] = useState(false)
   const [isUpdating, setIsUpdating] = useState(false)
   const [isNewTicketDialogOpen, setIsNewTicketDialogOpen] = useState(false)
-  const ticketsPerPage = 5
+  const ticketsPerPage = 12
 
   // Use React Query to fetch tickets
   const { data: ticketsData, isLoading: loading, error, refetch, triggerRealtimeUpdate } = useTickets()
@@ -382,7 +383,7 @@ export default function MyTicketsPage() {
               
               <Popover open={showFilters} onOpenChange={setShowFilters}>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm" className="h-10">
+                  <Button variant="outline"  className="h-9">
                     <Filter className="h-4 w-4 mr-2" />
                     Filters
                     {activeFilterCount > 0 && (
@@ -481,7 +482,7 @@ export default function MyTicketsPage() {
               <h2 className="text-xl font-semibold">
                 {filteredTickets.length} ticket{filteredTickets.length !== 1 ? 's' : ''} found
               </h2>
-                {filteredTickets.length >= 5 && (
+                {filteredTickets.length >= ticketsPerPage && (
                   <p className="text-sm text-muted-foreground">
                     Showing {startIndex + 1}-{Math.min(endIndex, filteredTickets.length)} of {filteredTickets.length} tickets
                   </p>
@@ -511,48 +512,78 @@ export default function MyTicketsPage() {
               </Card>
             ) : (
               <>
-              <div className="grid gap-2">
-                  {currentTickets.map((ticket) => (
-                    <div key={ticket.id} className="group relative p-3 rounded-lg border border-border/50 hover:border-border hover:bg-muted/30 transition-all duration-200">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="font-mono text-sm font-medium text-primary">{ticket.id}</span>
-                            {getStatusBadge(ticket.status)}
-                            <Badge variant="outline" className="text-xs">
-                              {getCategoryLabel(ticket.category)}
-                            </Badge>
-                          </div>
-                          <p className="text-sm font-medium text-foreground mb-1 line-clamp-1">{ticket.concern}</p>
-                          <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                            <div className="flex items-center gap-1">
-                              <Calendar className="h-3 w-3" />
-                              <span>{formatDate(ticket.createdAt)}</span>
-                            </div>
-                            {ticket.files && ticket.files.length > 0 && (
-                              <div className="flex items-center gap-1">
-                                <FileText className="h-3 w-3" />
-                                <span>{ticket.files.length} file{ticket.files.length !== 1 ? 's' : ''}</span>
-                              </div>
+              <Card>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-[100px]">Ticket ID</TableHead>
+                        <TableHead className="w-[150px] hidden lg:table-cell">Concern</TableHead>
+                        <TableHead className="w-[120px]">Status</TableHead>
+                        <TableHead className="w-[140px] hidden md:table-cell">Category</TableHead>
+                        <TableHead className="w-[150px] hidden lg:table-cell">Created</TableHead>
+                        <TableHead className="w-[80px] hidden sm:table-cell">Files</TableHead>
+                        <TableHead className="w-[60px]">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                  <TableBody>
+                    {currentTickets.map((ticket) => (
+                      <TableRow key={ticket.id} className="hover:bg-muted/50">
+                        <TableCell className="font-mono text-sm font-medium text-primary">
+                          {ticket.id}
+                        </TableCell>
+                        <TableCell>
+                          <div className="max-w-[300px]">
+                            <p className="font-medium text-foreground line-clamp-1 truncate">{ticket.concern}</p>
+                            {ticket.details && (
+                              <p className="text-sm text-muted-foreground line-clamp-1 mt-1">{ticket.details}</p>
                             )}
                           </div>
-                        </div>
-                        <Link href={`/forms/${ticket.id}`}>
-                          <Button 
-                            variant="ghost" 
-                            size="sm" 
-                            className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 h-8 w-8 p-0"
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                        </Link>
-                      </div>
-                    </div>
-                ))}
-              </div>
+                        </TableCell>
+                        <TableCell>
+                          {getStatusBadge(ticket.status)}
+                        </TableCell>
+                        <TableCell className="hidden md:table-cell">
+                          <Badge variant="outline" className="text-xs">
+                            {getCategoryLabel(ticket.category)}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="hidden lg:table-cell">
+                          <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                            <Calendar className="h-3 w-3" />
+                            <span>{formatDate(ticket.createdAt)}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="hidden sm:table-cell">
+                          {ticket.files && ticket.files.length > 0 ? (
+                            <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                              <FileText className="h-3 w-3" />
+                              <span>{ticket.files.length}</span>
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground text-sm">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Link href={`/forms/${ticket.id}`}>
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              className="h-8 w-8 p-0"
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                          </Link>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                  </Table>
+                </div>
+              </Card>
 
                 {/* Pagination */}
-                {filteredTickets.length >= 5 && (
+                {filteredTickets.length >= ticketsPerPage && (
                   <div className="flex justify-center">
                     <Pagination>
                       <PaginationContent>

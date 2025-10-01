@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, useEffect } from 'react'
 import { getCurrentUser } from '@/lib/ticket-utils'
 
@@ -85,12 +85,10 @@ export function useAnalyticsMonthly() {
   const [isClient, setIsClient] = useState(false)
   
   useEffect(() => {
-    if (!isClient) {
-      setIsClient(true)
-      const user = getCurrentUser()
-      setCurrentUser(user)
-    }
-  }, [isClient])
+    setIsClient(true)
+    const user = getCurrentUser()
+    setCurrentUser(user)
+  }, [])
 
   return useQuery({
     queryKey: ['analytics-monthly', currentUser?.email || 'loading'],
@@ -129,10 +127,8 @@ export function useAnalyticsLeaderboard() {
   const [isClient, setIsClient] = useState(false)
   
   useEffect(() => {
-    if (!isClient) {
-      setIsClient(true)
-    }
-  }, [isClient])
+    setIsClient(true)
+  }, [])
 
   return useQuery({
     queryKey: ['analytics-leaderboard'],
@@ -194,12 +190,10 @@ export function useAnalyticsProductivity() {
   const [isClient, setIsClient] = useState(false)
   
   useEffect(() => {
-    if (!isClient) {
-      setIsClient(true)
-      const user = getCurrentUser()
-      setCurrentUser(user)
-    }
-  }, [isClient])
+    setIsClient(true)
+    const user = getCurrentUser()
+    setCurrentUser(user)
+  }, [])
 
   return useQuery({
     queryKey: ['analytics-productivity', currentUser?.email || 'loading'],
@@ -282,5 +276,34 @@ export function useAnalyticsData() {
     monthlyQuery,
     leaderboardQuery,
     productivityQuery,
+  }
+}
+
+// Hook for invalidating leaderboard cache when productivity points update
+export function useLeaderboardCacheInvalidation() {
+  const queryClient = useQueryClient()
+
+  const invalidateLeaderboard = () => {
+    queryClient.invalidateQueries({
+      queryKey: ['analytics-leaderboard']
+    })
+  }
+
+  const invalidateProductivity = () => {
+    queryClient.invalidateQueries({
+      queryKey: ['analytics-productivity']
+    })
+  }
+
+  const invalidateAllAnalytics = () => {
+    queryClient.invalidateQueries({
+      queryKey: ['analytics']
+    })
+  }
+
+  return {
+    invalidateLeaderboard,
+    invalidateProductivity,
+    invalidateAllAnalytics
   }
 }

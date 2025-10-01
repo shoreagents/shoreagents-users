@@ -29,9 +29,11 @@ export function TeamSwitcher({
       <SidebarMenuItem>
         <SidebarMenuButton
           size="lg"
-          className="cursor-default"
+          className="cursor-default focus:outline-none focus:ring-0 focus:ring-offset-0 focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
           style={{ 
-            WebkitAppRegion: 'drag' as any
+            WebkitAppRegion: 'drag' as any,
+            outline: 'none',
+            boxShadow: 'none'
           } as React.CSSProperties}
         >
           <div className="flex aspect-square size-8 items-center justify-center rounded-lg overflow-hidden">

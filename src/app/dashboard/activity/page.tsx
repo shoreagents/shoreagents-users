@@ -4,6 +4,10 @@ import { useState, useEffect, useMemo } from 'react'
 import { getCurrentUser } from '@/lib/ticket-utils'
 import { useTimer } from '@/contexts/timer-context'
 import { useMeeting } from '@/contexts/meeting-context'
+import { useBreak } from '@/contexts/break-context'
+import { useHealth } from '@/contexts/health-context'
+import { useEventsContext } from '@/contexts/events-context'
+import { useRestroom } from '@/contexts/restroom-context'
 import { parseShiftTime } from '@/lib/shift-utils'
 import { AppSidebar } from '@/components/app-sidebar'
 import { AppHeader } from '@/components/app-header'
@@ -55,6 +59,12 @@ export default function TestActivityPage() {
 
   // Use meeting context instead of hook to prevent frequent API calls
   const { isInMeeting } = useMeeting()
+  
+  // Get status from other contexts
+  const { isBreakActive } = useBreak()
+  const { isGoingToClinic, isInClinic } = useHealth()
+  const { isInEvent, currentEvent } = useEventsContext()
+  const { isInRestroom } = useRestroom()
 
   // Add real-time shift state detection
   const [currentTime, setCurrentTime] = useState(() => new Date())
@@ -364,6 +374,114 @@ export default function TestActivityPage() {
     return Math.max(0, totalPoints)
   }
 
+  // Get current status for display - matching global timer colors
+  const getCurrentStatus = () => {
+    if (isBreakActive) return { 
+      status: 'break', 
+      color: 'text-yellow-800 dark:text-yellow-300', 
+      bgColor: 'bg-yellow-100 dark:bg-yellow-950/20' 
+    }
+    if (isInMeeting) return { 
+      status: 'meeting', 
+      color: 'text-yellow-800 dark:text-yellow-300', 
+      bgColor: 'bg-yellow-100 dark:bg-yellow-950/20' 
+    }
+    if (isInEvent) return { 
+      status: 'event', 
+      color: 'text-purple-800 dark:text-purple-300', 
+      bgColor: 'bg-purple-100 dark:bg-purple-950/20' 
+    }
+    if (isInRestroom) return { 
+      status: 'restroom', 
+      color: 'text-red-800 dark:text-red-300', 
+      bgColor: 'bg-red-100 dark:bg-red-950/20' 
+    }
+    if (isGoingToClinic) return { 
+      status: 'going to clinic', 
+      color: 'text-orange-800 dark:text-orange-300', 
+      bgColor: 'bg-orange-100 dark:bg-orange-950/20' 
+    }
+    if (isInClinic) return { 
+      status: 'in clinic', 
+      color: 'text-blue-800 dark:text-blue-300', 
+      bgColor: 'bg-blue-100 dark:bg-blue-950/20' 
+    }
+    return timerData.isActive ? { 
+      status: 'active', 
+      color: 'text-green-800 dark:text-green-300', 
+      bgColor: 'bg-green-100 dark:bg-green-950/20' 
+    } : { 
+      status: 'inactive', 
+      color: 'text-red-800 dark:text-red-300', 
+      bgColor: 'bg-red-100 dark:bg-red-950/20' 
+    }
+  }
+
+  // Animated timer component with downward slide effect
+  const renderAnimatedTimer = (seconds: number, key: string) => {
+    const hours = Math.floor(seconds / 3600)
+    const minutes = Math.floor((seconds % 3600) / 60)
+    const remainingSeconds = seconds % 60
+
+    // Helper function to render individual digits
+    const renderDigits = (value: number, prefix: string) => {
+      const digits = value.toString().padStart(2, '0')
+      return (
+        <>
+          <span 
+            key={`${key}-${prefix}-tens-${Math.floor(value / 10)}`} 
+            className="timer-number timer-digit"
+          >
+            {Math.floor(value / 10)}
+          </span>
+          <span 
+            key={`${key}-${prefix}-ones-${value % 10}`} 
+            className="timer-number timer-digit"
+          >
+            {value % 10}
+          </span>
+        </>
+      )
+    }
+
+    if (hours > 0) {
+      return (
+        <span className="inline-flex items-baseline">
+          <span 
+            key={`${key}-hours-${hours}`} 
+            className="timer-number timer-digit"
+          >
+            {hours}
+          </span>
+          <span>h</span>
+          <span className="w-1"></span>
+          {renderDigits(minutes, 'minutes')}
+          <span>m</span>
+          <span className="w-1"></span>
+          {renderDigits(remainingSeconds, 'seconds')}
+          <span>s</span>
+        </span>
+      )
+    } else if (minutes > 0) {
+      return (
+        <span className="inline-flex items-baseline">
+          {renderDigits(minutes, 'minutes')}
+          <span>m</span>
+          <span className="w-1"></span>
+          {renderDigits(remainingSeconds, 'seconds')}
+          <span>s</span>
+        </span>
+      )
+    } else {
+      return (
+        <span className="inline-flex items-baseline">
+          {renderDigits(remainingSeconds, 'seconds')}
+          <span>s</span>
+        </span>
+      )
+    }
+  }
+
   const currentProductivityPoints = calculateProductivityPoints(liveActiveSeconds, liveInactiveSeconds)
 
   return (
@@ -508,46 +626,93 @@ export default function TestActivityPage() {
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-medium text-muted-foreground">Current Status</span>
                       <Badge 
-                        variant={
-                          shiftEnded
-                            ? "outline"
-                            : shiftNotStarted
-                            ? "outline"
-                            : isInMeeting 
-                            ? "outline" 
-                            : (timerData.isActive ? "default" : "secondary")
-                        }
-                        className={
-                          shiftEnded
-                            ? "border-gray-300 text-gray-700 bg-gray-50"
-                            : shiftNotStarted
-                            ? "border-blue-300 text-blue-700 bg-blue-50"
-                            : isInMeeting 
-                            ? "border-yellow-300 text-yellow-700 bg-yellow-50" 
-                            : (timerData.isActive ? "bg-green-500 hover:bg-green-600" : "")
-                        }
+                        variant="outline"
+                        className={`text-xs ${getCurrentStatus().color} ${getCurrentStatus().bgColor} border-current`}
                       >
                         {shiftEnded
                           ? '⚫ Shift Ended'
                           : shiftNotStarted
                           ? '🔵 Shift Not Started'
-                          : isInMeeting 
-                          ? '🔇 In Meeting' 
-                          : (timerData.isActive ? '🟢 Active' : '⚪ Inactive')
+                          : getCurrentStatus().status === 'break' ? 'Break'
+                          : getCurrentStatus().status === 'meeting' ? 'Meeting'
+                          : getCurrentStatus().status === 'event' ? `${currentEvent?.event_type === 'event' ? 'Event' : 'Activity'}`
+                          : getCurrentStatus().status === 'restroom' ? 'Restroom'
+                          : getCurrentStatus().status === 'going to clinic' ? 'Going to Clinic'
+                          : getCurrentStatus().status === 'in clinic' ? 'In Clinic'
+                          : (timerData.isActive ? '🟢 Active' : '🔴 Inactive')
                         }
                       </Badge>
                     </div>
                     
-                    {/* Meeting Notice */}
+                    {/* Status Notices */}
                     {isInMeeting && (
-                      <div className="p-4 rounded-lg border dark:border-yellow-900/40 bg-yellow-50 dark:bg-yellow-950/20">
+                      <div className="p-4 rounded-lg border border-yellow-300 dark:border-yellow-700 bg-yellow-100 dark:bg-yellow-950/20">
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 bg-yellow-500 rounded-full flex items-center justify-center">
-                            <span className="text-white text-sm">🔇</span>
-                          </div>
                           <div>
-                            <p className="font-medium text-yellow-800">Activity Tracking Paused</p>
-                            <p className="text-sm text-yellow-700">Timer is paused while you're in a meeting</p>
+                            <p className="font-medium text-yellow-800 dark:text-yellow-300">Activity Tracking Paused</p>
+                            <p className="text-sm text-yellow-700 dark:text-yellow-400">Timer is paused while you're in a meeting</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {isBreakActive && (
+                      <div className="p-4 rounded-lg border border-yellow-300 dark:border-yellow-700 bg-yellow-100 dark:bg-yellow-950/20">
+                        <div className="flex items-center gap-3">
+                          <div>
+                            <p className="font-medium text-yellow-800 dark:text-yellow-300">On Break</p>
+                            <p className="text-sm text-yellow-700 dark:text-yellow-400">Activity tracking is paused during break time</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {isInEvent && currentEvent && (
+                      <div className="p-4 rounded-lg border border-purple-300 dark:border-purple-700 bg-purple-100 dark:bg-purple-950/20">
+                        <div className="flex items-center gap-3">
+                          <div>
+                            <p className="font-medium text-purple-800 dark:text-purple-300">
+                              In {currentEvent.event_type === 'event' ? 'Event' : 'Activity'}
+                            </p>
+                            <p className="text-sm text-purple-700 dark:text-purple-400">
+                              Activity tracking is paused during {currentEvent.event_type} participation
+                            </p>
+                            <p className="text-xs text-purple-600 dark:text-purple-500 mt-1">
+                              {currentEvent.title}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {isInRestroom && (
+                      <div className="p-4 rounded-lg border border-red-300 dark:border-red-700 bg-red-100 dark:bg-red-950/20">
+                        <div className="flex items-center gap-3">
+                          <div>
+                            <p className="font-medium text-red-800 dark:text-red-300">In Restroom</p>
+                            <p className="text-sm text-red-700 dark:text-red-400">Activity tracking is paused while in restroom</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {isGoingToClinic && (
+                      <div className="p-4 rounded-lg border border-orange-300 dark:border-orange-700 bg-orange-100 dark:bg-orange-950/20">
+                        <div className="flex items-center gap-3">
+                          <div>
+                            <p className="font-medium text-orange-800 dark:text-orange-300">Going to Clinic</p>
+                            <p className="text-sm text-orange-700 dark:text-orange-400">Activity tracking is paused while going to clinic</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {isInClinic && (
+                      <div className="p-4 rounded-lg border border-blue-300 dark:border-blue-700 bg-blue-100 dark:bg-blue-950/20">
+                        <div className="flex items-center gap-3">
+                          <div>
+                            <p className="font-medium text-blue-800 dark:text-blue-300">In Clinic</p>
+                            <p className="text-sm text-blue-700 dark:text-blue-400">Activity tracking is paused while in clinic</p>
                           </div>
                         </div>
                       </div>
@@ -570,11 +735,11 @@ export default function TestActivityPage() {
                             shiftEnded || shiftNotStarted || isInMeeting ? 'bg-gray-400' : 'bg-green-500 animate-pulse'
                           }`}></div>
                         </div>
-                        <div className={`text-2xl font-bold ${
-                          shiftEnded || shiftNotStarted || isInMeeting ? 'text-muted-foreground' : 'text-green-600'
-                        }`}>
-                          {shiftEnded || shiftNotStarted ? '0s' : formatTime(liveActiveSeconds)}
-                        </div>
+                          <div className={`text-2xl font-bold ${
+                            shiftEnded || shiftNotStarted || isInMeeting ? 'text-muted-foreground' : 'text-green-600'
+                          }`}>
+                            {shiftEnded || shiftNotStarted ? '0s' : renderAnimatedTimer(liveActiveSeconds, 'active')}
+                          </div>
                       </div>
                       
                       <div className={`p-6 rounded-xl border ${
@@ -592,11 +757,11 @@ export default function TestActivityPage() {
                             shiftEnded || shiftNotStarted || isInMeeting ? 'bg-gray-400' : 'bg-red-500'
                           }`}></div>
                         </div>
-                        <div className={`text-2xl font-bold ${
-                          shiftEnded || shiftNotStarted || isInMeeting ? 'text-muted-foreground' : 'text-red-600'
-                        }`}>
-                          {shiftEnded || shiftNotStarted ? '0s' : formatTime(liveInactiveSeconds)}
-                        </div>
+                          <div className={`text-2xl font-bold ${
+                            shiftEnded || shiftNotStarted || isInMeeting ? 'text-muted-foreground' : 'text-red-600'
+                          }`}>
+                            {shiftEnded || shiftNotStarted ? '0s' : renderAnimatedTimer(liveInactiveSeconds, 'inactive')}
+                          </div>
                       </div>
                     </div>
 

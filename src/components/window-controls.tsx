@@ -1,6 +1,6 @@
 "use client"
 
-import React from "react"
+import React, { useEffect } from "react"
 import { Minus, Square, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
@@ -22,6 +22,21 @@ export function WindowControls() {
       window.electronAPI.close()
     }
   }
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'F11') {
+        event.preventDefault()
+        handleMaximize()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [])
 
   return (
     <div className="flex items-center gap-4 ml-4">

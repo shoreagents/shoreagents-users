@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Calendar, Clock, TrendingUp, Info, RefreshCw } from 'lucide-react';
 import { useTimer } from '@/contexts/timer-context';
 import { useMeeting } from '@/contexts/meeting-context';
@@ -272,37 +273,64 @@ export default function MonthlyActivityDisplay({ currentUser }: MonthlyActivityD
               </div>
             </div>
           ) : monthlyData.length > 0 ? (
-            <div className="space-y-4">
-              {monthlyData.slice(0, 3).map((month, index) => (
-                <div key={index} className="flex items-center justify-between p-4 bg-gradient-to-r from-purple-50 to-pink-50 dark:from-violet-950/20 dark:to-pink-950/10 rounded-lg border border-purple-200 dark:border-violet-900/40">
-                  <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-2">
-                      <Calendar className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-                      <span className="font-medium text-purple-900 dark:text-purple-100">
-                        {formatDate(month.month_start_date)}
-                      </span>
-                    </div>
-                    <Badge variant="outline" className="border-purple-200 dark:border-violet-900/40 text-purple-700 dark:text-purple-300">
-                      {month.total_days_active} days
-                    </Badge>
-                  </div>
-                  <div className="flex items-center gap-6">
-                    <div className="text-center">
-                      <div className="text-lg font-bold text-green-600 dark:text-green-400">
-                        {formatTime(month.total_active_seconds)}
-                      </div>
-                      <div className="text-xs text-green-600 dark:text-green-400">Active</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-lg font-bold text-red-600 dark:text-red-400">
-                        {formatTime(month.total_inactive_seconds)}
-                      </div>
-                      <div className="text-xs text-red-600 dark:text-red-400">Inactive</div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[200px]">Month</TableHead>
+                  <TableHead className="w-[100px]">Days Active</TableHead>
+                  <TableHead className="w-[120px]">Active Time</TableHead>
+                  <TableHead className="w-[120px]">Inactive Time</TableHead>
+                  <TableHead className="w-[120px]">Total Time</TableHead>
+                  <TableHead className="w-[100px]">Productivity</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {monthlyData.slice(0, 6).map((month, index) => {
+                  const totalSeconds = month.total_active_seconds + month.total_inactive_seconds;
+                  const productivityScore = (month.total_active_seconds / 3600) - (month.total_inactive_seconds / 3600);
+                  
+                  return (
+                    <TableRow key={index} className="hover:bg-muted/50">
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Calendar className="w-4 h-4" />
+                          <div>
+                            <div className="font-medium text-sm">
+                              {formatDate(month.month_start_date)}
+                            </div>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="border-none">
+                          {month.total_days_active} days
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-sm font-medium text-green-600">
+                          {formatTime(month.total_active_seconds)}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-sm font-medium text-red-600">
+                          {formatTime(month.total_inactive_seconds)}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-sm font-medium">
+                          {formatTime(totalSeconds)}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-sm font-medium text-purple-600">
+                          {Math.max(0, productivityScore).toFixed(1)} pts
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
           ) : (
             <div className="text-center py-8 text-muted-foreground">
               <TrendingUp className="w-12 h-12 mx-auto mb-4 text-gray-300" />
