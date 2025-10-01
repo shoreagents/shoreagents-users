@@ -317,7 +317,7 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
       socket.off('activity-data-updated', handleActivityDataUpdate);
       window.removeEventListener('productivity-update', handleCustomProductivityUpdate as EventListener);
     };
-  }, [socket, isConnected, currentUser?.email, currentUser?.id]);
+  }, [socket, isConnected, currentUser?.email, currentUser?.id, updateProductivityScoreRealtime]);
 
   // Initial data fetch
   useEffect(() => {
