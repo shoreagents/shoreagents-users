@@ -755,6 +755,21 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         }, 100)
       }
       
+      // CRITICAL: Dispatch shift reset event to restart activity tracking
+      // This ensures inactivity detection is properly reinitialized
+      try {
+        const event = new CustomEvent('shift-reset-detected', {
+          detail: {
+            resetData,
+            timestamp: new Date().toISOString(),
+            isActive: resetData.isActive
+          }
+        });
+        window.dispatchEvent(event);
+      } catch (error) {
+        console.error('Error dispatching shift reset event:', error);
+      }
+      
       // Allow timer updates again after a short delay
       resetTimeoutRef.current = setTimeout(() => {
         setIsResetting(false)

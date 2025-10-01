@@ -114,6 +114,34 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
     }
   }, [hasLoggedIn, isTracking, stopTracking])
 
+  // Handle shift reset events to restart activity tracking
+  useEffect(() => {
+    const handleShiftReset = (event: CustomEvent) => {
+      const { resetData, isActive } = event.detail
+      
+      console.log('Shift reset detected in activity context:', { resetData, isActive })
+      
+      // If user should be active after shift reset, restart activity tracking
+      if (isActive && hasLoggedIn && !isTracking) {
+        console.log('Restarting activity tracking after shift reset')
+        
+        // Set inactivity threshold
+        const inactivityThreshold = 30000
+        setInactivityThreshold(inactivityThreshold)
+        
+        // Start tracking
+        startTracking()
+      }
+    }
+
+    // Listen for shift reset events
+    window.addEventListener('shift-reset-detected', handleShiftReset as EventListener)
+    
+    return () => {
+      window.removeEventListener('shift-reset-detected', handleShiftReset as EventListener)
+    }
+  }, [hasLoggedIn, isTracking, startTracking, setInactivityThreshold])
+
   // Start tracking only when user has logged in, no break is active, not in a meeting, and within shift hours
   useEffect(() => {
     const isWithinShift = isWithinShiftHours(shiftInfo)

@@ -565,6 +565,31 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean, isSys
       listenersSetupRef.current = true;
     }
 
+    // Handle shift reset events to restart inactivity detection
+    const handleShiftReset = (event: CustomEvent) => {
+      const { isActive: shouldBeActive } = event.detail
+      
+      console.log('Shift reset detected in activity tracking hook:', { shouldBeActive })
+      
+      // Reset inactivity dialog state when shift resets
+      setShowInactivityDialog(false)
+      setInactivityData(null)
+      
+      // Clear any pending inactivity alerts
+      if (inactivityAlertTimeoutRef.current) {
+        clearTimeout(inactivityAlertTimeoutRef.current)
+        inactivityAlertTimeoutRef.current = null
+      }
+      
+      // If user should be active, ensure activity state is set correctly
+      if (shouldBeActive && setActivityState) {
+        setActivityState(true)
+      }
+    }
+
+    // Listen for shift reset events
+    window.addEventListener('shift-reset-detected', handleShiftReset as EventListener)
+
     // Cleanup listeners on unmount
     return () => {
       // Clear any pending inactivity alert timeout
@@ -572,6 +597,9 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean, isSys
         clearTimeout(inactivityAlertTimeoutRef.current);
         inactivityAlertTimeoutRef.current = null;
       }
+      
+      // Remove shift reset listener
+      window.removeEventListener('shift-reset-detected', handleShiftReset as EventListener)
       
       if (window.electronAPI && listenersSetupRef.current) {
         // Use removeAllListeners as a fallback since removeListener might not exist
