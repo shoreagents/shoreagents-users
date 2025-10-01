@@ -74,9 +74,9 @@ export function initializeSocketServer(httpServer: HTTPServer) {
 
         let activityData;
         if (activityResult.rows.length === 0) {
-          // Create new activity record
+          // Create new activity record - start as active for new users
           const insertResult = await pool.query(
-            'INSERT INTO activity_data (user_id, is_currently_active) VALUES ($1, false) RETURNING *',
+            'INSERT INTO activity_data (user_id, is_currently_active) VALUES ($1, true) RETURNING *',
             [userId]
           );
           activityData = insertResult.rows[0];

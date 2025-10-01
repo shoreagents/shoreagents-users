@@ -71,23 +71,30 @@ const io = new Server(server, {
     methods: ["GET", "POST"]
   },
   // Railway-optimized ping/pong settings for better stability
-  pingTimeout: 120000, // 2 minutes (increased for Railway's network latency)
-  pingInterval: 30000, // 30 seconds (increased for stability)
-  upgradeTimeout: 15000, // 15 seconds for upgrade handshake
+  pingTimeout: 60000, // 1 minute (reduced for Railway's load balancer timeouts)
+  pingInterval: 25000, // 25 seconds (more frequent pings)
+  upgradeTimeout: 10000, // 10 seconds for upgrade handshake
   allowEIO3: true, // Allow Engine.IO v3 clients for better compatibility
   transports: ['polling', 'websocket'], // Prioritize polling for Railway stability
   // Add connection state management
   connectionStateRecovery: {
-    maxDisconnectionDuration: 5 * 60 * 1000, // 5 minutes (increased for Railway)
+    maxDisconnectionDuration: 2 * 60 * 1000, // 2 minutes (reduced for Railway)
     skipMiddlewares: true
   },
   // Additional Railway-specific optimizations
   serveClient: false, // Don't serve client files
-  allowEIO3: true,
   // Increase buffer sizes for Railway
   maxHttpBufferSize: 1e6, // 1MB
   // Add graceful shutdown handling
-  closeOnDisconnect: false
+  closeOnDisconnect: false,
+  // Add compression for better performance
+  compression: true,
+  // Add per-message deflate
+  perMessageDeflate: {
+    threshold: 1024,
+    concurrencyLimit: 10,
+    memLevel: 7
+  }
 });
 
 // Database connection - Railway-optimized settings
@@ -814,9 +821,14 @@ setInterval(() => {
   const staleConnections = [];
   const disconnectedUsers = [];
   
-  // Check for stale connections (no heartbeat for 5 minutes)
+  // Check for stale connections (no heartbeat for 2 minutes - reduced for Railway)
   for (const [socketId, userData] of connectedUsers.entries()) {
-    if (userData.lastHeartbeat && (now - userData.lastHeartbeat) > 300000) { // 5 minutes
+    const timeSinceLastHeartbeat = userData.lastHeartbeat ? (now - userData.lastHeartbeat) : 0;
+    const timeSinceLastHealthCheck = userData.lastHealthCheck ? (now - userData.lastHealthCheck) : 0;
+    const timeSinceLastActivity = userData.lastActivity ? (now - userData.lastActivity) : 0;
+    
+    // Consider stale if no heartbeat, health check, or activity for 2 minutes
+    if (timeSinceLastHeartbeat > 120000 || timeSinceLastHealthCheck > 120000 || timeSinceLastActivity > 120000) {
       staleConnections.push(socketId);
       // Store user info for reconnection attempt
       if (userData.email) {
@@ -861,7 +873,7 @@ setInterval(() => {
   if (connectedUsers.size > 0) {
     console.log(`📊 Connection Health: ${connectedUsers.size} active, ${staleConnections.length} stale`);
   }
-}, 60000); // Check every minute
+}, 30000); // Check every 30 seconds (more frequent for Railway)
 
 // In-memory storage for testing (since PostgreSQL is not running)
 const connectedUsers = new Map();
@@ -1549,11 +1561,11 @@ async function checkShiftReset(email, userId) {
       inactiveSeconds: userInfo.inactiveSeconds
     });
     
-    // FIXED: For a new shift, always start as active unless explicitly set to inactive
+    // FIXED: For a new shift, always start as active
     // This ensures users start productive work at the beginning of each shift
-    let preserveActive = userInfo.isActive === false ? false : true;
+    let preserveActive = true;
     
-    // If this is a genuine new shift, force active state
+    // For new shifts, always force active state for productivity
     if (shiftInfo && shouldReset) {
       preserveActive = true;
     }
@@ -1804,13 +1816,14 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Heartbeat mechanism for active connection monitoring
+  // Enhanced heartbeat mechanism for active connection monitoring
   socket.on('heartbeat', () => {
     socket.emit('heartbeat-ack');
     // Update last seen timestamp for this socket
     if (connectedUsers.has(socket.id)) {
       const userData = connectedUsers.get(socket.id);
       userData.lastHeartbeat = Date.now();
+      userData.heartbeatCount = (userData.heartbeatCount || 0) + 1;
     }
   });
 
@@ -1820,6 +1833,16 @@ io.on('connection', (socket) => {
     if (connectedUsers.has(socket.id)) {
       const userData = connectedUsers.get(socket.id);
       userData.lastHeartbeatAck = Date.now();
+      userData.heartbeatAckCount = (userData.heartbeatAckCount || 0) + 1;
+    }
+  });
+
+  // Add connection health monitoring
+  socket.on('connection-health', (data) => {
+    if (connectedUsers.has(socket.id)) {
+      const userData = connectedUsers.get(socket.id);
+      userData.lastHealthCheck = Date.now();
+      userData.clientHealth = data;
     }
   });
 
@@ -2063,11 +2086,11 @@ io.on('connection', (socket) => {
               } else {
                 console.log(`New day detected for ${emailString} (${dbDate} -> ${currentDate}) - resetting timers`);
               }
-              // FIXED: For a new shift, always start as active unless explicitly set to inactive
+              // FIXED: For a new shift, always start as active
               // This ensures users start productive work at the beginning of each shift
-              let preserveActive = userInfo.isActive === false ? false : true;
+              let preserveActive = true;
               
-              // If this is a genuine new shift (not just a reconnection), force active state
+              // For new shifts, always force active state for productivity
               if (shiftInfo && shouldReset) {
                 console.log(`New shift detected - forcing active state for productivity`);
                 preserveActive = true;
@@ -2289,11 +2312,11 @@ io.on('connection', (socket) => {
                 } else {
                   console.log(`New day detected during refresh for ${emailString} (${dbDate} -> ${currentDate}) - resetting timers`);
                 }
-              // FIXED: For a new shift, always start as active unless explicitly set to inactive
+              // FIXED: For a new shift, always start as active
               // This ensures users start productive work at the beginning of each shift
-              let preserveActive = userInfo.isActive === false ? false : true;
+              let preserveActive = true;
               
-              // If this is a genuine new shift (not just a reconnection), force active state
+              // For new shifts, always force active state for productivity
               if (shiftInfo && shouldReset) {
                 console.log(`New shift detected - forcing active state for productivity`);
                 preserveActive = true;

@@ -77,17 +77,18 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
     isConnectingRef.current = true
 
-    // Connect to Socket.IO server
+    // Connect to Socket.IO server with Railway-optimized settings
     const socketServerUrl = (process.env.NEXT_PUBLIC_SOCKET_URL || process.env.SOCKET_SERVER_URL || 'http://localhost:3004') as string
     const newSocket = io(socketServerUrl, {
       reconnection: true,
-      reconnectionAttempts: 5, // Increased from 3
-      reconnectionDelay: 1000, // Start with 1s delay
-      reconnectionDelayMax: 10000, // Max 10s delay
-      timeout: 20000, // Increased from 10s to match server pingTimeout
-      transports: ['websocket', 'polling'],
+      reconnectionAttempts: 10, // Increased for Railway stability
+      reconnectionDelay: 2000, // Start with 2s delay
+      reconnectionDelayMax: 30000, // Max 30s delay
+      timeout: 60000, // Match server pingTimeout
+      transports: ['polling', 'websocket'], // Prioritize polling for Railway
       upgrade: true, // Allow transport upgrades
-      rememberUpgrade: true // Remember successful transport
+      rememberUpgrade: true, // Remember successful transport
+      forceNew: false // Reuse existing connection if possible
     })
 
     // Handle connection events
@@ -105,7 +106,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       newSocket.emit('authenticate', { email })
     })
 
-    // Handle ping/pong for connection health monitoring
+    // Enhanced heartbeat mechanism for connection health monitoring
     newSocket.on('ping', () => {
       newSocket.emit('pong')
     })
@@ -114,35 +115,47 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       // Connection is healthy
     })
 
-    // Heartbeat mechanism for active connection monitoring
+    // Handle server heartbeat
     newSocket.on('heartbeat-ack', () => {
       // Server acknowledged our heartbeat
     })
 
-    // Send periodic heartbeats to server
-    const heartbeatIntervalRef1 = setInterval(() => {
-      if (newSocket && newSocket.connected) {
+    // Send periodic heartbeat to server
+    const heartbeatInterval = setInterval(() => {
+      if (newSocket.connected) {
         newSocket.emit('heartbeat')
+        // Send connection health data
+        newSocket.emit('connection-health', {
+          timestamp: Date.now(),
+          userAgent: navigator.userAgent,
+          online: navigator.onLine,
+          memory: (performance as any).memory ? {
+            used: (performance as any).memory.usedJSHeapSize,
+            total: (performance as any).memory.totalJSHeapSize
+          } : null
+        })
       }
-    }, 30000) // Every 30 seconds
+    }, 20000) // Send heartbeat every 20 seconds
 
     // Clean up heartbeat interval on disconnect
     newSocket.on('disconnect', () => {
-      clearInterval(heartbeatIntervalRef1)
+      clearInterval(heartbeatInterval)
     })
+
 
     newSocket.on('disconnect', (reason) => {
       console.log('🔌 Socket disconnected:', reason)
       setIsConnected(false)
       isConnectingRef.current = false
       
-      // If it's a ping timeout, try to reconnect immediately
-      if (reason === 'ping timeout') {
+      // Handle specific disconnect reasons
+      if (reason === 'ping timeout' || reason === 'transport close' || reason === 'transport error') {
+        console.log('🔄 Attempting immediate reconnection due to:', reason)
         setTimeout(() => {
           if (!newSocket.connected) {
             newSocket.connect()
           }
-        }, 1000)
+        }, 2000) // 2 second delay for Railway
       }
     })
 

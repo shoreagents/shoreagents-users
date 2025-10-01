@@ -74,16 +74,16 @@ export const useSocketTimer = (email: string | null): UseSocketTimerReturn => {
     const connectionTimeout = setTimeout(() => {
       if (!isActive.current) return
 
-      // Connect to Socket.IO server with safer connection options
+      // Connect to Socket.IO server with Railway-optimized settings
       const socketServerUrl = (process.env.NEXT_PUBLIC_SOCKET_URL || process.env.SOCKET_SERVER_URL || 'http://localhost:3004') as string
       const socket = io(socketServerUrl, {
         reconnection: true,
-        reconnectionAttempts: 3, // Further reduced attempts
-        reconnectionDelay: 2000, // Longer delay
-        reconnectionDelayMax: 10000,
-        timeout: 10000, // Longer timeout
+        reconnectionAttempts: 10, // Increased for Railway stability
+        reconnectionDelay: 2000, // Start with 2s delay
+        reconnectionDelayMax: 30000, // Max 30s delay
+        timeout: 60000, // Match server pingTimeout
         forceNew: false,
-        transports: ['websocket', 'polling'],
+        transports: ['polling', 'websocket'], // Prioritize polling for Railway
         upgrade: true,
         autoConnect: true
       })
