@@ -299,12 +299,7 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
     // Listen for activity data updates (from database triggers)
     socket.on('activity-data-updated', handleActivityDataUpdate);
     
-    // Also listen for the custom event we dispatch
-    const handleCustomProductivityUpdate = (event: CustomEvent) => {
-      handleProductivityUpdate(event.detail);
-    };
-    
-    window.addEventListener('productivity-update', handleCustomProductivityUpdate as EventListener);
+    // Note: Removed circular event listener to prevent infinite loop
 
     // Request initial productivity data from server
     socket.emit('requestProductivityData', { 
@@ -315,7 +310,6 @@ export default function ProductivityScoreDisplay({ currentUser }: ProductivitySc
     return () => {
       socket.off('productivityScoreUpdated', handleProductivityUpdate);
       socket.off('activity-data-updated', handleActivityDataUpdate);
-      window.removeEventListener('productivity-update', handleCustomProductivityUpdate as EventListener);
     };
   }, [socket, isConnected, currentUser?.email, currentUser?.id, updateProductivityScoreRealtime]);
 

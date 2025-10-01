@@ -74,7 +74,6 @@ export function Leaderboard() {
     let debounceTimer: NodeJS.Timeout | null = null
 
     const handleProductivityUpdate = () => {
-      console.log('Productivity score updated, invalidating leaderboard cache')
       // Debounce cache invalidation to prevent rapid successive calls
       if (debounceTimer) {
         clearTimeout(debounceTimer)

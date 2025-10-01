@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useRef, useCallback } from 'react'
-import { Toilet, ChevronLeft, Droplets, Clock12, X } from 'lucide-react'
+import { Toilet, ChevronLeft, ChevronRight, Droplets, Clock12, X } from 'lucide-react'
 import { useRestroom } from '@/contexts/restroom-context'
 import { cn } from '@/lib/utils'
 import { getCurrentUser } from '@/lib/ticket-utils'
@@ -16,6 +16,7 @@ export function GlobalRestroomQuickAction() {
   const { isInRestroom, restroomCount, dailyRestroomCount, updateRestroomStatus, isUpdating, isShiftEnded } = useRestroom()
   const [position, setPosition] = useState(50) // Default to 50% from top
   const [isVisible, setIsVisible] = useState(true) // Default to visible
+  const [isOnRight, setIsOnRight] = useState(true) // Default to right side
   const [isDragging, setIsDragging] = useState(false)
   const [dragStart, setDragStart] = useState(0)
   const [dragStartPosition, setDragStartPosition] = useState(0)
@@ -36,7 +37,7 @@ export function GlobalRestroomQuickAction() {
   // Check if restroom should be hidden/disabled
   const shouldHideRestroom = isInEvent || isGoingToClinic || isInClinic || isInMeeting || isBreakActive 
 
-  // Load position and visibility from localStorage on mount
+  // Load position, visibility, and side from localStorage on mount
   useEffect(() => {
     // Only run on client side
     if (typeof window === 'undefined') return
@@ -49,6 +50,11 @@ export function GlobalRestroomQuickAction() {
     const savedVisibility = localStorage.getItem('restroom-quick-action-visible')
     if (savedVisibility !== null) {
       setIsVisible(savedVisibility === 'true')
+    }
+    
+    const savedSide = localStorage.getItem('restroom-quick-action-side')
+    if (savedSide !== null) {
+      setIsOnRight(savedSide === 'right')
     }
   }, [])
 
@@ -67,6 +73,14 @@ export function GlobalRestroomQuickAction() {
     
     localStorage.setItem('restroom-quick-action-visible', isVisible.toString())
   }, [isVisible])
+
+  // Save side to localStorage when it changes
+  useEffect(() => {
+    // Only run on client side
+    if (typeof window === 'undefined') return
+    
+    localStorage.setItem('restroom-quick-action-side', isOnRight ? 'right' : 'left')
+  }, [isOnRight])
 
   const handleToggleRestroom = async (e?: React.MouseEvent) => {
     // Prevent click if we were dragging or have dragged
@@ -98,14 +112,23 @@ export function GlobalRestroomQuickAction() {
     if (!isDragging) return
 
     const deltaY = e.clientY - dragStart
+    const deltaX = e.clientX - (isOnRight ? window.innerWidth - 56 : 56) // 56px is roughly the button width
+    
     const newPosition = Math.max(5, Math.min(95, dragStartPosition + (deltaY / window.innerHeight) * 100))
     setPosition(newPosition)
     
+    // Check if dragged to the other side (threshold of 100px from center)
+    const centerX = window.innerWidth / 2
+    const shouldBeOnRight = e.clientX > centerX
+    if (shouldBeOnRight !== isOnRight) {
+      setIsOnRight(shouldBeOnRight)
+    }
+    
     // Mark as dragged if moved more than 5 pixels
-    if (Math.abs(deltaY) > 5) {
+    if (Math.abs(deltaY) > 5 || Math.abs(deltaX) > 5) {
       setHasDragged(true)
     }
-  }, [isDragging, dragStart, dragStartPosition])
+  }, [isDragging, dragStart, dragStartPosition, isOnRight])
 
   const handleMouseUp = () => {
     setIsDragging(false)
@@ -138,7 +161,7 @@ export function GlobalRestroomQuickAction() {
   return (
     <div 
       ref={containerRef}
-      className={`fixed  z-50 cursor-move ${isVisible ? '-right-4' : '-right-4'}`}
+      className={`fixed z-50 cursor-move ${isOnRight ? '-right-4' : '-left-4'}`}
       style={{ top: `${position}%`, transform: 'translateY(-50%)' }}
       onMouseDown={handleMouseDown}
       data-restroom-quick-action
@@ -179,7 +202,11 @@ export function GlobalRestroomQuickAction() {
                 "relative",
                 isInRestroom && "animate-bounceLeft"
               )}>
-                <ChevronLeft className="h-6 w-6 dark:text-white text-black relative" />
+                {isOnRight ? (
+                  <ChevronLeft className="h-6 w-6 dark:text-white text-black relative" />
+                ) : (
+                  <ChevronRight className="h-6 w-6 dark:text-white text-black relative" />
+                )}
                 {/* Restroom status indicator */}
                 {isInRestroom && (
                   <div className="absolute top-1.5 w-3 h-3 bg-red-500 rounded-full border-2 border-white dark:border-gray-900 animate-pulse" />
@@ -208,16 +235,20 @@ export function GlobalRestroomQuickAction() {
         {isVisible && (
           <button
             onClick={handleToggleVisibility}
-            className={`absolute -left-2 top-1/2 transform -translate-y-1/2 w-0 h-0 flex items-center justify-center transition-all duration-200 z-10`}
+            className={`absolute ${isOnRight ? '-left-2' : '-right-2'} top-1/2 transform -translate-y-1/2 w-0 h-0 flex items-center justify-center transition-all duration-200 z-10`}
             title="Hide Restroom Button"
             style={{
               borderTop: '12px solid transparent',
               borderBottom: '12px solid transparent',
-              borderRight: `12px solid ${isShiftEnded ? '#6b7280' : isInRestroom ? '#ef4444' : '#2563eb'}`,
+              [isOnRight ? 'borderRight' : 'borderLeft']: `12px solid ${isShiftEnded ? '#6b7280' : isInRestroom ? '#ef4444' : '#2563eb'}`,
             }}
           >
-            <div className="absolute -right-3 top-1/2 transform -translate-y-1/2">
-              <ChevronLeft className="h-3 w-3 text-white" />
+            <div className={`absolute ${isOnRight ? '-right-3' : '-left-3'} top-1/2 transform -translate-y-1/2`}>
+              {isOnRight ? (
+                <ChevronLeft className="h-3 w-3 text-white" />
+              ) : (
+                <ChevronRight className="h-3 w-3 text-white" />
+              )}
             </div>
           </button>
         )}
