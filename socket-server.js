@@ -71,14 +71,14 @@ const io = new Server(server, {
     methods: ["GET", "POST"]
   },
   // Railway-optimized ping/pong settings for better stability
-  pingTimeout: 60000, // 1 minute (reduced for Railway's load balancer timeouts)
-  pingInterval: 25000, // 25 seconds (more frequent pings)
-  upgradeTimeout: 10000, // 10 seconds for upgrade handshake
+  pingTimeout: 120000, // 2 minutes (increased for better stability)
+  pingInterval: 30000, // 30 seconds (aligned with client heartbeat)
+  upgradeTimeout: 15000, // 15 seconds for upgrade handshake
   allowEIO3: true, // Allow Engine.IO v3 clients for better compatibility
   transports: ['polling', 'websocket'], // Prioritize polling for Railway stability
   // Add connection state management
   connectionStateRecovery: {
-    maxDisconnectionDuration: 2 * 60 * 1000, // 2 minutes (reduced for Railway)
+    maxDisconnectionDuration: 2 * 60 * 1000, // 2 minutes
     skipMiddlewares: true
   },
   // Additional Railway-specific optimizations
@@ -820,14 +820,15 @@ setInterval(() => {
   const staleConnections = [];
   const disconnectedUsers = [];
   
-  // Check for stale connections (no heartbeat for 2 minutes - reduced for Railway)
+  // Check for stale connections (no heartbeat for 5 minutes - more lenient for Railway)
   for (const [socketId, userData] of connectedUsers.entries()) {
     const timeSinceLastHeartbeat = userData.lastHeartbeat ? (now - userData.lastHeartbeat) : 0;
     const timeSinceLastHealthCheck = userData.lastHealthCheck ? (now - userData.lastHealthCheck) : 0;
     const timeSinceLastActivity = userData.lastActivity ? (now - userData.lastActivity) : 0;
     
-    // Consider stale if no heartbeat, health check, or activity for 2 minutes
-    if (timeSinceLastHeartbeat > 120000 || timeSinceLastHealthCheck > 120000 || timeSinceLastActivity > 120000) {
+    // Consider stale if no heartbeat, health check, or activity for 5 minutes
+    // This is more lenient to account for Railway's network conditions
+    if (timeSinceLastHeartbeat > 300000 || timeSinceLastHealthCheck > 300000 || timeSinceLastActivity > 300000) {
       staleConnections.push(socketId);
       // Store user info for reconnection attempt
       if (userData.email) {
@@ -879,6 +880,7 @@ const connectedUsers = new Map();
 const userData = new Map(); // Store user activity data in memory
 const userMeetingStatus = new Map(); // Store user meeting status in memory
 const userShiftInfo = new Map(); // Store user shift information for shift-based resets
+const disconnectedUsers = new Map(); // Store user data for potential reconnection after ping timeout
 
 // Track user connections and online status
 // REMOVED: Online status tracking functionality
@@ -1789,6 +1791,19 @@ io.on('connection', (socket) => {
   socket.on('ping', () => {
     socket.emit('pong');
   });
+
+  // Handle ping timeout specifically
+  socket.on('disconnect', (reason) => {
+    if (reason === 'ping timeout') {
+      console.log(`🔌 Socket ${socket.id} disconnected due to ping timeout - attempting graceful reconnection`);
+      // Don't immediately clean up, give client time to reconnect
+      setTimeout(() => {
+        if (!socket.connected) {
+          console.log(`🔌 Socket ${socket.id} still disconnected after timeout grace period`);
+        }
+      }, 10000); // 10 second grace period
+    }
+  });
   
   // Handle connection errors
   socket.on('error', (error) => {
@@ -1871,6 +1886,21 @@ io.on('connection', (socket) => {
       
       // Get or create user data
       emailString = String(email);
+      
+      // Check if this user was recently disconnected due to ping timeout
+      if (disconnectedUsers.has(emailString)) {
+        const disconnectedUserData = disconnectedUsers.get(emailString);
+        console.log(`🔄 User ${emailString} reconnecting after ping timeout - restoring data`);
+        
+        // Remove from disconnected users
+        disconnectedUsers.delete(emailString);
+        
+        // Restore user data
+        userData.set(emailString, disconnectedUserData.userInfo);
+        userShiftInfo.set(emailString, disconnectedUserData.userInfo.shiftInfo);
+        
+        console.log(`✅ User ${emailString} data restored from ping timeout disconnection`);
+      }
       
       // Check if authentication is already in progress for this user
       if (authenticationInProgress.has(emailString)) {
@@ -2723,8 +2753,23 @@ io.on('connection', (socket) => {
 
       console.log(`🔄 Reconnection request from ${email}`);
       
-      // Check if user exists in our data
-      const userInfo = userData.get(email);
+      // Check if user exists in our data or in disconnected users
+      let userInfo = userData.get(email);
+      if (!userInfo && disconnectedUsers.has(email)) {
+        console.log(`🔄 Restoring user data from disconnected users for ${email}`);
+        const disconnectedUserData = disconnectedUsers.get(email);
+        userInfo = disconnectedUserData.userInfo;
+        
+        // Restore user data
+        userData.set(email, userInfo);
+        userShiftInfo.set(email, userInfo.shiftInfo);
+        
+        // Remove from disconnected users
+        disconnectedUsers.delete(email);
+        
+        console.log(`✅ User ${email} data restored during reconnection`);
+      }
+      
       if (!userInfo) {
         socket.emit('reconnection-error', { message: 'User not found' });
         return;
@@ -2799,22 +2844,68 @@ io.on('connection', (socket) => {
            if (userConnections.get(email).size === 0) {
              userConnections.delete(email);
              
-             // If no more connections for this user, mark them as offline
-             if (userStatus.has(email)) {
-               const status = userStatus.get(email);
-               status.status = 'offline';
-               status.lastSeen = new Date();
+             // For ping timeouts, don't immediately mark as offline - give time for reconnection
+             if (reason === 'ping timeout') {
+               console.log(`🔄 Ping timeout for ${email} - preserving user data for potential reconnection`);
                
-               // Broadcast the offline status
-               io.emit('user-status-update', {
-                 id: userId || email,
-                 email: email,
-                 name: userData.fullName || email,
-                 status: 'offline',
-                 lastSeen: new Date().toISOString()
+               // Store user data for potential reconnection
+               disconnectedUsers.set(email, {
+                 ...userData,
+                 disconnectedAt: Date.now(),
+                 reason: 'ping_timeout'
                });
                
-               console.log(`User ${email} marked as offline - no more active connections`);
+               // Set a timeout to clean up user data if no reconnection occurs
+               setTimeout(async () => {
+                 // Check if user has reconnected
+                 const hasReconnected = Array.from(connectedUsers.values()).some(user => user.email === email);
+                 if (!hasReconnected) {
+                   console.log(`🧹 Cleaning up user data for ${email} after ping timeout grace period`);
+                   
+                   // Remove from disconnected users
+                   disconnectedUsers.delete(email);
+                   
+                   // Mark as offline after grace period
+                   if (userStatus.has(email)) {
+                     const status = userStatus.get(email);
+                     status.status = 'offline';
+                     status.lastSeen = new Date();
+                     
+                     // Broadcast the offline status
+                     io.emit('user-status-update', {
+                       id: userId || email,
+                       email: email,
+                       name: userData.fullName || email,
+                       status: 'offline',
+                       lastSeen: new Date().toISOString()
+                     });
+                     
+                     console.log(`User ${email} marked as offline after ping timeout grace period`);
+                   }
+                 } else {
+                   console.log(`User ${email} reconnected during grace period - keeping data`);
+                   // Remove from disconnected users since they reconnected
+                   disconnectedUsers.delete(email);
+                 }
+               }, 30000); // 30 second grace period for reconnection
+             } else {
+               // For non-ping timeout disconnections, mark as offline immediately
+               if (userStatus.has(email)) {
+                 const status = userStatus.get(email);
+                 status.status = 'offline';
+                 status.lastSeen = new Date();
+                 
+                 // Broadcast the offline status
+                 io.emit('user-status-update', {
+                   id: userId || email,
+                   email: email,
+                   name: userData.fullName || email,
+                   status: 'offline',
+                   lastSeen: new Date().toISOString()
+                 });
+                 
+                 console.log(`User ${email} marked as offline - no more active connections`);
+               }
              }
            } else {
              console.log(`User ${email} still has ${userConnections.get(email).size} active connections`);

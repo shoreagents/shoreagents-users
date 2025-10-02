@@ -81,10 +81,10 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     const socketServerUrl = (process.env.NEXT_PUBLIC_SOCKET_URL || process.env.SOCKET_SERVER_URL || 'http://localhost:3004') as string
     const newSocket = io(socketServerUrl, {
       reconnection: true,
-      reconnectionAttempts: 10, // Increased for Railway stability
-      reconnectionDelay: 2000, // Start with 2s delay
-      reconnectionDelayMax: 30000, // Max 30s delay
-      timeout: 60000, // Match server pingTimeout
+      reconnectionAttempts: 15, // Increased for Railway stability
+      reconnectionDelay: 1000, // Start with 1s delay
+      reconnectionDelayMax: 20000, // Max 20s delay
+      timeout: 120000, // Match server pingTimeout (2 minutes)
       transports: ['polling', 'websocket'], // Prioritize polling for Railway
       upgrade: true, // Allow transport upgrades
       rememberUpgrade: true, // Remember successful transport
@@ -120,7 +120,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       // Server acknowledged our heartbeat
     })
 
-    // Send periodic heartbeat to server
+    // Send periodic heartbeat to server (aligned with server ping interval)
     const heartbeatInterval = setInterval(() => {
       if (newSocket.connected) {
         newSocket.emit('heartbeat')
@@ -135,12 +135,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
           } : null
         })
       }
-    }, 20000) // Send heartbeat every 20 seconds
-
-    // Clean up heartbeat interval on disconnect
-    newSocket.on('disconnect', () => {
-      clearInterval(heartbeatInterval)
-    })
+    }, 30000) // Send heartbeat every 30 seconds (aligned with server ping interval)
 
 
     newSocket.on('disconnect', (reason) => {
@@ -244,20 +239,13 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     socketRef.current = newSocket
     setSocket(newSocket)
 
-    // Start heartbeat interval
-    const heartbeatIntervalRef = setInterval(() => {
-      if (newSocket && newSocket.connected) {
-        newSocket.emit('heartbeat', { timestamp: Date.now() })
-      }
-    }, 30000) // Send heartbeat every 30 seconds
-
     // Cleanup heartbeat on disconnect
     newSocket.on('disconnect', () => {
-      clearInterval(heartbeatIntervalRef)
+      clearInterval(heartbeatInterval)
     })
 
     return () => {
-      clearInterval(heartbeatIntervalRef)
+      clearInterval(heartbeatInterval)
     }
   }, [isActiveProvider])
 

@@ -581,6 +581,9 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean, isSys
         inactivityAlertTimeoutRef.current = null
       }
       
+      // Reset last activity to current time to prevent immediate inactivity
+      setLastActivity({ timestamp: Date.now(), position: { x: 0, y: 0 } })
+      
       // If user should be active, ensure activity state is set correctly
       if (shouldBeActive && setActivityState) {
         setActivityState(true)
