@@ -15,7 +15,7 @@ try {
   
   // Receive messages from main process
   receive: (channel, func) => {
-    const validChannels = ['new-ticket', 'ticket-saved', 'tickets-loaded', 'activity-update', 'inactivity-alert', 'activity-reset', 'app-closing', 'system-suspend', 'system-resume', 'system-lock', 'system-unlock', 'force-logout-before-quit', 'navigate-to', 'mark-notification-read', 'notifications-updated', 'highlight-notification', 'break-focus-lost', 'break-minimized', 'break-hidden', 'emergency-escape-pressed'];
+    const validChannels = ['new-ticket', 'ticket-saved', 'tickets-loaded', 'activity-update', 'inactivity-alert', 'activity-reset', 'app-closing', 'system-suspend', 'system-resume', 'system-lock', 'system-unlock', 'force-logout-before-quit', 'force-logout', 'navigate-to', 'mark-notification-read', 'notifications-updated', 'highlight-notification', 'break-focus-lost', 'break-minimized', 'break-hidden', 'emergency-escape-pressed'];
     if (validChannels.includes(channel)) {
       try {
         // Deliberately strip event as it includes `sender` 
@@ -34,7 +34,7 @@ try {
   
   // Remove all listeners for a channel
   removeAllListeners: (channel) => {
-    const validChannels = ['new-ticket', 'ticket-saved', 'tickets-loaded', 'activity-update', 'inactivity-alert', 'activity-reset', 'app-closing', 'system-suspend', 'system-resume', 'system-lock', 'system-unlock', 'force-logout-before-quit', 'navigate-to', 'mark-notification-read', 'notifications-updated', 'highlight-notification', 'break-focus-lost', 'break-minimized', 'break-hidden', 'emergency-escape-pressed'];
+    const validChannels = ['new-ticket', 'ticket-saved', 'tickets-loaded', 'activity-update', 'inactivity-alert', 'activity-reset', 'app-closing', 'system-suspend', 'system-resume', 'system-lock', 'system-unlock', 'force-logout-before-quit', 'force-logout', 'navigate-to', 'mark-notification-read', 'notifications-updated', 'highlight-notification', 'break-focus-lost', 'break-minimized', 'break-hidden', 'emergency-escape-pressed'];
     if (validChannels.includes(channel)) {
       ipcRenderer.removeAllListeners(channel);
     }
@@ -77,7 +77,8 @@ try {
     confirmLogoutAndQuit: () => ipcRenderer.invoke('confirm-logout-and-quit'),
     logoutCompleted: () => ipcRenderer.invoke('logout-completed'),
     userLoggedIn: () => ipcRenderer.invoke('user-logged-in'),
-    userLoggedOut: () => ipcRenderer.invoke('user-logged-out')
+    userLoggedOut: () => ipcRenderer.invoke('user-logged-out'),
+    quit: () => ipcRenderer.invoke('app-quit')
   },
 
   // Secure credential storage methods

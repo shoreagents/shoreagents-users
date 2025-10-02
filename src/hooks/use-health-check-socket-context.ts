@@ -191,7 +191,46 @@ export function useHealthCheckSocketContext(email: string | null) {
     socket.on('health-check-update', handleHealthCheckUpdate)
     socket.on('health_check_event', (data: any) => {
       
-      if (data.event === 'request_status_changed') {
+      if (data.event === 'request_created') {
+        // Handle new health check request creation
+        const newRequest: HealthCheckRequest = {
+          id: data.request_id,
+          user_id: data.user_id,
+          nurse_id: data.nurse_id,
+          status: data.status || 'pending',
+          priority: data.priority || 'normal',
+          complaint: data.complaint || '',
+          symptoms: data.symptoms || undefined,
+          request_time: data.request_time || new Date().toISOString(),
+          approved_time: undefined,
+          completed_time: undefined,
+          notes: undefined,
+          going_to_clinic: false,
+          in_clinic: false,
+          done: false,
+          going_to_clinic_at: undefined,
+          in_clinic_at: undefined,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }
+        
+        // Add to both requests arrays
+        setRequests(prev => {
+          // Check if request already exists to avoid duplicates
+          const exists = prev.some(req => req.id === data.request_id)
+          if (exists) return prev
+          return [newRequest, ...prev]
+        })
+        
+        setUserRequests(prev => {
+          // Check if request already exists to avoid duplicates
+          const exists = prev.some(req => req.id === data.request_id)
+          if (exists) return prev
+          return [newRequest, ...prev]
+        })
+        
+        
+      } else if (data.event === 'request_status_changed') {
         // Handle request status change
         const updatedRequest = {
           id: data.request_id,

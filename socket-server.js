@@ -504,7 +504,6 @@ async function initializeGlobalNotificationListener() {
           }
         } else if (msg.channel === 'meeting_status_change' || msg.channel === 'meeting-update') {
           const payload = JSON.parse(msg.payload);
-          console.log(`Meeting status change notification received:`, payload);
           
           // Find all sockets for this user and emit to all of them
           if (payload.agent_user_id) {

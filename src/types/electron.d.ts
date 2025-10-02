@@ -26,6 +26,13 @@ declare global {
       };
       getVersion: () => string;
       platform: string;
+      app: {
+        confirmLogoutAndQuit: () => Promise<any>;
+        logoutCompleted: () => Promise<any>;
+        userLoggedIn: () => Promise<any>;
+        userLoggedOut: () => Promise<any>;
+        quit: () => Promise<{ success: boolean; error?: string }>;
+      };
     };
   }
 }

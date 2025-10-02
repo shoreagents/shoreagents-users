@@ -9,6 +9,7 @@ import { useMeeting } from '@/contexts/meeting-context'
 import { useEventsContext } from './events-context'
 import { useHealth } from './health-context'
 import { useRestroom } from './restroom-context'
+import { useProfileContext } from './profile-context'
 import { isBreakTimeValid, getBreaksForShift } from '@/lib/shift-break-utils'
 import { parseShiftTime } from '@/lib/shift-utils'
 
@@ -40,6 +41,7 @@ interface TimerContextType {
 const TimerContext = createContext<TimerContextType | undefined>(undefined)
 
 export function TimerProvider({ children }: { children: React.ReactNode }) {
+  const { profile, isLoading: profileLoading } = useProfileContext()
   const [currentUser, setCurrentUser] = useState<any>(null)
   
   const [liveActiveSeconds, setLiveActiveSeconds] = useState(0)
@@ -177,38 +179,24 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
 
   // Load user profile and generate available breaks for background auto-ending
   useEffect(() => {
-    const loadUserProfile = async () => {
-      if (!currentUser?.email) return
-      
-      try {
-        const response = await fetch(`/api/profile/?email=${encodeURIComponent(currentUser.email)}`)
-        const data = await response.json()
-        
-        if (data.success && data.profile) {
-          const profile = data.profile
-          setUserProfile({
-            shift_period: profile.shift_period,
-            shift_schedule: profile.shift_schedule,
-            shift_time: profile.shift_time
-          })
+    if (!profile) return
+    
+    setUserProfile({
+      shift_period: profile.shift_period,
+      shift_schedule: profile.shift_schedule,
+      shift_time: profile.shift_time
+    })
 
-          // Generate available breaks based on shift
-          const shiftInfo = {
-            shift_period: profile.shift_period || '',
-            shift_schedule: profile.shift_schedule || '',
-            shift_time: profile.shift_time || ''
-          }
-          
-          const breaks = getBreaksForShift(shiftInfo)
-          setAvailableBreaks(breaks)
-        }
-      } catch (error) {
-        console.error('Error loading user profile for background auto-ending:', error)
-      }
+    // Generate available breaks based on shift
+    const shiftInfo = {
+      shift_period: profile.shift_period || '',
+      shift_schedule: profile.shift_schedule || '',
+      shift_time: profile.shift_time || ''
     }
-
-    loadUserProfile()
-  }, [currentUser?.email])
+    
+    const breaks = getBreaksForShift(shiftInfo)
+    setAvailableBreaks(breaks)
+  }, [profile])
 
   // Request notification permissions for break auto-ending notifications
   useEffect(() => {

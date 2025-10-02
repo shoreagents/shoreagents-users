@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { getCurrentUser } from '@/lib/ticket-utils'
+import { useProfile } from '@/hooks/use-profile'
 import { useTimer } from '@/contexts/timer-context'
 import { useMeeting } from '@/contexts/meeting-context'
 import { useBreak } from '@/contexts/break-context'
@@ -30,7 +31,7 @@ import {
 // Activity data type based on the provided JSON structure
 type ActivityData = {
   id: number | string
-  user_id: number
+  user_id: number | string
   is_currently_active: boolean
   created_at: string
   updated_at: string
@@ -42,11 +43,20 @@ type ActivityData = {
 }
 
 export default function TestActivityPage() {
-  const [currentUser, setCurrentUser] = useState<any>(null)
+  const { profile, isLoading: profileLoading } = useProfile()
   const [refreshKey, setRefreshKey] = useState(0)
+  const [forceRefresh, setForceRefresh] = useState(false)
   const [showActivityDialog, setShowActivityDialog] = useState(false)
   const [activityData, setActivityData] = useState<ActivityData[]>([])
   const [isLoadingActivity, setIsLoadingActivity] = useState(false)
+  
+  // Transform profile data to match the expected currentUser format
+  const currentUser = profile ? {
+    id: profile.number || profile.id_number, // Use number or id_number as id
+    name: `${profile.first_name} ${profile.last_name}`.trim() || "Agent User",
+    email: profile.email || "agent@shoreagents.com",
+    avatar: profile.profile_picture || "/shoreagents-dp.png"
+  } : null
 
   // Use the global timer context
   const { 
@@ -125,7 +135,10 @@ export default function TestActivityPage() {
   }, [shiftInfo?.time, currentTime])
 
   const handleGlobalRefresh = () => {
+    setForceRefresh(true)
     setRefreshKey(prev => prev + 1)
+    // Reset forceRefresh after a short delay to allow components to use it
+    setTimeout(() => setForceRefresh(false), 100)
   }
 
   // Function to fetch last 7 days activity data
@@ -304,49 +317,6 @@ export default function TestActivityPage() {
     }
   }
 
-  useEffect(() => {
-    const loadUserData = async () => {
-      try {
-        const user = getCurrentUser()
-        if (user) {
-          setCurrentUser({
-            ...user,
-            avatar: "/shoreagents-dp.png" // Default fallback
-          })
-          
-          // Try to fetch fresh profile data from API
-          try {
-            const userEmail = user.email;
-            const apiUrl = userEmail 
-              ? `/api/profile/?email=${encodeURIComponent(userEmail)}`
-              : '/api/profile/';
-              
-            const response = await fetch(apiUrl, {
-              credentials: 'include'
-            })
-            if (response.ok) {
-              const profileData = await response.json()
-              if (profileData.success && profileData.profile) {
-                const profile = profileData.profile
-                setCurrentUser({
-                  ...user,
-                  name: `${profile.first_name} ${profile.last_name}`.trim() || user.name || "Agent User",
-                  email: profile.email || user.email || "agent@shoreagents.com",
-                  avatar: profile.profile_picture || "/shoreagents-dp.png",
-                })
-              }
-            }
-          } catch (apiError) {
-            console.warn('Failed to fetch profile from API, using localStorage data')
-          }
-        }
-      } catch (error) {
-        console.error('Error loading user data:', error)
-      }
-    }
-    
-    loadUserData()
-  }, [])
 
   // Format seconds to readable time (e.g., 8h 1m 30s)
   const formatTime = (seconds: number) => {
@@ -831,12 +801,12 @@ export default function TestActivityPage() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               {/* Weekly Activity Tracking */}
               <div>
-                <WeeklyActivityDisplay key={`weekly-${refreshKey}`} currentUser={currentUser} />
+                <WeeklyActivityDisplay key={`weekly-${refreshKey}`} currentUser={currentUser} forceRefresh={forceRefresh} />
               </div>
 
               {/* Monthly Activity Tracking */}
               <div>
-                <MonthlyActivityDisplay key={`monthly-${refreshKey}`} currentUser={currentUser} />
+                <MonthlyActivityDisplay key={`monthly-${refreshKey}`} currentUser={currentUser} forceRefresh={forceRefresh} />
               </div>
             </div>
 

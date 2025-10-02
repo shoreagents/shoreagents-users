@@ -4,6 +4,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { getCurrentUser } from '@/lib/ticket-utils'
 import { useSocket } from './socket-context'
 import { parseShiftTime } from '@/lib/shift-utils'
+import { useProfileContext } from './profile-context'
 
 interface RestroomStatus {
   id: number | null
@@ -35,6 +36,7 @@ interface RestroomContextType {
 const RestroomContext = createContext<RestroomContextType | undefined>(undefined)
 
 export function RestroomProvider({ children }: { children: React.ReactNode }) {
+  const { profile } = useProfileContext()
   const [restroomStatus, setRestroomStatus] = useState<RestroomStatus | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isUpdating, setIsUpdating] = useState(false)
@@ -68,32 +70,14 @@ export function RestroomProvider({ children }: { children: React.ReactNode }) {
       setRestroomStatus(data)
       
       // Immediately check if shift has ended when we fetch restroom status
-      if (data.is_in_restroom) {
+      if (data.is_in_restroom && profile?.shift_time) {
         setTimeout(async () => {
           try {
-            const user = getCurrentUser()
-            if (user?.email) {
-              // Fetch user profile from API to get shift information
-              const response = await fetch(`/api/profile/?email=${encodeURIComponent(user.email)}`, {
-                credentials: 'include'
-              })
-              
-              if (response.ok) {
-                const profileData = await response.json()
-                
-                if (profileData.success && profileData.profile) {
-                  const userProfile = profileData.profile
-                  
-                  if (userProfile.shift_time) {
-                    const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
-                    const shiftParsed = parseShiftTime(userProfile.shift_time, nowPH)
-                    
-                    if (shiftParsed?.endTime && nowPH > shiftParsed.endTime) {
-                      await updateRestroomStatus(false)
-                    }
-                  }
-                }
-              }
+            const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
+            const shiftParsed = parseShiftTime(profile.shift_time, nowPH)
+            
+            if (shiftParsed?.endTime && nowPH > shiftParsed.endTime) {
+              await updateRestroomStatus(false)
             }
           } catch (error) {
             console.error('Error in immediate shift end check:', error)
@@ -208,37 +192,19 @@ export function RestroomProvider({ children }: { children: React.ReactNode }) {
 
   // Check if shift has ended and reset restroom status if needed
   const checkShiftEndAndReset = useCallback(async () => {
-    if (!isInRestroom) return
+    if (!isInRestroom || !profile?.shift_time) return
 
     try {
-      const user = getCurrentUser()
-      if (!user?.email) return
-
-      // Fetch user profile from API to get shift information
-      const response = await fetch(`/api/profile/?email=${encodeURIComponent(user.email)}`, {
-        credentials: 'include'
-      })
+      const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
+      const shiftParsed = parseShiftTime(profile.shift_time, nowPH)
       
-      if (response.ok) {
-        const profileData = await response.json()
-        
-        if (profileData.success && profileData.profile) {
-          const userProfile = profileData.profile
-          
-          if (userProfile.shift_time) {
-            const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
-            const shiftParsed = parseShiftTime(userProfile.shift_time, nowPH)
-            
-            if (shiftParsed?.endTime && nowPH > shiftParsed.endTime) {
-              await resetRestroomOnShiftEnd()
-            }
-          }
-        }
+      if (shiftParsed?.endTime && nowPH > shiftParsed.endTime) {
+        await resetRestroomOnShiftEnd()
       }
     } catch (error) {
       console.error('Error checking shift end for restroom reset:', error)
     }
-  }, [isInRestroom, resetRestroomOnShiftEnd])
+  }, [isInRestroom, profile?.shift_time, resetRestroomOnShiftEnd])
 
   // Force reset restroom status (for manual use)
   const forceResetRestroom = useCallback(async () => {
@@ -255,35 +221,19 @@ export function RestroomProvider({ children }: { children: React.ReactNode }) {
   // Check if shift has ended
   const checkShiftEndStatus = useCallback(async () => {
     try {
-      const user = getCurrentUser()
-      if (!user?.email) return false
+      if (!profile?.shift_time) return false
 
-      // Fetch user profile from API to get shift information
-      const response = await fetch(`/api/profile/?email=${encodeURIComponent(user.email)}`, {
-        credentials: 'include'
-      })
+      const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
+      const shiftParsed = parseShiftTime(profile.shift_time, nowPH)
       
-      if (response.ok) {
-        const profileData = await response.json()
-        
-        if (profileData.success && profileData.profile) {
-          const userProfile = profileData.profile
-          
-          if (userProfile.shift_time) {
-            const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
-            const shiftParsed = parseShiftTime(userProfile.shift_time, nowPH)
-            
-            const shiftHasEnded = !!(shiftParsed?.endTime && nowPH > shiftParsed.endTime)
-            setIsShiftEnded(shiftHasEnded)
-            return shiftHasEnded
-          }
-        }
-      }
+      const shiftHasEnded = !!(shiftParsed?.endTime && nowPH > shiftParsed.endTime)
+      setIsShiftEnded(shiftHasEnded)
+      return shiftHasEnded
     } catch (error) {
       console.error('Error checking shift end status:', error)
     }
     return false
-  }, [])
+  }, [profile?.shift_time])
 
   // Emit restroom status updates when status changes
   useEffect(() => {
@@ -326,33 +276,15 @@ export function RestroomProvider({ children }: { children: React.ReactNode }) {
 
   // Check for shift end immediately when restroom status is loaded
   useEffect(() => {
-    if (!restroomStatus || !isInRestroom) return
+    if (!restroomStatus || !isInRestroom || !profile?.shift_time) return
 
     const checkShiftEndOnLoad = async () => {
       try {
-        const user = getCurrentUser()
-        if (!user?.email) return
-
-        // Fetch user profile from API to get shift information
-        const response = await fetch(`/api/profile/?email=${encodeURIComponent(user.email)}`, {
-          credentials: 'include'
-        })
+        const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
+        const shiftParsed = parseShiftTime(profile.shift_time, nowPH)
         
-        if (response.ok) {
-          const profileData = await response.json()
-          
-          if (profileData.success && profileData.profile) {
-            const userProfile = profileData.profile
-            
-            if (userProfile.shift_time) {
-              const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
-              const shiftParsed = parseShiftTime(userProfile.shift_time, nowPH)
-              
-              if (shiftParsed?.endTime && nowPH > shiftParsed.endTime) {
-                await updateRestroomStatus(false)
-              }
-            }
-          }
+        if (shiftParsed?.endTime && nowPH > shiftParsed.endTime) {
+          await updateRestroomStatus(false)
         }
       } catch (error) {
         console.error('Error checking shift end on restroom status load:', error)
@@ -363,7 +295,7 @@ export function RestroomProvider({ children }: { children: React.ReactNode }) {
     const timeoutId = setTimeout(checkShiftEndOnLoad, 1000)
     
     return () => clearTimeout(timeoutId)
-  }, [restroomStatus, isInRestroom, updateRestroomStatus])
+  }, [restroomStatus, isInRestroom, profile?.shift_time, updateRestroomStatus])
 
   // Periodic check for shift end to automatically reset restroom status
   useEffect(() => {

@@ -23,9 +23,10 @@ interface MonthlyActivityData {
 
 interface MonthlyActivityDisplayProps {
   currentUser: any;
+  forceRefresh?: boolean;
 }
 
-export default function MonthlyActivityDisplay({ currentUser }: MonthlyActivityDisplayProps) {
+export default function MonthlyActivityDisplay({ currentUser, forceRefresh = false }: MonthlyActivityDisplayProps) {
   const [monthlyData, setMonthlyData] = useState<MonthlyActivityData[]>([]);
   const [loading, setLoading] = useState(false);
   const [currentMonth, setCurrentMonth] = useState<any>(null);
@@ -60,7 +61,7 @@ export default function MonthlyActivityDisplay({ currentUser }: MonthlyActivityD
     });
   };
 
-  const fetchAllMonthlyData = useCallback(async () => {
+  const fetchAllMonthlyData = useCallback(async (forceRefresh = false) => {
     if (!currentUser?.email) return;
     
     setLoading(true);
@@ -71,7 +72,8 @@ export default function MonthlyActivityDisplay({ currentUser }: MonthlyActivityD
         body: JSON.stringify({
           action: 'get_all',
           email: currentUser.email,
-          monthsToKeep: 1
+          monthsToKeep: 1,
+          forceRefresh
         })
       });
       
@@ -109,7 +111,8 @@ export default function MonthlyActivityDisplay({ currentUser }: MonthlyActivityD
         body: JSON.stringify({
           action: 'get_all',
           email: currentUser.email,
-          monthsToKeep: 1
+          monthsToKeep: 1,
+          forceRefresh: false
         })
       });
       
@@ -170,6 +173,13 @@ export default function MonthlyActivityDisplay({ currentUser }: MonthlyActivityD
       fetchAllMonthlyData();
     }
   }, [currentUser?.email, fetchAllMonthlyData]);
+
+  // Effect to handle force refresh from parent component
+  useEffect(() => {
+    if (forceRefresh && currentUser?.email) {
+      fetchAllMonthlyData(true);
+    }
+  }, [forceRefresh, currentUser?.email, fetchAllMonthlyData]);
 
   // Periodic refresh only when user is active and not in break/meeting
   useEffect(() => {
@@ -254,7 +264,7 @@ export default function MonthlyActivityDisplay({ currentUser }: MonthlyActivityD
               <Button 
                 variant="ghost" 
                 size="sm" 
-                onClick={fetchAllMonthlyData}
+                onClick={() => fetchAllMonthlyData(true)}
                 disabled={loading}
                 className="h-8 px-2 hover:!bg-transparent dark:hover:text-white hover:text-black "
                 title="Refresh monthly data"

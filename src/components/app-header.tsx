@@ -14,6 +14,7 @@ import {
 import { Separator } from "@/components/ui/separator"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { getCurrentUser } from "@/lib/ticket-utils"
+import { useProfile } from "@/hooks/use-profile"
 import { Bell, CheckCircle, AlertCircle, Info, Clock, ArrowRight, CheckSquare, FileText, Sun, Moon, Users, Heart, Calendar, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -82,12 +83,14 @@ function truncateNotificationMessage(message: string, maxLength: number =80): st
 export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser = true }: AppHeaderProps) {
   const pathname = usePathname()
   const router = useRouter()
-  const [user, setUser] = useState<{
-    name: string
-    email: string
-    avatar: string
-  } | null>(null) // Start with null to show loading state
-  const [userLoading, setUserLoading] = useState(true)
+  const { profile, isLoading: userLoading } = useProfile()
+  
+  // Transform profile data to match the expected user format
+  const user = profile ? {
+    name: `${profile.first_name} ${profile.last_name}`.trim() || "Agent User",
+    email: profile.email || "agent@shoreagents.com",
+    avatar: profile.profile_picture || "/shoreagents-dp.png"
+  } : null
 
   const [notifications, setNotifications] = useState<any[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
@@ -286,64 +289,6 @@ export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser =
 
   // Removed periodic notification checking - socket context handles real-time updates
 
-  useEffect(() => {
-    const loadUserData = async () => {
-      try {
-        // Only run on client side
-        if (typeof window === 'undefined') return
-        
-        // First get user data from localStorage
-    const currentUser = getCurrentUser()
-    if (currentUser) {
-          // Set initial user data from localStorage
-      setUser({
-        name: currentUser.name || "Agent User",
-        email: currentUser.email || "agent@shoreagents.com",
-        avatar: "/shoreagents-dp.png", // Default fallback
-      })
-          
-          // Try to fetch fresh profile data from API
-          try {
-            // Get user email for API call (works in both browser and Electron)
-            const userEmail = currentUser.email;
-            const apiUrl = userEmail 
-              ? `/api/profile/?email=${encodeURIComponent(userEmail)}`
-              : '/api/profile/';
-              
-            const response = await fetch(apiUrl, {
-              credentials: 'include' // Include authentication cookies for Electron
-            })
-            if (response.ok) {
-              const profileData = await response.json()
-              if (profileData.success && profileData.profile) {
-                const profile = profileData.profile
-                setUser({
-                  name: `${profile.first_name} ${profile.last_name}`.trim() || currentUser.name || "Agent User",
-                  email: profile.email || currentUser.email || "agent@shoreagents.com",
-                  avatar: profile.profile_picture || "/shoreagents-dp.png", // Use uploaded profile picture or fallback
-                })
-              }
-            }
-          } catch (apiError) {
-            // If API fails, keep the localStorage data
-            console.warn('Failed to fetch profile from API, using localStorage data')
-          }
-        }
-      } catch (error) {
-        console.error('Error loading user data:', error)
-        // Fallback to default user
-        setUser({
-          name: "Agent User",
-          email: "agent@shoreagents.com",
-          avatar: "/shoreagents-dp.png",
-        })
-      } finally {
-        setUserLoading(false)
-      }
-    }
-
-    loadUserData()
-  }, [])
 
   // Generate breadcrumbs based on pathname if not provided
   const generateBreadcrumbs = (): BreadcrumbItem[] => {

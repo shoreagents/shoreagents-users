@@ -23,9 +23,10 @@ interface WeeklyActivityData {
 
 interface WeeklyActivityDisplayProps {
   currentUser: any;
+  forceRefresh?: boolean;
 }
 
-export default function WeeklyActivityDisplay({ currentUser }: WeeklyActivityDisplayProps) {
+export default function WeeklyActivityDisplay({ currentUser, forceRefresh = false }: WeeklyActivityDisplayProps) {
   const [weeklyData, setWeeklyData] = useState<WeeklyActivityData[]>([]);
   const [loading, setLoading] = useState(false);
   const [currentWeek, setCurrentWeek] = useState<any>(null);
@@ -60,7 +61,7 @@ export default function WeeklyActivityDisplay({ currentUser }: WeeklyActivityDis
     });
   };
 
-  const fetchAllWeeklyData = useCallback(async () => {
+  const fetchAllWeeklyData = useCallback(async (forceRefresh = false) => {
     if (!currentUser?.email) return;
     
     setLoading(true);
@@ -71,7 +72,8 @@ export default function WeeklyActivityDisplay({ currentUser }: WeeklyActivityDis
         body: JSON.stringify({
           action: 'get_all',
           email: currentUser.email,
-          weeksToKeep: 1
+          weeksToKeep: 1,
+          forceRefresh
         })
       });
       
@@ -139,7 +141,8 @@ export default function WeeklyActivityDisplay({ currentUser }: WeeklyActivityDis
         body: JSON.stringify({
           action: 'get_all',
           email: currentUser.email,
-          weeksToKeep: 1
+          weeksToKeep: 1,
+          forceRefresh: false
         })
       });
       
@@ -170,6 +173,13 @@ export default function WeeklyActivityDisplay({ currentUser }: WeeklyActivityDis
       fetchAllWeeklyData();
     }
   }, [currentUser?.email, fetchAllWeeklyData]);
+
+  // Effect to handle force refresh from parent component
+  useEffect(() => {
+    if (forceRefresh && currentUser?.email) {
+      fetchAllWeeklyData(true);
+    }
+  }, [forceRefresh, currentUser?.email, fetchAllWeeklyData]);
 
   // Periodic refresh only when user is active and not in break/meeting
   useEffect(() => {
@@ -254,7 +264,7 @@ export default function WeeklyActivityDisplay({ currentUser }: WeeklyActivityDis
               <Button 
                 variant="ghost" 
                 size="sm" 
-                onClick={fetchAllWeeklyData}
+                onClick={() => fetchAllWeeklyData(true)}
                 disabled={loading}
                 className="h-8 px-2 hover:!bg-transparent dark:hover:text-white hover:text-black "
                 title="Refresh weekly data"

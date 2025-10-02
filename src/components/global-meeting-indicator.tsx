@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useMeeting } from '@/contexts/meeting-context'
 import { useSocket } from '@/contexts/socket-context'
 import { useBreak } from '@/contexts/break-context'
+import { useLoading } from '@/contexts/loading-context'
 import { Button } from '@/components/ui/button'
 import { 
   Video, 
@@ -31,6 +32,7 @@ export const GlobalMeetingIndicator = React.memo(function GlobalMeetingIndicator
   } = useMeeting()
   const { socket, isConnected } = useSocket()
   const { isBreakActive } = useBreak()
+  const { isLoading: appLoading } = useLoading()
   const [isEnding, setIsEnding] = useState(false)
   const [currentTime, setCurrentTime] = useState(new Date())
   const [position, setPosition] = useState({ x: 24, y: 24 }) // Default top-right position
@@ -134,6 +136,11 @@ export const GlobalMeetingIndicator = React.memo(function GlobalMeetingIndicator
     const target = e.target as HTMLElement
     if (target.closest('button')) return // Don't drag if clicking on buttons
     
+    // Prevent the event from being captured by WebkitAppRegion drag
+    e.preventDefault()
+    e.stopPropagation()
+    ;(e.nativeEvent as any).stopImmediatePropagation?.()
+    
     setIsDragging(true)
     const rect = containerRef.current?.getBoundingClientRect()
     if (rect) {
@@ -142,8 +149,6 @@ export const GlobalMeetingIndicator = React.memo(function GlobalMeetingIndicator
         y: e.clientY - rect.top
       })
     }
-    e.preventDefault()
-    e.stopPropagation()
   }, [])
 
   // Handle drag move
@@ -159,7 +164,13 @@ export const GlobalMeetingIndicator = React.memo(function GlobalMeetingIndicator
     const maxX = window.innerWidth - (containerRef.current?.offsetWidth || 300)
     const maxY = window.innerHeight - (containerRef.current?.offsetHeight || 200)
     
-    newPosition.x = Math.max(0, Math.min(newPosition.x, maxX))
+    // Prevent positioning too close to sidebar area (team-switcher)
+    // Sidebar is 16rem (256px) when expanded, 3rem (48px) when collapsed
+    // Add some padding to avoid conflicts with WebkitAppRegion
+    const sidebarWidth = 256 // Expanded sidebar width
+    const sidebarPadding = 20 // Extra padding to avoid conflicts
+    
+    newPosition.x = Math.max(sidebarWidth + sidebarPadding, Math.min(newPosition.x, maxX))
     newPosition.y = Math.max(0, Math.min(newPosition.y, maxY))
     
     setPosition(newPosition)
@@ -203,12 +214,12 @@ export const GlobalMeetingIndicator = React.memo(function GlobalMeetingIndicator
   }
 
   // Don't render if not in a meeting, if we're still loading and there's no indication of an active meeting,
-  // or if the agent is on break
+  // or if the agent is on break, or if the app is still loading
   // Only show loading state if we have some indication there might be an active meeting
-  if (!isInMeeting || !currentMeeting || isBreakActive) {
+  if (!isInMeeting || !currentMeeting || isBreakActive || appLoading) {
     // If we're loading but have no meeting data yet, don't show anything
     // This prevents the loading indicator from showing when there are no meetings
-    // Also hide when agent is on break
+    // Also hide when agent is on break or when app is loading
     return null
   }
 
@@ -288,14 +299,16 @@ export const GlobalMeetingIndicator = React.memo(function GlobalMeetingIndicator
       <motion.div
         ref={containerRef}
         className={cn(
-          "fixed z-50 select-none",
+          "fixed z-[9999] select-none",
           isDragging && "cursor-grabbing",
           className
         )}
         style={{
           left: position.x,
           top: position.y,
-        }}
+          pointerEvents: 'auto',
+          WebkitAppRegion: 'no-drag',
+        } as React.CSSProperties}
         initial={containerAnimation.initial}
         animate={containerAnimation.animate}
         exit={containerAnimation.exit}

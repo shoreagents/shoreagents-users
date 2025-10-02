@@ -29,6 +29,7 @@ declare global {
         logoutCompleted: () => Promise<any>;
         userLoggedIn: () => Promise<any>;
         userLoggedOut: () => Promise<any>;
+        quit: () => Promise<{ success: boolean; error?: string }>;
       };
       secureCredentials: {
         store: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;

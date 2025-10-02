@@ -6,6 +6,8 @@ import { getCurrentUserInfo } from '@/lib/user-profiles'
 import { useMeeting } from './meeting-context'
 import { useSocket } from './socket-context'
 import { getCurrentUser } from '@/lib/ticket-utils'
+import { parseShiftTime } from '@/lib/shift-utils'
+import { useProfileContext } from './profile-context'
 
 interface EventsContextType {
   // Event state
@@ -39,6 +41,10 @@ interface EventsContextType {
   // Meeting creation blocking
   canCreateMeeting: boolean
   meetingBlockedReason: string | null
+  
+  // Shift end detection
+  isShiftEnded: boolean
+  isEventJoinBlockedByShiftEnd: (event: Event) => boolean
 }
 
 const EventsContext = createContext<EventsContextType | undefined>(undefined)
@@ -48,11 +54,13 @@ interface EventsProviderProps {
 }
 
 export function EventsProvider({ children }: EventsProviderProps) {
+  const { profile } = useProfileContext()
   const [currentEvent, setCurrentEvent] = useState<Event | null>(null)
   const [isInEvent, setIsInEvent] = useState(false)
   const [hasLeftEvent, setHasLeftEvent] = useState(false)
   const [isJoiningEvent, setIsJoiningEvent] = useState(false)
   const [isLeavingEvent, setIsLeavingEvent] = useState(false)
+  const [isShiftEnded, setIsShiftEnded] = useState(false)
 
   const currentUser = getCurrentUserInfo()
   
@@ -191,6 +199,12 @@ export function EventsProvider({ children }: EventsProviderProps) {
 
   // Join event function
   const joinEvent = async (eventId: number) => {
+    // Check if join is blocked by shift end before making API call
+    if (isShiftEnded) {
+      const error = new Error('Cannot join event - shift has ended')
+      throw error
+    }
+
     // Check if join is blocked by meeting before making API call
     if (isInMeeting) {
       const error = new Error('Cannot join event while in a meeting. Please end your meeting first.')
@@ -203,7 +217,7 @@ export function EventsProvider({ children }: EventsProviderProps) {
       // State will be updated via the useEffect when events data refreshes
     } catch (error) {
       // Don't log meeting conflict errors as they're handled in the UI
-      if (error instanceof Error && !error.message.includes('Cannot join event while in a meeting')) {
+      if (error instanceof Error && !error.message.includes('Cannot join event while in a meeting') && !error.message.includes('Cannot join event - shift has ended')) {
         console.error('Failed to join event:', error)
       }
       throw error
@@ -214,6 +228,12 @@ export function EventsProvider({ children }: EventsProviderProps) {
 
   // Join event function that bypasses meeting check (for use after ending a meeting)
   const joinEventAfterMeetingEnd = async (eventId: number) => {
+    // Still check for shift end even when bypassing meeting check
+    if (isShiftEnded) {
+      const error = new Error('Cannot join event - shift has ended')
+      throw error
+    }
+
     try {
       setIsJoiningEvent(true)
       await markAsGoingMutation.mutateAsync(eventId)
@@ -341,6 +361,145 @@ export function EventsProvider({ children }: EventsProviderProps) {
     socket.emit('updateEventStatus', isInEvent, currentEvent)
   }, [socket, isConnected, isInEvent, currentEvent])
 
+  // Check if shift has ended
+  const checkShiftEndStatus = useCallback(async () => {
+    try {
+      if (!profile?.shift_time) return false
+
+      const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
+      const shiftParsed = parseShiftTime(profile.shift_time, nowPH)
+      
+      const shiftHasEnded = !!(shiftParsed?.endTime && nowPH > shiftParsed.endTime)
+      setIsShiftEnded(shiftHasEnded)
+      return shiftHasEnded
+    } catch (error) {
+      console.error('Error checking shift end status:', error)
+    }
+    return false
+  }, [profile?.shift_time])
+
+  // Check if event join is blocked by shift end
+  const isEventJoinBlockedByShiftEnd = (event: Event): boolean => {
+    if (!event) return false
+    return isShiftEnded
+  }
+
+  // Leave event when shift ends
+  const leaveEventOnShiftEnd = useCallback(async () => {
+    const user = getCurrentUser()
+    if (!user?.email) return
+
+    // Only leave if currently in event
+    if (!isInEvent || !currentEvent) return
+
+    try {
+      // Leave the current event
+      await markAsBackMutation.mutateAsync(currentEvent.event_id)
+      
+      // Trigger a custom event to refresh meeting data
+      window.dispatchEvent(new CustomEvent('event-left', { 
+        detail: { eventId: currentEvent.event_id, timestamp: Date.now() } 
+      }))
+    } catch (err) {
+      console.error('Error leaving event on shift end:', err)
+    }
+  }, [isInEvent, currentEvent, markAsBackMutation])
+
+  // Check if shift has ended and leave event if needed
+  const checkShiftEndAndLeaveEvent = useCallback(async () => {
+    if (!isInEvent || !currentEvent || !profile?.shift_time) return
+
+    try {
+      const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
+      const shiftParsed = parseShiftTime(profile.shift_time, nowPH)
+      
+      if (shiftParsed?.endTime && nowPH > shiftParsed.endTime) {
+        await leaveEventOnShiftEnd()
+      }
+    } catch (error) {
+      console.error('Error checking shift end for event leave:', error)
+    }
+  }, [isInEvent, currentEvent, profile?.shift_time, leaveEventOnShiftEnd])
+
+  // Initialize shift end check on mount
+  useEffect(() => {
+    const user = getCurrentUser()
+    if (user?.email) {
+      checkShiftEndStatus()
+    }
+  }, [checkShiftEndStatus])
+
+  // Check shift end status periodically
+  useEffect(() => {
+    const interval = setInterval(() => {
+      checkShiftEndStatus()
+    }, 60000) // Check every minute
+
+    return () => clearInterval(interval)
+  }, [checkShiftEndStatus])
+
+  // Check for shift end immediately when event status is loaded
+  useEffect(() => {
+    if (!isInEvent || !currentEvent) return
+
+    const checkShiftEndOnLoad = async () => {
+      try {
+        await checkShiftEndAndLeaveEvent()
+      } catch (error) {
+        console.error('Error in immediate shift end check for event:', error)
+      }
+    }
+
+    // Run check after a short delay to ensure event status is fully loaded
+    const timeoutId = setTimeout(checkShiftEndOnLoad, 1000)
+    
+    return () => clearTimeout(timeoutId)
+  }, [isInEvent, currentEvent, checkShiftEndAndLeaveEvent])
+
+  // Periodic check for shift end to automatically leave event
+  useEffect(() => {
+    if (!isInEvent || !currentEvent) return
+
+    // Check immediately when component mounts and user is in event
+    const checkImmediately = async () => {
+      try {
+        await checkShiftEndAndLeaveEvent()
+      } catch (error) {
+        console.error('Error in immediate shift end check for event:', error)
+      }
+    }
+
+    // Run check immediately
+    checkImmediately()
+
+    // Then check every 30 seconds for more responsive detection
+    const interval = setInterval(async () => {
+      try {
+        await checkShiftEndAndLeaveEvent()
+      } catch (error) {
+        console.error('Error in periodic shift end check for event:', error)
+      }
+    }, 30000) // Check every 30 seconds for faster response
+
+    return () => clearInterval(interval)
+  }, [isInEvent, currentEvent, checkShiftEndAndLeaveEvent])
+
+  // Also listen for shift end events from other parts of the app
+  useEffect(() => {
+    const handleShiftEnd = () => {
+      if (isInEvent && currentEvent) {
+        leaveEventOnShiftEnd()
+      }
+    }
+
+    // Listen for custom shift end events
+    window.addEventListener('shift-ended', handleShiftEnd)
+    
+    return () => {
+      window.removeEventListener('shift-ended', handleShiftEnd)
+    }
+  }, [isInEvent, currentEvent, leaveEventOnShiftEnd])
+
   // Determine if event joining is blocked by meeting
   const eventBlockedReason = isInMeeting ? 'Cannot join event while in a meeting. Please end the meeting first.' : null
   
@@ -366,7 +525,9 @@ export function EventsProvider({ children }: EventsProviderProps) {
     isInMeeting,
     eventBlockedReason,
     canCreateMeeting,
-    meetingBlockedReason
+    meetingBlockedReason,
+    isShiftEnded,
+    isEventJoinBlockedByShiftEnd
   }
 
   return (

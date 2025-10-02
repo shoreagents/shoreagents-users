@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseShiftTime } from '@/lib/shift-utils'
 
 function getPool() {
   const { Pool } = require('pg')
@@ -60,7 +61,31 @@ export async function POST(request: NextRequest) {
       }, { status: 400 })
     }
 
+    // Check if shift has ended
     const pool = getPool()
+    try {
+      // Get user's shift time from profile
+      const profileResult = await pool.query(
+        `SELECT shift_time FROM personal_info WHERE user_id = $1`,
+        [user.id]
+      )
+      
+      const shiftTime = profileResult.rows[0]?.shift_time
+      if (shiftTime) {
+        const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
+        const shiftParsed = parseShiftTime(shiftTime, nowPH)
+        
+        if (shiftParsed?.endTime && nowPH > shiftParsed.endTime) {
+          return NextResponse.json({
+            success: false,
+            error: 'Cannot create health check request - shift has ended'
+          }, { status: 400 })
+        }
+      }
+    } catch (shiftError) {
+      console.error('Error checking shift end status:', shiftError)
+      // Continue with request creation if shift check fails
+    }
     
     try {
       // Find an available nurse (user_id 1 is the nurse)
@@ -85,6 +110,13 @@ export async function POST(request: NextRequest) {
 
       const newRequest = result.rows[0]
       
+      // Get user email for socket notification
+      const userEmailResult = await pool.query(
+        `SELECT email FROM users WHERE id = $1`,
+        [user.id]
+      )
+      const userEmail = userEmailResult.rows[0]?.email
+
       // Notify through pg_notify for real-time updates
       await pool.query(
         `SELECT pg_notify('health_check_events', $1)`,
@@ -92,10 +124,12 @@ export async function POST(request: NextRequest) {
           event: 'request_created',
           request_id: newRequest.id,
           user_id: newRequest.user_id,
+          user_email: userEmail,
           nurse_id: newRequest.nurse_id,
           status: newRequest.status,
           priority: newRequest.priority,
           complaint: newRequest.complaint,
+          symptoms: newRequest.symptoms,
           request_time: newRequest.request_time
         })]
       )

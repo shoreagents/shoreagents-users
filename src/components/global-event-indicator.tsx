@@ -7,6 +7,7 @@ import { useMeeting } from '@/contexts/meeting-context'
 import { useSocket } from '@/contexts/socket-context'
 import { useBreak } from '@/contexts/break-context'
 import { useRestroom } from '@/contexts/restroom-context'
+import { useLoading } from '@/contexts/loading-context'
 import { Button } from '@/components/ui/button'
 import { 
   Dialog,
@@ -43,13 +44,16 @@ export const GlobalEventIndicator = React.memo(function GlobalEventIndicator({ c
     leaveEvent,
     isEventJoinable,
     isEventLeavable,
-    isEventJoinBlockedByMeeting
+    isEventJoinBlockedByMeeting,
+    isShiftEnded,
+    isEventJoinBlockedByShiftEnd
   } = useEventsContext()
   
   const { endCurrentMeeting, currentMeeting } = useMeeting()
   const { socket, isConnected } = useSocket()
   const { isBreakActive } = useBreak()
   const { isInRestroom, updateRestroomStatus } = useRestroom()
+  const { isLoading } = useLoading()
   
   const [isVisible, setIsVisible] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
@@ -174,6 +178,11 @@ export const GlobalEventIndicator = React.memo(function GlobalEventIndicator({ c
     const target = e.target as HTMLElement
     if (target.closest('button')) return // Don't drag if clicking on buttons
     
+    // Prevent the event from being captured by WebkitAppRegion drag
+    e.preventDefault()
+    e.stopPropagation()
+    ;(e.nativeEvent as any).stopImmediatePropagation?.()
+    
     setIsDragging(true)
     const rect = containerRef.current?.getBoundingClientRect()
     if (rect) {
@@ -182,8 +191,6 @@ export const GlobalEventIndicator = React.memo(function GlobalEventIndicator({ c
         y: e.clientY - rect.top
       })
     }
-    e.preventDefault()
-    e.stopPropagation()
   }, [])
 
   // Handle drag move
@@ -391,6 +398,11 @@ export const GlobalEventIndicator = React.memo(function GlobalEventIndicator({ c
     }
   }
 
+  // Don't show indicator during loading
+  if (isLoading) {
+    return null
+  }
+
   if (!isVisible || !currentEvent) {
     return null
   }
@@ -401,14 +413,16 @@ export const GlobalEventIndicator = React.memo(function GlobalEventIndicator({ c
         <motion.div
         ref={containerRef}
         className={cn(
-          "fixed z-50 select-none",
+          "fixed z-[9999] select-none",
           isDragging && "cursor-grabbing",
           className
         )}
         style={{
           left: position.x,
           top: position.y,
-        }}
+          pointerEvents: 'auto',
+          WebkitAppRegion: 'no-drag',
+        } as React.CSSProperties}
         initial={containerAnimation.initial}
         animate={containerAnimation.animate}
         exit={containerAnimation.exit}
@@ -519,7 +533,7 @@ export const GlobalEventIndicator = React.memo(function GlobalEventIndicator({ c
                     </Button>
                   )}
                   
-                  {!isInEvent && isEventJoinable(currentEvent) && (
+                  {!isInEvent && isEventJoinable(currentEvent) && !isEventJoinBlockedByShiftEnd(currentEvent) && (
                     <Button
                       onClick={handleJoinEvent}
                       size="sm"
@@ -532,6 +546,18 @@ export const GlobalEventIndicator = React.memo(function GlobalEventIndicator({ c
                         <Calendar className="h-3 w-3 mr-1" />
                       )}
                       {isJoining ? 'Joining...' : 'Join'}
+                    </Button>
+                  )}
+                  
+                  {!isInEvent && isEventJoinable(currentEvent) && isEventJoinBlockedByShiftEnd(currentEvent) && (
+                    <Button
+                      size="sm"
+                      className="flex-1 text-xs opacity-50"
+                      disabled
+                      title="Cannot join event - shift has ended"
+                    >
+                      <Calendar className="h-3 w-3 mr-1" />
+                      Join (Shift Ended)
                     </Button>
                   )}
                 </div>

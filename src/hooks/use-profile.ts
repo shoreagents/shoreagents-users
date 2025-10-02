@@ -95,10 +95,10 @@ export function useProfile() {
       return response.json()
     },
     enabled: isClient && !!currentUser?.email,
-    staleTime: 2 * 60 * 1000, // 2 minutes - let socket events handle real-time updates
-    gcTime: 2 * 60 * 1000, // 2 minutes - keep in cache for 2 minutes
-    refetchOnMount: true, // Refetch when component mounts
-    refetchOnWindowFocus: true, // Refetch when window gains focus
+    staleTime: 10 * 60 * 1000, // 10 minutes - profile data doesn't change often
+    gcTime: 15 * 60 * 1000, // 15 minutes - keep in cache longer
+    refetchOnMount: false, // Don't refetch on mount if data is fresh
+    refetchOnWindowFocus: false, // Don't refetch on window focus - profile data is stable
     retry: 2,
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
   })

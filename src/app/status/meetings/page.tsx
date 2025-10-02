@@ -314,7 +314,8 @@ export default function MeetingsPage() {
     isInMeeting: contextIsInMeeting,
     currentMeeting: contextCurrentMeeting,
     isLoading: contextLoading,
-    refreshMeetings: contextRefreshMeetings
+    refreshMeetings: contextRefreshMeetings,
+    isShiftEnded
   } = useMeeting()
 
   // Clear loading state immediately if agent is already in a meeting when page loads
@@ -515,10 +516,16 @@ export default function MeetingsPage() {
     return filteredMeetings.slice(startIndex, endIndex)
   }, [filteredMeetings, filteredCurrentPage])
 
-  // Dynamically check if user can create new meeting based on ALL existing meetings
+  // Dynamically check if user can create new meeting based on ALL existing meetings and shift status
   const canCreateNewMeeting = useMemo(() => {
     // Use contextMeetings which contains all meetings, not just the current page
     const allMeetings = contextMeetings || []
+    
+    // Check if shift has ended
+    if (isShiftEnded) {
+      setCreateMeetingReason('Cannot create meeting - shift has ended')
+      return false
+    }
     
     // Check if there are any scheduled or in-progress meetings across ALL pages
     const hasScheduled = allMeetings.some(meeting => meeting.status === 'scheduled')
@@ -534,7 +541,7 @@ export default function MeetingsPage() {
       setCreateMeetingReason(null)
       return true
     }
-  }, [contextMeetings])
+  }, [contextMeetings, isShiftEnded])
 
   // Handle initial mount state
   useEffect(() => {

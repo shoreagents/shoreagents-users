@@ -124,7 +124,8 @@ export default function HealthPage() {
     currentHealthRequest,
     setCurrentHealthRequest,
     handleGoingToClinic,
-    handleBackToStation
+    handleBackToStation,
+    isShiftEnded
   } = useHealth()
 
   // Use other status contexts to check if agent is busy
@@ -784,8 +785,17 @@ export default function HealthPage() {
                          </div>
                        )}
 
+                       {/* Show status message when shift has ended */}
+                       {isShiftEnded && (
+                         <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                           <p className="text-sm text-red-800">
+                             <strong>Notice:</strong> Health check requests are disabled because your shift has ended. You can only request health checks during your active shift hours.
+                           </p>
+                         </div>
+                       )}
+
                        {/* Show status message when agent is busy */}
-                       {(isInRestroom || isInMeeting || isInEvent) && (
+                       {(isInRestroom || isInMeeting || isInEvent) && !isShiftEnded && (
                          <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
                            <p className="text-sm text-amber-800">
                              <strong>Notice:</strong> You cannot request a health check while you are currently {
@@ -908,12 +918,13 @@ export default function HealthPage() {
                     ) : (
                       <Button 
                         onClick={handleStartNewRequest}
-                        disabled={isLoadingAvailability || isNurseStatusLoading || !nurseOnDuty || userHasPendingRequest || (currentApprovedRequest && !currentApprovedRequest.done) || isInRestroom || isInMeeting || isInEvent}
+                        disabled={isLoadingAvailability || isNurseStatusLoading || !nurseOnDuty || userHasPendingRequest || (currentApprovedRequest && !currentApprovedRequest.done) || isInRestroom || isInMeeting || isInEvent || isShiftEnded}
                         className="w-full"
                         size="lg"
                       >
                         <Bell className="mr-2 h-4 w-4" />
                         {isLoadingAvailability || isNurseStatusLoading ? "Checking Availability..." : 
+                         isShiftEnded ? "Health Check Disabled - Shift Ended" :
                          userHasPendingRequest ? "Request Pending" : 
                          (currentApprovedRequest && !currentApprovedRequest.done) ? "Request in Progress" :
                          "Request Health Check"}

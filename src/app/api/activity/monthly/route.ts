@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
   try {
     const pool = getPool();
     const body = await request.json();
-    const { action, userId, email, monthsToKeep = 1 } = body;
+    const { action, userId, email, monthsToKeep = 1, forceRefresh = false } = body;
 
     if (!email) {
       return NextResponse.json({ error: 'Email is required' }, { status: 400 });
@@ -36,12 +36,14 @@ export async function POST(request: NextRequest) {
 
     switch (action) {
       case 'get_all':
-        // Check Redis cache first
+        // Check Redis cache first (unless forceRefresh is true)
         const cacheKey = cacheKeys.monthlyActivity(email, monthsToKeep)
-        const cachedData = await redisCache.get(cacheKey)
         
-        if (cachedData) {
-          return NextResponse.json(cachedData)
+        if (!forceRefresh) {
+          const cachedData = await redisCache.get(cacheKey)
+          if (cachedData) {
+            return NextResponse.json(cachedData)
+          }
         }
 
         // Single request to get all monthly data - aggregation now happens automatically via triggers!

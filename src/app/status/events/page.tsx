@@ -105,7 +105,9 @@ export default function EventsPage() {
     isEventJoinable, 
     isEventLeavable,
     isInMeeting,
-    eventBlockedReason
+    eventBlockedReason,
+    isShiftEnded,
+    isEventJoinBlockedByShiftEnd
   } = useEventsContext()
   
   // Meeting context
@@ -468,7 +470,7 @@ export default function EventsPage() {
             {/* User actions */}
             <div className="flex gap-2 pt-2 border-t">
               {/* Show Join button if event is joinable and not a 'today' event that hasn't started */}
-              {isEventJoinable(event) && !(event.status === 'today' && isEventNotStarted(event)) && (
+              {isEventJoinable(event) && !(event.status === 'today' && isEventNotStarted(event)) && !isShiftEnded && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -481,17 +483,32 @@ export default function EventsPage() {
                 </Button>
               )}
               
-              {/* Show disabled join button with meeting blocking message */}
-              {!isEventJoinable(event) && event.status !== 'cancelled' && event.status !== 'ended' && 
-               !event.is_going && !event.is_back && isInMeeting && (
+              {/* Show disabled join button with shift end blocking message */}
+              {isEventJoinable(event) && !(event.status === 'today' && isEventNotStarted(event)) && isShiftEnded && (
                 <Button
                   variant="outline"
                   size="sm"
                   disabled
                   className="text-xs h-7 px-2 opacity-50"
+                  title="Cannot join event - shift has ended"
                 >
                   <CheckCircle className="w-3 h-3 mr-1" />
-                  Join {getEventTypeDisplayName(event.event_type || 'event')}
+                  Join {getEventTypeDisplayName(event.event_type || 'event')} (Shift Ended)
+                </Button>
+              )}
+              
+              {/* Show disabled join button with meeting blocking message */}
+              {!isEventJoinable(event) && event.status !== 'cancelled' && event.status !== 'ended' && 
+               !event.is_going && !event.is_back && isInMeeting && !isShiftEnded && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled
+                  className="text-xs h-7 px-2 opacity-50"
+                  title="Cannot join event while in a meeting. Please end the meeting first."
+                >
+                  <CheckCircle className="w-3 h-3 mr-1" />
+                  Join {getEventTypeDisplayName(event.event_type || 'event')} (In Meeting)
                 </Button>
               )}
               

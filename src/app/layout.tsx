@@ -14,6 +14,7 @@ import { HealthProvider } from "@/contexts/health-context";
 import { RestroomProvider } from "@/contexts/restroom-context";
 import { LoadingProvider } from "@/contexts/loading-context";
 import { TutorialProvider } from "@/contexts/tutorial-context";
+import { ProfileProvider } from "@/contexts/profile-context";
 import { QueryProvider } from "@/providers/query-provider";
 
 import ElectronLogoutHandler from "@/components/electron-logout-handler";
@@ -73,12 +74,13 @@ export default function RootLayout({
                       <AnnouncementsProvider>
                         <AnnouncementsLayoutWrapper />
                       </AnnouncementsProvider>
-                      <MeetingProvider>
-                        <EventsProvider>
-                          <BreakProvider>
-                            <HealthProvider>
-                              <RestroomProvider>
-                                <TimerProvider>
+                      <ProfileProvider>
+                        <MeetingProvider>
+                          <EventsProvider>
+                            <BreakProvider>
+                              <HealthProvider>
+                                <RestroomProvider>
+                                  <TimerProvider>
                                   <ActivityProvider>
                                   <TeamStatusProvider>
                                   {/* Keep auth stores in sync as early as possible */}
@@ -96,12 +98,13 @@ export default function RootLayout({
                                     <Toaster position="top-right" richColors />
                                   </TeamStatusProvider>
                                   </ActivityProvider>
-                                </TimerProvider>
-                              </RestroomProvider>
-                            </HealthProvider>
-                          </BreakProvider>
-                        </EventsProvider>
-                      </MeetingProvider>
+                                  </TimerProvider>
+                                </RestroomProvider>
+                              </HealthProvider>
+                            </BreakProvider>
+                          </EventsProvider>
+                        </MeetingProvider>
+                      </ProfileProvider>
                   </SocketProvider>
                   </AuthProvider>
                   <LogoutLoadingOverlay />

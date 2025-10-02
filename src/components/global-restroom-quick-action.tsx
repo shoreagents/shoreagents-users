@@ -21,7 +21,9 @@ export function GlobalRestroomQuickAction() {
   const [dragStart, setDragStart] = useState(0)
   const [dragStartPosition, setDragStartPosition] = useState(0)
   const [hasDragged, setHasDragged] = useState(false)
+  const [mouseDownTime, setMouseDownTime] = useState(0)
   const containerRef = useRef<HTMLDivElement>(null)
+  const dragStateRef = useRef({ isDragging: false, hasDragged: false })
   const pathname = usePathname()
   const { isLoading } = useLoading()
 
@@ -83,8 +85,8 @@ export function GlobalRestroomQuickAction() {
   }, [isOnRight])
 
   const handleToggleRestroom = async (e?: React.MouseEvent) => {
-    // Prevent click if we were dragging or have dragged
-    if (isDragging || hasDragged) {
+    // Prevent click if we were actively dragging, have dragged, or if it was a very quick click (likely accidental)
+    if (dragStateRef.current.isDragging || dragStateRef.current.hasDragged || (mouseDownTime > 0 && Date.now() - mouseDownTime < 50)) {
       e?.preventDefault()
       e?.stopPropagation()
       return
@@ -103,6 +105,12 @@ export function GlobalRestroomQuickAction() {
       setHasDragged(false)
       setDragStart(e.clientY)
       setDragStartPosition(position)
+      setMouseDownTime(Date.now())
+      
+      // Update ref state
+      dragStateRef.current.isDragging = true
+      dragStateRef.current.hasDragged = false
+      
       e.preventDefault()
       e.stopPropagation()
     }
@@ -124,19 +132,36 @@ export function GlobalRestroomQuickAction() {
       setIsOnRight(shouldBeOnRight)
     }
     
-    // Mark as dragged if moved more than 5 pixels
-    if (Math.abs(deltaY) > 5 || Math.abs(deltaX) > 5) {
+    // Mark as dragged only if moved more than 10 pixels (increased threshold to reduce false positives)
+    if (Math.abs(deltaY) > 10 || Math.abs(deltaX) > 10) {
       setHasDragged(true)
+      dragStateRef.current.hasDragged = true
     }
   }, [isDragging, dragStart, dragStartPosition, isOnRight])
 
-  const handleMouseUp = () => {
+  const handleMouseUp = useCallback(() => {
+    const wasDragging = isDragging
+    const hadDragged = hasDragged
+    
     setIsDragging(false)
-    // Reset hasDragged after a short delay to allow click to be processed
-    setTimeout(() => {
+    setMouseDownTime(0)
+    
+    // Update ref state
+    dragStateRef.current.isDragging = false
+    
+    // If there was any dragging, keep hasDragged true for a longer period to prevent click
+    if (hadDragged) {
+      // Keep hasDragged true for longer to prevent any click after drag
+      setTimeout(() => {
+        setHasDragged(false)
+        dragStateRef.current.hasDragged = false
+      }, 200) // Increased delay to prevent click after drag
+    } else {
+      // Reset immediately if no dragging occurred
       setHasDragged(false)
-    }, 100)
-  }
+      dragStateRef.current.hasDragged = false
+    }
+  }, [isDragging, hasDragged])
 
   // Add event listeners for mouse move and up
   useEffect(() => {
@@ -151,7 +176,7 @@ export function GlobalRestroomQuickAction() {
       document.removeEventListener('mouseup', handleMouseUp)
       document.body.style.userSelect = ''
     }
-  }, [isDragging, dragStart, dragStartPosition, handleMouseMove])
+  }, [isDragging, dragStart, dragStartPosition, handleMouseMove, handleMouseUp])
 
   // Don't show restroom button on login page, if not authenticated, during loading, or if agent is in restricted state
   if (pathname === '/login' || pathname === '/' || !currentUser || isLoading || shouldHideRestroom) {

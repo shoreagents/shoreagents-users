@@ -2389,12 +2389,12 @@ async function updateTrayMenu() {
   // Add separator
   baseMenuItems.push({ type: 'separator' });
   
-  // Add appropriate quit option based on login state
+  // Add appropriate logout option based on login state
   if (isLoggedIn) {
     baseMenuItems.push({
       label: 'Logout && Quit',
       click: async () => {
-        await handleLogoutAndQuit();
+        await handleTrayLogoutAndQuit();
       }
     });
     
@@ -2428,6 +2428,32 @@ async function updateTrayMenu() {
   tray.setContextMenu(contextMenu);
   } catch (error) {
     console.error('Error updating tray menu:', error);
+  }
+}
+
+// Handle logout and quit from system tray
+async function handleTrayLogoutAndQuit() {
+  try {
+    // Show confirmation dialog
+    const result = await dialog.showMessageBox(mainWindow, {
+      type: 'question',
+      buttons: ['Logout && Quit', 'Cancel'],
+      defaultId: 0,
+      cancelId: 1,
+      title: 'Confirm Logout & Quit',
+      message: 'Logout and quit ShoreAgents Dashboard?',
+      detail: 'This will end your current session and close the application.',
+      icon: getAppResourcePath('public/ShoreAgents-Logo-only-256.png')
+    });
+    
+    if (result.response === 0) { // User clicked "Logout"
+      // Notify renderer to logout (same as app header logout)
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('force-logout');
+      }
+    }
+  } catch (error) {
+    console.error('Error in handleTrayLogoutAndQuit:', error);
   }
 }
 
@@ -2799,6 +2825,22 @@ ipcMain.handle('user-logged-out', async () => {
     return { success: true };
   } catch (error) {
     console.error('Error in user-logged-out handler:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Handle app quit request
+ipcMain.handle('app-quit', async () => {
+  try {
+    // Set quitting flag to prevent multiple quit attempts
+    isQuitting = true;
+    
+    // Quit the app
+    app.quit();
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error in app-quit handler:', error);
     return { success: false, error: error.message };
   }
 });

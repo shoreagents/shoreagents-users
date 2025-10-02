@@ -1,6 +1,5 @@
 "use client"
 
-import { useEffect, useState } from "react"
 import { AppSidebar } from "@/components/app-sidebar"
 import { AppHeader } from "@/components/app-header"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -27,7 +26,6 @@ export default function RestroomPage() {
     isUpdating, 
     error, 
     updateRestroomStatus,
-    fetchRestroomStatus,
     isShiftEnded
   } = useRestroom()
   
