@@ -31,12 +31,15 @@ app.get('/status', (req, res) => {
   });
 });
 
-// Connection metrics endpoint
+// Enhanced connection metrics endpoint
 app.get('/metrics', (req, res) => {
   const uptime = Date.now() - connectionMetrics.startTime;
   const errorRate = connectionMetrics.totalConnections > 0 
     ? (connectionMetrics.errors / connectionMetrics.totalConnections * 100).toFixed(2) 
     : 0;
+  
+  // Calculate health status based on multiple factors
+  const healthStatus = calculateHealthStatus();
   
   res.json({
     connections: {
@@ -45,14 +48,33 @@ app.get('/metrics', (req, res) => {
       disconnections: connectionMetrics.disconnections,
       errors: connectionMetrics.errors,
       reconnections: connectionMetrics.reconnections,
-      errorRate: `${errorRate}%`
+      errorRate: `${errorRate}%`,
+      pingTimeouts: connectionMetrics.pingTimeouts,
+      pingTimeoutRate: `${connectionMetrics.pingTimeoutRate.toFixed(2)}%`,
+      reconnectionRate: `${connectionMetrics.reconnectionRate.toFixed(2)}%`,
+      averageDuration: Math.round(connectionMetrics.averageConnectionDuration / 1000) + 's'
+    },
+    quality: {
+      excellent: connectionMetrics.connectionQuality.excellent,
+      good: connectionMetrics.connectionQuality.good,
+      fair: connectionMetrics.connectionQuality.fair,
+      poor: connectionMetrics.connectionQuality.poor
+    },
+    transport: connectionMetrics.transportStats,
+    pooling: {
+      maxPerUser: connectionPool.maxConnectionsPerUser,
+      maxTotal: connectionPool.maxTotalConnections,
+      atCapacity: connectionPool.isAtCapacity(),
+      userLimits: Object.fromEntries(connectionPool.userConnectionLimits)
     },
     uptime: {
       total: Math.floor(uptime / 1000),
       since: new Date(connectionMetrics.startTime).toISOString()
     },
     health: {
-      status: connectionMetrics.errors > 100 ? 'warning' : 'healthy',
+      status: healthStatus.status,
+      score: healthStatus.score,
+      warnings: healthStatus.warnings,
       lastReset: new Date(connectionMetrics.lastReset).toISOString()
     },
     circuitBreaker: {
@@ -60,8 +82,160 @@ app.get('/metrics', (req, res) => {
       errorCount: circuitBreaker.errorCount,
       threshold: circuitBreaker.threshold,
       lastErrorTime: circuitBreaker.lastErrorTime ? new Date(circuitBreaker.lastErrorTime).toISOString() : null
+    },
+    users: {
+      totalTracked: connectionMetrics.userConnectionHistory.size,
+      topConnectors: getTopConnectors(5),
+      problemUsers: getProblemUsers()
     }
   });
+});
+
+// Calculate overall health status
+function calculateHealthStatus() {
+  const warnings = [];
+  let score = 100;
+
+  // Check ping timeout rate
+  if (connectionMetrics.pingTimeoutRate > qualityThresholds.pingTimeoutWarning) {
+    warnings.push(`High ping timeout rate: ${connectionMetrics.pingTimeoutRate.toFixed(2)}%`);
+    score -= 20;
+  }
+
+  // Check reconnection rate
+  if (connectionMetrics.reconnectionRate > qualityThresholds.reconnectionWarning) {
+    warnings.push(`High reconnection rate: ${connectionMetrics.reconnectionRate.toFixed(2)}%`);
+    score -= 15;
+  }
+
+  // Check average connection duration
+  if (connectionMetrics.averageConnectionDuration < qualityThresholds.connectionDurationWarning) {
+    warnings.push(`Short average connection duration: ${Math.round(connectionMetrics.averageConnectionDuration / 1000)}s`);
+    score -= 10;
+  }
+
+  // Check error rate
+  const errorRate = connectionMetrics.totalConnections > 0 
+    ? (connectionMetrics.errors / connectionMetrics.totalConnections) * 100 
+    : 0;
+  if (errorRate > 5) {
+    warnings.push(`High error rate: ${errorRate.toFixed(2)}%`);
+    score -= 25;
+  }
+
+  // Check capacity
+  if (connectionPool.isAtCapacity()) {
+    warnings.push('Server at capacity');
+    score -= 30;
+  }
+
+  let status = 'healthy';
+  if (score < 50) status = 'critical';
+  else if (score < 70) status = 'warning';
+  else if (score < 90) status = 'good';
+
+  return { status, score: Math.max(0, score), warnings };
+}
+
+// Get top users by connection count
+function getTopConnectors(limit = 5) {
+  return Array.from(connectionMetrics.userConnectionHistory.entries())
+    .map(([email, data]) => ({ email, connections: data.totalConnections }))
+    .sort((a, b) => b.connections - a.connections)
+    .slice(0, limit);
+}
+
+// Get users with connection problems
+function getProblemUsers() {
+  return Array.from(connectionMetrics.userConnectionHistory.entries())
+    .filter(([email, data]) => {
+      const pingTimeoutRate = data.totalConnections > 0 ? (data.pingTimeouts / data.totalConnections) * 100 : 0;
+      return pingTimeoutRate > 10 || data.reconnections > 5;
+    })
+    .map(([email, data]) => ({
+      email,
+      pingTimeouts: data.pingTimeouts,
+      reconnections: data.reconnections,
+      quality: assessConnectionQuality(email)
+    }));
+}
+
+// Get active socket connections endpoint
+app.get('/connections', async (req, res) => {
+  try {
+    if (!isPoolAvailable()) {
+      return res.status(503).json({ error: 'Database not available' });
+    }
+
+    const query = `
+      SELECT 
+        sc.socket_id,
+        sc.email,
+        sc.connected_at,
+        sc.last_heartbeat,
+        sc.transport,
+        sc.connection_status,
+        sc.user_agent,
+        sc.ip_address,
+        COALESCE(pi.first_name || ' ' || pi.last_name, u.email) as full_name
+      FROM socket_connections sc
+      JOIN users u ON sc.user_id = u.id
+      LEFT JOIN personal_info pi ON u.id = pi.user_id
+      WHERE sc.connection_status = 'active'
+      ORDER BY sc.connected_at DESC
+    `;
+
+    const result = await pool.query(query);
+    
+    res.json({
+      activeConnections: result.rows,
+      count: result.rows.length,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error fetching active connections:', error);
+    res.status(500).json({ error: 'Failed to fetch connections' });
+  }
+});
+
+// Get connection history for a specific user
+app.get('/connections/:email', async (req, res) => {
+  try {
+    const { email } = req.params;
+    
+    if (!isPoolAvailable()) {
+      return res.status(503).json({ error: 'Database not available' });
+    }
+
+    const query = `
+      SELECT 
+        sc.socket_id,
+        sc.email,
+        sc.connected_at,
+        sc.last_heartbeat,
+        sc.disconnected_at,
+        sc.transport,
+        sc.connection_status,
+        sc.user_agent,
+        sc.ip_address
+      FROM socket_connections sc
+      WHERE sc.email = $1
+      ORDER BY sc.connected_at DESC
+      LIMIT 50
+    `;
+
+    const result = await pool.query(query, [email]);
+    
+    res.json({
+      user: email,
+      connections: result.rows,
+      count: result.rows.length,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error(`Error fetching connections for ${req.params.email}:`, error);
+    res.status(500).json({ error: 'Failed to fetch user connections' });
+  }
 });
 
 const server = createServer(app);
@@ -815,10 +989,13 @@ setInterval(async () => {
 }, 30000); // 30 seconds
 
 // Connection health monitoring and reconnection logic
-setInterval(() => {
+setInterval(async () => {
   const now = Date.now();
   const staleConnections = [];
   const disconnectedUsers = [];
+  
+  // Clean up stale connections in database
+  await cleanupStaleConnections();
   
   // Check for stale connections (no heartbeat for 5 minutes - more lenient for Railway)
   for (const [socketId, userData] of connectedUsers.entries()) {
@@ -888,10 +1065,27 @@ const disconnectedUsers = new Map(); // Store user data for potential reconnecti
 // Keep track of active connections per user
 const userConnections = new Map(); // Map<email, Set<socketId>>
 
+// Connection pooling and limits
+const connectionPool = {
+  maxConnectionsPerUser: 3, // Maximum concurrent connections per user
+  maxTotalConnections: 1000, // Maximum total connections
+  connectionTimeouts: new Map(), // Track connection timeouts
+  userConnectionLimits: new Map(), // Per-user connection limits
+  isAtCapacity: () => connectionMetrics.activeConnections >= connectionPool.maxTotalConnections
+};
+
+// Connection quality thresholds
+const qualityThresholds = {
+  pingTimeoutWarning: 5, // Warn if ping timeout rate > 5%
+  reconnectionWarning: 10, // Warn if reconnection rate > 10%
+  connectionDurationWarning: 300000, // Warn if avg duration < 5 minutes
+  maxConcurrentConnections: 3 // Max connections per user
+};
+
 // Track user online/offline status (based on login/logout, not socket connections)
 const userStatus = new Map(); // Map<email, { status: 'online'|'offline', loginTime: Date, lastSeen: Date }>
 
-// Connection metrics for monitoring
+// Enhanced connection metrics for monitoring
 const connectionMetrics = {
   totalConnections: 0,
   activeConnections: 0,
@@ -899,7 +1093,24 @@ const connectionMetrics = {
   errors: 0,
   reconnections: 0,
   startTime: Date.now(),
-  lastReset: Date.now()
+  lastReset: Date.now(),
+  // New metrics
+  averageConnectionDuration: 0,
+  reconnectionRate: 0,
+  pingTimeoutRate: 0,
+  connectionQuality: {
+    excellent: 0,    // < 1% ping timeouts
+    good: 0,         // 1-5% ping timeouts
+    fair: 0,         // 5-10% ping timeouts
+    poor: 0          // > 10% ping timeouts
+  },
+  userConnectionHistory: new Map(), // Track per-user connection patterns
+  connectionDurations: [], // Store recent connection durations
+  pingTimeouts: 0,
+  transportStats: {
+    websocket: 0,
+    polling: 0
+  }
 };
 
 // Circuit breaker for error rate monitoring
@@ -1780,12 +1991,285 @@ function formatTimeUntilReset(milliseconds) {
   }
 }
 
+// Socket connection database management functions
+async function storeSocketConnection(socketId, userId, email, userAgent, ipAddress, transport = 'websocket') {
+  try {
+    if (!isPoolAvailable()) {
+      console.warn('Database pool not available, skipping socket connection storage');
+      return false;
+    }
+
+    const query = `
+      INSERT INTO socket_connections (user_id, socket_id, email, user_agent, ip_address, transport, connection_status)
+      VALUES ($1, $2, $3, $4, $5, $6, 'active')
+      ON CONFLICT (socket_id) 
+      DO UPDATE SET 
+        user_id = EXCLUDED.user_id,
+        email = EXCLUDED.email,
+        user_agent = EXCLUDED.user_agent,
+        ip_address = EXCLUDED.ip_address,
+        transport = EXCLUDED.transport,
+        connection_status = 'active',
+        connected_at = NOW(),
+        last_heartbeat = NOW(),
+        disconnected_at = NULL,
+        updated_at = NOW()
+    `;
+
+    await pool.query(query, [userId, socketId, email, userAgent, ipAddress, transport]);
+    console.log(`✅ Stored socket connection ${socketId} for user ${email} (ID: ${userId})`);
+    return true;
+  } catch (error) {
+    console.error(`❌ Error storing socket connection ${socketId}:`, error.message);
+    return false;
+  }
+}
+
+async function updateSocketHeartbeat(socketId) {
+  try {
+    if (!isPoolAvailable()) {
+      return false;
+    }
+
+    const query = `
+      UPDATE socket_connections 
+      SET last_heartbeat = NOW(), updated_at = NOW()
+      WHERE socket_id = $1 AND connection_status = 'active'
+    `;
+
+    await pool.query(query, [socketId]);
+    return true;
+  } catch (error) {
+    console.error(`❌ Error updating socket heartbeat ${socketId}:`, error.message);
+    return false;
+  }
+}
+
+async function disconnectSocket(socketId, reason = 'disconnect') {
+  try {
+    if (!isPoolAvailable()) {
+      return false;
+    }
+
+    const query = `
+      UPDATE socket_connections 
+      SET 
+        connection_status = CASE 
+          WHEN $2 = 'ping timeout' THEN 'timeout'
+          ELSE 'disconnected'
+        END,
+        disconnected_at = NOW(),
+        updated_at = NOW()
+      WHERE socket_id = $1
+    `;
+
+    const result = await pool.query(query, [socketId, reason]);
+    console.log(`✅ Marked socket ${socketId} as disconnected (reason: ${reason})`);
+    return result.rowCount > 0;
+  } catch (error) {
+    console.error(`❌ Error disconnecting socket ${socketId}:`, error.message);
+    return false;
+  }
+}
+
+async function getUserBySocketId(socketId) {
+  try {
+    if (!isPoolAvailable()) {
+      return null;
+    }
+
+    const query = `
+      SELECT sc.*, u.email as user_email, 
+             COALESCE(pi.first_name || ' ' || pi.last_name, u.email) as full_name
+      FROM socket_connections sc
+      JOIN users u ON sc.user_id = u.id
+      LEFT JOIN personal_info pi ON u.id = pi.user_id
+      WHERE sc.socket_id = $1 AND sc.connection_status = 'active'
+    `;
+
+    const result = await pool.query(query, [socketId]);
+    return result.rows[0] || null;
+  } catch (error) {
+    console.error(`❌ Error getting user by socket ID ${socketId}:`, error.message);
+    return null;
+  }
+}
+
+async function getActiveConnectionsForUser(email) {
+  try {
+    if (!isPoolAvailable()) {
+      return [];
+    }
+
+    const query = `
+      SELECT socket_id, connected_at, last_heartbeat, transport
+      FROM socket_connections 
+      WHERE email = $1 AND connection_status = 'active'
+      ORDER BY connected_at DESC
+    `;
+
+    const result = await pool.query(query, [email]);
+    return result.rows;
+  } catch (error) {
+    console.error(`❌ Error getting active connections for ${email}:`, error.message);
+    return [];
+  }
+}
+
+async function cleanupStaleConnections() {
+  try {
+    if (!isPoolAvailable()) {
+      return 0;
+    }
+
+    // Mark connections as timeout if they haven't had a heartbeat in 5 minutes
+    const query = `
+      UPDATE socket_connections 
+      SET connection_status = 'timeout', disconnected_at = NOW(), updated_at = NOW()
+      WHERE connection_status = 'active' 
+        AND last_heartbeat < NOW() - INTERVAL '5 minutes'
+    `;
+
+    const result = await pool.query(query);
+    if (result.rowCount > 0) {
+      console.log(`🧹 Cleaned up ${result.rowCount} stale socket connections`);
+    }
+    return result.rowCount;
+  } catch (error) {
+    console.error(`❌ Error cleaning up stale connections:`, error.message);
+    return 0;
+  }
+}
+
+// Enhanced connection validation
+async function validateConnection(socketId) {
+  try {
+    // First check memory
+    if (connectedUsers.has(socketId)) {
+      return { valid: true, source: 'memory', data: connectedUsers.get(socketId) };
+    }
+
+    // Fallback to database
+    const dbConnection = await getUserBySocketId(socketId);
+    if (dbConnection && dbConnection.connection_status === 'active') {
+      return { valid: true, source: 'database', data: dbConnection };
+    }
+
+    return { valid: false, source: 'none', data: null };
+  } catch (error) {
+    console.error(`❌ Error validating connection ${socketId}:`, error.message);
+    return { valid: false, source: 'error', data: null };
+  }
+}
+
+// Connection quality assessment
+function assessConnectionQuality(userEmail) {
+  const userHistory = connectionMetrics.userConnectionHistory.get(userEmail);
+  if (!userHistory) return 'unknown';
+
+  const { totalConnections, pingTimeouts, reconnections } = userHistory;
+  const pingTimeoutRate = totalConnections > 0 ? (pingTimeouts / totalConnections) * 100 : 0;
+
+  if (pingTimeoutRate < 1) return 'excellent';
+  if (pingTimeoutRate < 5) return 'good';
+  if (pingTimeoutRate < 10) return 'fair';
+  return 'poor';
+}
+
+// Update connection metrics
+function updateConnectionMetrics(socketId, event, data = {}) {
+  const userData = connectedUsers.get(socketId);
+  if (!userData) return;
+
+  const email = userData.email;
+  
+  // Initialize user history if not exists
+  if (!connectionMetrics.userConnectionHistory.has(email)) {
+    connectionMetrics.userConnectionHistory.set(email, {
+      totalConnections: 0,
+      pingTimeouts: 0,
+      reconnections: 0,
+      averageDuration: 0,
+      lastConnection: null,
+      connectionStartTimes: new Map()
+    });
+  }
+
+  const userHistory = connectionMetrics.userConnectionHistory.get(email);
+
+  switch (event) {
+    case 'connect':
+      userHistory.totalConnections++;
+      userHistory.connectionStartTimes.set(socketId, Date.now());
+      userHistory.lastConnection = new Date();
+      
+      // Track transport type
+      const transport = data.transport || 'websocket';
+      connectionMetrics.transportStats[transport]++;
+      break;
+
+    case 'disconnect':
+      const startTime = userHistory.connectionStartTimes.get(socketId);
+      if (startTime) {
+        const duration = Date.now() - startTime;
+        userHistory.connectionStartTimes.delete(socketId);
+        
+        // Update average duration (keep last 100 connections)
+        connectionMetrics.connectionDurations.push(duration);
+        if (connectionMetrics.connectionDurations.length > 100) {
+          connectionMetrics.connectionDurations.shift();
+        }
+        
+        userHistory.averageDuration = connectionMetrics.connectionDurations.reduce((a, b) => a + b, 0) / connectionMetrics.connectionDurations.length;
+      }
+      break;
+
+    case 'ping_timeout':
+      userHistory.pingTimeouts++;
+      connectionMetrics.pingTimeouts++;
+      break;
+
+    case 'reconnect':
+      userHistory.reconnections++;
+      connectionMetrics.reconnections++;
+      break;
+  }
+
+  // Update global metrics
+  connectionMetrics.averageConnectionDuration = connectionMetrics.connectionDurations.length > 0 
+    ? connectionMetrics.connectionDurations.reduce((a, b) => a + b, 0) / connectionMetrics.connectionDurations.length 
+    : 0;
+
+  connectionMetrics.reconnectionRate = connectionMetrics.totalConnections > 0 
+    ? (connectionMetrics.reconnections / connectionMetrics.totalConnections) * 100 
+    : 0;
+
+  connectionMetrics.pingTimeoutRate = connectionMetrics.totalConnections > 0 
+    ? (connectionMetrics.pingTimeouts / connectionMetrics.totalConnections) * 100 
+    : 0;
+
+  // Update connection quality
+  const quality = assessConnectionQuality(email);
+  connectionMetrics.connectionQuality[quality]++;
+}
+
 io.on('connection', (socket) => {
   console.log(`🔌 New socket connection: ${socket.id} (transport: ${socket.conn.transport.name})`);
+  
+  // Check capacity limits
+  if (connectionPool.isAtCapacity()) {
+    console.log(`⚠️ Server at capacity, rejecting connection ${socket.id}`);
+    socket.emit('server-full', { message: 'Server is at capacity, please try again later' });
+    socket.disconnect(true);
+    return;
+  }
   
   // Update connection metrics
   connectionMetrics.totalConnections++;
   connectionMetrics.activeConnections++;
+  
+  // Track connection start time
+  connectionPool.connectionTimeouts.set(socket.id, Date.now());
   
   // Monitor connection health
   socket.on('ping', () => {
@@ -1831,13 +2315,24 @@ io.on('connection', (socket) => {
   });
 
   // Enhanced heartbeat mechanism for active connection monitoring
-  socket.on('heartbeat', () => {
+  socket.on('heartbeat', async () => {
+    // Validate connection before processing
+    const validation = await validateConnection(socket.id);
+    if (!validation.valid) {
+      console.log(`⚠️ Invalid connection ${socket.id} attempting heartbeat`);
+      socket.disconnect(true);
+      return;
+    }
+
     socket.emit('heartbeat-ack');
     // Update last seen timestamp for this socket
     if (connectedUsers.has(socket.id)) {
       const userData = connectedUsers.get(socket.id);
       userData.lastHeartbeat = Date.now();
       userData.heartbeatCount = (userData.heartbeatCount || 0) + 1;
+      
+      // Update heartbeat in database
+      await updateSocketHeartbeat(socket.id);
     }
   });
 
@@ -2502,6 +2997,20 @@ io.on('connection', (socket) => {
         // Store session in Redis for scalability
         await storeUserSession(socket.id, userSessionData);
         
+        // Store socket connection in database
+        const userAgent = socket.handshake.headers['user-agent'] || 'unknown';
+        const ipAddress = socket.handshake.address || socket.conn.remoteAddress || 'unknown';
+        const transport = socket.conn.transport.name || 'websocket';
+        
+        await storeSocketConnection(
+          socket.id, 
+          userInfo.userId, 
+          emailString, 
+          userAgent, 
+          ipAddress, 
+          transport
+        );
+        
         console.log(`AUTHENTICATION COMPLETED: Socket ${socket.id} now associated with user ${emailString}`);
         console.log(`Connected users map now contains:`, Array.from(connectedUsers.entries()).map(([id, data]) => `${id} -> ${data.email}`));
         // User authentication completed with data
@@ -2826,8 +3335,34 @@ io.on('connection', (socket) => {
        connectionMetrics.activeConnections = Math.max(0, connectionMetrics.activeConnections - 1);
        
        // Clean up user connection tracking
-       const userData = connectedUsers.get(socket.id);
+       let userData = connectedUsers.get(socket.id);
+       
+       // If user data not found in memory, try to get it from database
+       if (!userData) {
+         console.log(`🔍 User data not found in memory for socket ${socket.id}, checking database...`);
+         const dbUserData = await getUserBySocketId(socket.id);
+         if (dbUserData) {
+           userData = {
+             email: dbUserData.user_email,
+             userId: dbUserData.user_id,
+             fullName: dbUserData.full_name
+           };
+           console.log(`✅ Found user data in database for socket ${socket.id}: ${dbUserData.user_email}`);
+         }
+       }
+       
        console.log(`🔌 Socket ${socket.id} disconnecting (reason: ${reason}). Connected users before cleanup: ${connectedUsers.size}`);
+       
+       // Update socket connection status in database
+       await disconnectSocket(socket.id, reason);
+       
+       // Update connection metrics
+       updateConnectionMetrics(socket.id, 'disconnect', { reason });
+       
+       // Track ping timeouts specifically
+       if (reason === 'ping timeout') {
+         updateConnectionMetrics(socket.id, 'ping_timeout');
+       }
        
        if (userData) {
          let { email, userId } = userData;
