@@ -85,7 +85,7 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       reconnectionDelay: 1000, // Start with 1s delay
       reconnectionDelayMax: 20000, // Max 20s delay
       timeout: 120000, // Match server pingTimeout (2 minutes)
-      transports: ['polling', 'websocket'], // Prioritize polling for Railway
+      transports: ['websocket', 'polling'], // Prioritize websocket for better performance
       upgrade: true, // Allow transport upgrades
       rememberUpgrade: true, // Remember successful transport
       forceNew: false // Reuse existing connection if possible

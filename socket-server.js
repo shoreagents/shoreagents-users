@@ -249,7 +249,7 @@ const io = new Server(server, {
   pingInterval: 30000, // 30 seconds (aligned with client heartbeat)
   upgradeTimeout: 15000, // 15 seconds for upgrade handshake
   allowEIO3: true, // Allow Engine.IO v3 clients for better compatibility
-  transports: ['polling', 'websocket'], // Prioritize polling for Railway stability
+  transports: ['websocket', 'polling'], // Prioritize websocket for better performance
   // Add connection state management
   connectionStateRecovery: {
     maxDisconnectionDuration: 2 * 60 * 1000, // 2 minutes
