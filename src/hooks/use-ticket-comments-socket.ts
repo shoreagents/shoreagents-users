@@ -4,7 +4,7 @@ export function useTicketCommentsSocket(onEvent: (ev: any) => void) {
   useEffect(() => {
     if (typeof window === 'undefined') return
 
-    // Listen to socket-server forwarded events via browser socket (attached in use-socket-timer)
+    // Listen to socket-server forwarded events via browser socket (attached in socket context)
     const attach = () => {
       try {
         const sock = (window as any)._saSocket
