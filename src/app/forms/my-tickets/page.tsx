@@ -14,10 +14,12 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Pagination, PaginationContent, PaginationEllipsis, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@/components/ui/pagination"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Search, Filter, FileText, Calendar,  Eye, Clock, AlertTriangle, CheckCircle, X } from "lucide-react"
+import { Search, Filter, FileText, Calendar,  Eye, Clock, AlertTriangle, CheckCircle, X, Image as ImageIcon, Download } from "lucide-react"
 import Link from "next/link"
+import Image from "next/image"
 import { Ticket } from "@/lib/ticket-utils"
 import { useTickets, type Ticket as ReactQueryTicket } from "@/hooks/use-tickets"
 import { NewTicketDialog } from "@/components/new-ticket-dialog"
@@ -31,10 +33,113 @@ export default function MyTicketsPage() {
   const [showFilters, setShowFilters] = useState(false)
   const [isUpdating, setIsUpdating] = useState(false)
   const [isNewTicketDialogOpen, setIsNewTicketDialogOpen] = useState(false)
+  const [hoveredTicketId, setHoveredTicketId] = useState<string | null>(null)
+  const [ticketAttachments, setTicketAttachments] = useState<Record<string, string[]>>({})
   const ticketsPerPage = 12
 
   // Use React Query to fetch tickets
   const { data: ticketsData, isLoading: loading, error, refetch, triggerRealtimeUpdate } = useTickets()
+
+  // Function to fetch ticket attachments
+  const fetchTicketAttachments = async (ticketId: string) => {
+    if (ticketAttachments[ticketId]) return // Already fetched
+    
+    try {
+      const response = await fetch(`/api/tickets/${ticketId}`, {
+        credentials: 'include',
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        const attachments = data.ticket?.supportingFiles || []
+        setTicketAttachments(prev => ({
+          ...prev,
+          [ticketId]: attachments
+        }))
+      }
+    } catch (error) {
+      console.error('Error fetching ticket attachments:', error)
+    }
+  }
+
+  // Function to check if file is an image
+  const isImageFile = (url: string) => {
+    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg']
+    return imageExtensions.some(ext => url.toLowerCase().includes(ext))
+  }
+
+  // Function to get file name from URL
+  const getFileName = (url: string) => {
+    return url.split('/').pop() || 'Unknown file'
+  }
+
+  // Attachment preview component
+  const AttachmentPreview = ({ ticketId, attachments }: { ticketId: string, attachments: string[] }) => {
+    if (!attachments || attachments.length === 0) {
+      return (
+        <div className="p-2 text-sm text-muted-foreground">
+          No attachments
+        </div>
+      )
+    }
+
+    return (
+      <div className="max-w-xs max-h-80 overflow-y-auto">
+        <div className="p-2 space-y-2">
+          {attachments.map((url, index) => (
+            <div key={index} className="border rounded-lg p-2">
+              {isImageFile(url) ? (
+                <div className="space-y-2">
+                  <div className="relative w-full h-32 rounded border overflow-hidden">
+                    <Image 
+                      src={url} 
+                      alt={getFileName(url)}
+                      fill
+                      className="object-cover"
+                      onError={(e) => {
+                        // Fallback to file icon if image fails to load
+                        e.currentTarget.style.display = 'none'
+                        e.currentTarget.nextElementSibling?.classList.remove('hidden')
+                      }}
+                    />
+                    <div className="absolute inset-0 items-center justify-center bg-muted" style={{ display: 'none' }}>
+                      <ImageIcon className="h-8 w-8 text-muted-foreground" />
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground truncate flex-1">
+                      {getFileName(url)}
+                    </span>
+                    <a 
+                      href={url} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:text-blue-800"
+                    >
+                      <Eye className="h-3 w-3" />
+                    </a>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm truncate flex-1">{getFileName(url)}</span>
+                  <a 
+                    href={url} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:text-blue-800"
+                  >
+                    <Download className="h-3 w-3" />
+                  </a>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
   
   // Convert React Query tickets to the expected Ticket format with useMemo to prevent re-renders
   const tickets: Ticket[] = useMemo(() => {
@@ -50,7 +155,7 @@ export default function MyTicketsPage() {
       createdAt: ticket.createdAt,
       position: ticket.position,
       categoryId: ticket.categoryId,
-      fileCount: ticket.fileCount,
+      fileCount: ticket.fileCount || 0,
       files: ticket.files || [],
       email: ticket.email || '',
       userId: ticket.userId,
@@ -338,10 +443,11 @@ export default function MyTicketsPage() {
   }
 
   return (
-    <SidebarProvider>
-      <AppSidebar />
-      <SidebarInset>
-        <AppHeader />
+    <TooltipProvider>
+      <SidebarProvider>
+        <AppSidebar />
+        <SidebarInset>
+          <AppHeader />
         <div className="flex flex-1 flex-col gap-6 p-6 pt-2">
           <div className="flex items-center gap-4">
             <div>
@@ -555,11 +661,28 @@ export default function MyTicketsPage() {
                           </div>
                         </TableCell>
                         <TableCell className="hidden sm:table-cell">
-                          {ticket.files && ticket.files.length > 0 ? (
-                            <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                              <FileText className="h-3 w-3" />
-                              <span>{ticket.files.length}</span>
-                            </div>
+                          {ticket.fileCount && ticket.fileCount > 0 ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <div 
+                                  className="flex items-center gap-1 text-sm text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
+                                  onMouseEnter={() => {
+                                    setHoveredTicketId(ticket.id)
+                                    fetchTicketAttachments(ticket.id)
+                                  }}
+                                  onMouseLeave={() => setHoveredTicketId(null)}
+                                >
+                                  <FileText className="h-3 w-3" />
+                                  <span>{ticket.fileCount}</span>
+                                </div>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="p-0">
+                                <AttachmentPreview 
+                                  ticketId={ticket.id} 
+                                  attachments={ticketAttachments[ticket.id] || []} 
+                                />
+                              </TooltipContent>
+                            </Tooltip>
                           ) : (
                             <span className="text-muted-foreground text-sm">-</span>
                           )}
@@ -626,11 +749,12 @@ export default function MyTicketsPage() {
         </div>
       </SidebarInset>
       
-      {/* New Ticket Dialog */}
-      <NewTicketDialog 
-        open={isNewTicketDialogOpen} 
-        onOpenChange={setIsNewTicketDialogOpen} 
-      />
-    </SidebarProvider>
+        {/* New Ticket Dialog */}
+        <NewTicketDialog 
+          open={isNewTicketDialogOpen} 
+          onOpenChange={setIsNewTicketDialogOpen} 
+        />
+      </SidebarProvider>
+    </TooltipProvider>
   )
 } 
