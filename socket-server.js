@@ -238,6 +238,75 @@ app.get('/connections/:email', async (req, res) => {
   }
 });
 
+// Manual cleanup endpoint for disconnected connections
+app.post('/connections/cleanup', async (req, res) => {
+  try {
+    if (!isPoolAvailable()) {
+      return res.status(503).json({ error: 'Database not available' });
+    }
+
+    const { hours = 24 } = req.body; // Default to 24 hours
+
+    // Delete disconnected connections older than specified hours
+    const deleteQuery = `
+      DELETE FROM socket_connections 
+      WHERE connection_status IN ('disconnected', 'timeout') 
+        AND disconnected_at < NOW() - INTERVAL '${parseInt(hours)} hours'
+    `;
+
+    const result = await pool.query(deleteQuery);
+    
+    res.json({
+      success: true,
+      deletedCount: result.rowCount,
+      message: `Deleted ${result.rowCount} disconnected connections older than ${hours} hours`,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error cleaning up connections:', error);
+    res.status(500).json({ error: 'Failed to cleanup connections' });
+  }
+});
+
+// Get connection statistics
+app.get('/connections/stats', async (req, res) => {
+  try {
+    if (!isPoolAvailable()) {
+      return res.status(503).json({ error: 'Database not available' });
+    }
+
+    const statsQuery = `
+      SELECT 
+        connection_status,
+        COUNT(*) as count,
+        MIN(connected_at) as oldest_connection,
+        MAX(connected_at) as newest_connection
+      FROM socket_connections 
+      GROUP BY connection_status
+    `;
+
+    const result = await pool.query(statsQuery);
+    
+    const stats = result.rows.reduce((acc, row) => {
+      acc[row.connection_status] = {
+        count: parseInt(row.count),
+        oldest: row.oldest_connection,
+        newest: row.newest_connection
+      };
+      return acc;
+    }, {});
+
+    res.json({
+      success: true,
+      statistics: stats,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error fetching connection statistics:', error);
+    res.status(500).json({ error: 'Failed to fetch connection statistics' });
+  }
+});
+
 const server = createServer(app);
 const io = new Server(server, {
   cors: {
@@ -1051,6 +1120,29 @@ setInterval(async () => {
     console.log(`📊 Connection Health: ${connectedUsers.size} active, ${staleConnections.length} stale`);
   }
 }, 30000); // Check every 30 seconds (more frequent for Railway)
+
+// Additional cleanup for old disconnected connections (runs every 6 hours)
+setInterval(async () => {
+  try {
+    if (!isPoolAvailable()) {
+      return;
+    }
+
+    // Delete very old disconnected connections (older than 7 days)
+    const deleteOldQuery = `
+      DELETE FROM socket_connections 
+      WHERE connection_status IN ('disconnected', 'timeout') 
+        AND disconnected_at < NOW() - INTERVAL '7 days'
+    `;
+
+    const result = await pool.query(deleteOldQuery);
+    if (result.rowCount > 0) {
+      console.log(`🗑️ Deleted ${result.rowCount} very old disconnected connections (7+ days)`);
+    }
+  } catch (error) {
+    console.error(`❌ Error cleaning up very old connections:`, error.message);
+  }
+}, 6 * 60 * 60 * 1000); // Every 6 hours
 
 // In-memory storage for testing (since PostgreSQL is not running)
 const connectedUsers = new Map();
@@ -2123,18 +2215,48 @@ async function cleanupStaleConnections() {
     }
 
     // Mark connections as timeout if they haven't had a heartbeat in 5 minutes
-    const query = `
+    const timeoutQuery = `
       UPDATE socket_connections 
       SET connection_status = 'timeout', disconnected_at = NOW(), updated_at = NOW()
       WHERE connection_status = 'active' 
         AND last_heartbeat < NOW() - INTERVAL '5 minutes'
     `;
 
-    const result = await pool.query(query);
-    if (result.rowCount > 0) {
-      console.log(`🧹 Cleaned up ${result.rowCount} stale socket connections`);
+    const timeoutResult = await pool.query(timeoutQuery);
+    if (timeoutResult.rowCount > 0) {
+      console.log(`🧹 Marked ${timeoutResult.rowCount} stale connections as timeout`);
     }
-    return result.rowCount;
+
+    // Delete old disconnected connections (older than 24 hours)
+    const deleteQuery = `
+      DELETE FROM socket_connections 
+      WHERE connection_status IN ('disconnected', 'timeout') 
+        AND disconnected_at < NOW() - INTERVAL '24 hours'
+    `;
+
+    const deleteResult = await pool.query(deleteQuery);
+    if (deleteResult.rowCount > 0) {
+      console.log(`🗑️ Deleted ${deleteResult.rowCount} old disconnected connections`);
+    }
+
+    // Clean up duplicate disconnected connections for the same user (keep only the most recent)
+    const duplicateCleanupQuery = `
+      DELETE FROM socket_connections 
+      WHERE id NOT IN (
+        SELECT DISTINCT ON (email) id
+        FROM socket_connections 
+        WHERE connection_status IN ('disconnected', 'timeout')
+        ORDER BY email, disconnected_at DESC NULLS LAST, connected_at DESC
+      )
+      AND connection_status IN ('disconnected', 'timeout')
+    `;
+
+    const duplicateResult = await pool.query(duplicateCleanupQuery);
+    if (duplicateResult.rowCount > 0) {
+      console.log(`🧹 Cleaned up ${duplicateResult.rowCount} duplicate disconnected connections`);
+    }
+
+    return timeoutResult.rowCount + deleteResult.rowCount + duplicateResult.rowCount;
   } catch (error) {
     console.error(`❌ Error cleaning up stale connections:`, error.message);
     return 0;
@@ -2997,6 +3119,21 @@ io.on('connection', (socket) => {
         // Store session in Redis for scalability
         await storeUserSession(socket.id, userSessionData);
         
+        // Clean up any existing disconnected connections for this user before storing new one
+        try {
+          const cleanupExistingQuery = `
+            DELETE FROM socket_connections 
+            WHERE email = $1 
+              AND connection_status IN ('disconnected', 'timeout')
+          `;
+          const cleanupResult = await pool.query(cleanupExistingQuery, [emailString]);
+          if (cleanupResult.rowCount > 0) {
+            console.log(`🧹 Cleaned up ${cleanupResult.rowCount} existing disconnected connections for user ${emailString}`);
+          }
+        } catch (cleanupError) {
+          console.error('Error cleaning up existing connections for user:', cleanupError.message);
+        }
+
         // Store socket connection in database
         const userAgent = socket.handshake.headers['user-agent'] || 'unknown';
         const ipAddress = socket.handshake.address || socket.conn.remoteAddress || 'unknown';
@@ -3362,6 +3499,35 @@ io.on('connection', (socket) => {
        // Track ping timeouts specifically
        if (reason === 'ping timeout') {
          updateConnectionMetrics(socket.id, 'ping_timeout');
+       }
+
+       // Clean up old disconnected connections for this specific user immediately
+       try {
+         if (userData && userData.email) {
+           const userCleanupQuery = `
+             DELETE FROM socket_connections 
+             WHERE email = $1 
+               AND connection_status IN ('disconnected', 'timeout') 
+               AND disconnected_at < NOW() - INTERVAL '1 hour'
+           `;
+           const userCleanupResult = await pool.query(userCleanupQuery, [userData.email]);
+           if (userCleanupResult.rowCount > 0) {
+             console.log(`🧹 Cleaned up ${userCleanupResult.rowCount} old disconnected connections for user ${userData.email}`);
+           }
+         }
+
+         // Also clean up very old disconnected connections globally (older than 1 hour)
+         const globalCleanupQuery = `
+           DELETE FROM socket_connections 
+           WHERE connection_status IN ('disconnected', 'timeout') 
+             AND disconnected_at < NOW() - INTERVAL '1 hour'
+         `;
+         const globalCleanupResult = await pool.query(globalCleanupQuery);
+         if (globalCleanupResult.rowCount > 0) {
+           console.log(`🧹 Cleaned up ${globalCleanupResult.rowCount} old disconnected connections globally`);
+         }
+       } catch (cleanupError) {
+         console.error('Error cleaning up old connections:', cleanupError.message);
        }
        
        if (userData) {
