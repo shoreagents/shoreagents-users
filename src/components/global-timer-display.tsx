@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useMemo, useCallback } from 'react'
 import { useTimer } from '@/contexts/timer-context'
+import { useBreak } from '@/contexts/break-context'
 import { Button } from '@/components/ui/button'
 import { ChevronUp, ChevronDown, Pause, Clock, RotateCcw, Minimize2, ArrowDown } from 'lucide-react'
 import { getCurrentUser } from '@/lib/ticket-utils'
@@ -29,6 +30,7 @@ export const GlobalTimerDisplay = React.memo(function GlobalTimerDisplay() {
     breakStatus,
     shiftInfo
   } = useTimer()
+  const { activeBreakId } = useBreak()
   const { isInMeeting } = useMeeting()
   const { isInEvent, currentEvent } = useEventsContext()
   const { isGoingToClinic, isInClinic } = useHealth()
@@ -291,7 +293,7 @@ export const GlobalTimerDisplay = React.memo(function GlobalTimerDisplay() {
                       : isBreakActive && breakStatus?.is_paused
                       ? 'Emergency Pause'
                       : isBreakActive 
-                      ? (breakStatus?.break_type ? `${breakStatus.break_type} Break` : 'On Break')
+                      ? (breakStatus?.break_type ? `${breakStatus.break_type} Break` : activeBreakId ? `${activeBreakId.charAt(0).toUpperCase() + activeBreakId.slice(1)} Break` : 'On Break')
                       : (timerData.isActive ? 'Active' : 'Inactive')
                     }
                   </span>

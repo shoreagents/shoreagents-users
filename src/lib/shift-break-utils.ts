@@ -23,6 +23,13 @@ export interface BreakInfo {
   validForShifts: string[] // which shifts this break applies to
 }
 
+export interface CustomBreakInfo {
+  break_type: string
+  start_time: string
+  end_time: string
+  duration_minutes: number
+}
+
 // Parse shift time string (e.g., "6:00 AM - 3:00 PM")
 export function parseShiftTime(shiftTime: string): { start: string; end: string } | null {
   if (!shiftTime) return null
@@ -247,11 +254,11 @@ export function getBreaksForShift(shiftInfo: ShiftInfo): BreakInfo[] {
     {
       id: "NightMeal",
       name: "Night Meal Break",
-      duration: 30,
+      duration: 60,
       startTime: breakTimes.lunch.start,
       endTime: breakTimes.lunch.end,
       icon: Utensils,
-      description: "Take a 30-minute night meal break",
+      description: "Take a 60-minute night meal break",
       color: "bg-indigo-500",
       validForShifts: ["night shift", "graveyard shift"]
     },
@@ -369,4 +376,157 @@ export function getNextBreakTime(breakInfo: BreakInfo, shiftInfo: ShiftInfo, cur
     nextBreak.setHours(breakStartHour, breakStartMinute, 0, 0)
     return nextBreak
   }
+}
+
+// Check if user has custom break settings
+export async function userHasCustomBreaks(userId: number): Promise<boolean> {
+  try {
+    const response = await fetch(`/api/breaks/custom/check?user_id=${userId}`, {
+      credentials: 'include'
+    })
+    const result = await response.json()
+    return result.success && result.hasCustomBreaks
+  } catch (error) {
+    console.error('Error checking custom breaks:', error)
+    return false
+  }
+}
+
+// Get user's custom break settings
+export async function getUserCustomBreaks(userId: number): Promise<CustomBreakInfo[]> {
+  try {
+    const response = await fetch(`/api/breaks/custom?user_id=${userId}`, {
+      credentials: 'include'
+    })
+    const result = await response.json()
+    return result.success ? result.breaks : []
+  } catch (error) {
+    console.error('Error fetching custom breaks:', error)
+    return []
+  }
+}
+
+// Get break configuration with custom times if available
+export async function getBreaksForShiftWithCustom(shiftInfo: ShiftInfo, userId?: number): Promise<BreakInfo[]> {
+  // If no userId provided, use default shift-based breaks
+  if (!userId) {
+    return getBreaksForShift(shiftInfo)
+  }
+
+  // Check if user has custom break settings
+  const hasCustomBreaks = await userHasCustomBreaks(userId)
+  
+  if (!hasCustomBreaks) {
+    // Return default breaks but they will be disabled (no custom times set)
+    return getBreaksForShift(shiftInfo)
+  }
+
+  // Get custom break settings
+  const customBreaks = await getUserCustomBreaks(userId)
+  
+  if (customBreaks.length === 0) {
+    // Return default breaks but they will be disabled (no custom times set)
+    return getBreaksForShift(shiftInfo)
+  }
+
+  // Convert custom breaks to BreakInfo format
+  const isNight = isNightShift(shiftInfo.shift_time)
+  const breakInfoMap: Record<string, BreakInfo> = {}
+
+  // Create base break configurations
+  const baseBreaks: BreakInfo[] = [
+    {
+      id: "Morning",
+      name: "Morning Break",
+      duration: 15,
+      startTime: "08:00",
+      endTime: "09:00",
+      icon: Coffee,
+      description: "Take a 15-minute morning break",
+      color: "bg-orange-500",
+      validForShifts: ["day shift", "morning shift"]
+    },
+    {
+      id: "Lunch",
+      name: "Lunch Break",
+      duration: 60,
+      startTime: "12:00",
+      endTime: "13:00",
+      icon: Utensils,
+      description: "Take a 1-hour lunch break",
+      color: "bg-green-500",
+      validForShifts: ["day shift", "morning shift", "afternoon shift"]
+    },
+    {
+      id: "Afternoon",
+      name: "Afternoon Break",
+      duration: 15,
+      startTime: "15:00",
+      endTime: "16:00",
+      icon: Sun,
+      description: "Take a 15-minute afternoon break",
+      color: "bg-blue-500",
+      validForShifts: ["day shift", "afternoon shift"]
+    }
+  ]
+
+  const nightBreaks: BreakInfo[] = [
+    {
+      id: "NightFirst",
+      name: "First Night Break",
+      duration: 15,
+      startTime: "00:00",
+      endTime: "01:00",
+      icon: Coffee,
+      description: "Take a 15-minute night break",
+      color: "bg-purple-500",
+      validForShifts: ["night shift", "graveyard shift"]
+    },
+    {
+      id: "NightMeal",
+      name: "Night Meal Break",
+      duration: 60,
+      startTime: "02:00",
+      endTime: "03:00",
+      icon: Utensils,
+      description: "Take a 60-minute night meal break",
+      color: "bg-indigo-500",
+      validForShifts: ["night shift", "graveyard shift"]
+    },
+    {
+      id: "NightSecond",
+      name: "Second Night Break",
+      duration: 15,
+      startTime: "05:00",
+      endTime: "06:00",
+      icon: Sun,
+      description: "Take a 15-minute early morning break",
+      color: "bg-yellow-500",
+      validForShifts: ["night shift", "graveyard shift"]
+    }
+  ]
+
+  // Create map of all possible breaks
+  const allBreaks = isNight ? nightBreaks : baseBreaks
+  allBreaks.forEach(breakInfo => {
+    breakInfoMap[breakInfo.id] = breakInfo
+  })
+
+  // Update with custom times
+  customBreaks.forEach(customBreak => {
+    const breakId = customBreak.break_type
+    if (breakInfoMap[breakId]) {
+      breakInfoMap[breakId] = {
+        ...breakInfoMap[breakId],
+        startTime: customBreak.start_time,
+        endTime: customBreak.end_time,
+        duration: customBreak.duration_minutes
+      }
+    }
+  })
+
+  // Return only the breaks that have custom settings
+  return Object.values(breakInfoMap).filter(breakInfo => 
+    customBreaks.some(custom => custom.break_type === breakInfo.id)
+  )
 } 

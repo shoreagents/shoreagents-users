@@ -300,10 +300,11 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     // Check immediately when break status changes
     checkAndEndInvalidBreaks()
 
-    // Set up interval to check every 10 seconds for more responsive background auto-ending
+    // Set up interval to check every 30 seconds for background auto-ending
+    // Reduced frequency to prevent excessive API calls
     const interval = setInterval(() => {
       checkAndEndInvalidBreaks()
-    }, 10000)
+    }, 30000)
 
     return () => clearInterval(interval)
   }, [currentUser?.id, breakStatus?.active_break, userProfile, availableBreaks, refreshBreakStatus])
@@ -392,6 +393,41 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       }
     }
   }, [currentUser?.id, isAuthenticated, refreshRealtimeData])
+
+  // Real-time break status listener
+  useEffect(() => {
+    if (!socket || !isAuthenticated || !currentUser?.email) return
+    
+    // Listen for detailed status updates that include break status
+    const handleDetailedStatusUpdate = (data: any) => {
+      // Check if this update is for the current user
+      if (data.email === currentUser.email) {
+        console.log('Received detailed status update:', data)
+        
+        // Update break status if included in the update
+        if (data.detailedStatus?.isInBreak !== undefined) {
+          const newBreakStatus = data.detailedStatus.isInBreak
+          console.log(`Break status changed: ${isBreakActive} -> ${newBreakStatus}`)
+          
+          setIsBreakActive(newBreakStatus)
+          
+          // If break ended, clear break status and refresh
+          if (!newBreakStatus) {
+            setBreakStatus(null)
+            // Refresh break status to get latest data
+            refreshBreakStatus()
+          }
+        }
+      }
+    }
+
+    // Set up socket listeners
+    socket.on('user-detailed-status-update', handleDetailedStatusUpdate)
+
+    return () => {
+      socket.off('user-detailed-status-update', handleDetailedStatusUpdate)
+    }
+  }, [socket, isAuthenticated, currentUser?.email, refreshBreakStatus, isBreakActive])
 
   // Fetch initial activity data when component mounts
   useEffect(() => {

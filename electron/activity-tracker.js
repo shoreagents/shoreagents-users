@@ -102,7 +102,9 @@ class ActivityTracker {
   }
 
   startTracking() {
-    if (this.isTracking) return;
+    if (this.isTracking) {
+      return;
+    }
     
     this.isTracking = true;
     this.lastActivityTime = Date.now();
@@ -115,7 +117,6 @@ class ActivityTracker {
     
     // Start mouse tracking
     this.startMouseTracking();
-    
   }
 
   stopTracking() {
@@ -135,10 +136,13 @@ class ActivityTracker {
     
     
     this.pauseMouseTracking();
+    
   }
 
   startMouseTracking() {
-    if (this.mouseTrackingInterval || this.isSystemSuspended) return;
+    if (this.mouseTrackingInterval || this.isSystemSuspended) {
+      return;
+    }
     
     // Track mouse movement every 200ms (more frequent for faster response)
     this.mouseTrackingInterval = setInterval(() => {
@@ -161,10 +165,11 @@ class ActivityTracker {
       } catch (error) {
         // Silently handle errors (screen might be locked)
         if (!this.isSystemSuspended) {
-          console.warn('Error getting cursor position:', error.message);
+          console.warn('💥 [ELECTRON-MOUSE-DEBUG] Error getting cursor position:', error.message);
         }
       }
     }, 200); // Check every 200ms (faster response)
+    
   }
 
   pauseMouseTracking() {

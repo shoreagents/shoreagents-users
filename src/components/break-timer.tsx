@@ -629,23 +629,50 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
 
   // Auto-end when timer reaches zero
   useEffect(() => {
-    if (timeLeft === 0) {
+    if (timeLeft === 0 && !hasEnded) {
       setTimeout(async () => {
-        // Close black screen windows when break automatically ends
-        if (isElectron()) {
-          await handleCloseBlackScreens();
+        // Prevent multiple simultaneous break ending attempts
+        if (hasEnded) return;
+        
+        try {
+          // Close black screen windows when break automatically ends
+          if (isElectron()) {
+            await handleCloseBlackScreens();
+            
+            // Disable break monitoring when break automatically ends
+            if ((window.electronAPI as any)?.breakMonitoring?.setActive) {
+              await (window.electronAPI as any).breakMonitoring.setActive(false);
+            }
+            
+            // Exit fullscreen and kiosk mode when break automatically ends
+            if (window.electronAPI?.fullscreen?.exit) {
+              await window.electronAPI.fullscreen.exit();
+            }
+            
+            if (window.electronAPI?.kioskMode?.disable) {
+              await window.electronAPI.kioskMode.disable();
+            }
+          }
           
-          // Disable break monitoring when break automatically ends
-          if ((window.electronAPI as any)?.breakMonitoring?.setActive) {
-            await (window.electronAPI as any).breakMonitoring.setActive(false);
+          setBreakActive(false)
+          await onEnd()
+          
+          // Only set hasEnded to true after successful completion
+          setHasEnded(true);
+        } catch (error) {
+          console.error('Error auto-ending break:', error)
+          // If auto-end fails, still try to end the break
+          try {
+            await onEnd()
+            setHasEnded(true)
+            setBreakActive(false)
+          } catch (fallbackError) {
+            console.error('Fallback break end also failed:', fallbackError)
           }
         }
-        
-        setBreakActive(false)
-        onEnd()
-      }, 2000) // Give user 2 seconds to see completion
+      }, 200) // Give user 0.2 seconds to see completion
     }
-  }, [timeLeft, onEnd, setBreakActive, breakInfo.id, handleCloseBlackScreens])
+  }, [timeLeft, onEnd, setBreakActive, breakInfo.id, handleCloseBlackScreens, hasEnded])
 
   // Handle end break confirmation
   const handleEndBreak = () => {
@@ -654,21 +681,42 @@ export function BreakTimer({ breakInfo, onEnd, onPause, onResume, isPaused, save
 
   // Confirm end break
   const confirmEndBreak = async () => {
-    setHasEnded(true)
-    setBreakActive(false)
+    // Prevent multiple simultaneous break ending attempts
+    if (hasEnded) return;
     
-    // Close black screen windows when ending break
-    if (isElectron()) {
-      await handleCloseBlackScreens();
-      
-      // Disable break monitoring when ending break
-      if ((window.electronAPI as any)?.breakMonitoring?.setActive) {
-        await (window.electronAPI as any).breakMonitoring.setActive(false);
+    try {
+      // Close black screen windows when ending break
+      if (isElectron()) {
+        await handleCloseBlackScreens();
+        
+        // Disable break monitoring when ending break
+        if ((window.electronAPI as any)?.breakMonitoring?.setActive) {
+          await (window.electronAPI as any).breakMonitoring.setActive(false);
+        }
+        
+        // Exit fullscreen and kiosk mode when manually ending break
+        if (window.electronAPI?.fullscreen?.exit) {
+          await window.electronAPI.fullscreen.exit();
+        }
+        
+        if (window.electronAPI?.kioskMode?.disable) {
+          await window.electronAPI.kioskMode.disable();
+        }
       }
+      
+      // Call the onEnd function to end the break
+      await onEnd()
+      
+      // Only set hasEnded to true after successful completion
+      setHasEnded(true)
+      setBreakActive(false)
+      setShowEndConfirm(false)
+    } catch (error) {
+      console.error('Error ending break:', error)
+      // Don't set hasEnded to true if there was an error
+      // This allows the user to try again
+      setShowEndConfirm(false)
     }
-    
-    onEnd()
-    setShowEndConfirm(false)
   }
 
   // Cancel end break

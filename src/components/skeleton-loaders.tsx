@@ -1459,3 +1459,141 @@ export function HealthPageSkeleton() {
     </div>
   )
 }
+
+export function BreaksPageSkeleton() {
+  return (
+    <div className="flex flex-1 flex-col gap-6 p-6 pt-2">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <Skeleton className="h-8 w-64 mb-2" />
+          <Skeleton className="h-4 w-80" />
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="text-right">
+            <Skeleton className="h-4 w-32 mb-1" />
+            <Skeleton className="h-4 w-40" />
+          </div>
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-4 w-4" />
+            <Skeleton className="h-4 w-16" />
+          </div>
+        </div>
+      </div>
+
+      {/* Break Cards Grid */}
+      <div className="grid gap-6 md:grid-cols-3">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Card key={i} className="relative">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Skeleton className="h-9 w-9 rounded-lg" />
+                  <div>
+                    <Skeleton className="h-6 w-24 mb-1" />
+                    <Skeleton className="h-4 w-32" />
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Skeleton className="h-8 w-8" />
+                  <Skeleton className="h-6 w-16 rounded-full" />
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Duration and Valid Time */}
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <Skeleton className="h-3 w-16 mb-1" />
+                  <Skeleton className="h-4 w-20" />
+                </div>
+                <div>
+                  <Skeleton className="h-3 w-20 mb-1" />
+                  <Skeleton className="h-4 w-24" />
+                </div>
+              </div>
+
+              {/* Status Messages */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Skeleton className="h-4 w-4" />
+                  <Skeleton className="h-4 w-48" />
+                </div>
+              </div>
+
+              {/* Action Button */}
+              <Skeleton className="h-12 w-full" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Break History Section */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <Skeleton className="h-5 w-5" />
+                <Skeleton className="h-6 w-32" />
+              </div>
+              <Skeleton className="h-4 w-80" />
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {/* Summary Statistics */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 bg-muted/50 rounded-lg">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="text-center">
+                  <Skeleton className="h-8 w-16 mx-auto mb-2" />
+                  <Skeleton className="h-4 w-24 mx-auto" />
+                </div>
+              ))}
+            </div>
+
+            {/* History Table Header */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Skeleton className="h-6 w-48" />
+                <div className="flex items-center gap-2">
+                  <Skeleton className="h-8 w-20" />
+                  <Skeleton className="h-8 w-32" />
+                </div>
+              </div>
+
+              {/* Table Skeleton */}
+              <div className="border rounded-lg overflow-hidden">
+                <div className="bg-muted/50 p-3">
+                  <div className="grid grid-cols-6 gap-4">
+                    {Array.from({ length: 6 }).map((_, i) => (
+                      <Skeleton key={i} className="h-4 w-16" />
+                    ))}
+                  </div>
+                </div>
+                <div className="divide-y">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <div key={i} className="p-3">
+                      <div className="grid grid-cols-6 gap-4">
+                        <div className="flex items-center gap-2">
+                          <Skeleton className="h-4 w-4" />
+                          <Skeleton className="h-4 w-20" />
+                        </div>
+                        <Skeleton className="h-4 w-16" />
+                        <Skeleton className="h-4 w-16" />
+                        <Skeleton className="h-4 w-16" />
+                        <Skeleton className="h-4 w-12" />
+                        <Skeleton className="h-6 w-20 rounded-full" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}

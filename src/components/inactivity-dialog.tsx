@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
+import { useTimer } from "@/contexts/timer-context"
 import {
   Dialog,
   DialogContent,
@@ -30,30 +31,39 @@ export function InactivityDialog({
   inactiveTime,
   threshold
 }: InactivityDialogProps) {
-  const [elapsedTime, setElapsedTime] = useState(0)
+  const { liveInactiveSeconds } = useTimer()
+  const [dialogElapsedTime, setDialogElapsedTime] = useState(0)
   const [startTime, setStartTime] = useState<number | null>(null)
 
+  // Track how long the dialog has been open (starts from threshold time)
   useEffect(() => {
     if (!open) {
-      setElapsedTime(0)
+      setDialogElapsedTime(0)
       setStartTime(null)
       return
     }
 
     // Set start time when dialog opens
     if (startTime === null) {
-      setStartTime(Date.now())
+      const now = Date.now();
+      setStartTime(now)
+      // Start with the threshold time (30 seconds)
+      setDialogElapsedTime(Math.floor(threshold / 1000))
     }
 
     const interval = setInterval(() => {
       if (startTime) {
-        const currentElapsed = Math.floor((Date.now() - startTime) / 1000)
-        setElapsedTime(currentElapsed)
+        const elapsed = Math.floor((Date.now() - startTime) / 1000)
+        // Add threshold time to get total time since inactivity started
+        const totalTime = Math.floor(threshold / 1000) + elapsed
+        setDialogElapsedTime(totalTime)
       }
     }, 1000)
 
-    return () => clearInterval(interval)
-  }, [open, startTime])
+    return () => {
+      clearInterval(interval)
+    }
+  }, [open, startTime, threshold])
 
   const handleClose = () => {
     // Simply close the dialog - activity will naturally resume when user becomes active
@@ -88,8 +98,7 @@ export function InactivityDialog({
             Inactivity Detected
           </DialogTitle>
           <DialogDescription>
-            We haven't detected any mouse movement for {formatInactiveTime(inactiveTime)}. 
-            
+            We haven't detected any mouse movement for {formatInactiveTime(dialogElapsedTime * 1000)}. 
           </DialogDescription>
         </DialogHeader>
         
@@ -97,9 +106,9 @@ export function InactivityDialog({
           <div className="space-y-2">
             <div className="flex justify-between text-sm">
               <span>Inactive time:</span>
-              <span className="font-medium">{formatTime(elapsedTime)}</span>
+              <span className="font-medium">{formatTime(liveInactiveSeconds)}</span>
             </div>
-            <Progress value={((elapsedTime % 60) / 60) * 100} className="w-full" />
+            <Progress value={((liveInactiveSeconds % 60) / 60) * 100} className="w-full" />
           </div>
           
           <div className="flex items-center gap-2 text-sm text-muted-foreground">

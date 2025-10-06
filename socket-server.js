@@ -2817,12 +2817,19 @@ io.on('connection', (socket) => {
               console.log(`Fresh start for ${email} - no reset needed - starting as ACTIVE`);
             }
             
-            // Create initial activity_data record
-            await pool.query(
-              `INSERT INTO activity_data (user_id, is_currently_active, today_active_seconds, today_inactive_seconds, last_session_start, today_date, updated_at) 
-               VALUES ($1, $2, $3, $4, $5, $6::date, NOW())`,
-              [userId, userInfo.isActive, 0, 0, userInfo.sessionStart, currentDate]
-            );
+            // FIXED: Only create activity_data record if shift has started
+            // This prevents creating records for users who log in before shift start
+            if (shouldResetForNewUser) {
+              // Create initial activity_data record only when shift has started
+              await pool.query(
+                `INSERT INTO activity_data (user_id, is_currently_active, today_active_seconds, today_inactive_seconds, last_session_start, today_date, updated_at) 
+                 VALUES ($1, $2, $3, $4, $5, $6::date, NOW())`,
+                [userId, userInfo.isActive, 0, 0, userInfo.sessionStart, currentDate]
+              );
+              console.log(`Created activity record for ${email} - shift has started`);
+            } else {
+              console.log(`Skipped activity record creation for ${email} - shift has not started yet`);
+            }
           }
           
         } catch (dbError) {
@@ -3067,30 +3074,23 @@ io.on('connection', (socket) => {
                 userInfo.lastActivityEmit = 0;
               }
               
-                 try {
-                   await pool.query(
-                    `INSERT INTO activity_data (user_id, is_currently_active, today_active_seconds, today_inactive_seconds, last_session_start, today_date, updated_at) 
-                       VALUES ($1, $2, $3, $4, $5, $6::date, NOW())`,
-                       [userId, preserveActive, 0, 0, userInfo.sessionStart, currentDate]
-                  );
-                 } catch (insertError) {
-                   // If insert fails due to conflict, it means a row already exists for this date
-                   if (insertError.code === '23505') { // Unique constraint violation
-                     console.log(`Activity record already exists for ${emailString} on ${currentDate} - updating instead`);
-                     await pool.query(
-                       `UPDATE activity_data 
-                        SET is_currently_active = $1, 
-                            today_active_seconds = 0, 
-                            today_inactive_seconds = 0, 
-                            last_session_start = $2, 
-                            updated_at = NOW()
-                        WHERE user_id = $3 AND today_date = $4`,
-                       [preserveActive, userInfo.sessionStart, userId, currentDate]
-                     );
-                   } else {
-                     throw insertError; // Re-throw other errors
-                   }
-                 }
+              // FIXED: Only create activity_data record if shift has started
+              // This prevents creating records for users who refresh before shift start
+              if (shouldResetForRefresh) {
+                try {
+                  await pool.query(
+                   `INSERT INTO activity_data (user_id, is_currently_active, today_active_seconds, today_inactive_seconds, last_session_start, today_date, updated_at) 
+                      VALUES ($1, $2, $3, $4, $5, $6::date, NOW())`,
+                      [userId, userInfo.isActive, 0, 0, userInfo.sessionStart, currentDate]
+                 );
+                 console.log(`Created activity record for ${email} during refresh - shift has started`);
+                } catch (insertError) {
+                  // If insert fails due to conflict, it means a row already exists for this date
+                  console.log(`Activity record already exists for ${email} during refresh`);
+                }
+              } else {
+                console.log(`Skipped activity record creation for ${email} during refresh - shift has not started yet`);
+              }
             }
           }
         } catch (dbError) {
@@ -3325,13 +3325,15 @@ io.on('connection', (socket) => {
         // Even if hydration fails, send authenticated event
         console.log(`Authentication hydration failed for ${emailString}:`, error.message);
         try {
+          // FIXED: Use userInfo.isActive instead of hardcoded false
+          // This ensures the fallback respects the user's actual state
           socket.emit('authenticated', {
             email: emailString, // Include email for frontend user matching
             userId: userInfo.userId, // Include userId in authenticated response
-            isActive: false,
-            activeSeconds: 0,
-            inactiveSeconds: 0,
-            sessionStart: new Date().toISOString()
+            isActive: userInfo.isActive || false, // Use actual user state, fallback to false
+            activeSeconds: userInfo.activeSeconds || 0,
+            inactiveSeconds: userInfo.inactiveSeconds || 0,
+            sessionStart: userInfo.sessionStart || new Date().toISOString()
           });
         } catch (fallbackEmitError) {
           console.error(`Fallback authenticated emit failed for: ${emailString}`, fallbackEmitError.message);

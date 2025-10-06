@@ -7,6 +7,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { 
   Coffee, 
   Utensils, 
@@ -17,9 +19,14 @@ import {
   AlertTriangle,
   CheckCircle,
   X,
-  RefreshCw
+  RefreshCw,
+  Settings,
+  Edit,
+  Lock,
+  AlertCircle
 } from "lucide-react"
 import { BreakTimer } from "@/components/break-timer"
+import { BreaksPageSkeleton } from "@/components/skeleton-loaders"
 import {
   SidebarInset,
   SidebarProvider,
@@ -42,6 +49,7 @@ import { useTimer } from "@/contexts/timer-context"
 import { useMeeting } from "@/contexts/meeting-context"
 import { useEventsContext } from "@/contexts/events-context"
 import { useRestroom } from "@/contexts/restroom-context"
+import { useBreakExpiration } from "@/hooks/use-break-expiration"
 
 import { endMeeting } from "@/lib/meeting-utils"
 
@@ -57,6 +65,9 @@ const getEventTypeDisplayName = (eventType: string) => {
 }
 import { 
   getBreaksForShift, 
+  getBreaksForShiftWithCustom,
+  userHasCustomBreaks,
+  getUserCustomBreaks,
   getBreakTitle, 
   isBreakTimeValid, 
   getNextBreakTime,
@@ -78,6 +89,10 @@ export default function BreaksPage() {
   const [showAllHistory, setShowAllHistory] = useState(false)
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [profileLoading, setProfileLoading] = useState(true)
+  
+  // Break expiration hook
+  const { isSessionExpired, checkSessionExpiration, markExpiredBreaks, expiredSessions } = useBreakExpiration()
   const [breakLoadingStates, setBreakLoadingStates] = useState<Record<BreakType, boolean>>({
     Morning: false,
     Lunch: false,
@@ -96,6 +111,21 @@ export default function BreaksPage() {
   const [isEndingRestroom, setIsEndingRestroom] = useState(false)
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
   const [availableBreaks, setAvailableBreaks] = useState<BreakInfo[]>([])
+  const [hasCustomBreaks, setHasCustomBreaks] = useState<boolean>(false)
+  const [showBreakScheduleDialog, setShowBreakScheduleDialog] = useState(false)
+  const [selectedBreakType, setSelectedBreakType] = useState<string>('')
+  const [breakSchedule, setBreakSchedule] = useState<Record<string, { startTime: string }>>({
+    Morning: { startTime: '08:00' },
+    Lunch: { startTime: '11:00' },
+    Afternoon: { startTime: '14:45' },
+    NightFirst: { startTime: '22:00' },
+    NightMeal: { startTime: '00:00' },
+    NightSecond: { startTime: '03:00' }
+  })
+  const [customBreakSettings, setCustomBreakSettings] = useState<Set<string>>(new Set())
+  const [savingSchedule, setSavingSchedule] = useState(false)
+  const [validationErrors, setValidationErrors] = useState<string[]>([])
+  const [validationWarnings, setValidationWarnings] = useState<string[]>([])
   const { setBreakActive, setBreakActiveAfterEventLeave, canStartBreak } = useBreak()
   const { isBreakActive: timerBreakActive, breakStatus: timerBreakStatus, refreshBreakStatus } = useTimer()
   const { isInMeeting, currentMeeting } = useMeeting()
@@ -107,7 +137,7 @@ export default function BreaksPage() {
     const loadUserProfile = async () => {
       try {
         const currentUser = getCurrentUserInfo()
-        if (!currentUser?.email) return
+        if (!currentUser?.email || !currentUser?.id) return
 
         const response = await fetch(`/api/profile/?email=${encodeURIComponent(currentUser.email)}`)
         const data = await response.json()
@@ -120,23 +150,74 @@ export default function BreaksPage() {
             shift_time: profile.shift_time
           })
 
-          // Generate available breaks based on shift
+          // Generate available breaks based on shift with custom times
           const shiftInfo: ShiftInfo = {
             shift_period: profile.shift_period || '',
             shift_schedule: profile.shift_schedule || '',
             shift_time: profile.shift_time || ''
           }
           
-          const breaks = getBreaksForShift(shiftInfo)
-          setAvailableBreaks(breaks)
+          // Check if user has any custom breaks
+          const hasCustom = await userHasCustomBreaks(currentUser.id)
+          setHasCustomBreaks(hasCustom)
+          
+          // Always get all possible breaks for the shift, not just custom ones
+          const allBreaks = getBreaksForShift(shiftInfo)
+          
+          // Get custom breaks to check which ones have settings
+          const customBreaks = await getUserCustomBreaks(currentUser.id)
+          console.log('Loaded custom breaks from database:', customBreaks)
+          
+          // Track which breaks have custom settings
+          const customBreakIds = new Set(customBreaks.map(cb => cb.break_type))
+          console.log('Custom break IDs from database:', Array.from(customBreakIds))
+          setCustomBreakSettings(customBreakIds)
+          
+          // Update breakInfo objects with custom times from database
+          const updatedBreaks = allBreaks.map(breakInfo => {
+            const customBreak = customBreaks.find(cb => cb.break_type === breakInfo.id)
+            if (customBreak) {
+              return {
+                ...breakInfo,
+                startTime: customBreak.start_time,
+                endTime: customBreak.end_time,
+                duration: customBreak.duration_minutes
+              }
+            }
+            return breakInfo
+          })
+          setAvailableBreaks(updatedBreaks)
+          
+          // Initialize breakSchedule with default times, then update with custom times if available
+          const initialSchedule: Record<string, { startTime: string }> = {}
+          updatedBreaks.forEach(breakInfo => {
+            initialSchedule[breakInfo.id] = { 
+              startTime: breakInfo.startTime 
+            }
+          })
+          setBreakSchedule(initialSchedule)
+          
+          // Load break history immediately after profile is loaded
+          try {
+            const { success: historySuccess, data: historyData } = await getBreakHistory(30, true)
+            if (historySuccess && historyData) {
+              setBreakHistory(historyData)
+            }
+          } catch (historyError) {
+            console.error('Error loading break history:', historyError)
+          }
         }
       } catch (error) {
         console.error('Error loading user profile:', error)
+      } finally {
+        // Set profile loading to false after profile and breaks are loaded
+        setProfileLoading(false)
       }
     }
 
     loadUserProfile()
   }, [])
+
 
   // Use timer context data and only poll for detailed break status when needed
   useEffect(() => {
@@ -146,6 +227,11 @@ export default function BreaksPage() {
         if (!currentUser?.id) {
           setError('User not authenticated')
           setLoading(false)
+          return
+        }
+
+        // Don't load break status until availableBreaks is loaded
+        if (availableBreaks.length === 0) {
           return
         }
 
@@ -243,17 +329,6 @@ export default function BreaksPage() {
           }
         }
 
-        // Get break history (last 7 days)
-        try {
-          // Initial: load recent history window only
-          const { success: historySuccess, data: historyData } = await getBreakHistory(7, true)
-          if (historySuccess && historyData) {
-            setBreakHistory(historyData)
-          }
-        } catch (historyError) {
-          console.error('Error loading break history:', historyError)
-          // Don't fail the entire load if history fails
-        }
       } catch (error) {
         console.error('Error loading break status:', error)
         setError('Failed to load break status')
@@ -286,59 +361,15 @@ export default function BreaksPage() {
     checkLocalStorage()
   }, [activeBreak, setBreakActive])
 
-  // Update current time every second and check for invalid breaks
+  // Update current time every second (break ending is handled by timer context)
   useEffect(() => {
-    const checkAndEndInvalidBreaks = async () => {
-      // Check if we have an active break (including paused breaks)
-      if (!breakStatus?.active_break) return
-
-      const currentBreak = breakStatus.active_break
-      const breakInfo = availableBreaks.find(b => b.id === currentBreak.break_type)
-      
-      if (!breakInfo || !userProfile) return
-
-      // Check if current time is outside the valid time window
-      if (!isBreakTimeValid(breakInfo, userProfile as ShiftInfo, new Date())) {
-        console.log(`⏰ Auto-ending ${breakInfo.name} - outside valid time window`)
-        
-        setAutoEnding(true)
-        try {
-          // End the break automatically
-          const result = await endBreak()
-          
-          if (result.success) {
-            console.log(`✅ Successfully auto-ended ${breakInfo.name}`)
-            
-            // Clear break state
-            setActiveBreak(null)
-            setBreakActive(false)
-            localStorage.removeItem('currentBreak')
-            
-            // Refresh break status
-            const { success, status } = await getBreakStatus()
-            if (success && status) {
-              setBreakStatus(status)
-            }
-            
-            // Refresh timer context
-            await refreshBreakStatus()
-          }
-        } catch (error) {
-          console.error(`❌ Error auto-ending ${breakInfo.name}:`, error)
-        } finally {
-          setAutoEnding(false)
-        }
-      }
-    }
-
     const interval = setInterval(() => {
       setCurrentTime(new Date())
-      // Check for invalid breaks every second
-      checkAndEndInvalidBreaks()
+      // Break ending logic is handled by the timer context to avoid conflicts
     }, 1000) // Check every second
 
     return () => clearInterval(interval)
-  }, [breakStatus, setBreakActive, refreshBreakStatus, availableBreaks, userProfile])
+  }, [])
 
   // Cleanup black screens when component unmounts or user navigates away
   useEffect(() => {
@@ -396,9 +427,12 @@ export default function BreaksPage() {
       const result = await startBreak(breakId)
       
       if (result.success && result.breakSession) {
+        console.log('Starting break:', breakId, 'with session:', result.breakSession)
         setActiveBreak(breakId)
         try {
-          setBreakActive(true, breakId.toLowerCase())
+          // Pass the break type information immediately to avoid "On Break" -> "Lunch Break" delay
+          setBreakActive(true, result.breakSession.break_type.toLowerCase())
+          console.log('Break context updated successfully')
         } catch (error) {
           // Handle event blocking error
           if (error instanceof Error && error.message.includes('Cannot start break while in event')) {
@@ -809,6 +843,196 @@ export default function BreaksPage() {
     }
   }
 
+  const calculateBreakTimes = (startTime: string, breakType: string) => {
+    const [hours, minutes] = startTime.split(':').map(Number)
+    const start = new Date()
+    start.setHours(hours, minutes, 0, 0)
+    
+    let duration: number
+    let validEndTime: Date
+    
+    // Get user's shift end time to apply 15-minute rule
+    const shiftEndTime = userProfile?.shift_time ? getShiftEndTime(userProfile.shift_time) : null
+    const minimumGap = 15 // 15 minutes before shift ends
+    
+    switch (breakType) {
+      case 'Morning':
+        duration = 15 // 15 minutes actual break duration
+        validEndTime = new Date(start.getTime() + 60 * 60 * 1000) // 1 hour valid window
+        break
+      case 'Lunch':
+        duration = 60 // 60 minutes actual break duration
+        validEndTime = new Date(start.getTime() + 3 * 60 * 60 * 1000) // 3 hours valid window
+        break
+      case 'Afternoon':
+        duration = 15 // 15 minutes actual break duration
+        validEndTime = new Date(start.getTime() + 60 * 60 * 1000) // 1 hour valid window
+        break
+      case 'NightFirst':
+        duration = 15 // 15 minutes actual break duration
+        validEndTime = new Date(start.getTime() + 60 * 60 * 1000) // 1 hour valid window
+        break
+      case 'NightMeal':
+        duration = 60 // 60 minutes actual break duration
+        validEndTime = new Date(start.getTime() + 3 * 60 * 60 * 1000) // 3 hours valid window
+        break
+      case 'NightSecond':
+        duration = 15 // 15 minutes actual break duration
+        validEndTime = new Date(start.getTime() + 60 * 60 * 1000) // 1 hour valid window
+        break
+      default:
+        duration = 15
+        validEndTime = new Date(start.getTime() + 60 * 60 * 1000)
+    }
+    
+    // Apply 15-minute rule if we have shift end time
+    if (shiftEndTime) {
+      const latestAllowedEnd = new Date(shiftEndTime.getTime() - minimumGap * 60 * 1000)
+      if (validEndTime > latestAllowedEnd) {
+        validEndTime = latestAllowedEnd
+      }
+    }
+    
+    const formatTime = (date: Date) => {
+      return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`
+    }
+    
+    return {
+      startTime,
+      endTime: formatTime(validEndTime),
+      duration // Actual break duration
+    }
+  }
+
+  // Helper function to get shift end time
+  const getShiftEndTime = (shiftTime: string): Date | null => {
+    if (!shiftTime) return null
+    
+    try {
+      // Parse shift time like "6:00 AM - 3:00 PM"
+      const match = shiftTime.match(/(\d{1,2}:\d{2}\s*(?:AM|PM))\s*-\s*(\d{1,2}:\d{2}\s*(?:AM|PM))/i)
+      if (!match) return null
+      
+      const [, , endTimeStr] = match
+      const [time, period] = endTimeStr.split(' ')
+      const [hours, minutes] = time.split(':').map(Number)
+      
+      let hour24 = hours
+      if (period?.toUpperCase() === 'PM' && hours !== 12) {
+        hour24 += 12
+      } else if (period?.toUpperCase() === 'AM' && hours === 12) {
+        hour24 = 0
+      }
+      
+      const endTime = new Date()
+      endTime.setHours(hour24, minutes, 0, 0)
+      return endTime
+    } catch (error) {
+      console.error('Error parsing shift end time:', error)
+      return null
+    }
+  }
+
+  const handleSaveBreakSchedule = async () => {
+    try {
+      setSavingSchedule(true)
+      setValidationErrors([])
+      setValidationWarnings([])
+      const currentUser = getCurrentUserInfo()
+      
+      if (!currentUser?.id) {
+        setError('User not authenticated')
+        return
+      }
+
+      // Only send the break being updated, not all custom breaks
+      const selectedBreakSettings = breakSchedule[selectedBreakType as keyof typeof breakSchedule]
+      const calculated = calculateBreakTimes(selectedBreakSettings.startTime, selectedBreakType)
+      
+      const breakSettings = [{
+        break_type: selectedBreakType,
+        start_time: calculated.startTime,
+        end_time: calculated.endTime,
+        duration_minutes: calculated.duration
+      }]
+      
+      console.log('Sending break settings to API:', breakSettings)
+
+      const response = await fetch('/api/breaks/custom', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          user_id: currentUser.id,
+          break_settings: breakSettings
+        })
+      })
+
+      const result = await response.json()
+      
+      if (result.success) {
+        // Update local state after successful API call
+        console.log(`Saving break ${selectedBreakType}, updating customBreakSettings`)
+        setHasCustomBreaks(true)
+        setCustomBreakSettings(prev => {
+          const newSet = new Set([...prev, selectedBreakType])
+          console.log('Updated customBreakSettings:', Array.from(newSet))
+          return newSet
+        })
+        
+        // Update breakSchedule with the new calculated times
+        setBreakSchedule(prev => ({
+          ...prev,
+          [selectedBreakType]: {
+            startTime: calculated.startTime
+          }
+        }))
+        
+        // Update availableBreaks to reflect the new times
+        setAvailableBreaks(prev => prev.map(breakInfo => {
+          if (breakInfo.id === selectedBreakType) {
+            return {
+              ...breakInfo,
+              startTime: calculated.startTime,
+              endTime: calculated.endTime,
+              duration: calculated.duration
+            }
+          }
+          return breakInfo
+        }))
+        
+        setShowBreakScheduleDialog(false)
+        
+        // Refresh break status to get updated data
+        try {
+          const { success, status } = await getBreakStatus()
+          if (success && status) {
+            setBreakStatus(status)
+          }
+        } catch (error) {
+          console.error('Error refreshing break status:', error)
+        }
+      } else {
+        // Handle validation errors
+        if (result.details && Array.isArray(result.details)) {
+          setValidationErrors(result.details)
+        } else {
+          setError(result.error || 'Failed to save break schedule')
+        }
+        
+        // Handle warnings
+        if (result.warnings && Array.isArray(result.warnings)) {
+          setValidationWarnings(result.warnings)
+        }
+      }
+    } catch (error) {
+      console.error('Error saving break schedule:', error)
+      setError('Failed to save break schedule')
+    } finally {
+      setSavingSchedule(false)
+    }
+  }
+
   const handleResumeBreak = async (breakId: BreakType) => {
     try {
       setBreakLoadingStates(prev => ({ ...prev, [breakId]: true }))
@@ -923,20 +1147,13 @@ export default function BreaksPage() {
     }
   }
 
-  if (loading && !breakStatus) {
+  if (profileLoading || (loading && !breakStatus)) {
     return (
       <SidebarProvider>
         <AppSidebar />
         <SidebarInset>
           <AppHeader />
-          <div className="flex flex-1 flex-col gap-6 p-6 pt-2">
-            <div className="flex items-center justify-center h-64">
-              <div className="text-center">
-                <Clock className="h-8 w-8 animate-spin mx-auto mb-4 text-muted-foreground" />
-                <p className="text-muted-foreground">Loading break status...</p>
-              </div>
-            </div>
-          </div>
+          <BreaksPageSkeleton />
         </SidebarInset>
       </SidebarProvider>
     )
@@ -970,6 +1187,20 @@ export default function BreaksPage() {
   }
 
   if (activeBreak) {
+    console.log('Rendering break timer for:', activeBreak, 'availableBreaks length:', availableBreaks.length)
+    // Don't render break timer until availableBreaks is loaded
+    if (availableBreaks.length === 0 || profileLoading) {
+      return (
+        <SidebarProvider>
+          <AppSidebar />
+          <SidebarInset>
+            <AppHeader />
+            <BreaksPageSkeleton />
+          </SidebarInset>
+        </SidebarProvider>
+      )
+    }
+
     const breakInfo = availableBreaks.find(b => b.id === activeBreak)
     
     // If breakInfo is not found, show error or fallback
@@ -1059,7 +1290,27 @@ export default function BreaksPage() {
               const isOnThisBreak = breakStatus?.is_on_break && breakStatus?.active_break?.break_type === breakInfo.id
               const isPausedThisBreak = isOnThisBreak && breakStatus?.active_break?.is_paused
               const todayCount = breakStatus?.today_summary.breaks_by_type[breakInfo.id as keyof typeof breakStatus.today_summary.breaks_by_type] || 0
-              const isDisabled = !isValid || (!isAvailable && !isOnThisBreak && !isPausedThisBreak) || loading
+              
+              // Check if any break sessions for this break type are expired
+              const hasExpiredSessions = breakHistory && 
+                [...(breakHistory.completed_breaks || []), ...(breakHistory.active_breaks || [])]
+                  .some((session: any) => 
+                    session.break_type === breakInfo.id && 
+                    expiredSessions.has(session.id)
+                  )
+              
+              // Check if this specific break has custom settings from database
+              const hasCustomSettings = customBreakSettings.has(breakInfo.id)
+              console.log(`Break ${breakInfo.id}: hasCustomSettings=${hasCustomSettings}, customBreakSettings:`, Array.from(customBreakSettings))
+              
+              // Break is disabled if:
+              // 1. Has custom settings AND (not valid time OR not available AND not currently on this break)
+              // 2. OR if loading
+              // 3. OR if there are expired sessions (user missed the break window)
+              const isDisabled = hasCustomSettings && (
+                (!isValid || (!isAvailable && !isOnThisBreak && !isPausedThisBreak)) || 
+                hasExpiredSessions
+              ) || loading
               const Icon = breakInfo.icon
 
               return (
@@ -1075,24 +1326,57 @@ export default function BreaksPage() {
                           <CardDescription>{breakInfo.description}</CardDescription>
                         </div>
                       </div>
-                      {!isAvailable && (
-                        <Badge variant="secondary" className="flex items-center gap-1">
-                          <CheckCircle className="h-3 w-3" />
-                          Used ({todayCount})
-                        </Badge>
-                      )}
-                      {isOnThisBreak && !isPausedThisBreak && (
-                        <Badge variant="default" className="flex items-center gap-1">
-                          <Clock className="h-3 w-3" />
-                          Active
-                        </Badge>
-                      )}
-                      {isPausedThisBreak && (
-                        <Badge variant="secondary" className="flex items-center gap-1">
-                          <Pause className="h-3 w-3" />
-                          Paused
-                        </Badge>
-                      )}
+                      <div className="flex items-center gap-2">
+                        {hasCustomSettings && !hasExpiredSessions && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setSelectedBreakType(breakInfo.id)
+                              setShowBreakScheduleDialog(true)
+                            }}
+                            className="h-8 w-8 p-0"
+                            title="Edit break schedule"
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {hasCustomSettings && hasExpiredSessions && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled
+                            className="h-8 w-8 p-0 opacity-50"
+                            title="Cannot edit - break has expired sessions"
+                          >
+                            <Lock className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {!isAvailable && (
+                          <Badge variant="secondary" className="flex items-center gap-1">
+                            <CheckCircle className="h-3 w-3" />
+                            Used ({todayCount})
+                          </Badge>
+                        )}
+                        {isOnThisBreak && !isPausedThisBreak && (
+                          <Badge variant="default" className="flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            Active
+                          </Badge>
+                        )}
+                        {isPausedThisBreak && (
+                          <Badge variant="secondary" className="flex items-center gap-1">
+                            <Pause className="h-3 w-3" />
+                            Paused
+                          </Badge>
+                        )}
+                        {hasExpiredSessions && (
+                          <Badge variant="destructive" className="flex items-center gap-1">
+                            <Lock className="h-3 w-3" />
+                            Expired
+                          </Badge>
+                        )}
+                      </div>
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-4">
@@ -1110,10 +1394,24 @@ export default function BreaksPage() {
                     </div>
 
                     <div className="space-y-2">
-                      {!isValid && (
+                      {!hasCustomBreaks && (
+                        <div className="flex items-center gap-2 text-sm text-amber-600 font-medium">
+                          <AlertTriangle className="h-4 w-4" />
+                          <span>Set your break schedule to enable this break</span>
+                        </div>
+                      )}
+                      
+                      {!isValid && hasCustomBreaks && !hasExpiredSessions && (
                         <div className="flex items-center gap-2 text-sm text-orange-600">
                           <AlertTriangle className="h-4 w-4" />
                           <span>Not available at this time</span>
+                        </div>
+                      )}
+                      
+                      {hasExpiredSessions && (
+                        <div className="flex items-center gap-2 text-sm text-red-600">
+                          <AlertTriangle className="h-4 w-4" />
+                          <span>Break window expired - cannot start now</span>
                         </div>
                       )}
                       
@@ -1154,17 +1452,29 @@ export default function BreaksPage() {
                     </div>
 
                     <Button 
-                      onClick={() => isPausedThisBreak ? handleResumeBreak(breakInfo.id as BreakType) : handleStartBreak(breakInfo.id as BreakType)}
+                      onClick={() => {
+                        if (!hasCustomSettings) {
+                          setSelectedBreakType(breakInfo.id)
+                          setShowBreakScheduleDialog(true)
+                        } else if (isPausedThisBreak) {
+                          handleResumeBreak(breakInfo.id as BreakType)
+                        } else {
+                          handleStartBreak(breakInfo.id as BreakType)
+                        }
+                      }}
                       disabled={isDisabled || breakLoadingStates[breakInfo.id as BreakType]}
                       className="w-full"
                       size="lg"
                     >
-                      {breakLoadingStates[breakInfo.id as BreakType] ? (
+                      {!hasCustomSettings ? (
+                        <Settings className="mr-2 h-4 w-4" />
+                      ) : breakLoadingStates[breakInfo.id as BreakType] ? (
                         <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
                       ) : (
                         <Play className="mr-2 h-4 w-4" />
                       )}
-                      {breakLoadingStates[breakInfo.id as BreakType] ? (isPausedThisBreak ? 'Resuming...' : 'Starting...') : 
+                      {!hasCustomSettings ? 'Set Schedule' :
+                       breakLoadingStates[breakInfo.id as BreakType] ? (isPausedThisBreak ? 'Resuming...' : 'Starting...') : 
                        isPausedThisBreak ? `Resume ${breakInfo.name}` : `Start ${breakInfo.name}`}
                     </Button>
                   </CardContent>
@@ -1185,157 +1495,158 @@ export default function BreaksPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {breakHistory ? (
-                <div className="space-y-4">
-                  {/* Summary Statistics */}
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 bg-muted/50 rounded-lg">
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-primary">{breakHistory.summary.total_sessions}</div>
-                      <div className="text-sm text-muted-foreground">Total Sessions</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-green-600">{breakHistory.summary.completed_sessions}</div>
-                      <div className="text-sm text-muted-foreground">Completed</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-blue-600">
-                        {breakHistory.summary.total_time ? 
-                          (breakHistory.summary.total_time >= 60 ? 
-                            `${Math.floor(breakHistory.summary.total_time / 60)}h ${breakHistory.summary.total_time % 60}m` : 
-                            `${breakHistory.summary.total_time}m`
-                          ) : '0m'
-                        }
-                      </div>
-                      <div className="text-sm text-muted-foreground">Total Time</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-orange-600">{breakHistory.summary.today_sessions}</div>
-                      <div className="text-sm text-muted-foreground">Today</div>
-                    </div>
+              <div className="space-y-4">
+                {/* Summary Statistics */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 bg-muted/50 rounded-lg">
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-primary">{breakHistory?.summary?.total_sessions || 0}</div>
+                    <div className="text-sm text-muted-foreground">Total Sessions</div>
                   </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-green-600">{breakHistory?.summary?.completed_sessions || 0}</div>
+                    <div className="text-sm text-muted-foreground">Completed</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-blue-600">
+                      {breakHistory?.summary?.total_time ? 
+                        (breakHistory.summary.total_time >= 60 ? 
+                          `${Math.floor(breakHistory.summary.total_time / 60)}h ${breakHistory.summary.total_time % 60}m` : 
+                          `${breakHistory.summary.total_time}m`
+                        ) : '0m'
+                      }
+                    </div>
+                    <div className="text-sm text-muted-foreground">Total Time</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-orange-600">{breakHistory?.summary?.today_sessions || 0}</div>
+                    <div className="text-sm text-muted-foreground">Today</div>
+                  </div>
+                </div>
 
-
-
-                  {/* Break History Table */}
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <h4 className="font-medium">{showAllHistory ? 'All Break Sessions' : 'Recent Break Sessions'}</h4>
-                      {breakHistory && (
-                        <div className="flex items-center gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={loadingHistory}
-                            onClick={refreshBreakHistory}
-                            className="flex items-center gap-2"
-                          >
-                            <RefreshCw className={`h-4 w-4 ${loadingHistory ? 'animate-spin' : ''}`} />
-                            {loadingHistory ? 'Refreshing...' : 'Refresh'}
-                          </Button>
-                          {!showAllHistory ? (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              disabled={loadingHistory}
-                              onClick={async () => {
-                                try {
-                                  setLoadingHistory(true)
-                                  // Fetch a wider window for full history (last 90 days)
-                                  const { success, data } = await getBreakHistory(90, true)
-                                  if (success && data) {
-                                    setBreakHistory(data)
-                                    setShowAllHistory(true)
-                                  }
-                                } finally {
-                                  setLoadingHistory(false)
-                                }
-                              }}
-                            >
-                              {loadingHistory ? 'Loading…' : 'View all history'}
-                            </Button>
-                          ) : (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              disabled={loadingHistory}
-                              onClick={async () => {
-                                setShowAllHistory(false)
-                                await refreshBreakHistory()
-                              }}
-                            >
-                              {loadingHistory ? 'Loading…' : 'Show recent only'}
-                            </Button>
-                          )}
-                        </div>
+                {/* Break History Table */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-medium">{showAllHistory ? 'All Break Sessions' : 'Recent Break Sessions'}</h4>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={loadingHistory}
+                        onClick={refreshBreakHistory}
+                        className="flex items-center gap-2"
+                      >
+                        <RefreshCw className={`h-4 w-4 ${loadingHistory ? 'animate-spin' : ''}`} />
+                        {loadingHistory ? 'Refreshing...' : 'Refresh'}
+                      </Button>
+                      {!showAllHistory ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={loadingHistory}
+                          onClick={async () => {
+                            try {
+                              setLoadingHistory(true)
+                              // Fetch a wider window for full history (last 90 days)
+                              const { success, data } = await getBreakHistory(90, true)
+                              if (success && data) {
+                                setBreakHistory(data)
+                                setShowAllHistory(true)
+                              }
+                            } finally {
+                              setLoadingHistory(false)
+                            }
+                          }}
+                        >
+                          {loadingHistory ? 'Loading…' : 'View all history'}
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={loadingHistory}
+                          onClick={async () => {
+                            setShowAllHistory(false)
+                            await refreshBreakHistory()
+                          }}
+                        >
+                          {loadingHistory ? 'Loading…' : 'Show recent only'}
+                        </Button>
                       )}
                     </div>
-                    <div className="border rounded-lg overflow-hidden">
-                      <table className="w-full">
-                        <thead className="bg-muted/50">
-                          <tr>
-                            <th className="text-left p-3 text-sm font-medium">Type</th>
-                            <th className="text-left p-3 text-sm font-medium">Date</th>
-                            <th className="text-left p-3 text-sm font-medium">Start Time</th>
-                            <th className="text-left p-3 text-sm font-medium">End Time</th>
-                            <th className="text-left p-3 text-sm font-medium">Duration</th>
-                            <th className="text-left p-3 text-sm font-medium">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y">
-                          {(() => {
-                            const sessions = [...(breakHistory.completed_breaks || []), ...(breakHistory.active_breaks || [])]
-                              .sort((a: any, b: any) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime())
-                            const display = showAllHistory ? sessions : sessions.slice(0, 3)
-                            return display.map((breakSession: any) => {
-                              const breakInfo = availableBreaks.find(b => b.id === breakSession.break_type)
-                              const Icon = breakInfo?.icon || Clock
-                              const sessionDate = new Date(breakSession.start_time)
-                              const isToday = sessionDate.toDateString() === new Date().toDateString()
-                              
-                              return (
-                                <tr key={breakSession.id} className="hover:bg-muted/30">
-                                  <td className="p-3">
-                                    <div className="flex items-center gap-2">
-                                      <Icon className="h-4 w-4 text-muted-foreground" />
-                                      <span className="font-medium">{breakSession.break_type}</span>
-                                    </div>
-                                  </td>
-                                  <td className="p-3 text-sm text-muted-foreground">
-                                    {isToday ? 'Today' : sessionDate.toLocaleDateString()}
-                                  </td>
-                                  <td className="p-3 text-sm text-muted-foreground">
-                                    {formatTime(breakSession.start_time)}
-                                  </td>
-                                  <td className="p-3 text-sm text-muted-foreground">
-                                    {breakSession.end_time ? formatTime(breakSession.end_time) : 'Active'}
-                                  </td>
-                                  <td className="p-3 text-sm text-muted-foreground">
-                                    {breakSession.duration_minutes ? `${breakSession.duration_minutes}m` : '-'}
-                                  </td>
-                                  <td className="p-3">
-                                    <Badge 
-                                      variant={breakSession.end_time ? 'default' : 'secondary'}
-                                      className={breakSession.end_time ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'}
-                                    >
-                                      {breakSession.end_time ? 'Completed' : 'Active'}
-                                    </Badge>
-                                  </td>
-                                </tr>
-                              )
-                            })
-                          })()}
-                        </tbody>
-                      </table>
-                    </div>
+                  </div>
+                  <div className="border rounded-lg overflow-hidden">
+                    <table className="w-full">
+                      <thead className="bg-muted/50">
+                        <tr>
+                          <th className="text-left p-3 text-sm font-medium">Type</th>
+                          <th className="text-left p-3 text-sm font-medium">Date</th>
+                          <th className="text-left p-3 text-sm font-medium">Start Time</th>
+                          <th className="text-left p-3 text-sm font-medium">End Time</th>
+                          <th className="text-left p-3 text-sm font-medium">Duration</th>
+                          <th className="text-left p-3 text-sm font-medium">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {(() => {
+                          if (!breakHistory) return null
+                          const sessions = [...(breakHistory.completed_breaks || []), ...(breakHistory.active_breaks || [])]
+                            .sort((a: any, b: any) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime())
+                          const display = showAllHistory ? sessions : sessions.slice(0, 5)
+                          return display.map((breakSession: any) => {
+                            const breakInfo = availableBreaks.find(b => b.id === breakSession.break_type)
+                            const Icon = breakInfo?.icon || Clock
+                            const sessionDate = new Date(breakSession.start_time)
+                            const isToday = sessionDate.toDateString() === new Date().toDateString()
+                            const isExpired = isSessionExpired(breakSession.id)
+                            
+                            return (
+                              <tr key={breakSession.id} className={`hover:bg-muted/30 ${isExpired ? 'opacity-60' : ''}`}>
+                                <td className="p-3">
+                                  <div className="flex items-center gap-2">
+                                    <Icon className="h-4 w-4 text-muted-foreground" />
+                                    <span className="font-medium">{breakSession.break_type}</span>
+                                  </div>
+                                </td>
+                                <td className="p-3 text-sm text-muted-foreground">
+                                  {isToday ? 'Today' : sessionDate.toLocaleDateString()}
+                                </td>
+                                <td className="p-3 text-sm text-muted-foreground">
+                                  {formatTime(breakSession.start_time)}
+                                </td>
+                                <td className="p-3 text-sm text-muted-foreground">
+                                  {breakSession.end_time ? formatTime(breakSession.end_time) : 'Active'}
+                                </td>
+                                <td className="p-3 text-sm text-muted-foreground">
+                                  {breakSession.duration_minutes ? `${breakSession.duration_minutes}m` : '-'}
+                                </td>
+                                <td className="p-3">
+                                  <div className="flex flex-col gap-1">
+                                    {isExpired ? (
+                                      // Show "Expired" for any expired break session
+                                      <Badge variant="destructive" className="text-xs">
+                                        <AlertCircle className="h-2 w-2 mr-1" />
+                                        Expired
+                                      </Badge>
+                                    ) : (
+                                      // Show normal status for non-expired breaks
+                                      <Badge 
+                                        variant={breakSession.end_time ? 'default' : 'secondary'}
+                                        className={breakSession.end_time ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'}
+                                      >
+                                        {breakSession.end_time ? 'Completed' : 'Active'}
+                                      </Badge>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            )
+                          })
+                        })()}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
-              ) : (
-                <div className="text-center py-8">
-                  <Clock className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">No break history</h3>
-                  <p className="text-gray-600">Start taking breaks to see your history here</p>
-                </div>
-              )}
+              </div>
             </CardContent>
           </Card>
 
@@ -1433,6 +1744,149 @@ export default function BreaksPage() {
               className="bg-orange-500 hover:bg-orange-600 text-white"
             >
               {isEndingRestroom ? 'Processing...' : `End Restroom & ${getCurrentBreak()?.is_paused ? 'Resume' : 'Start'} Break`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Break Schedule Dialog */}
+      <Dialog open={showBreakScheduleDialog} onOpenChange={setShowBreakScheduleDialog}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Settings className="h-5 w-5" />
+              Set {selectedBreakType} Break Schedule
+            </DialogTitle>
+            <DialogDescription>
+              Configure your {selectedBreakType.toLowerCase()} break time.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-6">
+            {(() => {
+              const breakType = selectedBreakType
+              const settings = breakSchedule[breakType as keyof typeof breakSchedule]
+              
+              // Safety check - if settings is undefined, use default values
+              if (!settings) {
+                console.warn(`No settings found for break type: ${breakType}`)
+                return (
+                  <div className="text-center py-4">
+                    <p className="text-muted-foreground">Break configuration not found for {breakType}</p>
+                  </div>
+                )
+              }
+              
+              // Find the break info to get the correct icon and color
+              const breakInfo = availableBreaks.find(b => b.id === breakType)
+              const Icon = breakInfo?.icon || Coffee
+              const color = breakInfo?.color?.replace('bg-', 'text-') || 'text-gray-500'
+              const calculated = calculateBreakTimes(settings.startTime, breakType)
+              
+              return (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Icon className={`h-5 w-5 ${color}`} />
+                    <Label className="text-sm font-medium">{breakType} Break</Label>
+                  </div>
+                  
+                  {/* Validation Errors */}
+                  {validationErrors.length > 0 && (
+                    <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                      <div className="flex items-center gap-2 mb-2">
+                        <AlertTriangle className="h-4 w-4 text-red-600" />
+                        <span className="text-sm font-medium text-red-800">Validation Errors</span>
+                      </div>
+                      <ul className="text-sm text-red-700 space-y-1">
+                        {validationErrors.map((error, index) => (
+                          <li key={index} className="flex items-start gap-2">
+                            <span className="text-red-500 mt-0.5">•</span>
+                            <span>{error}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  
+                  {/* Validation Warnings */}
+                  {validationWarnings.length > 0 && (
+                    <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                      <div className="flex items-center gap-2 mb-2">
+                        <AlertTriangle className="h-4 w-4 text-yellow-600" />
+                        <span className="text-sm font-medium text-yellow-800">Warnings</span>
+                      </div>
+                      <ul className="text-sm text-yellow-700 space-y-1">
+                        {validationWarnings.map((warning, index) => (
+                          <li key={index} className="flex items-start gap-2">
+                            <span className="text-yellow-500 mt-0.5">•</span>
+                            <span>{warning}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <Label htmlFor={`${breakType}-start`} className="text-xs text-muted-foreground">Start Time</Label>
+                      <Input
+                        id={`${breakType}-start`}
+                        type="time"
+                        value={settings.startTime}
+                        onChange={(e) => {
+                          setBreakSchedule(prev => ({
+                            ...prev,
+                            [breakType]: { startTime: e.target.value }
+                          }))
+                          // Clear validation errors when user changes input
+                          setValidationErrors([])
+                          setValidationWarnings([])
+                        }}
+                        className={`text-sm ${validationErrors.length > 0 ? 'border-red-300 focus:border-red-500' : ''}`}
+                      />
+                    </div>
+                    <div className="p-3 bg-muted/50 rounded-lg">
+                      <div className="text-sm text-muted-foreground mb-1">Auto-calculated:</div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm font-medium">Valid Time Window:</span>
+                        <span className="text-sm">{calculated.startTime} - {calculated.endTime}</span>
+                      </div>
+                      <div className="flex justify-between items-center mt-1">
+                        <span className="text-sm font-medium">Break Duration:</span>
+                        <span className="text-sm">{calculated.duration} minutes</span>
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-2">
+                        You can take your {breakType.toLowerCase()} break anytime within the valid time window
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
+          </div>
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setShowBreakScheduleDialog(false)
+                setValidationErrors([])
+                setValidationWarnings([])
+              }} 
+              disabled={savingSchedule}
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleSaveBreakSchedule} 
+              disabled={savingSchedule || validationErrors.length > 0}
+            >
+              {savingSchedule ? (
+                <>
+                  <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                  Saving...
+                </>
+              ) : (
+                'Save Schedule'
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

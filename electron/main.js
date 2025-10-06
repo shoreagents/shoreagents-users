@@ -1089,8 +1089,8 @@ function restoreWindowToNormalState() {
       // Exit fullscreen
       mainWindow.setFullScreen(false);
       
-      // Restore fullscreen state (since the app was fullscreen before break)
-      mainWindow.setFullScreen(true);
+      // DON'T restore fullscreen - let the app return to its normal state
+      // The app should return to its previous window state, not force fullscreen
       
       // Show menu bar
       mainWindow.setMenuBarVisibility(true);

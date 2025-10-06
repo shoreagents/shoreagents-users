@@ -155,13 +155,13 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
     const isShiftEnded = checkIfShiftEnded(shiftInfo)
     const isShiftNotStarted = checkIfShiftNotStarted(shiftInfo)
    
+   
     // Only start tracking if shift is active (not ended and not started) and not in health check or restroom
     if (hasLoggedIn && !isTracking && !isBreakActive && !isInMeeting && !isInEvent && !isGoingToClinic && !isInClinic && !isInRestroom && isWithinShift && !isShiftEnded && !isShiftNotStarted && window.location.pathname !== '/') {
       // Set inactivity threshold from environment variable or default to 30 seconds (30000ms)
       const inactivityThreshold = 30000
       setInactivityThreshold(inactivityThreshold)
       startTracking()
-    } else {
     }
   }, [hasLoggedIn, isTracking, isBreakActive, isInMeeting, isInEvent, isGoingToClinic, isInClinic, isInRestroom, shiftInfo, startTracking, setInactivityThreshold, checkIfShiftEnded, checkIfShiftNotStarted])
 
@@ -220,7 +220,7 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
         }
       }
     }
-  }, [shiftInfo, hasLoggedIn, pauseTracking, resumeTracking, checkIfShiftEnded, checkIfShiftNotStarted])
+  }, [shiftInfo, hasLoggedIn, pauseTracking, resumeTracking, checkIfShiftEnded, checkIfShiftNotStarted, isTracking])
 
   // Meeting status will be handled by individual components that need it
   // This prevents circular dependency with MeetingProvider
@@ -293,6 +293,34 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
       }
     }
   }, [hasLoggedIn])
+
+  // CRITICAL: Periodic check to restart tracking when shift starts
+  // This fixes the issue where tracking stops before shift start and doesn't restart
+  useEffect(() => {
+    if (!hasLoggedIn) return
+
+    const checkShiftStart = () => {
+      const isWithinShift = isWithinShiftHours(shiftInfo)
+      const isShiftEnded = checkIfShiftEnded(shiftInfo)
+      const isShiftNotStarted = checkIfShiftNotStarted(shiftInfo)
+      
+
+      // If shift has started and we're not tracking, start tracking
+      if (isWithinShift && !isShiftEnded && !isShiftNotStarted && !isTracking && !isBreakActive && !isInMeeting && !isInEvent && !isGoingToClinic && !isInClinic && !isInRestroom && window.location.pathname !== '/') {
+        const inactivityThreshold = 30000
+        setInactivityThreshold(inactivityThreshold)
+        startTracking()
+      }
+    }
+
+    // Check every 10 seconds for shift start
+    const shiftCheckInterval = setInterval(checkShiftStart, 10000)
+    
+    // Also check immediately
+    checkShiftStart()
+
+    return () => clearInterval(shiftCheckInterval)
+  }, [hasLoggedIn, isTracking, isBreakActive, isInMeeting, isInEvent, isGoingToClinic, isInClinic, isInRestroom, shiftInfo, startTracking, setInactivityThreshold, checkIfShiftEnded, checkIfShiftNotStarted])
 
   // Show system notification when inactivity dialog appears (but not during meetings or outside shift hours)
   useEffect(() => {

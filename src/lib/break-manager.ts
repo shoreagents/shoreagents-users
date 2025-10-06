@@ -28,6 +28,7 @@ export interface BreakSession {
   end_time?: string;
   duration_minutes?: number;
   created_at: string;
+  is_expired?: boolean;
 }
 
 export interface BreakStatus {
@@ -125,11 +126,21 @@ export async function startBreak(breakType: BreakType): Promise<{ success: boole
   }
 }
 
+// Global flag to prevent multiple simultaneous break ending attempts
+let isEndingBreak = false;
+
 /**
  * End the current break session
  */
 export async function endBreak(): Promise<{ success: boolean; message?: string; breakSession?: BreakSession & { duration_minutes: number } }> {
+  // Prevent multiple simultaneous break ending attempts
+  if (isEndingBreak) {
+    return { success: true, message: 'Break ending already in progress' };
+  }
+
   try {
+    isEndingBreak = true;
+    
     const currentBreak = getCurrentBreak();
     
     if (!currentBreak) {
@@ -177,6 +188,9 @@ export async function endBreak(): Promise<{ success: boolean; message?: string; 
       return { success: true, message: 'Break session cleared due to network error' };
     }
     return { success: false, message: 'Failed to end break session' };
+  } finally {
+    // Always reset the flag
+    isEndingBreak = false;
   }
 }
 
