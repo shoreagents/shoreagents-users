@@ -449,26 +449,26 @@ AS $function$
                   AND bs2.break_date = CURRENT_DATE
               )
           LOOP
-              -- Create a missed break session
-              INSERT INTO break_sessions (
-                  agent_user_id, 
-                  break_type, 
-                  start_time, 
-                  end_time, 
-                  duration_minutes, 
-                  break_date, 
-                  is_expired,
-                  created_at
-              ) VALUES (
-                  user_break.user_id,
-                  user_break.break_type,
-                  (CURRENT_DATE + user_break.start_time)::timestamp, -- Start time for today
-                  (CURRENT_DATE + user_break.end_time)::timestamp,   -- End time for today
-                  user_break.duration_minutes, -- Use actual break duration from the breaks table
-                  CURRENT_DATE,
-                  TRUE, -- Mark as expired immediately
-                  NOW()
-              );
+          -- Create a missed break session
+          INSERT INTO break_sessions (
+              agent_user_id, 
+              break_type, 
+              start_time, 
+              end_time, 
+              duration_minutes, 
+              break_date, 
+              is_expired,
+              created_at
+          ) VALUES (
+              user_break.user_id,
+              user_break.break_type,
+              (CURRENT_DATE + user_break.start_time)::timestamp, -- Start time for today
+              (CURRENT_DATE + user_break.start_time)::timestamp, -- End time = start time (no duration used)
+              0, -- Duration is 0 because user didn't take the break
+              CURRENT_DATE,
+              TRUE, -- Mark as expired immediately
+              NOW()
+          );
               
               missed_count := missed_count + 1;
           END LOOP;

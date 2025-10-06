@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, shell, ipcMain, Notification, dialog, screen, globalShortcut } = require('electron');
+const { app, BrowserWindow, Menu, Tray, shell, ipcMain, Notification, dialog, screen, globalShortcut, powerMonitor } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const isDev = process.env.NODE_ENV === 'development' ;
@@ -2594,6 +2594,51 @@ function createMenu() {
   Menu.setApplicationMenu(menu);
 }
 
+// Power monitor setup function
+function setupPowerMonitor() {
+  // Handle system suspend (sleep)
+  powerMonitor.on('suspend', () => {
+    console.log('💤 System is going to sleep - notifying renderer process');
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('system-suspend');
+    }
+  });
+
+  // Handle system resume (wake from sleep)
+  powerMonitor.on('resume', () => {
+    console.log('🌅 System resumed from sleep - notifying renderer process');
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('system-resume');
+    }
+  });
+
+  // Handle system lock (screen lock)
+  powerMonitor.on('lock-screen', () => {
+    console.log('🔒 System screen locked - notifying renderer process');
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('system-lock');
+    }
+  });
+
+  // Handle system unlock (screen unlock)
+  powerMonitor.on('unlock-screen', () => {
+    console.log('🔓 System screen unlocked - notifying renderer process');
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('system-unlock');
+    }
+  });
+
+  // Handle system shutdown
+  powerMonitor.on('shutdown', () => {
+    console.log('🔄 System is shutting down - notifying renderer process');
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('system-shutdown');
+    }
+  });
+
+  console.log('🔋 Power monitor event listeners registered');
+}
+
 // App event handlers
 app.whenReady().then(async () => {
   // Ensure app name is set
@@ -2648,6 +2693,9 @@ app.whenReady().then(async () => {
       createWindow();
     }
   });
+
+  // Power monitor event handlers for sleep/resume
+  setupPowerMonitor();
 });
 
 app.on('window-all-closed', () => {

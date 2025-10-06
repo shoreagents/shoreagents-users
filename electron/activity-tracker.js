@@ -13,6 +13,7 @@ class ActivityTracker {
     this.mousePosition = { x: 0, y: 0 };
     this.mouseTrackingInterval = null;
     this.isSystemSuspended = false;
+    this.isScreenLocked = false;
     
     // Bind methods
     this.handleSystemSuspend = this.handleSystemSuspend.bind(this);
@@ -69,7 +70,7 @@ class ActivityTracker {
   }
 
   handleSystemLock() {
-    this.isSystemSuspended = true;
+    this.isScreenLocked = true;
     this.pauseMouseTracking();
     
     // Notify renderer about system lock
@@ -83,7 +84,7 @@ class ActivityTracker {
   }
 
   handleSystemUnlock() {
-    this.isSystemSuspended = false;
+    this.isScreenLocked = false;
     if (this.isTracking) {
       this.startMouseTracking();
       // Reset activity time on unlock to avoid false inactivity
@@ -192,7 +193,8 @@ class ActivityTracker {
         this.mainWindow.webContents.send('activity-update', {
           timestamp: this.lastActivityTime,
           position: this.mousePosition,
-          systemSuspended: this.isSystemSuspended
+          systemSuspended: this.isSystemSuspended,
+          screenLocked: this.isScreenLocked
         });
       }
     } catch (error) {
@@ -316,7 +318,8 @@ class ActivityTracker {
       isTracking: this.isTracking,
       mousePosition: this.mousePosition,
       timeSinceLastActivity: Date.now() - this.lastActivityTime,
-      isSystemSuspended: this.isSystemSuspended
+      isSystemSuspended: this.isSystemSuspended,
+      isScreenLocked: this.isScreenLocked
     };
   }
 

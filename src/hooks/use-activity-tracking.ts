@@ -62,6 +62,7 @@ interface ActivityData {
   timestamp: number;
   position: { x: number; y: number };
   systemSuspended?: boolean;
+  screenLocked?: boolean;
 }
 
 interface InactivityAlert {
@@ -82,6 +83,7 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean, isSys
   const [showInactivityDialog, setShowInactivityDialog] = useState(false);
   const [inactivityData, setInactivityData] = useState<InactivityAlert | null>(null);
   const [activityStatus, setActivityStatus] = useState<ActivityStatus | null>(null);
+  const [isScreenLocked, setIsScreenLocked] = useState(false);
   
   // Get status contexts to check for conditions that should prevent inactivity alerts
   const { isBreakActive } = useBreak();
@@ -275,6 +277,11 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean, isSys
   const handleActivityUpdate = useCallback((data: unknown) => {
     const activityData = data as ActivityData;
     
+    // Update screen lock status
+    if (activityData.screenLocked !== undefined) {
+      setIsScreenLocked(activityData.screenLocked);
+    }
+    
     // Don't process activity updates if system is suspended
     if (activityData.systemSuspended) {
       return;
@@ -356,6 +363,7 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean, isSys
     
     // Check if any status is active that should prevent inactivity alerts
     // Use both current state and ref for maximum reliability
+    // Note: Screen lock should NOT prevent inactivity alerts - user is still inactive
     const shouldPreventInactivity = isBreakActive || isInMeeting || isInEvent || isGoingToClinic || isInClinic || isInRestroom || preventInactivityRef.current;
     
     if (shouldPreventInactivity) {
@@ -476,25 +484,18 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean, isSys
       }
     }
     
+    // Update screen lock state
+    setIsScreenLocked(true);
+    
     // CRITICAL: Set activity state to inactive when system is locked
     if (setActivityState) {
       setActivityState(false, true); // true = isSystemEvent
     }
     
-    // Trigger inactivity alert after threshold time when system is locked
-    const inactivityThreshold = 0; // 30 seconds
-    setTimeout(() => {
-      // Check if system is still locked (activity state is still false)
-      const alertData = {
-        inactiveTime: inactivityThreshold,
-        threshold: inactivityThreshold,
-        systemIdleTime: null
-      };
-      setInactivityData(alertData);
-      setShowInactivityDialog(true);
-    }, inactivityThreshold);
+    // Don't immediately trigger inactivity alert - let the normal inactivity detection work
+    // The inactivity detection should continue working when screen is locked
     
-  }, [setActivityState, setInactivityData, setShowInactivityDialog]);
+  }, [setActivityState]);
 
   // Handle system unlock events
   const handleSystemUnlock = useCallback(async () => {
@@ -511,6 +512,9 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean, isSys
         console.error('❌ Failed to record system unlock event:', error);
       }
     }
+    
+    // Update screen lock state
+    setIsScreenLocked(false);
     
     // CRITICAL: Resume activity timer when system is unlocked
     if (setActivityState) {
@@ -642,6 +646,7 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean, isSys
     showInactivityDialog,
     inactivityData,
     activityStatus,
+    isScreenLocked,
     startTracking,
     stopTracking,
     pauseTracking,

@@ -339,11 +339,51 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
+    // Handle power monitor events for sleep/resume
+    const handleSystemSuspend = () => {
+      console.log('💤 System going to sleep - socket will be disconnected')
+      // Don't disconnect immediately, let the natural disconnect happen
+      // The socket will automatically reconnect when the system resumes
+    }
+
+    const handleSystemResume = () => {
+      console.log('🌅 System resumed from sleep - checking socket connection')
+      // Check if socket is still connected, if not, reconnect
+      if (!socketRef.current || !socketRef.current.connected) {
+        console.log('🔄 Socket disconnected during sleep, reconnecting...')
+        connect()
+      } else {
+        console.log('✅ Socket still connected after resume')
+      }
+    }
+
+    const handleSystemLock = () => {
+      console.log('🔒 System screen locked')
+      // No action needed for screen lock
+    }
+
+    const handleSystemUnlock = () => {
+      console.log('🔓 System screen unlocked')
+      // Check socket connection after unlock
+      if (!socketRef.current || !socketRef.current.connected) {
+        console.log('🔄 Socket disconnected during lock, reconnecting...')
+        connect()
+      }
+    }
+
     // Add event listeners
     window.addEventListener('user-logout', handleLogout)
     window.addEventListener('user-login', handleLogin)
     window.addEventListener('user-logout', handleCustomLogout)
     window.addEventListener('productivity-update', handleProductivityUpdate)
+
+    // Add power monitor event listeners
+    if (window.electronAPI?.receive) {
+      window.electronAPI.receive('system-suspend', handleSystemSuspend)
+      window.electronAPI.receive('system-resume', handleSystemResume)
+      window.electronAPI.receive('system-lock', handleSystemLock)
+      window.electronAPI.receive('system-unlock', handleSystemUnlock)
+    }
 
     // Cleanup
     return () => {
@@ -351,6 +391,14 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       window.removeEventListener('user-login', handleLogin)
       window.removeEventListener('user-logout', handleCustomLogout)
       window.removeEventListener('productivity-update', handleProductivityUpdate)
+      
+      // Cleanup power monitor event listeners
+      if (window.electronAPI?.removeAllListeners) {
+        window.electronAPI.removeAllListeners('system-suspend')
+        window.electronAPI.removeAllListeners('system-resume')
+        window.electronAPI.removeAllListeners('system-lock')
+        window.electronAPI.removeAllListeners('system-unlock')
+      }
       
       // Don't disconnect on unmount - let the context handle it
       // This prevents issues with React HMR and component remounting
