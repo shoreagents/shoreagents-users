@@ -31,6 +31,97 @@ app.get('/status', (req, res) => {
   });
 });
 
+// Reset connection metrics endpoint
+app.post('/reset-metrics', (req, res) => {
+  console.log('🔄 Resetting connection metrics...');
+  
+  // Reset all connection metrics
+  connectionMetrics.totalConnections = 0;
+  connectionMetrics.activeConnections = 0;
+  connectionMetrics.disconnections = 0;
+  connectionMetrics.errors = 0;
+  connectionMetrics.reconnections = 0;
+  connectionMetrics.lastReset = Date.now();
+  connectionMetrics.userConnectionHistory.clear();
+  connectionMetrics.connectionDurations = [];
+  connectionMetrics.pingTimeouts = 0;
+  connectionMetrics.transportStats = { websocket: 0, polling: 0 };
+  connectionMetrics.connectionQuality = { excellent: 0, good: 0, fair: 0, poor: 0 };
+  
+  res.json({
+    status: 'success',
+    message: 'Connection metrics reset successfully',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Health check endpoint for PM2
+app.get('/health', (req, res) => {
+  const memUsage = process.memoryUsage();
+  const memUsageMB = Math.round(memUsage.heapUsed / 1024 / 1020);
+  const uptime = process.uptime();
+  
+  const health = {
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    uptime: Math.floor(uptime),
+    memory: {
+      used: memUsageMB,
+      total: Math.round(memUsage.heapTotal / 1024 / 1024),
+      external: Math.round(memUsage.external / 1024 / 1024)
+    },
+    connections: {
+      active: connectionMetrics.activeConnections,
+      total: connectionMetrics.totalConnections
+    },
+    errors: connectionMetrics.errors,
+    circuitBreaker: {
+      isOpen: circuitBreaker.isOpen,
+      errorCount: circuitBreaker.errorCount
+    }
+  };
+  
+  // Check if server is unhealthy
+  if (memUsageMB > 800 || connectionMetrics.errors > 100 || circuitBreaker.isOpen) {
+    health.status = 'unhealthy';
+    health.warnings = [];
+    
+    if (memUsageMB > 800) {
+      health.warnings.push(`High memory usage: ${memUsageMB}MB`);
+    }
+    if (connectionMetrics.errors > 100) {
+      health.warnings.push(`High error count: ${connectionMetrics.errors}`);
+    }
+    if (circuitBreaker.isOpen) {
+      health.warnings.push('Circuit breaker is open');
+    }
+  }
+  
+  const statusCode = health.status === 'healthy' ? 200 : 503;
+  res.status(statusCode).json(health);
+});
+
+// Manual daily reset endpoint
+app.post('/daily-reset', async (req, res) => {
+  console.log('🌅 Manual daily reset triggered...');
+  try {
+    await performDailyReset();
+    res.json({
+      status: 'success',
+      message: 'Daily reset completed successfully',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('❌ Manual daily reset failed:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Daily reset failed',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 // Enhanced connection metrics endpoint
 app.get('/metrics', (req, res) => {
   const uptime = Date.now() - connectionMetrics.startTime;
@@ -1017,7 +1108,7 @@ setInterval(() => {
 }, 60000);
 
 // Monitor connection metrics every 5 minutes
-setInterval(() => {
+setInterval(async () => {
   const uptime = Date.now() - connectionMetrics.startTime;
   const errorRate = connectionMetrics.totalConnections > 0 
     ? (connectionMetrics.errors / connectionMetrics.totalConnections * 100).toFixed(2) 
@@ -1037,6 +1128,30 @@ setInterval(() => {
     console.warn('⚠️ High error rate detected, resetting metrics');
     connectionMetrics.errors = 0;
     connectionMetrics.lastReset = Date.now();
+  }
+  
+  // Clean up old user connection history (older than 24 hours)
+  const now = Date.now();
+  const oneDayAgo = now - (24 * 60 * 60 * 1000);
+  let cleanedCount = 0;
+  
+  for (const [email, userHistory] of connectionMetrics.userConnectionHistory.entries()) {
+    if (userHistory.lastConnection && new Date(userHistory.lastConnection).getTime() < oneDayAgo) {
+      connectionMetrics.userConnectionHistory.delete(email);
+      cleanedCount++;
+    }
+  }
+  
+  if (cleanedCount > 0) {
+    console.log(`🧹 Cleaned up ${cleanedCount} old user connection history entries`);
+  }
+  
+  // Daily reset check (every 5 minutes, but only reset once per day)
+  const currentDate = new Date().toDateString();
+  if (connectionMetrics.lastDailyReset !== currentDate) {
+    console.log(`🌅 Daily reset triggered for ${currentDate}`);
+    await performDailyReset();
+    connectionMetrics.lastDailyReset = currentDate;
   }
 }, 300000); // Every 5 minutes // Check every minute
 
@@ -1177,6 +1292,66 @@ const qualityThresholds = {
 // Track user online/offline status (based on login/logout, not socket connections)
 const userStatus = new Map(); // Map<email, { status: 'online'|'offline', loginTime: Date, lastSeen: Date }>
 
+// Daily reset function for maintaining server health
+async function performDailyReset() {
+  console.log('🌅 Performing daily reset...');
+  
+  try {
+    // Reset connection metrics
+    connectionMetrics.totalConnections = 0;
+    connectionMetrics.activeConnections = 0;
+    connectionMetrics.disconnections = 0;
+    connectionMetrics.errors = 0;
+    connectionMetrics.reconnections = 0;
+    connectionMetrics.lastReset = Date.now();
+    connectionMetrics.userConnectionHistory.clear();
+    connectionMetrics.connectionDurations = [];
+    connectionMetrics.pingTimeouts = 0;
+    connectionMetrics.transportStats = { websocket: 0, polling: 0 };
+    connectionMetrics.connectionQuality = { excellent: 0, good: 0, fair: 0, poor: 0 };
+    
+    // Clean up stale connections
+    const cleanedConnections = await cleanupStaleConnections();
+    console.log(`🧹 Daily cleanup: Removed ${cleanedConnections} stale connections`);
+    
+    // Clean up old user data
+    userData.clear();
+    userShiftInfo.clear();
+    userMeetingStatus.clear();
+    userStatus.clear();
+    userDetailedStatus.clear();
+    disconnectedUsers.clear();
+    
+    // Reset circuit breaker
+    circuitBreaker.isOpen = false;
+    circuitBreaker.errorCount = 0;
+    circuitBreaker.lastErrorTime = null;
+    circuitBreaker.lastReset = Date.now();
+    
+    // Force garbage collection if available
+    if (global.gc) {
+      global.gc();
+      console.log('🗑️ Forced garbage collection completed');
+    }
+    
+    // Log memory usage
+    const memUsage = process.memoryUsage();
+    const memUsageMB = Math.round(memUsage.heapUsed / 1024 / 1024);
+    console.log(`💾 Memory usage after reset: ${memUsageMB}MB`);
+    
+    console.log('✅ Daily reset completed successfully');
+    
+    // Emit reset event to all connected clients
+    io.emit('server-daily-reset', {
+      timestamp: new Date().toISOString(),
+      message: 'Server has been reset for daily maintenance'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error during daily reset:', error);
+  }
+}
+
 // Enhanced connection metrics for monitoring
 const connectionMetrics = {
   totalConnections: 0,
@@ -1186,6 +1361,7 @@ const connectionMetrics = {
   reconnections: 0,
   startTime: Date.now(),
   lastReset: Date.now(),
+  lastDailyReset: null, // Track last daily reset date
   // New metrics
   averageConnectionDuration: 0,
   reconnectionRate: 0,
@@ -2552,6 +2728,9 @@ io.on('connection', (socket) => {
             };
             socket.emit('authenticated', initialTimerData);
             console.log(`Authentication completed (waited) for ${emailString}`);
+            
+            // Update connection metrics for successful authentication (waited case)
+            updateConnectionMetrics(socket.id, 'connect', { transport: socket.conn.transport.name });
           }
         } catch (error) {
           console.log(`Authentication wait failed for ${emailString}:`, error.message);
@@ -3295,6 +3474,9 @@ io.on('connection', (socket) => {
         try {
           socket.emit('authenticated', cleanTimerData);
           console.log(`Authenticated event sent for: ${emailString}`);
+          
+          // Update connection metrics for successful authentication
+          updateConnectionMetrics(socket.id, 'connect', { transport: socket.conn.transport.name });
         } catch (authEmitError) {
           console.error(`Authenticated emit failed for: ${emailString}`, authEmitError.message);
         }
@@ -3335,6 +3517,9 @@ io.on('connection', (socket) => {
             inactiveSeconds: userInfo.inactiveSeconds || 0,
             sessionStart: userInfo.sessionStart || new Date().toISOString()
           });
+          
+          // Update connection metrics for successful authentication (fallback case)
+          updateConnectionMetrics(socket.id, 'connect', { transport: socket.conn.transport.name });
         } catch (fallbackEmitError) {
           console.error(`Fallback authenticated emit failed for: ${emailString}`, fallbackEmitError.message);
         }

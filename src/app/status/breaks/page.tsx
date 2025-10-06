@@ -1291,11 +1291,13 @@ export default function BreaksPage() {
               const isPausedThisBreak = isOnThisBreak && breakStatus?.active_break?.is_paused
               const todayCount = breakStatus?.today_summary.breaks_by_type[breakInfo.id as keyof typeof breakStatus.today_summary.breaks_by_type] || 0
               
-              // Check if any break sessions for this break type are expired
+              // Check if any break sessions for this break type are expired (only from today)
+              const today = new Date().toISOString().split('T')[0] // Get today's date in YYYY-MM-DD format
               const hasExpiredSessions = breakHistory && 
                 [...(breakHistory.completed_breaks || []), ...(breakHistory.active_breaks || [])]
                   .some((session: any) => 
                     session.break_type === breakInfo.id && 
+                    session.break_date === today && // Only check sessions from today
                     expiredSessions.has(session.id)
                   )
               

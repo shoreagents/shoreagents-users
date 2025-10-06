@@ -13,11 +13,13 @@ RUN apt-get update && \
 # Copy package files first for better caching
 COPY socket-server-package.json package.json
 
-# Install dependencies
-RUN npm install --omit=dev && npm cache clean --force
+# Install dependencies including PM2
+RUN npm install --omit=dev && npm install -g pm2 && npm cache clean --force
 
 # Copy application files
 COPY socket-server.js .
+COPY ecosystem.config.js .
+COPY ecosystem.railway.config.js .
 COPY scripts/ ./scripts/
 
 # Create non-root user
@@ -35,5 +37,5 @@ EXPOSE 3004
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD node -e "console.log('Health check passed')" || exit 1
 
-# Start the application
-CMD ["node", "socket-server.js"]
+# Start the application with PM2 (Railway-optimized)
+CMD ["pm2-runtime", "start", "ecosystem.railway.config.js", "--env", "production"]

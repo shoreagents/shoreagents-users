@@ -66,6 +66,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
   
   // Track system lock state to prevent inactive timer counting during lock
   const [isSystemLocked, setIsSystemLocked] = useState(false)
+  const systemLockTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   
   // Real-time activity data state
   const [realtimeActivityData, setRealtimeActivityData] = useState<any>(null)
@@ -119,17 +120,22 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
 
   // Helper function to validate if we should actually count inactive time
   const validateInactiveState = useCallback((timerData: any, lastActivityState: boolean | null): boolean => {
-    // PRIORITY 1: If local state explicitly says inactive, trust it (from inactivity detection)
+    // PRIORITY 1: If system is locked, always count inactive
+    if (isSystemLocked) {
+      return true
+    }
+    
+    // PRIORITY 2: If local state explicitly says inactive, trust it (from inactivity detection)
     if (lastActivityState === false) {
       return true
     }
     
-    // PRIORITY 2: If server explicitly says inactive, trust it
+    // PRIORITY 3: If server explicitly says inactive, trust it
     if (timerData && timerData.isActive === false) {
       return true
     }
     
-    // PRIORITY 3: If local state says active, don't count inactive
+    // PRIORITY 4: If local state says active, don't count inactive
     if (lastActivityState === true) {
       return false
     }
@@ -151,7 +157,7 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     
     // Default: don't count inactive unless explicitly set
     return false
-  }, [isInMeeting, isBreakActive, isInEvent, isGoingToClinic, isInClinic, isInRestroom])
+  }, [isSystemLocked, isInMeeting, isBreakActive, isInEvent, isGoingToClinic, isInClinic, isInRestroom])
 
   // Get current user
   useEffect(() => {
@@ -668,6 +674,10 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
         if (shouldCountInactive) {
           setLiveInactiveSeconds(prev => {
             const newValue = prev + 1 // Changed back to 1 second increments for real-time updates
+            // Debug logging for inactive counting
+            if (isSystemLocked) {
+              console.log('⏱️ Counting inactive time while locked:', newValue, 'seconds');
+            }
             return newValue
           })
         } else {
@@ -1014,13 +1024,40 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
 
       // Handle system lock events
       const handleSystemLock = () => {
-        setIsSystemLocked(true);
-        setActivityState(false, true); // true = isSystemEvent
+        // Debounce to prevent duplicate events
+        if (systemLockTimeoutRef.current) {
+          clearTimeout(systemLockTimeoutRef.current);
+        }
+        
+        systemLockTimeoutRef.current = setTimeout(() => {
+          const lockTime = new Date().toISOString();
+          console.log('🔒 System lock detected in timer context at:', lockTime);
+          setIsSystemLocked(true);
+          
+          // CRITICAL: Immediately set activity state to inactive to start counting
+          setActivityState(false, true); // true = isSystemEvent
+          
+          // Also immediately update the local timer state to start counting inactive time
+          setLastActivityState(false);
+        }, 100); // 100ms debounce
       };
 
       const handleSystemUnlock = () => {
+        // Clear any pending lock timeout
+        if (systemLockTimeoutRef.current) {
+          clearTimeout(systemLockTimeoutRef.current);
+          systemLockTimeoutRef.current = null;
+        }
+        
+        const unlockTime = new Date().toISOString();
+        console.log('🔓 System unlock detected in timer context at:', unlockTime);
         setIsSystemLocked(false);
+        
+        // CRITICAL: Immediately set activity state to active to stop counting inactive time
         setActivityState(true, true); // true = isSystemEvent
+        
+        // Also immediately update the local timer state to stop counting inactive time
+        setLastActivityState(true);
       };
 
       // Handle system suspend/resume events
@@ -1046,6 +1083,12 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
       }
 
       return () => {
+        // Clear any pending system lock timeout
+        if (systemLockTimeoutRef.current) {
+          clearTimeout(systemLockTimeoutRef.current);
+          systemLockTimeoutRef.current = null;
+        }
+        
         if (window.electronAPI && window.electronAPI.removeAllListeners) {
           window.electronAPI.removeAllListeners('activity-update');
           window.electronAPI.removeAllListeners('inactivity-alert');

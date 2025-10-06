@@ -219,20 +219,29 @@ AS $function$
               RETURN FALSE; -- No custom break configured for this type
           END IF;
           
-          -- Check if we're within the break window
+          -- Check if we're within the break window (missed break should be sent WHILE in window)
           IF current_time_only < break_start_time OR current_time_only >= break_end_time THEN
-              RETURN FALSE; -- Outside break window
+              RETURN FALSE; -- Outside break window, don't send missed notification
           END IF;
           
-          -- Calculate minutes since break start
+          -- Calculate minutes since break window started
           minutes_since_break_start := EXTRACT(EPOCH FROM (current_time_only - break_start_time)) / 60;
           
-          -- Check if it's been at least 30 minutes since break start
+          -- Check if it's been at least 30 minutes since break window started
+          -- This ensures we don't send "you haven't taken" too early
           IF minutes_since_break_start < 30 THEN
-              RETURN FALSE; -- Too early to send reminder
+              RETURN FALSE; -- Too early to send missed break notification
+          END IF;
+          
+          -- Check if we're at a 30-minute interval (30, 60, 90, etc.)
+          -- This ensures we send notifications every 30 minutes while in the window
+          -- Use a small tolerance for floating-point calculations
+          IF ABS(minutes_since_break_start % 30) > 1 AND ABS(minutes_since_break_start % 30 - 30) > 1 THEN
+              RETURN FALSE; -- Not at a 30-minute interval (within 1-minute tolerance)
           END IF;
           
           -- Check if we've sent a notification in the last 25 minutes
+          -- This prevents duplicate notifications within the same 30-minute interval
           SELECT MAX(created_at) INTO last_notification_time
           FROM notifications
           WHERE user_id = p_agent_user_id
@@ -310,6 +319,8 @@ AS $function$
           END IF;
           
           -- Return true if break window is ending in 15 minutes (with 1-minute tolerance)
+          -- This means between 14-16 minutes before the end time
+          -- Example: Break ends at 10:16 AM, notification sent at 10:01-10:03 AM
           RETURN (minutes_until_expiry >= 14 AND minutes_until_expiry <= 16);
       END;
       $function$;
@@ -366,6 +377,210 @@ $function$;
 COMMENT ON FUNCTION public.is_break_available_now_notification_sent(int4, break_type_enum, timestamp) 
     IS 'UPDATED: Uses only custom break windows from breaks table - users must configure their own break schedules';
 
+
+-- DROP FUNCTION public.check_break_reminders();
+
+CREATE OR REPLACE FUNCTION public.check_break_reminders()
+ RETURNS integer
+ LANGUAGE plpgsql
+AS $function$
+            DECLARE
+                agent_record RECORD;
+                notifications_sent INTEGER := 0;
+                check_time TIMESTAMP;
+            BEGIN
+                check_time := NOW() AT TIME ZONE 'Asia/Manila';
+
+                -- NOTE: Task notifications are now handled by a separate scheduler
+                -- This function only handles break-related notifications
+
+                -- Loop through all active agents
+                FOR agent_record IN
+                    SELECT DISTINCT u.id as user_id
+                    FROM users u
+                    INNER JOIN agents a ON u.id = a.user_id
+                    WHERE u.user_type = 'Agent'
+                LOOP
+                    -- Check for breaks available soon (15 minutes before)
+                    IF is_break_available_soon(agent_record.user_id, 'Morning', check_time) THEN
+                        PERFORM create_break_reminder_notification(agent_record.user_id, 'available_soon', 'Morning');
+                        notifications_sent := notifications_sent + 1;
+                    END IF;
+
+                    IF is_break_available_soon(agent_record.user_id, 'Lunch', check_time) THEN
+                        PERFORM create_break_reminder_notification(agent_record.user_id, 'available_soon', 'Lunch');
+                        notifications_sent := notifications_sent + 1;
+                    END IF;
+
+                    IF is_break_available_soon(agent_record.user_id, 'Afternoon', check_time) THEN
+                        PERFORM create_break_reminder_notification(agent_record.user_id, 'available_soon', 'Afternoon');
+                        notifications_sent := notifications_sent + 1;
+                    END IF;
+
+                    -- Check for night shift breaks available soon
+                    IF is_break_available_soon(agent_record.user_id, 'NightFirst', check_time) THEN
+                        PERFORM create_break_reminder_notification(agent_record.user_id, 'available_soon', 'NightFirst');
+                        notifications_sent := notifications_sent + 1;
+                    END IF;
+
+                    IF is_break_available_soon(agent_record.user_id, 'NightMeal', check_time) THEN
+                        PERFORM create_break_reminder_notification(agent_record.user_id, 'available_soon', 'NightMeal');
+                        notifications_sent := notifications_sent + 1;
+                    END IF;
+
+                    IF is_break_available_soon(agent_record.user_id, 'NightSecond', check_time) THEN
+                        PERFORM create_break_reminder_notification(agent_record.user_id, 'available_soon', 'NightSecond');
+                        notifications_sent := notifications_sent + 1;
+                    END IF;
+
+                    -- Check for breaks that are currently available/active (ONLY if notification not already sent)
+                    IF is_break_available_now(agent_record.user_id, 'Morning', check_time)
+                       AND NOT is_break_available_now_notification_sent(agent_record.user_id, 'Morning', check_time) THEN
+                        PERFORM create_break_reminder_notification(agent_record.user_id, 'available_now', 'Morning');
+                        notifications_sent := notifications_sent + 1;
+                    END IF;
+
+                    IF is_break_available_now(agent_record.user_id, 'Lunch', check_time)
+                       AND NOT is_break_available_now_notification_sent(agent_record.user_id, 'Lunch', check_time) THEN
+                        PERFORM create_break_reminder_notification(agent_record.user_id, 'available_now', 'Lunch');
+                        notifications_sent := notifications_sent + 1;
+                    END IF;
+
+                    IF is_break_available_now(agent_record.user_id, 'Afternoon', check_time)
+                       AND NOT is_break_available_now_notification_sent(agent_record.user_id, 'Afternoon', check_time) THEN
+                        PERFORM create_break_reminder_notification(agent_record.user_id, 'available_now', 'Afternoon');
+                        notifications_sent := notifications_sent + 1;
+                    END IF;
+
+                    -- Check for night shift breaks currently available (ONLY if notification not already sent)
+                    IF is_break_available_now(agent_record.user_id, 'NightFirst', check_time)
+                       AND NOT is_break_available_now_notification_sent(agent_record.user_id, 'NightFirst', check_time) THEN
+                        PERFORM create_break_reminder_notification(agent_record.user_id, 'available_now', 'NightFirst');
+                        notifications_sent := notifications_sent + 1;
+                    END IF;
+
+                    IF is_break_available_now(agent_record.user_id, 'NightMeal', check_time)
+                       AND NOT is_break_available_now_notification_sent(agent_record.user_id, 'NightMeal', check_time) THEN
+                        PERFORM create_break_reminder_notification(agent_record.user_id, 'available_now', 'NightMeal');
+                        notifications_sent := notifications_sent + 1;
+                    END IF;
+
+                    IF is_break_available_now(agent_record.user_id, 'NightSecond', check_time)
+                       AND NOT is_break_available_now_notification_sent(agent_record.user_id, 'NightSecond', check_time) THEN
+                        PERFORM create_break_reminder_notification(agent_record.user_id, 'available_now', 'NightSecond');
+                        notifications_sent := notifications_sent + 1;
+                    END IF;
+
+                    -- Check for missed breaks (30 minutes after break becomes available)
+                    -- This will send "You have not taken your [Break] yet!" notifications
+                    IF is_break_missed(agent_record.user_id, 'Morning', check_time) THEN
+                        PERFORM create_break_reminder_notification(agent_record.user_id, 'missed_break', 'Morning');
+                        notifications_sent := notifications_sent + 1;
+                    END IF;
+
+                    IF is_break_missed(agent_record.user_id, 'Lunch', check_time) THEN
+                        PERFORM create_break_reminder_notification(agent_record.user_id, 'missed_break', 'Lunch');
+                        notifications_sent := notifications_sent + 1;
+                    END IF;
+
+                    IF is_break_missed(agent_record.user_id, 'Afternoon', check_time) THEN
+                        PERFORM create_break_reminder_notification(agent_record.user_id, 'missed_break', 'Afternoon');
+                        notifications_sent := notifications_sent + 1;
+                    END IF;
+
+                    -- Check for night shift missed breaks
+                    IF is_break_missed(agent_record.user_id, 'NightFirst', check_time) THEN
+                        PERFORM create_break_reminder_notification(agent_record.user_id, 'missed_break', 'NightFirst');
+                        notifications_sent := notifications_sent + 1;
+                    END IF;
+
+                    IF is_break_missed(agent_record.user_id, 'NightMeal', check_time) THEN
+                        PERFORM create_break_reminder_notification(agent_record.user_id, 'missed_break', 'NightMeal');
+                        notifications_sent := notifications_sent + 1;
+                    END IF;
+
+                    IF is_break_missed(agent_record.user_id, 'NightSecond', check_time) THEN
+                        PERFORM create_break_reminder_notification(agent_record.user_id, 'missed_break', 'NightSecond');
+                        notifications_sent := notifications_sent + 1;
+                    END IF;
+
+                    -- Check for break window ending soon (15 minutes before break window expires)
+                    -- This prevents generic "Break ending soon" notifications
+                    IF is_break_window_ending_soon(agent_record.user_id, 'Morning', check_time) THEN
+                        PERFORM create_break_reminder_notification(agent_record.user_id, 'ending_soon', 'Morning');
+                        notifications_sent := notifications_sent + 1;
+                    END IF;
+
+                    IF is_break_window_ending_soon(agent_record.user_id, 'Lunch', check_time) THEN
+                        PERFORM create_break_reminder_notification(agent_record.user_id, 'ending_soon', 'Lunch');
+                        notifications_sent := notifications_sent + 1;
+                    END IF;
+
+                    IF is_break_window_ending_soon(agent_record.user_id, 'Afternoon', check_time) THEN
+                        PERFORM create_break_reminder_notification(agent_record.user_id, 'ending_soon', 'Afternoon');
+                        notifications_sent := notifications_sent + 1;
+                    END IF;
+
+                    -- Check for night shift break windows ending soon
+                    IF is_break_window_ending_soon(agent_record.user_id, 'NightFirst', check_time) THEN
+                        PERFORM create_break_reminder_notification(agent_record.user_id, 'ending_soon', 'NightFirst');
+                        notifications_sent := notifications_sent + 1;
+                    END IF;
+
+                    IF is_break_window_ending_soon(agent_record.user_id, 'NightMeal', check_time) THEN
+                        PERFORM create_break_reminder_notification(agent_record.user_id, 'ending_soon', 'NightMeal');
+                        notifications_sent := notifications_sent + 1;
+                    END IF;
+
+                    IF is_break_window_ending_soon(agent_record.user_id, 'NightSecond', check_time) THEN
+                        PERFORM create_break_reminder_notification(agent_record.user_id, 'ending_soon', 'NightSecond');
+                        notifications_sent := notifications_sent + 1;
+                    END IF;
+                END LOOP;
+
+                RETURN notifications_sent;
+            END;
+            $function$
+;
+
+
+-- DROP FUNCTION public.get_agent_daily_breaks(int4);
+
+CREATE OR REPLACE FUNCTION public.get_agent_daily_breaks(p_agent_user_id integer)
+ RETURNS TABLE(break_type break_type_enum, break_count integer, total_minutes integer, can_take_break boolean)
+ LANGUAGE plpgsql
+AS $function$
+      BEGIN
+          RETURN QUERY
+          WITH break_types AS (
+              SELECT unnest(enum_range(NULL::break_type_enum)) AS bt
+          ),
+          today_breaks AS (
+              SELECT 
+                  bs.break_type,
+                  COUNT(*) as break_count,
+                  COALESCE(SUM(bs.duration_minutes), 0) as total_minutes
+              FROM public.break_sessions bs
+              WHERE bs.agent_user_id = p_agent_user_id
+              AND bs.break_date = (NOW() AT TIME ZONE 'Asia/Manila')::date
+              AND bs.end_time IS NOT NULL
+              AND bs.is_expired = FALSE  -- Only count actually used breaks, not missed ones
+              GROUP BY bs.break_type
+          )
+          SELECT 
+              bt.bt as break_type,
+              COALESCE(tb.break_count, 0)::INTEGER as break_count,
+              COALESCE(tb.total_minutes, 0)::INTEGER as total_minutes,
+              (COALESCE(tb.break_count, 0) = 0) as can_take_break
+          FROM break_types bt
+          LEFT JOIN today_breaks tb ON bt.bt = tb.break_type
+          ORDER BY bt.bt;
+      END;
+$function$
+;
+
+COMMENT ON FUNCTION public.get_agent_daily_breaks(int4) IS 'UPDATED: Only counts actually used breaks (is_expired = FALSE), not missed break sessions';
+
 -- =====================================================
 -- BREAK EXPIRATION FUNCTIONS
 -- =====================================================
@@ -395,8 +610,8 @@ AS $function$
               RETURN FALSE; -- No break configured
           END IF;
           
-          -- Calculate break end time for today (Manila timezone)
-          break_end_time := (CURRENT_DATE + break_config.end_time) AT TIME ZONE 'Asia/Manila';
+          -- Calculate break end time for the check date (Manila timezone)
+          break_end_time := ((current_server_time AT TIME ZONE 'Asia/Manila')::DATE + break_config.end_time) AT TIME ZONE 'Asia/Manila';
           
           -- Check if current server time is past the break window
           RETURN current_server_time > break_end_time;
@@ -506,7 +721,9 @@ AS $function$
           -- Only check window expiration for incomplete sessions (no end_time)
           -- Completed sessions should not be marked as expired just because the window passed
           IF session_record.end_time IS NULL THEN
-              RETURN is_break_window_expired(session_record.agent_user_id, session_record.break_type);
+              -- Check if the break window expired on the session's date, not today
+              RETURN is_break_window_expired(session_record.agent_user_id, session_record.break_type, 
+                  (session_record.break_date + INTERVAL '23:59:59') AT TIME ZONE 'Asia/Manila');
           END IF;
           
           -- Completed sessions are not expired

@@ -73,6 +73,14 @@ class ActivityTracker {
     this.isScreenLocked = true;
     this.pauseMouseTracking();
     
+    // Log the lock time for debugging
+    console.log('🔒 Screen locked at:', new Date().toISOString(), 'Last activity:', new Date(this.lastActivityTime).toISOString());
+    
+    // Immediately check for inactivity when screen is locked
+    if (this.isTracking && !this.isSystemSuspended) {
+      this.checkInactivity();
+    }
+    
     // Notify renderer about system lock
     try {
       if (this.mainWindow && !this.mainWindow.isDestroyed() && this.mainWindow.webContents) {
@@ -85,6 +93,12 @@ class ActivityTracker {
 
   handleSystemUnlock() {
     this.isScreenLocked = false;
+    
+    // Log the unlock time for debugging
+    const unlockTime = Date.now();
+    const lockDuration = unlockTime - this.lastActivityTime;
+    console.log('🔓 Screen unlocked at:', new Date().toISOString(), 'Lock duration:', Math.round(lockDuration / 1000), 'seconds');
+    
     if (this.isTracking) {
       this.startMouseTracking();
       // Reset activity time on unlock to avoid false inactivity
@@ -207,6 +221,22 @@ class ActivityTracker {
     
     const currentTime = Date.now();
     const timeSinceLastActivity = currentTime - this.lastActivityTime;
+    
+    // If screen is locked, immediately trigger inactivity alert
+    if (this.isScreenLocked) {
+      this.showInactivityWindow();
+      try {
+        if (this.mainWindow && !this.mainWindow.isDestroyed() && this.mainWindow.webContents) {
+          this.mainWindow.webContents.send('inactivity-alert', {
+            inactiveTime: timeSinceLastActivity,
+            threshold: this.inactivityThreshold,
+          });
+        }
+      } catch (error) {
+        console.error('Error sending inactivity alert:', error);
+      }
+      return; // Exit early when screen is locked
+    }
     
     if (timeSinceLastActivity >= this.inactivityThreshold) {
       this.showInactivityWindow();
