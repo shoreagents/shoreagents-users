@@ -77,7 +77,13 @@
     "pm2:cleanup": "node scripts/pm2-manager.js cleanup",
     "socket:setup": "scripts/start-socket-server.bat",
     "socket:setup-ps": "powershell -ExecutionPolicy Bypass -File scripts/start-socket-server.ps1",
-    "socket:setup-unix": "chmod +x scripts/start-socket-server.sh && ./scripts/start-socket-server.sh"
+    "socket:setup-unix": "chmod +x scripts/start-socket-server.sh && ./scripts/start-socket-server.sh",
+    "railway:pm2": "node scripts/check-railway-pm2.js",
+    "railway:pm2:status": "node scripts/check-railway-pm2.js status",
+    "railway:pm2:logs": "node scripts/check-railway-pm2.js logs",
+    "railway:pm2:health": "node scripts/check-railway-pm2.js health",
+    "railway:pm2:metrics": "node scripts/check-railway-pm2.js metrics",
+    "railway:pm2:restart": "node scripts/check-railway-pm2.js restart"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

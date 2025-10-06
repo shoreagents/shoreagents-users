@@ -27,8 +27,19 @@ RUN groupadd -g 1001 nodejs && \
     useradd -r -u 1001 -g nodejs nextjs && \
     chown -R nextjs:nodejs /app
 
+# Create PM2 directories and set permissions
+RUN mkdir -p /app/.pm2 && \
+    chown -R nextjs:nodejs /app/.pm2 && \
+    chmod -R 755 /app/.pm2
+
+# Make startup script executable
+RUN chmod +x /app/scripts/railway-start.sh
+
 # Switch to non-root user
 USER nextjs
+
+# Set PM2 home directory
+ENV PM2_HOME=/app/.pm2
 
 # Expose port
 EXPOSE 3004
@@ -37,5 +48,5 @@ EXPOSE 3004
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD node -e "console.log('Health check passed')" || exit 1
 
-# Start the application with PM2 (Railway-optimized)
-CMD ["pm2-runtime", "start", "ecosystem.railway.config.js", "--env", "production"]
+# Start the application with PM2 startup script
+CMD ["/app/scripts/railway-start.sh"]

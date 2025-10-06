@@ -19,10 +19,11 @@ module.exports = {
       // Environment variables
       env: {
         NODE_ENV: 'production',
-        PORT: process.env.PORT || 3004
+        PORT: process.env.PORT || 3004,
+        PM2_HOME: '/app/.pm2'
       },
       
-      // Railway-specific logging
+      // Railway-specific logging (use stdout/stderr)
       log_file: '/dev/stdout',
       out_file: '/dev/stdout',
       error_file: '/dev/stderr',
@@ -57,7 +58,14 @@ module.exports = {
       exp_backoff_restart_delay: 50,
       
       // Process title
-      process_title: 'shoreagents-socket-server-railway'
+      process_title: 'shoreagents-socket-server-railway',
+      
+      // PM2 specific settings for containers
+      pmx: false, // Disable PMX monitoring in containers
+      vizion: false, // Disable version control monitoring
+      
+      // Use in-memory storage for PM2 in containers
+      pm2_home: '/app/.pm2'
     }
   ]
 };
