@@ -1,10 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { Pool } from 'pg'
-
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-})
+import { executeQuery } from '@/lib/database-server'
 
 export async function GET(request: NextRequest) {
   try {
@@ -19,22 +14,22 @@ export async function GET(request: NextRequest) {
     }
 
     // Get user ID
-    const userResult = await pool.query('SELECT id FROM users WHERE email = $1', [email])
-    if (userResult.rows.length === 0) {
+    const userResult = await executeQuery('SELECT id FROM users WHERE email = $1', [email])
+    if (userResult.length === 0) {
       return NextResponse.json({ 
         success: false, 
         error: 'User not found' 
       }, { status: 404 })
     }
 
-    const userId = userResult.rows[0].id
+    const userId = userResult[0].id
 
     // Get current date for activity data lookup
     const currentTime = new Date()
     const currentDate = currentTime.toISOString().split('T')[0]
 
     // Get today's activity data
-    const activityResult = await pool.query(
+    const activityResult = await executeQuery(
       `SELECT today_active_seconds, today_inactive_seconds, last_session_start, is_currently_active, today_date
        FROM activity_data 
        WHERE user_id = $1 AND today_date = $2::date
@@ -52,8 +47,8 @@ export async function GET(request: NextRequest) {
       userId: userId
     }
 
-    if (activityResult.rows.length > 0) {
-      const dbData = activityResult.rows[0]
+    if (activityResult.length > 0) {
+      const dbData = activityResult[0]
       timerData = {
         isActive: dbData.is_currently_active || false,
         activeSeconds: dbData.today_active_seconds || 0,
@@ -65,14 +60,14 @@ export async function GET(request: NextRequest) {
     }
 
     // Get shift information using the get_agent_shift_info function
-    const shiftResult = await pool.query(
+    const shiftResult = await executeQuery(
       `SELECT * FROM get_agent_shift_info($1)`,
       [userId]
     )
 
     let shiftInfo = null
-    if (shiftResult.rows.length > 0) {
-      const profile = shiftResult.rows[0]
+    if (shiftResult.length > 0) {
+      const profile = shiftResult[0]
       shiftInfo = {
         period: profile.shift_period || '',
         schedule: profile.shift_schedule || '',

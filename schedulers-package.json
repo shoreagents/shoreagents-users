@@ -1,0 +1,34 @@
+{
+  "name": "shoreagents-schedulers",
+  "version": "1.0.0",
+  "description": "ShoreAgents Schedulers Service for Railway",
+  "main": "scripts/railway-schedulers-start.sh",
+  "scripts": {
+    "start": "bash scripts/railway-schedulers-start.sh",
+    "dev": "pm2 start ecosystem.railway.schedulers.config.js --env development",
+    "stop": "pm2 stop all",
+    "restart": "pm2 restart all",
+    "logs": "pm2 logs",
+    "status": "pm2 status"
+  },
+  "dependencies": {
+    "pm2": "^5.3.0",
+    "pg": "^8.11.3",
+    "redis": "^4.6.10",
+    "dotenv": "^16.3.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "schedulers",
+    "notifications",
+    "breaks",
+    "tasks",
+    "meetings",
+    "events",
+    "announcements"
+  ],
+  "author": "ShoreAgents",
+  "license": "MIT"
+}

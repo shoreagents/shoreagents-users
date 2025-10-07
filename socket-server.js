@@ -6,27 +6,23 @@ const { Server } = require('socket.io');
 const { Pool } = require('pg');
 const cors = require('cors');
 const redis = require('redis');
-const BreakReminderScheduler = require('./scripts/break-reminder-scheduler');
-const TaskNotificationScheduler = require('./scripts/task-notification-scheduler');
-const MeetingScheduler = require('./scripts/meeting-scheduler');
-const EventReminderScheduler = require('./scripts/event-reminder-scheduler');
-const AnnouncementScheduler = require('./scripts/announcement-scheduler');
+// Schedulers are now run independently via PM2
+// const BreakReminderScheduler = require('./scripts/break-reminder-scheduler');
+// const TaskNotificationScheduler = require('./scripts/task-notification-scheduler');
+// const MeetingScheduler = require('./scripts/meeting-scheduler');
+// const EventReminderScheduler = require('./scripts/event-reminder-scheduler');
+// const AnnouncementScheduler = require('./scripts/announcement-scheduler');
 
 const app = express();
 app.use(cors());
 
-// Status endpoint to monitor schedulers
+// Status endpoint - schedulers now run independently via PM2
 app.get('/status', (req, res) => {
   res.json({
     status: 'running',
     timestamp: new Date().toISOString(),
-    schedulers: {
-      breakReminder: breakReminderScheduler.getStatus(),
-      taskNotification: taskNotificationScheduler.getStatus(),
-      meeting: meetingScheduler.getStatus(),
-      eventReminder: eventReminderScheduler.getStatus(),
-      announcement: announcementScheduler.getStatus()
-    },
+    message: 'Socket server running. Schedulers run independently via PM2.',
+    schedulers: 'Check PM2 status for scheduler information',
     uptime: process.uptime()
   });
 });
@@ -612,27 +608,8 @@ pool.query('SELECT NOW()', (err, result) => {
   }
 });
 
-// Initialize schedulers
-const breakReminderScheduler = new BreakReminderScheduler();
-const taskNotificationScheduler = new TaskNotificationScheduler();
-const meetingScheduler = new MeetingScheduler();
-const eventReminderScheduler = new EventReminderScheduler();
-const announcementScheduler = new AnnouncementScheduler();
-
-console.log('Initializing break reminder scheduler...');
-breakReminderScheduler.start();
-
-console.log('Initializing task notification scheduler...');
-taskNotificationScheduler.start();
-
-console.log('Initializing meeting scheduler...');
-meetingScheduler.start();
-
-console.log('Initializing event reminder scheduler...');
-eventReminderScheduler.start();
-
-console.log('Initializing announcement scheduler...');
-announcementScheduler.start();
+// Schedulers are now run independently via PM2
+// No need to initialize them here
 
 // Initialize global notification listener
 let globalNotificationClient = null;
@@ -4755,11 +4732,6 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Socket.IO server running on port ${PORT}`);
   console.log(`🌐 Server accessible at http://0.0.0.0:${PORT}`);
   console.log(`📊 Status endpoint: http://0.0.0.0:${PORT}/status`);
-  console.log(`Break reminder scheduler: ${breakReminderScheduler.getStatus().isRunning ? 'Running' : 'Stopped'} (${breakReminderScheduler.getStatus().interval}s interval)`);
-  console.log(`Task notification scheduler: ${taskNotificationScheduler.getStatus().isRunning ? 'Running' : 'Stopped'} (${taskNotificationScheduler.getStatus().interval}s interval)`);
-  console.log(`Meeting scheduler: ${meetingScheduler.getStatus().isRunning ? 'Running' : 'Stopped'} (${meetingScheduler.getStatus().interval}s interval)`);
-  console.log(`Event reminder scheduler: ${eventReminderScheduler.getStatus().isRunning ? 'Running' : 'Stopped'} (${eventReminderScheduler.getStatus().interval}s interval)`);
-  console.log(`Announcement scheduler: ${announcementScheduler.getStatus().isRunning ? 'Running' : 'Stopped'} (${announcementScheduler.getStatus().interval}s interval)`);
-  console.log(`All schedulers are now active and monitoring for notifications`);
+  console.log(`📋 Schedulers run independently via PM2 - check 'pm2 list' for status`);
   console.log(`✅ Server is ready and accepting connections!`);
 });

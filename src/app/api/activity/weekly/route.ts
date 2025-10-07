@@ -1,25 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Pool } from 'pg';
+import { executeQuery, getDatabaseClient } from '@/lib/database-server';
 import { redisCache, cacheKeys, cacheTTL } from '@/lib/redis-cache';
-
-const databaseConfig = {
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-};
-
-// Create a single pool instance that persists across requests
-let pool: Pool | null = null;
-
-const getPool = () => {
-  if (!pool) {
-    pool = new Pool(databaseConfig);
-  }
-  return pool;
-};
 
 export async function POST(request: NextRequest) {
   try {
-    const pool = getPool();
     const body = await request.json();
     const { action, userId, email, weeksToKeep = 1, forceRefresh = false } = body;
 
@@ -28,11 +12,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Get user ID
-    const userResult = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
-    if (userResult.rows.length === 0) {
+    const userResult = await executeQuery('SELECT id FROM users WHERE email = $1', [email]);
+    if (userResult.length === 0) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
-    const actualUserId = userResult.rows[0].id;
+    const actualUserId = userResult[0].id;
 
     switch (action) {
       case 'get_all':
@@ -47,21 +31,21 @@ export async function POST(request: NextRequest) {
         }
 
         // Single request to get all weekly data - aggregation now happens automatically via triggers!
-        const allWeekStart = await getWeekStartDate(pool);
-        const allWeekEnd = await getWeekEndDate(pool);
+        const allWeekStart = await getWeekStartDate();
+        const allWeekEnd = await getWeekEndDate();
         
         // 1. Data is already aggregated automatically via database triggers
         // 2. Cleanup functions removed to preserve data
         const allDeletedCount = 0; // No cleanup performed to preserve data
         
         // 3. Get weekly summary for the user
-        const allSummaryResult = await pool.query(
+        const allSummaryResult = await executeQuery(
           'SELECT * FROM get_user_weekly_summary($1) ORDER BY week_start_date DESC LIMIT 10',
           [actualUserId]
         );
         
         // 4. Get current week's daily data
-        const allCurrentWeekResult = await pool.query(
+        const allCurrentWeekResult = await executeQuery(
           `SELECT * FROM activity_data 
            WHERE user_id = $1 
            AND today_date BETWEEN $2 AND $3 
@@ -71,8 +55,8 @@ export async function POST(request: NextRequest) {
         
         const responseData = {
           message: 'Weekly data retrieved and processed',
-          weeklySummaries: allSummaryResult.rows,
-          currentWeek: allCurrentWeekResult.rows,
+          weeklySummaries: allSummaryResult,
+          currentWeek: allCurrentWeekResult,
           weekStart: allWeekStart,
           weekEnd: allWeekEnd,
           deletedRecords: allDeletedCount,
@@ -86,21 +70,21 @@ export async function POST(request: NextRequest) {
 
       case 'aggregate':
         // Aggregate current week's daily data into weekly summary
-        await pool.query('SELECT aggregate_weekly_activity()');
+        await executeQuery('SELECT aggregate_weekly_activity()');
         
         return NextResponse.json({ 
           message: 'Weekly aggregation completed',
-          weekStart: await getWeekStartDate(pool),
-          weekEnd: await getWeekEndDate(pool)
+          weekStart: await getWeekStartDate(),
+          weekEnd: await getWeekEndDate()
         });
 
       case 'cleanup':
         // Cleanup old daily records after weekly aggregation
-        const cleanupResult = await pool.query(
+        const cleanupResult = await executeQuery(
           'SELECT cleanup_old_daily_activity($1) as deleted_count',
           [weeksToKeep]
         );
-        const deletedCount = cleanupResult.rows[0].deleted_count;
+        const deletedCount = cleanupResult[0].deleted_count;
         
         return NextResponse.json({ 
           message: 'Cleanup completed',
@@ -110,21 +94,20 @@ export async function POST(request: NextRequest) {
 
       case 'get_summary':
         // Get weekly summary for the user
-        const summaryResult = await pool.query(
+        const summaryResult = await executeQuery(
           'SELECT * FROM get_user_weekly_summary($1) ORDER BY week_start_date DESC LIMIT 10',
           [actualUserId]
         );
         
         return NextResponse.json({
-          weeklySummaries: summaryResult.rows
-        });
+          weeklySummaries: summaryResult        });
 
       case 'get_current_week':
         // Get current week's daily data
-        const weekStart = await getWeekStartDate(pool);
-        const weekEnd = await getWeekEndDate(pool);
+        const weekStart = await getWeekStartDate();
+        const weekEnd = await getWeekEndDate();
         
-        const currentWeekResult = await pool.query(
+        const currentWeekResult = await executeQuery(
           `SELECT * FROM activity_data 
            WHERE user_id = $1 
            AND today_date BETWEEN $2 AND $3 
@@ -133,7 +116,7 @@ export async function POST(request: NextRequest) {
         );
         
         return NextResponse.json({
-          currentWeek: currentWeekResult.rows,
+          currentWeek: currentWeekResult,
           weekStart,
           weekEnd
         });
@@ -148,12 +131,12 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function getWeekStartDate(pool: any): Promise<string> {
-  const result = await pool.query('SELECT get_week_start_date() as week_start');
-  return result.rows[0].week_start;
+async function getWeekStartDate(): Promise<string> {
+  const result = await executeQuery('SELECT get_week_start_date() as week_start');
+  return result[0].week_start;
 }
 
-async function getWeekEndDate(pool: any): Promise<string> {
-  const result = await pool.query('SELECT get_week_end_date() as week_end');
-  return result.rows[0].week_end;
+async function getWeekEndDate(): Promise<string> {
+  const result = await executeQuery('SELECT get_week_end_date() as week_end');
+  return result[0].week_end;
 } 

@@ -1,27 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { redisCache, cacheKeys, cacheTTL } from '@/lib/redis-cache';
+import { executeQuery } from '@/lib/database-server';
 
 // Ensure Node.js runtime for pg
 export const runtime = 'nodejs';
 
-// Lazy pg import to avoid edge bundling; cache pool across requests
-function getPool() {
-  const g: any = globalThis as any;
-  if (!g.__leaderboard_pg_pool) {
-    const { Pool } = require('pg');
-    g.__leaderboard_pg_pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-    });
-  }
-  return g.__leaderboard_pg_pool as any;
-}
-
 export async function GET(request: NextRequest) {
   try {
-    const pool = getPool();
     const { searchParams } = new URL(request.url);
-    const monthYear = searchParams.get('month') || await getCurrentMonthYear(pool);
+    const monthYear = searchParams.get('month') || await getCurrentMonthYear();
     const limit = parseInt(searchParams.get('limit') || '10');
 
     // Check Redis cache first
@@ -34,7 +21,7 @@ export async function GET(request: NextRequest) {
     // Remove member ID filtering - let client-side handle team filtering
 
     // Get current month/year for Philippines timezone
-    const currentMonthYear = await getCurrentMonthYear(pool);
+    const currentMonthYear = await getCurrentMonthYear();
 
     // Get leaderboard data for the specified month
     let leaderboardQuery: string;
@@ -72,7 +59,7 @@ export async function GET(request: NextRequest) {
       leaderboardParams = [monthYear, limit];
       
       // Test if productivity_scores table exists
-      await pool.query('SELECT 1 FROM productivity_scores LIMIT 1');
+      await executeQuery('SELECT 1 FROM productivity_scores LIMIT 1');
       
     } catch (error) {
       // Fallback to basic user list if productivity_scores table doesn't exist
@@ -103,10 +90,10 @@ export async function GET(request: NextRequest) {
 
 
 
-    const leaderboardResult = await pool.query(leaderboardQuery, leaderboardParams);
+    const leaderboardResult = await executeQuery(leaderboardQuery, leaderboardParams);
     
     // Transform the data to match the expected format
-    const leaderboard = (leaderboardResult.rows as any[]).map((row: any, index: number) => ({
+    const leaderboard = (leaderboardResult as any[]).map((row: any, index: number) => ({
       rank: index + 1,
       userId: row.email,
       name: `${row.first_name || ''} ${row.last_name || ''}`.trim() || 'Unknown User',
@@ -160,7 +147,7 @@ export async function GET(request: NextRequest) {
         
         try {
           // Test if productivity_scores table exists
-          await pool.query('SELECT 1 FROM productivity_scores LIMIT 1');
+          await executeQuery('SELECT 1 FROM productivity_scores LIMIT 1');
           
           userRankQuery = `
             WITH ranked_users AS (
@@ -196,9 +183,9 @@ export async function GET(request: NextRequest) {
           rankParams = [userEmail];
         }
         
-        const rankResult = await pool.query(userRankQuery, rankParams);
-        if (rankResult.rows.length > 0) {
-          currentUserRank = rankResult.rows[0].rank;
+        const rankResult = await executeQuery(userRankQuery, rankParams);
+        if (rankResult.length > 0) {
+          currentUserRank = rankResult[0].rank;
         }
       } catch (error) {
         console.error('Error getting user rank:', error);
@@ -227,11 +214,11 @@ export async function GET(request: NextRequest) {
   }
 }
 
-async function getCurrentMonthYear(pool: any): Promise<string> {
+async function getCurrentMonthYear(): Promise<string> {
   try {
     // Try to use the database function first
-    const result = await pool.query("SELECT get_month_year() as month_year");
-    return result.rows[0].month_year;
+    const result = await executeQuery("SELECT get_month_year() as month_year");
+    return result[0].month_year;
   } catch (error) {
     // Fallback to manual calculation if function doesn't exist
     const now = new Date();

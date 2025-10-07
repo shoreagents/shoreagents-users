@@ -1,25 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Pool } from 'pg';
+import { executeQuery, getDatabaseClient } from '@/lib/database-server';
 import { redisCache, cacheKeys, cacheTTL } from '@/lib/redis-cache';
-
-const databaseConfig = {
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-};
-
-// Create a single pool instance that persists across requests
-let pool: Pool | null = null;
-
-const getPool = () => {
-  if (!pool) {
-    pool = new Pool(databaseConfig);
-  }
-  return pool;
-};
 
 export async function POST(request: NextRequest) {
   try {
-    const pool = getPool();
     const body = await request.json();
     const { action, userId, email, monthYear, monthsBack = 12 } = body;
 
@@ -30,11 +14,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Get user ID
-    const userResult = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
-    if (userResult.rows.length === 0) {
+    const userResult = await executeQuery('SELECT id FROM users WHERE email = $1', [email]);
+    if (userResult.length === 0) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
-    const actualUserId = userResult.rows[0].id;
+    const actualUserId = userResult[0].id;
     // User ID logging removed
 
     switch (action) {
@@ -48,33 +32,33 @@ export async function POST(request: NextRequest) {
         }
 
         // Single request to get all productivity data
-        const currentMonthYear = await getCurrentMonthYear(pool);
+        const currentMonthYear = await getCurrentMonthYear();
         
         // 1. Get user's productivity scores history
-        const allScoresResult = await pool.query(
+        const allScoresResult = await executeQuery(
           'SELECT * FROM get_user_productivity_scores($1, $2)',
           [actualUserId, monthsBack]
         );
-        
+
         // 2. Get user's average productivity score
-        const allAvgResult = await pool.query(
+        const allAvgResult = await executeQuery(
           'SELECT get_user_average_productivity($1, $2) as average_score',
           [actualUserId, monthsBack]
         );
-        const allAverageScore = allAvgResult.rows[0].average_score;
+        const allAverageScore = allAvgResult[0].average_score;
         
         // 3. Get current month's productivity score (no need to recalculate - triggers handle this automatically)
         // Productivity scores are now updated automatically via database triggers when activity_data changes
         
         // Now get the updated productivity score
-        const allCurrentScoreResult = await pool.query(
+        const allCurrentScoreResult = await executeQuery(
           'SELECT * FROM productivity_scores WHERE user_id = $1 AND month_year = $2',
           [actualUserId, currentMonthYear]
         );
         
         let allCurrentMonthScore;
-        if (allCurrentScoreResult.rows.length > 0) {
-          const rawScore = allCurrentScoreResult.rows[0];
+        if (allCurrentScoreResult.length > 0) {
+          const rawScore = allCurrentScoreResult[0];
           // Convert seconds to hours for frontend display
           allCurrentMonthScore = {
             ...rawScore,
@@ -88,13 +72,13 @@ export async function POST(request: NextRequest) {
           // Fallback if no record exists (triggers should create one automatically)
           // Try to trigger manual calculation as a safety net
           try {
-            await pool.query('SELECT calculate_monthly_productivity_score($1)', [actualUserId]);
+            await executeQuery('SELECT calculate_monthly_productivity_score($1)', [actualUserId]);
             
             // Invalidate cache after fallback calculation
             try {
-              const userResult = await pool.query('SELECT email FROM users WHERE id = $1', [actualUserId]);
-              if (userResult.rows.length > 0) {
-                const userEmail = userResult.rows[0].email;
+              const userResult = await executeQuery('SELECT email FROM users WHERE id = $1', [actualUserId]);
+              if (userResult.length > 0) {
+                const userEmail = userResult[0].email;
                 
                 // Invalidate productivity cache
                 const productivityCacheKey = cacheKeys.productivity(userEmail, 12);
@@ -111,18 +95,18 @@ export async function POST(request: NextRequest) {
             }
             
             // Get the newly created record
-            const fallbackResult = await pool.query(
+            const fallbackResult = await executeQuery(
               'SELECT * FROM productivity_scores WHERE user_id = $1 AND month_year = $2',
               [actualUserId, currentMonthYear]
             );
             
-            if (fallbackResult.rows.length > 0) {
+            if (fallbackResult.length > 0) {
               allCurrentMonthScore = {
                 month_year: currentMonthYear,
-                productivity_score: fallbackResult.rows[0].productivity_score,
-                active_hours: (fallbackResult.rows[0].total_active_seconds || 0) / 3600,
-                inactive_hours: (fallbackResult.rows[0].total_inactive_seconds || 0) / 3600,
-                total_hours: (fallbackResult.rows[0].total_seconds || 0) / 3600
+                productivity_score: fallbackResult[0].productivity_score,
+                active_hours: (fallbackResult[0].total_active_seconds || 0) / 3600,
+                inactive_hours: (fallbackResult[0].total_inactive_seconds || 0) / 3600,
+                total_hours: (fallbackResult[0].total_seconds || 0) / 3600
               };
             } else {
               // Return default values if all else fails
@@ -148,7 +132,7 @@ export async function POST(request: NextRequest) {
         
         const responseData = {
           message: 'Productivity data retrieved and processed',
-          productivityScores: allScoresResult.rows,
+          productivityScores: allScoresResult,
           currentMonthScore: allCurrentMonthScore,
           averageProductivityScore: allAverageScore,
           monthsBack
@@ -161,18 +145,18 @@ export async function POST(request: NextRequest) {
 
       case 'calculate_score':
         // Calculate productivity score for current month or specified month
-        const scoreResult = await pool.query(
+        const scoreResult = await executeQuery(
           'SELECT calculate_monthly_productivity_score($1, $2) as productivity_score',
           [actualUserId, monthYear || null]
         );
-        const score = scoreResult.rows[0].productivity_score;
+        const score = scoreResult[0].productivity_score;
         
         // Invalidate cache after manual calculation
         try {
-          const userResult = await pool.query('SELECT email FROM users WHERE id = $1', [actualUserId]);
-          if (userResult.rows.length > 0) {
-            const userEmail = userResult.rows[0].email;
-            const targetMonthYear = monthYear || await getCurrentMonthYear(pool);
+          const userResult = await executeQuery('SELECT email FROM users WHERE id = $1', [actualUserId]);
+          if (userResult.length > 0) {
+            const userEmail = userResult[0].email;
+            const targetMonthYear = monthYear || await getCurrentMonthYear();
             
             // Invalidate productivity cache
             const productivityCacheKey = cacheKeys.productivity(userEmail, 12);
@@ -191,27 +175,26 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ 
           message: 'Productivity score calculated',
           productivityScore: score,
-          monthYear: monthYear || await getCurrentMonthYear(pool)
+          monthYear: monthYear || await getCurrentMonthYear()
         });
 
       case 'get_scores':
         // Get user's productivity scores history
-        const scoresResult = await pool.query(
+        const scoresResult = await executeQuery(
           'SELECT * FROM get_user_productivity_scores($1, $2)',
           [actualUserId, monthsBack]
         );
         
         return NextResponse.json({
-          productivityScores: scoresResult.rows
-        });
+          productivityScores: scoresResult        });
 
       case 'get_average':
         // Get user's average productivity score
-        const avgResult = await pool.query(
+        const avgResult = await executeQuery(
           'SELECT get_user_average_productivity($1, $2) as average_score',
           [actualUserId, monthsBack]
         );
-        const averageScore = avgResult.rows[0].average_score;
+        const averageScore = avgResult[0].average_score;
         
         return NextResponse.json({
           averageProductivityScore: averageScore,
@@ -220,17 +203,17 @@ export async function POST(request: NextRequest) {
 
       case 'get_current_month_score':
         // Get current month's productivity score (no need to recalculate - triggers handle this automatically)
-        const scoreCurrentMonthYear = await getCurrentMonthYear(pool);
+        const scoreCurrentMonthYear = await getCurrentMonthYear();
         
         // Productivity scores are now updated automatically via database triggers when activity_data changes
         
-        const currentScoreResult = await pool.query(
+        const currentScoreResult = await executeQuery(
           'SELECT * FROM productivity_scores WHERE user_id = $1 AND month_year = $2',
           [actualUserId, scoreCurrentMonthYear]
         );
         
-        if (currentScoreResult.rows.length > 0) {
-          const rawScore = currentScoreResult.rows[0];
+        if (currentScoreResult.length > 0) {
+          const rawScore = currentScoreResult[0];
           // Convert seconds to hours for frontend display
           const formattedScore = {
             ...rawScore,
@@ -246,13 +229,13 @@ export async function POST(request: NextRequest) {
           // Fallback if no record exists (triggers should create one automatically)
           // Try to trigger manual calculation as a safety net
           try {
-            await pool.query('SELECT calculate_monthly_productivity_score($1)', [actualUserId]);
+            await executeQuery('SELECT calculate_monthly_productivity_score($1)', [actualUserId]);
             
             // Invalidate cache after fallback calculation
             try {
-              const userResult = await pool.query('SELECT email FROM users WHERE id = $1', [actualUserId]);
-              if (userResult.rows.length > 0) {
-                const userEmail = userResult.rows[0].email;
+              const userResult = await executeQuery('SELECT email FROM users WHERE id = $1', [actualUserId]);
+              if (userResult.length > 0) {
+                const userEmail = userResult[0].email;
                 
                 // Invalidate productivity cache
                 const productivityCacheKey = cacheKeys.productivity(userEmail, 12);
@@ -269,13 +252,13 @@ export async function POST(request: NextRequest) {
             }
             
             // Get the newly created record
-            const fallbackResult = await pool.query(
+            const fallbackResult = await executeQuery(
               'SELECT * FROM productivity_scores WHERE user_id = $1 AND month_year = $2',
               [actualUserId, scoreCurrentMonthYear]
             );
             
-            if (fallbackResult.rows.length > 0) {
-              const rawScore = fallbackResult.rows[0];
+            if (fallbackResult.length > 0) {
+              const rawScore = fallbackResult[0];
               const formattedScore = {
                 ...rawScore,
                 active_hours: (rawScore.total_active_seconds || 0) / 3600,
@@ -313,7 +296,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function getCurrentMonthYear(pool: any): Promise<string> {
-  const result = await pool.query('SELECT get_month_year() as month_year');
-  return result.rows[0].month_year;
+async function getCurrentMonthYear(): Promise<string> {
+  const result = await executeQuery('SELECT get_month_year() as month_year');
+  return result[0].month_year;
 } 

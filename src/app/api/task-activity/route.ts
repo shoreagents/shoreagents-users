@@ -1,14 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { redisCache, cacheKeys, cacheTTL } from '@/lib/redis-cache'
-
-// Helper function to get database pool
-function getPool() {
-  const { Pool } = require('pg')
-  return new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  })
-}
+import { executeQuery, getDatabaseClient } from '@/lib/database-server'
 
 // Format a Date as ISO string with Asia/Manila (+08:00) offset
 function toManilaIso(date: Date): string {
@@ -83,17 +75,16 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const pool = getPool()
     let actualUserId: number;
 
     if (userId) {
       actualUserId = parseInt(userId);
     } else if (email) {
-      const userResult = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
-      if (userResult.rows.length === 0) {
+      const userResult = await executeQuery('SELECT id FROM users WHERE email = $1', [email]);
+      if (userResult.length === 0) {
         return NextResponse.json({ error: 'User not found' }, { status: 404 });
       }
-      actualUserId = userResult.rows[0].id;
+      actualUserId = userResult[0].id;
     } else {
       return NextResponse.json({ error: 'userId or email parameter is required' }, { status: 400 });
     }
@@ -176,12 +167,12 @@ export async function GET(request: NextRequest) {
       ORDER BY group_position, t.position
     `
     
-    const result = await pool.query(query, [actualUserId])
+    const result = await executeQuery(query, [actualUserId])
     
     // Group the results by task groups
     const groups = new Map()
     
-    result.rows.forEach((row: any) => {
+    result.forEach((row: any) => {
       const groupId = row.group_id
       
       if (!groups.has(groupId)) {
@@ -218,7 +209,6 @@ export async function GET(request: NextRequest) {
       }
     })
     
-    await pool.end()
     
     const groupsData = Array.from(groups.values());
     
@@ -252,17 +242,16 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { action, data } = body
     
-    const pool = getPool()
     let actualUserId: number;
 
     if (userId) {
       actualUserId = parseInt(userId);
     } else if (email) {
-      const userResult = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
-      if (userResult.rows.length === 0) {
+      const userResult = await executeQuery('SELECT id FROM users WHERE email = $1', [email]);
+      if (userResult.length === 0) {
         return NextResponse.json({ error: 'User not found' }, { status: 404 });
       }
-      actualUserId = userResult.rows[0].id;
+      actualUserId = userResult[0].id;
     } else {
       return NextResponse.json({ error: 'userId or email parameter is required' }, { status: 400 });
     }
@@ -285,8 +274,8 @@ export async function POST(request: NextRequest) {
           FROM tasks
           WHERE group_id = $1 AND status = 'active'
         `
-        const positionResult = await pool.query(positionQuery, [group_id])
-        const nextPosition = positionResult.rows[0].next_position
+        const positionResult = await executeQuery(positionQuery, [group_id])
+        const nextPosition = positionResult[0].next_position
         
         // Create the task
         const createTaskQuery = `
@@ -304,7 +293,7 @@ export async function POST(request: NextRequest) {
         const normalizedDue = incomingDue === undefined || incomingDue === null
           ? null
           : normalizeManilaTimestamp(incomingDue, true)
-        const taskResult = await pool.query(createTaskQuery, [
+        const taskResult = await executeQuery(createTaskQuery, [
           actualUserId,
           group_id,
           title || 'New Task',
@@ -316,15 +305,14 @@ export async function POST(request: NextRequest) {
           nextPosition
         ])
         
-        const createdTask = taskResult.rows[0]
+        const createdTask = taskResult[0]
         
         // Automatically assign the creator as an assignee
-        await pool.query(
+        await executeQuery(
           'INSERT INTO task_assignees (task_id, user_id) VALUES ($1, $2)',
           [createdTask.id, actualUserId]
         )
         
-        await pool.end()
         
         // Invalidate cache after successful task creation
         await invalidateCache();
@@ -346,8 +334,8 @@ export async function POST(request: NextRequest) {
           FROM task_groups
           WHERE user_id = $1
         `
-        const groupPositionResult = await pool.query(groupPositionQuery, [actualUserId])
-        const nextGroupPosition = groupPositionResult.rows[0].next_position
+        const groupPositionResult = await executeQuery(groupPositionQuery, [actualUserId])
+        const nextGroupPosition = groupPositionResult[0].next_position
         
         // Create the group
         const createGroupQuery = `
@@ -356,28 +344,27 @@ export async function POST(request: NextRequest) {
           RETURNING *
         `
         
-        const groupResult = await pool.query(createGroupQuery, [
+        const groupResult = await executeQuery(createGroupQuery, [
           actualUserId,
           groupTitle,
           color || 'bg-purple-50 dark:bg-purple-950/20',
           nextGroupPosition
         ])
         
-        await pool.end()
         
         // Invalidate cache after successful group creation
         await invalidateCache();
         
         return NextResponse.json({
           success: true,
-          group: groupResult.rows[0]
+          group: groupResult[0]
         })
         
       case 'move_task':
         const { task_id, new_group_id, target_position } = data
         
         // Start a transaction
-        const client = await pool.connect()
+        const client = await getDatabaseClient()
         
         try {
           await client.query('BEGIN')
@@ -569,13 +556,12 @@ export async function POST(request: NextRequest) {
           }, { status: 500 })
         } finally {
           client.release()
-          await pool.end()
         }
         
       case 'reorder_groups':
         const { group_positions } = data
         
-        const reorderClient = await pool.connect()
+        const reorderClient = await getDatabaseClient()
         
         try {
           await reorderClient.query('BEGIN')
@@ -609,13 +595,12 @@ export async function POST(request: NextRequest) {
           }, { status: 500 })
         } finally {
           reorderClient.release()
-          await pool.end()
         }
         
       case 'update_task':
         const { task_id: updateTaskId, updates } = data
         
-        const updateClient = await pool.connect()
+        const updateClient = await getDatabaseClient()
         
         try {
           await updateClient.query('BEGIN')
@@ -915,24 +900,22 @@ export async function POST(request: NextRequest) {
           const taskRow = enriched.rows[0] || updateResult.rows[0]
           // Write activity history and notify via socket channel (pg_notify)
           try {
-            const poolHist = getPool()
-            const ev = await poolHist.query(
+            const ev = await executeQuery(
               `INSERT INTO task_activity_events (task_id, actor_user_id, action, details)
                VALUES ($1, $2, 'task_updated', $3)
                RETURNING id, task_id, actor_user_id, action, details, created_at`,
               [updateTaskId, actualUserId, JSON.stringify(changed)]
             )
             // Notify listeners for real-time UI updates
-            await poolHist.query(
+            await executeQuery(
               `SELECT pg_notify('task_activity_events', $1)`,
-              [JSON.stringify({ type: 'task_updated', event: ev.rows[0] })]
+              [JSON.stringify({ type: 'task_updated', event: ev[0] })]
             )
             // Notify task updates with enriched task payload for board sync
-            await poolHist.query(
+            await executeQuery(
               `SELECT pg_notify('task_updates', $1)`,
               [JSON.stringify({ task: taskRow })]
             )
-            await poolHist.end()
           } catch (e) {
             console.error('Failed to persist/notify task_activity_events:', e)
           }
@@ -954,11 +937,9 @@ export async function POST(request: NextRequest) {
           }, { status: 500 })
         } finally {
           updateClient.release()
-          await pool.end()
         }
         
       default:
-        await pool.end()
         return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
     }
     

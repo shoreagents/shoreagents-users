@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Pool } from 'pg'
-import { executeOptimizedQuery, optimizedTicketQueries } from '@/lib/database-optimized'
+import { executeQuery, getDatabaseClient } from '@/lib/database-server'
+import { optimizedTicketQueries } from '@/lib/database-optimized'
 import { redisCache, cacheKeys, cacheTTL } from '@/lib/redis-cache'
-import { slackService } from '@/lib/slack-service'
 
-// Database configuration
-const databaseConfig = {
+// Database configuration for SSE (Server-Sent Events) - needs persistent connections
+const sseDatabaseConfig = {
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
   max: 20, // Maximum number of clients in the pool
@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
         return new NextResponse('Unauthorized', { status: 401 })
       }
 
-      const pool = new Pool(databaseConfig)
+      const pool = new Pool(sseDatabaseConfig)
       const client = await pool.connect()
 
       const encoder = new TextEncoder()
@@ -161,8 +161,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Failed to establish stream' }, { status: 500 })
   }
 
-  let pool: Pool | null = null
-  
   try {
     // Get user from request
     const user = getUserFromRequest(request)
@@ -173,75 +171,66 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Create database connection
-    pool = new Pool(databaseConfig)
-    const client = await pool.connect()
-
-    try {
-      // Check if this is a real-time update request (bypass cache)
-      const url = new URL(request.url)
-      const bypassCache = url.searchParams.get('bypass_cache') === 'true'
-      
-      // Check Redis cache first (unless bypassing)
-      const cacheKey = cacheKeys.tickets(user.email)
-      let cachedData = null
-      
-      if (!bypassCache) {
-        cachedData = await redisCache.get(cacheKey)
-        if (cachedData) {
-          return NextResponse.json(cachedData)
-        }
+    // Check if this is a real-time update request (bypass cache)
+    const url = new URL(request.url)
+    const bypassCache = url.searchParams.get('bypass_cache') === 'true'
+    
+    // Check Redis cache first (unless bypassing)
+    const cacheKey = cacheKeys.tickets(user.email)
+    let cachedData = null
+    
+    if (!bypassCache) {
+      cachedData = await redisCache.get(cacheKey)
+      if (cachedData) {
+        return NextResponse.json(cachedData)
       }
-
-      // Get tickets for the user using optimized query
-      const ticketsQuery = optimizedTicketQueries.getUserTickets(user.id, 100, 0)
-      const result = await client.query(ticketsQuery, [user.id, 100, 0])
-
-      // Transform database results to match frontend interface
-      // OPTIMIZED: Only transform columns that are actually displayed in the UI
-      const tickets = result.rows.map(row => ({
-        id: row.ticket_id,
-        name: row.concern,
-        date: row.created_at?.toLocaleString('en-US', { 
-          timeZone: 'Asia/Manila',
-          year: 'numeric',
-          month: '2-digit',
-          day: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: true
-        }) || '',
-        concern: row.concern,
-        category: row.category_name || 'Uncategorized',
-        status: row.status,
-        createdAt: row.created_at?.toLocaleString('en-US', { 
-          timeZone: 'Asia/Manila',
-          year: 'numeric',
-          month: '2-digit',
-          day: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: true
-        }) || '',
-        position: row.position,
-        categoryId: row.category_id,
-        fileCount: row.file_count || 0
-      }))
-
-      const responseData = {
-        success: true,
-        tickets,
-        total: tickets.length
-      }
-
-      // Cache the result in Redis
-      await redisCache.set(cacheKey, responseData, cacheTTL.tickets)
-
-      return NextResponse.json(responseData)
-
-    } finally {
-      client.release()
     }
+
+    // Get tickets for the user using optimized query
+    const ticketsQuery = optimizedTicketQueries.getUserTickets(user.id, 100, 0)
+    const result = await executeQuery(ticketsQuery, [user.id, 100, 0])
+
+    // Transform database results to match frontend interface
+    // OPTIMIZED: Only transform columns that are actually displayed in the UI
+    const tickets = result.map(row => ({
+      id: row.ticket_id,
+      name: row.concern,
+      date: row.created_at?.toLocaleString('en-US', { 
+        timeZone: 'Asia/Manila',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      }) || '',
+      concern: row.concern,
+      category: row.category_name || 'Uncategorized',
+      status: row.status,
+      createdAt: row.created_at?.toLocaleString('en-US', { 
+        timeZone: 'Asia/Manila',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      }) || '',
+      position: row.position,
+      categoryId: row.category_id,
+      fileCount: row.file_count || 0
+    }))
+
+    const responseData = {
+      success: true,
+      tickets,
+      total: tickets.length
+    }
+
+    // Cache the result in Redis
+    await redisCache.set(cacheKey, responseData, cacheTTL.tickets)
+
+    return NextResponse.json(responseData)
 
   } catch (error) {
     console.error('Error fetching tickets:', error)
@@ -252,17 +241,11 @@ export async function GET(request: NextRequest) {
       },
       { status: 500 }
     )
-  } finally {
-    if (pool) {
-      await pool.end()
-    }
   }
 }
 
 // POST: Create a new ticket
 export async function POST(request: NextRequest) {
-  let pool: Pool | null = null
-  
   try {
     // Get user from request
     const user = getUserFromRequest(request)
@@ -285,9 +268,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Create database connection
-    pool = new Pool(databaseConfig)
-    const client = await pool.connect()
+    // Use shared database connection for transaction
+    const client = await getDatabaseClient()
 
     try {
       // Ensure this connection/session uses Philippine Standard Time for NOW()/CURRENT_TIMESTAMP
@@ -418,9 +400,5 @@ export async function POST(request: NextRequest) {
       { error: 'Internal server error' },
       { status: 500 }
     )
-  } finally {
-    if (pool) {
-      await pool.end()
-    }
   }
 } 

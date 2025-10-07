@@ -1,12 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-
-function getPool() {
-  const { Pool } = require('pg')
-  return new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  })
-}
+import { executeQuery } from '@/lib/database-server'
 
 function getUserFromRequest(request: NextRequest) {
   const authCookie = request.cookies.get('shoreagents-auth')
@@ -55,8 +48,6 @@ export async function GET(request: NextRequest) {
     const nurse_id = searchParams.get('nurse_id')
     const day_of_week = searchParams.get('day_of_week')
 
-    const pool = getPool()
-    
     try {
       let query = `
         SELECT hca.*, 
@@ -87,19 +78,22 @@ export async function GET(request: NextRequest) {
 
       query += ` ORDER BY hca.day_of_week ASC, hca.shift_start ASC`
 
-      const result = await pool.query(query, params)
+      const result = await executeQuery(query, params)
       
       return NextResponse.json({ 
         success: true, 
-        availability: result.rows
+        availability: result
       })
       
-    } finally {
-      await pool.end()
+    } catch (e) {
+      console.error('Error fetching nurse availability:', e)
+      return NextResponse.json({ 
+        error: 'Internal server error',
+        details: e instanceof Error ? e.message : 'Unknown error'
+      }, { status: 500 })
     }
-    
   } catch (e) {
-    console.error('Error fetching nurse availability:', e)
+    console.error('Error in availability request:', e)
     return NextResponse.json({ 
       error: 'Internal server error',
       details: e instanceof Error ? e.message : 'Unknown error'

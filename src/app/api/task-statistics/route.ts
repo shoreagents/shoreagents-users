@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { Pool } from 'pg'
+import { executeQuery } from '@/lib/database-server'
 import { redisCache, cacheKeys, cacheTTL } from '@/lib/redis-cache'
 
 
@@ -36,8 +36,6 @@ function getUserFromRequest(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
-  let pool: Pool | null = null
-  
   try {
     const currentUser = getUserFromRequest(request)
     
@@ -54,12 +52,6 @@ export async function GET(request: NextRequest) {
     if (cachedData) {
       return NextResponse.json(cachedData)
     }
-
-    // Create pool connection
-    pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-    })
 
     // Get task statistics by group
     const groupStatsQuery = `
@@ -124,73 +116,58 @@ export async function GET(request: NextRequest) {
       ORDER BY date
     `
 
-    
-    let groupStats: any, priorityStats: any, overdueStats: any, recentActivity: any
-    
     try {
-      // Test connection first
-      await pool.query('SELECT 1')
-      
       const results = await Promise.all([
-        pool.query(groupStatsQuery, [userId]),
-        pool.query(priorityStatsQuery, [userId]),
-        pool.query(overdueStatsQuery, [userId]),
-        pool.query(recentActivityQuery, [userId])
+        executeQuery(groupStatsQuery, [userId]),
+        executeQuery(priorityStatsQuery, [userId]),
+        executeQuery(overdueStatsQuery, [userId]),
+        executeQuery(recentActivityQuery, [userId])
       ])
       
-      groupStats = results[0]
-      priorityStats = results[1]
-      overdueStats = results[2]
-      recentActivity = results[3]
+      const groupStats = results[0]
+      const priorityStats = results[1]
+      const overdueStats = results[2]
+      const recentActivity = results[3]
+
+      // Build 7-day series for recent activity
+      const days: string[] = []
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date()
+        d.setDate(d.getDate() - i)
+        days.push(d.toLocaleDateString('en-CA'))
+      }
+
+      const activitySeries = days.map(date => {
+        const dayData = recentActivity.find((row: any) => 
+          new Date(row.date).toLocaleDateString('en-CA') === date
+        )
+        return {
+          date,
+          count: dayData?.created_count || 0
+        }
+      })
+
+      const responseData = {
+        success: true,
+        statistics: {
+          groups: groupStats,
+          priorities: priorityStats,
+          overdue: overdueStats[0] || { overdue_count: 0, very_overdue_count: 0 },
+          recentActivity: activitySeries,
+          totalTasks: groupStats.reduce((sum: number, group: any) => sum + parseInt(group.task_count), 0)
+        }
+      }
+
+      // Cache the result in Redis
+      await redisCache.set(cacheKey, responseData, cacheTTL.taskStats)
+      return NextResponse.json(responseData)
     } catch (dbError) {
       console.error('Task stats API - Database error:', dbError)
       return NextResponse.json({ 
         error: 'Database error', 
         details: dbError instanceof Error ? dbError.message : 'Unknown error' 
       }, { status: 500 })
-    } finally {
-      // Always end the pool in finally block to ensure it's only called once
-      if (pool) {
-        try {
-          await pool.end()
-        } catch (endError) {
-          console.error('Error ending pool:', endError)
-        }
-      }
     }
-
-    // Build 7-day series for recent activity
-    const days: string[] = []
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date()
-      d.setDate(d.getDate() - i)
-      days.push(d.toLocaleDateString('en-CA'))
-    }
-
-    const activitySeries = days.map(date => {
-      const dayData = recentActivity.rows.find((row: any) => 
-        new Date(row.date).toLocaleDateString('en-CA') === date
-      )
-      return {
-        date,
-        count: dayData?.created_count || 0
-      }
-    })
-
-    const responseData = {
-      success: true,
-      statistics: {
-        groups: groupStats.rows,
-        priorities: priorityStats.rows,
-        overdue: overdueStats.rows[0] || { overdue_count: 0, very_overdue_count: 0 },
-        recentActivity: activitySeries,
-        totalTasks: groupStats.rows.reduce((sum: number, group: any) => sum + parseInt(group.task_count), 0)
-      }
-    }
-
-    // Cache the result in Redis
-    await redisCache.set(cacheKey, responseData, cacheTTL.taskStats)
-    return NextResponse.json(responseData)
 
   } catch (error) {
     console.error('Error fetching task statistics:', error)

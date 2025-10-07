@@ -1,11 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { Pool } from 'pg'
+import { executeQuery, getDatabaseClient } from '@/lib/database-server'
 import { redisCache, cacheKeys, cacheTTL } from '@/lib/redis-cache'
-
-const databaseConfig = {
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-}
 
 // Helper function to get user from request (matches pattern from other APIs)
 function getUserFromRequest(request: NextRequest) {
@@ -43,7 +38,6 @@ function getUserFromRequest(request: NextRequest) {
 
 // GET /api/events - Get all events for the current user
 export async function GET(request: NextRequest) {
-  let pool: Pool | null = null
   try {
     const currentUser = getUserFromRequest(request)
     if (!currentUser?.email) {
@@ -67,8 +61,7 @@ export async function GET(request: NextRequest) {
       console.log('🔄 Bypassing Redis cache for real-time update')
     }
 
-    pool = new Pool(databaseConfig)
-    const client = await pool.connect()
+    const client = await getDatabaseClient()
     
     try {
       // Get events with attendance for the current user using direct SQL with timezone conversion
@@ -125,14 +118,11 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error('Error in GET /api/events:', error)
     return NextResponse.json({ success: false, message: 'Internal server error' }, { status: 500 })
-  } finally {
-    if (pool) await pool.end()
   }
 }
 
 // POST /api/events - Create a new event (admin only)
 export async function POST(request: NextRequest) {
-  let pool: Pool | null = null
   try {
     const currentUser = getUserFromRequest(request)
     if (!currentUser?.email) {
@@ -157,8 +147,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: 'assigned_user_ids must be an array' }, { status: 400 })
     }
 
-    pool = new Pool(databaseConfig)
-    const client = await pool.connect()
+    const client = await getDatabaseClient()
     
     try {
       // Get user ID and verify admin status
@@ -203,7 +192,5 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Error in POST /api/events:', error)
     return NextResponse.json({ success: false, message: 'Internal server error' }, { status: 500 })
-  } finally {
-    if (pool) await pool.end()
   }
 }

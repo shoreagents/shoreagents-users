@@ -1,19 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { Pool } from 'pg'
-
-// Database configuration
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  max: 20,
-  min: 5,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
-  statement_timeout: 30000,
-  query_timeout: 30000,
-  keepAlive: true,
-  keepAliveInitialDelayMillis: 10000,
-})
+import { executeQuery, getDatabaseClient } from '@/lib/database-server'
 
 // GET /api/announcements - Get announcements for current user
 export async function GET(request: NextRequest) {
@@ -26,42 +12,36 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'User ID is required' }, { status: 400 })
     }
 
-    const client = await pool.connect()
-    
-    try {
-      let query = `
-        SELECT 
-          a.id as announcement_id,
-          a.title,
-          a.message,
-          a.priority,
-          a.allow_dismiss,
-          a.created_at,
-          a.sent_at,
-          (aa.dismissed_at IS NOT NULL) as is_dismissed,
-          aa.dismissed_at
-        FROM public.announcements a
-        JOIN public.announcement_assignments aa ON a.id = aa.announcement_id
-        WHERE aa.user_id = $1
-          AND a.status = 'active'
-          AND (a.expires_at IS NULL OR a.expires_at > now())
-      `
+    let query = `
+      SELECT 
+        a.id as announcement_id,
+        a.title,
+        a.message,
+        a.priority,
+        a.allow_dismiss,
+        a.created_at,
+        a.sent_at,
+        (aa.dismissed_at IS NOT NULL) as is_dismissed,
+        aa.dismissed_at
+      FROM public.announcements a
+      JOIN public.announcement_assignments aa ON a.id = aa.announcement_id
+      WHERE aa.user_id = $1
+        AND a.status = 'active'
+        AND (a.expires_at IS NULL OR a.expires_at > now())
+    `
 
-      if (!includeDismissed) {
-        query += ' AND aa.dismissed_at IS NULL'
-      }
-
-      query += ' ORDER BY a.priority DESC, a.sent_at DESC'
-
-      const result = await client.query(query, [userId])
-      
-      return NextResponse.json({
-        success: true,
-        announcements: result.rows
-      })
-    } finally {
-      client.release()
+    if (!includeDismissed) {
+      query += ' AND aa.dismissed_at IS NULL'
     }
+
+    query += ' ORDER BY a.priority DESC, a.sent_at DESC'
+
+    const result = await executeQuery(query, [userId])
+    
+    return NextResponse.json({
+      success: true,
+      announcements: result
+    })
   } catch (error) {
     console.error('Error fetching announcements:', error)
     return NextResponse.json(
@@ -93,7 +73,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const client = await pool.connect()
+    const client = await getDatabaseClient()
     
     try {
       await client.query('BEGIN')

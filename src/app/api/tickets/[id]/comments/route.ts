@@ -1,12 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { Pool } from 'pg'
+import { executeQuery, getDatabaseClient } from '@/lib/database-server'
 import { redisCache, cacheKeys, cacheTTL } from '@/lib/redis-cache'
-
-// Database configuration
-const databaseConfig = {
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-}
 
 // Helper: parse auth cookie
 function getUserFromRequest(request: NextRequest) {
@@ -23,15 +17,15 @@ function getUserFromRequest(request: NextRequest) {
   }
 }
 
-async function getTicketRowId(client: any, idParam: string): Promise<number | null> {
+async function getTicketRowId(idParam: string): Promise<number | null> {
   // First try by public ticket_id (string)
-  const byTicketId = await client.query('SELECT id FROM tickets WHERE ticket_id = $1 LIMIT 1', [idParam])
-  if (byTicketId.rows.length > 0) return byTicketId.rows[0].id
+  const byTicketId = await executeQuery('SELECT id FROM tickets WHERE ticket_id = $1 LIMIT 1', [idParam])
+  if (byTicketId.length > 0) return byTicketId[0].id
   // Next, if numeric, try by internal id
   const asNum = Number(idParam)
   if (Number.isFinite(asNum)) {
-    const byId = await client.query('SELECT id FROM tickets WHERE id = $1 LIMIT 1', [asNum])
-    if (byId.rows.length > 0) return byId.rows[0].id
+    const byId = await executeQuery('SELECT id FROM tickets WHERE id = $1 LIMIT 1', [asNum])
+    if (byId.length > 0) return byId[0].id
   }
   return null
 }
@@ -41,73 +35,66 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  let pool: Pool | null = null
   try {
-    pool = new Pool(databaseConfig)
-    const client = await pool.connect()
-    try {
-      const ticketId = (await params).id
-      const ticketRowId = await getTicketRowId(client, ticketId)
-      if (!ticketRowId) {
-        return NextResponse.json({ success: false, error: 'Ticket not found' }, { status: 404 })
-      }
-
-      // Check if this is a real-time update request (bypass cache)
-      const url = new URL(request.url)
-      const bypassCache = url.searchParams.get('bypass_cache') === 'true'
-      
-      // Check Redis cache first (unless bypassing)
-      const cacheKey = cacheKeys.ticketComments(ticketId)
-      let cachedData = null
-      
-      if (!bypassCache) {
-        cachedData = await redisCache.get(cacheKey)
-        if (cachedData) {
-          return NextResponse.json(cachedData)
-        }
-      } 
-
-      const q = `
-        SELECT c.id,
-               c.user_id,
-               c.comment,
-               to_char(c.created_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS') || '+08:00' as created_at_ph,
-               u.email,
-               u.user_type,
-               COALESCE(pi.first_name,'') AS first_name,
-               COALESCE(pi.last_name,'') AS last_name,
-               COALESCE(pi.profile_picture,'') AS profile_picture
-        FROM ticket_comments c
-        JOIN users u ON c.user_id = u.id
-        LEFT JOIN personal_info pi ON pi.user_id = u.id
-        WHERE c.ticket_id = $1
-        ORDER BY c.created_at ASC
-      `
-      const res = await client.query(q, [ticketRowId])
-      const items = res.rows.map((r: any) => ({
-        id: r.id,
-        userId: r.user_id,
-        content: r.comment,
-        createdAt: r.created_at_ph,
-        authorName: `${(r.first_name || '').trim()} ${(r.last_name || '').trim()}`.trim() || r.email,
-        authorEmail: r.email,
-        userType: r.user_type,
-        profilePicture: r.profile_picture || '',
-      }))
-
-      const responseData = { success: true, comments: items }
-
-      // Cache the result in Redis
-      await redisCache.set(cacheKey, responseData, cacheTTL.ticketComments)
-
-      return NextResponse.json(responseData)
-    } finally {
-      client.release()
+    const ticketId = (await params).id
+    
+    // Get ticket row ID using shared connection
+    const ticketRowId = await getTicketRowId(ticketId)
+    if (!ticketRowId) {
+      return NextResponse.json({ success: false, error: 'Ticket not found' }, { status: 404 })
     }
+
+    // Check if this is a real-time update request (bypass cache)
+    const url = new URL(request.url)
+    const bypassCache = url.searchParams.get('bypass_cache') === 'true'
+    
+    // Check Redis cache first (unless bypassing)
+    const cacheKey = cacheKeys.ticketComments(ticketId)
+    let cachedData = null
+    
+    if (!bypassCache) {
+      cachedData = await redisCache.get(cacheKey)
+      if (cachedData) {
+        return NextResponse.json(cachedData)
+      }
+    } 
+
+    const q = `
+      SELECT c.id,
+             c.user_id,
+             c.comment,
+             to_char(c.created_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS') || '+08:00' as created_at_ph,
+             u.email,
+             u.user_type,
+             COALESCE(pi.first_name,'') AS first_name,
+             COALESCE(pi.last_name,'') AS last_name,
+             COALESCE(pi.profile_picture,'') AS profile_picture
+      FROM ticket_comments c
+      JOIN users u ON c.user_id = u.id
+      LEFT JOIN personal_info pi ON pi.user_id = u.id
+      WHERE c.ticket_id = $1
+      ORDER BY c.created_at ASC
+    `
+    const res = await executeQuery(q, [ticketRowId])
+    const items = res.map((r: any) => ({
+      id: r.id,
+      userId: r.user_id,
+      content: r.comment,
+      createdAt: r.created_at_ph,
+      authorName: `${(r.first_name || '').trim()} ${(r.last_name || '').trim()}`.trim() || r.email,
+      authorEmail: r.email,
+      userType: r.user_type,
+      profilePicture: r.profile_picture || '',
+    }))
+
+    const responseData = { success: true, comments: items }
+
+    // Cache the result in Redis
+    await redisCache.set(cacheKey, responseData, cacheTTL.ticketComments)
+
+    return NextResponse.json(responseData)
   } catch (e) {
     return NextResponse.json({ success: false, error: 'Failed to fetch comments' }, { status: 500 })
-  } finally {
-    if (pool) await pool.end()
   }
 }
 
@@ -116,7 +103,6 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  let pool: Pool | null = null
   try {
     const user = getUserFromRequest(request)
     if (!user?.email) {
@@ -129,10 +115,9 @@ export async function POST(
       return NextResponse.json({ success: false, error: 'Comment is required' }, { status: 400 })
     }
 
-    pool = new Pool(databaseConfig)
-    const client = await pool.connect()
+    const client = await getDatabaseClient()
     try {
-      const ticketRowId = await getTicketRowId(client, (await params).id)
+      const ticketRowId = await getTicketRowId((await params).id)
       if (!ticketRowId) {
         return NextResponse.json({ success: false, error: 'Ticket not found' }, { status: 404 })
       }
@@ -182,8 +167,6 @@ export async function POST(
     }
   } catch (e) {
     return NextResponse.json({ success: false, error: 'Failed to post comment' }, { status: 500 })
-  } finally {
-    if (pool) await pool.end()
   }
 }
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { executeQuery, getDatabaseClient } from '@/lib/database-server'
 
 // Server-side Supabase client with service role key
 let supabaseAdmin: any = null
@@ -114,35 +115,27 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Persist attachments to Postgres with positions
-    const { Pool } = require('pg')
-    const pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-    })
-
     // Verify user has access to the task (creator OR assignee)
-    const taskRes = await pool.query(
+    const taskRes = await executeQuery(
       `SELECT t.id, t.user_id as creator_id,
               EXISTS(SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = $2) as is_assignee
        FROM tasks t WHERE t.id = $1`,
       [taskId, user.id]
     )
-    if (taskRes.rows.length === 0) {
-      await pool.end()
+    if (taskRes.length === 0) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 })
     }
     
-    const taskPermission = taskRes.rows[0]
+    const taskPermission = taskRes[0]
     const isCreator = Number(taskPermission.creator_id) === Number(user.id)
     const isAssignee = taskPermission.is_assignee
     
     if (!isCreator && !isAssignee) {
-      await pool.end()
       return NextResponse.json({ error: 'You do not have permission to modify this task' }, { status: 403 })
     }
 
-    const client = await pool.connect()
+    // Persist attachments to Postgres with positions using shared connection
+    const client = await getDatabaseClient()
     const inserted: typeof uploadedFiles = []
     try {
       await client.query('BEGIN')
@@ -163,7 +156,6 @@ export async function POST(request: NextRequest) {
       throw e
     } finally {
       client.release()
-      await pool.end()
     }
 
     return NextResponse.json({ success: true, files: inserted, rejected })

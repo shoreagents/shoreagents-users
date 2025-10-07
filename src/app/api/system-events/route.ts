@@ -1,16 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Pool } from 'pg';
-
-// Database configuration
-const databaseConfig = {
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  max: 10,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 10000,
-  statement_timeout: 30000,
-  query_timeout: 30000,
-};
+import { executeQuery, getDatabaseClient } from '@/lib/database-server';
 
 // Helper function to get user from request
 function getUserFromRequest(request: NextRequest) {
@@ -36,7 +25,6 @@ function getUserFromRequest(request: NextRequest) {
 
 // POST: Record system event (suspend/resume/lock/unlock)
 export async function POST(request: NextRequest) {
-  let pool: Pool | null = null;
   
   try {
     const user = getUserFromRequest(request);
@@ -54,8 +42,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    pool = new Pool(databaseConfig);
-    const client = await pool.connect();
+    const client = await getDatabaseClient();
 
     try {
       // Set timezone to Philippines
@@ -113,16 +100,11 @@ export async function POST(request: NextRequest) {
       { error: 'Failed to record system event' },
       { status: 500 }
     );
-  } finally {
-    if (pool) {
-      await pool.end();
-    }
   }
 }
 
 // GET: Retrieve system events for user
 export async function GET(request: NextRequest) {
-  let pool: Pool | null = null;
   
   try {
     const user = getUserFromRequest(request);
@@ -136,8 +118,7 @@ export async function GET(request: NextRequest) {
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
 
-    pool = new Pool(databaseConfig);
-    const client = await pool.connect();
+    const client = await getDatabaseClient();
 
     try {
       // Set timezone to Philippines
@@ -190,16 +171,11 @@ export async function GET(request: NextRequest) {
       { error: 'Failed to fetch system events' },
       { status: 500 }
     );
-  } finally {
-    if (pool) {
-      await pool.end();
-    }
   }
 }
 
 // GET: Get suspend/resume statistics for user
 export async function PUT(request: NextRequest) {
-  let pool: Pool | null = null;
   
   try {
     const user = getUserFromRequest(request);
@@ -210,8 +186,7 @@ export async function PUT(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const date = searchParams.get('date') || new Date().toISOString().split('T')[0];
 
-    pool = new Pool(databaseConfig);
-    const client = await pool.connect();
+    const client = await getDatabaseClient();
 
     try {
       // Set timezone to Philippines
@@ -246,9 +221,5 @@ export async function PUT(request: NextRequest) {
       { error: 'Failed to fetch suspend statistics' },
       { status: 500 }
     );
-  } finally {
-    if (pool) {
-      await pool.end();
-    }
   }
 }

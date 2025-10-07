@@ -1,12 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-
-function getPool() {
-  const { Pool } = require('pg')
-  return new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  })
-}
+import { executeQuery, getDatabaseClient } from '@/lib/database-server'
 
 function getUserFromRequest(request: NextRequest) {
   const authCookie = request.cookies.get('shoreagents-auth')
@@ -61,24 +54,22 @@ export async function POST(request: NextRequest) {
       }, { status: 400 })
     }
 
-    const pool = getPool()
-    
     try {
       // First, check if the request exists and belongs to the user
-      const checkResult = await pool.query(
+      const checkResult = await executeQuery(
         `SELECT id, status, user_id FROM health_check_requests 
          WHERE id = $1 AND user_id = $2`,
         [request_id, user.id]
       )
 
-      if (checkResult.rows.length === 0) {
+      if (checkResult.length === 0) {
         return NextResponse.json({ 
           success: false,
           error: 'Health check request not found or not authorized' 
         }, { status: 404 })
       }
 
-      const request = checkResult.rows[0]
+      const request = checkResult[0]
 
       // Only allow canceling if status is 'pending' or 'approved'
       if (!['pending', 'approved'].includes(request.status)) {
@@ -89,7 +80,7 @@ export async function POST(request: NextRequest) {
       }
 
       // Update the request status to 'cancelled'
-      const updateResult = await pool.query(
+      const updateResult = await executeQuery(
         `UPDATE health_check_requests 
          SET status = 'cancelled', updated_at = NOW()
          WHERE id = $1 AND user_id = $2
@@ -97,17 +88,17 @@ export async function POST(request: NextRequest) {
         [request_id, user.id]
       )
 
-      if (updateResult.rows.length === 0) {
+      if (updateResult.length === 0) {
         return NextResponse.json({ 
           success: false,
           error: 'Failed to cancel request' 
         }, { status: 500 })
       }
 
-      const cancelledRequest = updateResult.rows[0]
+      const cancelledRequest = updateResult[0]
       
       // Notify through pg_notify for real-time updates
-      await pool.query(
+      await executeQuery(
         `SELECT pg_notify('health_check_events', $1)`,
         [JSON.stringify({
           event: 'request_status_changed',
@@ -125,12 +116,16 @@ export async function POST(request: NextRequest) {
         request: cancelledRequest 
       })
       
-    } finally {
-      await pool.end()
+    } catch (e) {
+      console.error('Error canceling health check request:', e)
+      return NextResponse.json({ 
+        success: false,
+        error: 'Internal server error',
+        details: e instanceof Error ? e.message : 'Unknown error'
+      }, { status: 500 })
     }
-    
   } catch (e) {
-    console.error('Error canceling health check request:', e)
+    console.error('Error in cancel request:', e)
     return NextResponse.json({ 
       success: false,
       error: 'Internal server error',

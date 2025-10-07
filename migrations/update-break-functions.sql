@@ -233,12 +233,37 @@ AS $function$
               RETURN FALSE; -- Too early to send missed break notification
           END IF;
           
-          -- Check if we're at a 30-minute interval (30, 60, 90, etc.)
-          -- This ensures we send notifications every 30 minutes while in the window
-          -- Use a small tolerance for floating-point calculations
-          IF ABS(minutes_since_break_start % 30) > 1 AND ABS(minutes_since_break_start % 30 - 30) > 1 THEN
-              RETURN FALSE; -- Not at a 30-minute interval (within 1-minute tolerance)
-          END IF;
+          -- Calculate total break window duration to determine notification frequency
+          DECLARE
+              window_duration_minutes INTEGER;
+              notification_interval INTEGER;
+          BEGIN
+              window_duration_minutes := EXTRACT(EPOCH FROM (break_end_time - break_start_time)) / 60;
+              
+              -- For all breaks, send missed break notifications every 30 minutes
+              -- This ensures consistent reminder frequency regardless of break duration
+              notification_interval := 30;
+              
+              -- Check if we're at the appropriate interval
+              -- Use a small tolerance for floating-point calculations
+              IF ABS(minutes_since_break_start % notification_interval) > 1 AND 
+                 ABS(minutes_since_break_start % notification_interval - notification_interval) > 1 THEN
+                  RETURN FALSE; -- Not at the correct interval (within 1-minute tolerance)
+              END IF;
+          END;
+          
+          -- Calculate total break window duration and check if we're in the last 15 minutes
+          DECLARE
+              window_duration_minutes INTEGER;
+          BEGIN
+              window_duration_minutes := EXTRACT(EPOCH FROM (break_end_time - break_start_time)) / 60;
+              
+              -- Don't send missed notifications in the last 15 minutes of the window
+              -- This allows "ending soon" notifications to take precedence
+              IF minutes_since_break_start > (window_duration_minutes - 15) THEN
+                  RETURN FALSE; -- Too close to window end, let ending soon handle it
+              END IF;
+          END;
           
           -- Check if we've sent a notification in the last 25 minutes
           -- This prevents duplicate notifications within the same 30-minute interval
@@ -320,13 +345,13 @@ AS $function$
           
           -- Return true if break window is ending in 15 minutes (with 1-minute tolerance)
           -- This means between 14-16 minutes before the end time
-          -- Example: Break ends at 10:16 AM, notification sent at 10:01-10:03 AM
+          -- Example: Break ends at 8:30 AM, notification sent at 8:14-8:16 AM
           RETURN (minutes_until_expiry >= 14 AND minutes_until_expiry <= 16);
       END;
       $function$;
 
 COMMENT ON FUNCTION public.is_break_window_ending_soon(int4, break_type_enum, timestamptz) 
-    IS 'UPDATED: Only uses custom break windows from breaks table - users must configure their own break schedules';
+    IS 'UPDATED: Only uses custom break windows from breaks table - users must configure their own break schedules. Triggers 14-16 minutes before break window ends.';
 
 -- =====================================================
 -- UPDATE ADDITIONAL BREAK FUNCTIONS
@@ -433,74 +458,64 @@ AS $function$
                         notifications_sent := notifications_sent + 1;
                     END IF;
 
-                    -- Check for breaks that are currently available/active (ONLY if notification not already sent)
-                    IF is_break_available_now(agent_record.user_id, 'Morning', check_time)
-                       AND NOT is_break_available_now_notification_sent(agent_record.user_id, 'Morning', check_time) THEN
-                        PERFORM create_break_reminder_notification(agent_record.user_id, 'available_now', 'Morning');
-                        notifications_sent := notifications_sent + 1;
-                    END IF;
-
-                    IF is_break_available_now(agent_record.user_id, 'Lunch', check_time)
-                       AND NOT is_break_available_now_notification_sent(agent_record.user_id, 'Lunch', check_time) THEN
-                        PERFORM create_break_reminder_notification(agent_record.user_id, 'available_now', 'Lunch');
-                        notifications_sent := notifications_sent + 1;
-                    END IF;
-
-                    IF is_break_available_now(agent_record.user_id, 'Afternoon', check_time)
-                       AND NOT is_break_available_now_notification_sent(agent_record.user_id, 'Afternoon', check_time) THEN
-                        PERFORM create_break_reminder_notification(agent_record.user_id, 'available_now', 'Afternoon');
-                        notifications_sent := notifications_sent + 1;
-                    END IF;
-
-                    -- Check for night shift breaks currently available (ONLY if notification not already sent)
-                    IF is_break_available_now(agent_record.user_id, 'NightFirst', check_time)
-                       AND NOT is_break_available_now_notification_sent(agent_record.user_id, 'NightFirst', check_time) THEN
-                        PERFORM create_break_reminder_notification(agent_record.user_id, 'available_now', 'NightFirst');
-                        notifications_sent := notifications_sent + 1;
-                    END IF;
-
-                    IF is_break_available_now(agent_record.user_id, 'NightMeal', check_time)
-                       AND NOT is_break_available_now_notification_sent(agent_record.user_id, 'NightMeal', check_time) THEN
-                        PERFORM create_break_reminder_notification(agent_record.user_id, 'available_now', 'NightMeal');
-                        notifications_sent := notifications_sent + 1;
-                    END IF;
-
-                    IF is_break_available_now(agent_record.user_id, 'NightSecond', check_time)
-                       AND NOT is_break_available_now_notification_sent(agent_record.user_id, 'NightSecond', check_time) THEN
-                        PERFORM create_break_reminder_notification(agent_record.user_id, 'available_now', 'NightSecond');
-                        notifications_sent := notifications_sent + 1;
-                    END IF;
-
-                    -- Check for missed breaks (30 minutes after break becomes available)
+                    -- Check for missed breaks FIRST (30 minutes after break becomes available)
                     -- This will send "You have not taken your [Break] yet!" notifications
+                    -- Priority: Missed Break > Available Now
                     IF is_break_missed(agent_record.user_id, 'Morning', check_time) THEN
                         PERFORM create_break_reminder_notification(agent_record.user_id, 'missed_break', 'Morning');
+                        notifications_sent := notifications_sent + 1;
+                    ELSIF is_break_available_now(agent_record.user_id, 'Morning', check_time)
+                       AND NOT is_break_available_now_notification_sent(agent_record.user_id, 'Morning', check_time) THEN
+                        PERFORM create_break_reminder_notification(agent_record.user_id, 'available_now', 'Morning');
                         notifications_sent := notifications_sent + 1;
                     END IF;
 
                     IF is_break_missed(agent_record.user_id, 'Lunch', check_time) THEN
                         PERFORM create_break_reminder_notification(agent_record.user_id, 'missed_break', 'Lunch');
                         notifications_sent := notifications_sent + 1;
+                    ELSIF is_break_available_now(agent_record.user_id, 'Lunch', check_time)
+                       AND NOT is_break_available_now_notification_sent(agent_record.user_id, 'Lunch', check_time) THEN
+                        PERFORM create_break_reminder_notification(agent_record.user_id, 'available_now', 'Lunch');
+                        notifications_sent := notifications_sent + 1;
                     END IF;
 
                     IF is_break_missed(agent_record.user_id, 'Afternoon', check_time) THEN
                         PERFORM create_break_reminder_notification(agent_record.user_id, 'missed_break', 'Afternoon');
                         notifications_sent := notifications_sent + 1;
+                    ELSIF is_break_window_ending_soon(agent_record.user_id, 'Afternoon', check_time) THEN
+                        PERFORM create_break_reminder_notification(agent_record.user_id, 'ending_soon', 'Afternoon');
+                        notifications_sent := notifications_sent + 1;
+                    ELSIF is_break_available_now(agent_record.user_id, 'Afternoon', check_time)
+                       AND NOT is_break_available_now_notification_sent(agent_record.user_id, 'Afternoon', check_time) THEN
+                        PERFORM create_break_reminder_notification(agent_record.user_id, 'available_now', 'Afternoon');
+                        notifications_sent := notifications_sent + 1;
                     END IF;
 
-                    -- Check for night shift missed breaks
+                    -- Check for night shift breaks with priority: Missed Break > Available Now
                     IF is_break_missed(agent_record.user_id, 'NightFirst', check_time) THEN
                         PERFORM create_break_reminder_notification(agent_record.user_id, 'missed_break', 'NightFirst');
+                        notifications_sent := notifications_sent + 1;
+                    ELSIF is_break_available_now(agent_record.user_id, 'NightFirst', check_time)
+                       AND NOT is_break_available_now_notification_sent(agent_record.user_id, 'NightFirst', check_time) THEN
+                        PERFORM create_break_reminder_notification(agent_record.user_id, 'available_now', 'NightFirst');
                         notifications_sent := notifications_sent + 1;
                     END IF;
 
                     IF is_break_missed(agent_record.user_id, 'NightMeal', check_time) THEN
                         PERFORM create_break_reminder_notification(agent_record.user_id, 'missed_break', 'NightMeal');
                         notifications_sent := notifications_sent + 1;
+                    ELSIF is_break_available_now(agent_record.user_id, 'NightMeal', check_time)
+                       AND NOT is_break_available_now_notification_sent(agent_record.user_id, 'NightMeal', check_time) THEN
+                        PERFORM create_break_reminder_notification(agent_record.user_id, 'available_now', 'NightMeal');
+                        notifications_sent := notifications_sent + 1;
                     END IF;
 
                     IF is_break_missed(agent_record.user_id, 'NightSecond', check_time) THEN
                         PERFORM create_break_reminder_notification(agent_record.user_id, 'missed_break', 'NightSecond');
+                        notifications_sent := notifications_sent + 1;
+                    ELSIF is_break_available_now(agent_record.user_id, 'NightSecond', check_time)
+                       AND NOT is_break_available_now_notification_sent(agent_record.user_id, 'NightSecond', check_time) THEN
+                        PERFORM create_break_reminder_notification(agent_record.user_id, 'available_now', 'NightSecond');
                         notifications_sent := notifications_sent + 1;
                     END IF;
 
@@ -621,7 +636,19 @@ $function$;
 COMMENT ON FUNCTION public.is_break_window_expired(integer, break_type_enum, timestamptz) 
     IS 'Checks if a break window has expired based on server time';
 
--- Function to mark expired breaks and create missed break sessions
+-- =====================================================
+-- FIX MARK_EXPIRED_BREAKS FUNCTION
+-- =====================================================
+-- The function was creating missed break sessions for all expired break types
+-- even when the user already had a session for that break type today.
+-- This fix ensures it only creates missed sessions when the user doesn't have
+-- a non-expired session for that break type today.
+-- =====================================================
+
+-- Fix: Prevent duplicate expired break session creation
+-- The issue was that mark_expired_breaks() was creating multiple missed sessions
+-- for the same break type on the same day because it only checked for non-expired sessions
+
 CREATE OR REPLACE FUNCTION public.mark_expired_breaks(p_user_id integer DEFAULT NULL)
 RETURNS integer
 LANGUAGE plpgsql
@@ -650,6 +677,7 @@ AS $function$
           END LOOP;
           
           -- Second, create missed break sessions for expired break windows
+          -- BUT only if the user doesn't already have ANY session for that break type today
           FOR user_break IN
               SELECT DISTINCT b.user_id, b.break_type, b.start_time, b.end_time, b.duration_minutes
               FROM breaks b
@@ -657,33 +685,34 @@ AS $function$
               AND (p_user_id IS NULL OR b.user_id = p_user_id)
               AND is_break_window_expired(b.user_id, b.break_type)
               AND NOT EXISTS (
-                  -- Check if user already has a break session for this break type today
+                  -- Check if user already has ANY session for this break type today
+                  -- (expired or not - we only want one missed session per break type per day)
                   SELECT 1 FROM break_sessions bs2 
                   WHERE bs2.agent_user_id = b.user_id 
                   AND bs2.break_type = b.break_type 
                   AND bs2.break_date = CURRENT_DATE
               )
           LOOP
-          -- Create a missed break session
-          INSERT INTO break_sessions (
-              agent_user_id, 
-              break_type, 
-              start_time, 
-              end_time, 
-              duration_minutes, 
-              break_date, 
-              is_expired,
-              created_at
-          ) VALUES (
-              user_break.user_id,
-              user_break.break_type,
-              (CURRENT_DATE + user_break.start_time)::timestamp, -- Start time for today
-              (CURRENT_DATE + user_break.start_time)::timestamp, -- End time = start time (no duration used)
-              0, -- Duration is 0 because user didn't take the break
-              CURRENT_DATE,
-              TRUE, -- Mark as expired immediately
-              NOW()
-          );
+              -- Create a missed break session
+              INSERT INTO break_sessions (
+                  agent_user_id, 
+                  break_type, 
+                  start_time, 
+                  end_time, 
+                  duration_minutes, 
+                  break_date, 
+                  is_expired,
+                  created_at
+              ) VALUES (
+                  user_break.user_id,
+                  user_break.break_type,
+                  (CURRENT_DATE + user_break.start_time)::timestamp, -- Start time for today
+                  (CURRENT_DATE + user_break.start_time)::timestamp, -- End time = start time (no duration used)
+                  0, -- Duration is 0 because user didn't take the break
+                  CURRENT_DATE,
+                  TRUE, -- Mark as expired immediately
+                  NOW()
+              );
               
               missed_count := missed_count + 1;
           END LOOP;
@@ -693,7 +722,9 @@ AS $function$
 $function$;
 
 COMMENT ON FUNCTION public.mark_expired_breaks(integer) 
-    IS 'Marks expired break sessions as expired AND creates missed break sessions for expired break windows. Returns total count of processed breaks.';
+    IS 'FIXED: Now prevents duplicate missed break sessions. Only creates one missed session per break type per day.';
+
+
 
 -- Function to check if a specific break session is expired
 CREATE OR REPLACE FUNCTION public.is_break_session_expired(p_session_id integer)
@@ -789,6 +820,21 @@ COMMENT ON FUNCTION public.get_agent_daily_breaks(integer)
     IS 'UPDATED: Only counts actually used breaks (is_expired = FALSE), not missed break sessions';
 
 -- =====================================================
+-- FRONTEND TIMEZONE HANDLING NOTE
+-- =====================================================
+-- IMPORTANT: The frontend must handle timezone conversion when comparing break dates.
+-- Database stores break_date in UTC format (e.g., 2025-10-06T16:00:00.000Z)
+-- Frontend should convert to Manila timezone (+8 hours) before date comparison.
+-- 
+-- Example frontend logic:
+-- const sessionDate = new Date(session.break_date)
+-- const manilaDate = new Date(sessionDate.getTime() + (8 * 60 * 60 * 1000))
+-- const sessionDateStr = manilaDate.toISOString().split('T')[0]
+-- 
+-- This ensures proper date matching between frontend and database.
+-- =====================================================
+
+-- =====================================================
 -- SUMMARY
 -- =====================================================
 -- Updated functions now ONLY use custom break settings from breaks table:
@@ -799,8 +845,10 @@ COMMENT ON FUNCTION public.get_agent_daily_breaks(integer)
 -- 5. is_break_window_ending_soon() - Uses only custom break windows
 -- 6. is_break_available_now_notification_sent() - Uses only custom break windows
 -- 7. is_break_window_expired() - Checks if break window has expired
--- 8. mark_expired_breaks() - Marks expired break sessions
+-- 8. mark_expired_breaks() - FIXED: Only creates missed sessions if no non-expired session exists
 -- 9. is_break_session_expired() - Checks if specific session is expired
+-- 10. is_break_missed() - FIXED: Stops sending missed notifications in last 15 minutes of window
+-- 11. is_break_window_ending_soon() - FIXED: Triggers 14-16 minutes before window ends
 -- 
 -- All functions now require users to configure their own break schedules!
 -- No default break windows are provided - every user must set custom breaks.

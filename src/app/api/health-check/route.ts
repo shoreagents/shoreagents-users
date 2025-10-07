@@ -1,13 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { parseShiftTime } from '@/lib/shift-utils'
-
-function getPool() {
-  const { Pool } = require('pg')
-  return new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  })
-}
+import { executeQuery, getDatabaseClient } from '@/lib/database-server'
 
 function getUserFromRequest(request: NextRequest) {
   const authCookie = request.cookies.get('shoreagents-auth')
@@ -62,15 +55,14 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if shift has ended
-    const pool = getPool()
     try {
       // Get user's shift time from profile
-      const profileResult = await pool.query(
+      const profileResult = await executeQuery(
         `SELECT shift_time FROM personal_info WHERE user_id = $1`,
         [user.id]
       )
       
-      const shiftTime = profileResult.rows[0]?.shift_time
+      const shiftTime = profileResult[0]?.shift_time
       if (shiftTime) {
         const nowPH = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
         const shiftParsed = parseShiftTime(shiftTime, nowPH)
@@ -91,34 +83,34 @@ export async function POST(request: NextRequest) {
       // Find an available nurse (user_id 1 is the nurse)
       let nurse_id = null
       try {
-        const nurseResult = await pool.query(
+        const nurseResult = await executeQuery(
           `SELECT id FROM users WHERE id = 1 AND role = 'Internal' LIMIT 1`
         )
-        nurse_id = nurseResult.rows.length > 0 ? nurseResult.rows[0].id : 1 // Default to 1 if not found
+        nurse_id = nurseResult.length > 0 ? nurseResult[0].id : 1 // Default to 1 if not found
       } catch (nurseError) {
         console.error('Error finding nurse:', nurseError)
         nurse_id = 1 // Default to user_id 1 as nurse
       }
       
       // Create health check request with nurse assignment
-      const result = await pool.query(
+      const result = await executeQuery(
         `INSERT INTO health_check_requests (user_id, nurse_id, complaint, symptoms, priority, status)
          VALUES ($1, $2, $3, $4, $5, 'pending')
          RETURNING *`,
         [user.id, nurse_id, complaint, symptoms, priority]
       )
 
-      const newRequest = result.rows[0]
+      const newRequest = result[0]
       
       // Get user email for socket notification
-      const userEmailResult = await pool.query(
+      const userEmailResult = await executeQuery(
         `SELECT email FROM users WHERE id = $1`,
         [user.id]
       )
-      const userEmail = userEmailResult.rows[0]?.email
+      const userEmail = userEmailResult[0]?.email
 
       // Notify through pg_notify for real-time updates
-      await pool.query(
+      await executeQuery(
         `SELECT pg_notify('health_check_events', $1)`,
         [JSON.stringify({
           event: 'request_created',
@@ -139,12 +131,15 @@ export async function POST(request: NextRequest) {
         request: newRequest 
       })
       
-    } finally {
-      await pool.end()
+    } catch (e) {
+      console.error('Error creating health check request:', e)
+      return NextResponse.json({ 
+        error: 'Internal server error',
+        details: e instanceof Error ? e.message : 'Unknown error'
+      }, { status: 500 })
     }
-    
   } catch (e) {
-    console.error('Error creating health check request:', e)
+    console.error('Error in health check request:', e)
     return NextResponse.json({ 
       error: 'Internal server error',
       details: e instanceof Error ? e.message : 'Unknown error'
@@ -166,8 +161,6 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status')
     const limit = parseInt(searchParams.get('limit') || '50', 10)
 
-    const pool = getPool()
-    
     try {
       let query = `
         SELECT hcr.*, 
@@ -198,19 +191,22 @@ export async function GET(request: NextRequest) {
       query += ` ORDER BY hcr.request_time DESC LIMIT $${paramCount + 1}`
       params.push(limit)
 
-      const result = await pool.query(query, params)
+      const result = await executeQuery(query, params)
       
       return NextResponse.json({ 
         success: true, 
-        requests: result.rows 
+        requests: result 
       })
       
-    } finally {
-      await pool.end()
+    } catch (e) {
+      console.error('Error fetching health check requests:', e)
+      return NextResponse.json({ 
+        error: 'Internal server error',
+        details: e instanceof Error ? e.message : 'Unknown error'
+      }, { status: 500 })
     }
-    
   } catch (e) {
-    console.error('Error fetching health check requests:', e)
+    console.error('Error in health check GET request:', e)
     return NextResponse.json({ 
       error: 'Internal server error',
       details: e instanceof Error ? e.message : 'Unknown error'

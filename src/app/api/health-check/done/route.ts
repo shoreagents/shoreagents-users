@@ -1,12 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-
-function getPool() {
-  const { Pool } = require('pg')
-  return new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  })
-}
+import { executeQuery, getDatabaseClient } from '@/lib/database-server'
 
 function getUserFromRequest(request: NextRequest) {
   const authCookie = request.cookies.get('shoreagents-auth')
@@ -60,23 +53,21 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const pool = getPool()
-    
     try {
       // First verify the request belongs to the user
-      const verifyResult = await pool.query(
+      const verifyResult = await executeQuery(
         `SELECT id, user_id FROM health_check_requests WHERE id = $1`,
         [request_id]
       )
 
-      if (verifyResult.rows.length === 0) {
+      if (verifyResult.length === 0) {
         return NextResponse.json(
           { success: false, error: 'Health check request not found' },
           { status: 404 }
         )
       }
 
-      if (verifyResult.rows[0].user_id !== user.id) {
+      if (verifyResult[0].user_id !== user.id) {
         return NextResponse.json(
           { success: false, error: 'Unauthorized to update this request' },
           { status: 403 }
@@ -85,7 +76,7 @@ export async function POST(request: NextRequest) {
 
       // Update the health check request with automatic state transitions
       // The trigger will automatically set in_clinic to false when done is set to true
-      const result = await pool.query(
+      const result = await executeQuery(
         `UPDATE health_check_requests 
          SET done = $1, updated_at = NOW() 
          WHERE id = $2 
@@ -93,17 +84,17 @@ export async function POST(request: NextRequest) {
         [done, request_id]
       )
 
-      if (result.rows.length === 0) {
+      if (result.length === 0) {
         return NextResponse.json(
           { success: false, error: 'Health check request not found' },
           { status: 404 }
         )
       }
 
-      const updatedRequest = result.rows[0]
+      const updatedRequest = result[0]
 
       // Trigger database function that handles both update and notification
-      await pool.query(
+      await executeQuery(
         `SELECT notify_health_check_field_update($1, $2, $3)`,
         [updatedRequest.id, 'done', done]
       )
@@ -114,12 +105,15 @@ export async function POST(request: NextRequest) {
         updated_at: updatedRequest.updated_at
       })
 
-    } finally {
-      await pool.end()
+    } catch (error) {
+      console.error('Error in done API:', error)
+      return NextResponse.json(
+        { success: false, error: 'Internal server error' },
+        { status: 500 }
+      )
     }
-
   } catch (error) {
-    console.error('Error in done API:', error)
+    console.error('Error in done request:', error)
     return NextResponse.json(
       { success: false, error: 'Internal server error' },
       { status: 500 }

@@ -1,13 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { Pool } from 'pg'
+import { getDatabaseClient } from '@/lib/database-server'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
-
-const databaseConfig = {
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-}
 
 // Helper function to get user from request (matches pattern from other APIs)
 function getUserFromRequest(request: NextRequest) {
@@ -48,7 +43,6 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  let pool: Pool | null = null
   try {
     const currentUser = getUserFromRequest(request)
     if (!currentUser?.email) {
@@ -75,8 +69,7 @@ export async function PUT(
       return NextResponse.json({ success: false, message: 'assigned_user_ids must be an array' }, { status: 400 })
     }
 
-    pool = new Pool(databaseConfig)
-    const client = await pool.connect()
+    const client = await getDatabaseClient()
     
     try {
       // Get user ID and verify admin status
@@ -129,8 +122,6 @@ export async function PUT(
   } catch (error) {
     console.error('Error in PUT /api/events/[id]:', error)
     return NextResponse.json({ success: false, message: 'Internal server error' }, { status: 500 })
-  } finally {
-    if (pool) await pool.end()
   }
 }
 
@@ -139,7 +130,6 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  let pool: Pool | null = null
   try {
     const currentUser = getUserFromRequest(request)
     if (!currentUser?.email) {
@@ -154,8 +144,7 @@ export async function DELETE(
     const resolvedParams = await params
     const eventId = parseInt(resolvedParams.id)
 
-    pool = new Pool(databaseConfig)
-    const client = await pool.connect()
+    const client = await getDatabaseClient()
     
     try {
       // Get user ID and verify admin status
@@ -182,7 +171,5 @@ export async function DELETE(
   } catch (error) {
     console.error('Error in DELETE /api/events/[id]:', error)
     return NextResponse.json({ success: false, message: 'Internal server error' }, { status: 500 })
-  } finally {
-    if (pool) await pool.end()
   }
 }

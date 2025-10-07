@@ -1293,17 +1293,25 @@ export default function BreaksPage() {
               
               // Check if any break sessions for this break type are expired (only from today)
               const today = new Date().toISOString().split('T')[0] // Get today's date in YYYY-MM-DD format
-              const hasExpiredSessions = breakHistory && 
-                [...(breakHistory.completed_breaks || []), ...(breakHistory.active_breaks || [])]
-                  .some((session: any) => 
-                    session.break_type === breakInfo.id && 
-                    session.break_date === today && // Only check sessions from today
-                    expiredSessions.has(session.id)
-                  )
+              
+              const allSessions = breakHistory ? 
+                [...(breakHistory.completed_breaks || []), ...(breakHistory.active_breaks || [])] : []
+              
+              const todaySessions = allSessions.filter((session: any) => {
+                // Convert break_date to Manila timezone and extract date part
+                const sessionDate = new Date(session.break_date)
+                const manilaDate = new Date(sessionDate.getTime() + (8 * 60 * 60 * 1000)) // Add 8 hours for Manila timezone
+                const sessionDateStr = manilaDate.toISOString().split('T')[0]
+                
+                return session.break_type === breakInfo.id && sessionDateStr === today
+              })
+              
+              const hasExpiredSessions = todaySessions.some((session: any) => 
+                expiredSessions.has(session.id)
+              )
               
               // Check if this specific break has custom settings from database
               const hasCustomSettings = customBreakSettings.has(breakInfo.id)
-              console.log(`Break ${breakInfo.id}: hasCustomSettings=${hasCustomSettings}, customBreakSettings:`, Array.from(customBreakSettings))
               
               // Break is disabled if:
               // 1. Has custom settings AND (not valid time OR not available AND not currently on this break)

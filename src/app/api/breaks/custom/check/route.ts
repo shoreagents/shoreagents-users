@@ -1,12 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-
-function getPool() {
-  const { Pool } = require('pg')
-  return new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  })
-}
+import { executeQuery } from '@/lib/database-server'
 
 export async function GET(request: NextRequest) {
   try {
@@ -27,10 +20,8 @@ export async function GET(request: NextRequest) {
       WHERE user_id = $1 AND is_active = true
     `
     
-    const pool = getPool()
-    const result = await pool.query(query, [userId])
-    await pool.end()
-    const count = parseInt(result.rows[0].count)
+    const result = await executeQuery(query, [userId])
+    const count = parseInt(result[0].count)
     
     return NextResponse.json({
       success: true,

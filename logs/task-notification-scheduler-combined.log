@@ -1,0 +1,13 @@
+2025-10-07T13:41:18: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: ⚙️  write to custom object with { processEnv: myObject }
+2025-10-07T13:41:18: Starting task notification scheduler (checking every 300 seconds)
+2025-10-07T13:41:18: Task notification scheduler is running. Press Ctrl+C to stop.
+2025-10-07T13:41:18: This scheduler now includes overdue task management:
+2025-10-07T13:41:18: Moves overdue tasks to Overdue column
+2025-10-07T13:41:18: Sends overdue notifications (prevents spamming)
+2025-10-07T13:41:18: Checks every 5 minutes
+2025-10-07T13:41:18: [1:41:18 PM] No task notifications needed
+2025-10-07T13:41:20: Initial overdue task stats:
+2025-10-07T13:41:20: Overdue tasks: 5
+2025-10-07T13:41:20: Soon overdue (within 1 hour): 0
+2025-10-07T13:41:20: Recent overdue notifications (24h): 0
+2025-10-07T13:46:18: [1:46:18 PM] No task notifications needed

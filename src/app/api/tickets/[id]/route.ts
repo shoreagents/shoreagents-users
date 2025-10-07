@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Pool } from 'pg'
+import { executeQuery, getDatabaseClient } from '@/lib/database-server'
 import { redisCache, cacheKeys, cacheTTL } from '@/lib/redis-cache'
 import { getOptimizedClient } from '@/lib/database-optimized'
 import { slackService } from '@/lib/slack-service'
 
-// Database configuration
-const databaseConfig = {
+// Database configuration for SSE (Server-Sent Events) - needs persistent connections
+const sseDatabaseConfig = {
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
   max: 10, // Limit concurrent connections
@@ -73,7 +74,7 @@ export async function GET(
         async start(controller) {
           try {
             // Create database connection
-            pool = new Pool(databaseConfig)
+            pool = new Pool(sseDatabaseConfig)
             client = await pool.connect()
           } catch (error) {
             console.error('Failed to connect to database:', error instanceof Error ? error.message : String(error))
@@ -204,8 +205,6 @@ export async function GET(
     return NextResponse.json({ error: 'Failed to establish stream' }, { status: 500 })
   }
 
-  let pool: Pool | null = null
-  
   try {
     // Get user from request
     const user = getUserFromRequest(request)
@@ -219,146 +218,128 @@ export async function GET(
 
     const ticketId = (await params).id
 
-    // Create database connection
-    pool = new Pool(databaseConfig)
-    const client = await pool.connect()
-
-    try {
-      // Check if this is a real-time update request (bypass cache)
-      const url = new URL(request.url)
-      const bypassCache = url.searchParams.get('bypass_cache') === 'true'
-      
-      // Check Redis cache first (unless bypassing)
-      const cacheKey = cacheKeys.ticket(ticketId)
-      let cachedData = null
-      
-      if (!bypassCache) {
-        cachedData = await redisCache.get(cacheKey)
-        if (cachedData) {
-          return NextResponse.json(cachedData)
-        }
-      } 
-
-      // Get specific ticket for the user
-      const ticketQuery = `
-        SELECT 
-          t.id,
-          t.ticket_id,
-          t.user_id,
-          t.concern,
-          t.details,
-          t.category_id,
-          t.status,
-          t.resolved_by,
-          t.resolved_at,
-          t.created_at,
-          t.updated_at,
-          t.position,
-          t.supporting_files,
-          t.file_count,
-          t.role_id,
-          u.email as user_email,
-          TRIM(CONCAT(COALESCE(pi_resolver.first_name, ''), ' ', COALESCE(pi_resolver.last_name, ''))) as resolved_by_name,
-          resolver.email as resolved_by_email,
-          tc.name as category_name
-        FROM tickets t
-        LEFT JOIN users u ON t.user_id = u.id
-        LEFT JOIN users resolver ON t.resolved_by = resolver.id
-        LEFT JOIN personal_info pi_resolver ON resolver.id = pi_resolver.user_id
-        LEFT JOIN ticket_categories tc ON t.category_id = tc.id
-        WHERE t.ticket_id = $1
-      `
-
-      const result = await client.query(ticketQuery, [ticketId])
-
-      if (result.rows.length === 0) {
-        return NextResponse.json(
-          { error: 'Ticket not found' },
-          { status: 404 }
-        )
+    // Check if this is a real-time update request (bypass cache)
+    const url = new URL(request.url)
+    const bypassCache = url.searchParams.get('bypass_cache') === 'true'
+    
+    // Check Redis cache first (unless bypassing)
+    const cacheKey = cacheKeys.ticket(ticketId)
+    let cachedData = null
+    
+    if (!bypassCache) {
+      cachedData = await redisCache.get(cacheKey)
+      if (cachedData) {
+        return NextResponse.json(cachedData)
       }
+    } 
 
-      const row = result.rows[0]
-      // Check if the current user is the ticket owner or has admin access
-      // Compare by email since user.id might be in different format
-      if (row.user_email !== user.email && user.role !== 'admin') {
-        return NextResponse.json(
-          { error: 'Unauthorized - You can only view your own tickets' },
-          { status: 403 }
-        )
-      }
+    // Get specific ticket for the user
+    const ticketQuery = `
+      SELECT 
+        t.id,
+        t.ticket_id,
+        t.user_id,
+        t.concern,
+        t.details,
+        t.category_id,
+        t.status,
+        t.resolved_by,
+        t.resolved_at,
+        t.created_at,
+        t.updated_at,
+        t.position,
+        t.supporting_files,
+        t.file_count,
+        t.role_id,
+        u.email as user_email,
+        TRIM(CONCAT(COALESCE(pi_resolver.first_name, ''), ' ', COALESCE(pi_resolver.last_name, ''))) as resolved_by_name,
+        resolver.email as resolved_by_email,
+        tc.name as category_name
+      FROM tickets t
+      LEFT JOIN users u ON t.user_id = u.id
+      LEFT JOIN users resolver ON t.resolved_by = resolver.id
+      LEFT JOIN personal_info pi_resolver ON resolver.id = pi_resolver.user_id
+      LEFT JOIN ticket_categories tc ON t.category_id = tc.id
+      WHERE t.ticket_id = $1
+    `
 
-      // Transform database result to match frontend interface
-      const ticket = {
-        id: row.ticket_id,
-        name: row.concern,
-        date: row.created_at?.toLocaleString('en-US', { 
-          timeZone: 'Asia/Manila',
-          year: 'numeric',
-          month: '2-digit',
-          day: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: true
-        }) || '',
-        concern: row.concern,
-        category: row.category_name || 'Uncategorized',
-        details: row.details || '',
-        email: row.user_email,
-        files: row.supporting_files || [],
-        status: row.status,
-        createdAt: row.created_at?.toLocaleString('en-US', { 
-          timeZone: 'Asia/Manila',
-          year: 'numeric',
-          month: '2-digit',
-          day: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: true
-        }) || '',
-        userId: row.user_id,
-        userEmail: row.user_email,
-        resolvedBy: row.resolved_by,
-        resolvedByName: row.resolved_by_name,
-        resolvedByEmail: row.resolved_by_email,
-        resolvedAt: row.resolved_at?.toLocaleString('en-US', { 
-          timeZone: 'Asia/Manila',
-          year: 'numeric',
-          month: '2-digit',
-          day: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: true
-        }) || null,
-        position: row.position,
-        categoryId: row.category_id,
-        roleId: row.role_id,
-        supportingFiles: row.supporting_files || [],
-        fileCount: row.file_count || 0
-      }
+    const result = await executeQuery(ticketQuery, [ticketId])
 
-      const responseData = {
-        success: true,
-        ticket
-      }
-
-      // Cache the result in Redis
-      await redisCache.set(cacheKey, responseData, cacheTTL.ticket)
-
-      return NextResponse.json(responseData)
-
-    } catch (error) {
-      console.error('Error fetching ticket:', error)
+    if (result.length === 0) {
       return NextResponse.json(
-        { 
-          error: 'Failed to fetch ticket',
-          details: error instanceof Error ? error.message : 'Unknown error'
-        },
-        { status: 500 }
+        { error: 'Ticket not found' },
+        { status: 404 }
       )
-    } finally {
-      client.release()
     }
+
+    const row = result[0]
+    // Check if the current user is the ticket owner or has admin access
+    // Compare by email since user.id might be in different format
+    if (row.user_email !== user.email && user.role !== 'admin') {
+      return NextResponse.json(
+        { error: 'Unauthorized - You can only view your own tickets' },
+        { status: 403 }
+      )
+    }
+
+    // Transform database result to match frontend interface
+    const ticket = {
+      id: row.ticket_id,
+      name: row.concern,
+      date: row.created_at?.toLocaleString('en-US', { 
+        timeZone: 'Asia/Manila',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      }) || '',
+      concern: row.concern,
+      category: row.category_name || 'Uncategorized',
+      details: row.details || '',
+      email: row.user_email,
+      files: row.supporting_files || [],
+      status: row.status,
+      createdAt: row.created_at?.toLocaleString('en-US', { 
+        timeZone: 'Asia/Manila',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      }) || '',
+      userId: row.user_id,
+      userEmail: row.user_email,
+      resolvedBy: row.resolved_by,
+      resolvedByName: row.resolved_by_name,
+      resolvedByEmail: row.resolved_by_email,
+      resolvedAt: row.resolved_at?.toLocaleString('en-US', { 
+        timeZone: 'Asia/Manila',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      }) || null,
+      position: row.position,
+      categoryId: row.category_id,
+      roleId: row.role_id,
+      supportingFiles: row.supporting_files || [],
+      fileCount: row.file_count || 0
+    }
+
+    const responseData = {
+      success: true,
+      ticket
+    }
+
+    // Cache the result in Redis
+    await redisCache.set(cacheKey, responseData, cacheTTL.ticket)
+
+    return NextResponse.json(responseData)
 
   } catch (error) {
     console.error('Error in ticket API:', error)
@@ -369,10 +350,6 @@ export async function GET(
       },
       { status: 500 }
     )
-  } finally {
-    if (pool) {
-      await pool.end()
-    }
   }
 }
 
@@ -381,8 +358,6 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  let pool: Pool | null = null
-  
   try {
     // Get user from request
     const user = getUserFromRequest(request)
@@ -401,9 +376,8 @@ export async function PUT(
     const { status, concern, details, category, resolved_by } = body
     
 
-    // Create database connection
-    pool = new Pool(databaseConfig)
-    const client = await pool.connect()
+    // Use shared database connection for transaction
+    const client = await getDatabaseClient()
 
     try {
       await client.query('BEGIN')
@@ -607,10 +581,6 @@ export async function PUT(
       },
       { status: 500 }
     )
-  } finally {
-    if (pool) {
-      await pool.end()
-    }
   }
 }
 

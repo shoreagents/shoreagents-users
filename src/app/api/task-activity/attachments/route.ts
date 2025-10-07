@@ -1,12 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-
-function getPool() {
-  const { Pool } = require('pg')
-  return new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  })
-}
+import { executeQuery, getDatabaseClient } from '@/lib/database-server'
 
 function getUserFromRequest(request: NextRequest) {
   const authCookie = request.cookies.get('shoreagents-auth')
@@ -36,16 +29,13 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'task_id and ordered_ids are required' }, { status: 400 })
     }
 
-    const pool = getPool()
-
     // Verify task ownership
-    const own = await pool.query('SELECT id FROM tasks WHERE id = $1 AND user_id = $2', [task_id, user.id])
-    if (own.rows.length === 0) {
-      await pool.end()
+    const own = await executeQuery('SELECT id FROM tasks WHERE id = $1 AND user_id = $2', [task_id, user.id])
+    if (own.length === 0) {
       return NextResponse.json({ error: 'Task not found or not owned by user' }, { status: 404 })
     }
 
-    const client = await pool.connect()
+    const client = await getDatabaseClient()
     try {
       await client.query('BEGIN')
       for (let i = 0; i < ordered_ids.length; i++) {
@@ -62,7 +52,6 @@ export async function PATCH(request: NextRequest) {
       client.release()
     }
 
-    await pool.end()
     return NextResponse.json({ success: true })
   } catch (e) {
     return NextResponse.json({ error: 'Failed to reorder attachments' }, { status: 500 })

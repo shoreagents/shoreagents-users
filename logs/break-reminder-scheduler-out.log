@@ -1,0 +1,11 @@
+2025-10-07T13:41:18: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 📡 observe env with Radar: https://dotenvx.com/radar
+2025-10-07T13:41:18: Starting break reminder scheduler (checking every 30 seconds)
+2025-10-07T13:41:18: Break reminder scheduler is running. Press Ctrl+C to stop.
+2025-10-07T13:41:18: [1:41:18 PM] Sent 1 break notifications
+2025-10-07T13:41:48: [1:41:48 PM] Sent 1 break notifications
+2025-10-07T13:42:18: [1:42:18 PM] Sent 1 break notifications
+2025-10-07T13:42:48: [1:42:48 PM] Sent 1 break notifications
+2025-10-07T13:43:18: [1:43:18 PM] Sent 1 break notifications
+2025-10-07T13:43:48: [1:43:48 PM] Sent 1 break notifications
+2025-10-07T13:44:18: [1:44:18 PM] Sent 1 break notifications
+2025-10-07T13:45:18: [1:45:18 PM] Sent 1 break notifications

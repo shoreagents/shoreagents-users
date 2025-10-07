@@ -1,19 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { Pool } from 'pg'
-
-// Database configuration
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  max: 20,
-  min: 5,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
-  statement_timeout: 30000,
-  query_timeout: 30000,
-  keepAlive: true,
-  keepAliveInitialDelayMillis: 10000,
-})
+import { getDatabaseClient } from '@/lib/database-server'
 
 // POST /api/announcements/dismiss - Dismiss an announcement for a user
 export async function POST(request: NextRequest) {
@@ -28,7 +14,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const client = await pool.connect()
+    const client = await getDatabaseClient()
     
     try {
       await client.query('BEGIN')

@@ -1,10 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { Pool } from 'pg'
-
-const databaseConfig = {
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-}
+import { executeQuery, getDatabaseClient } from '@/lib/database-server'
 
 function getUserFromRequest(request: NextRequest) {
   const cookie = request.cookies.get('shoreagents-auth')
@@ -25,7 +20,6 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ commentId: string }> }
 ) {
-  let pool: Pool | null = null
   try {
     const user = getUserFromRequest(request)
     if (!user?.email) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
@@ -34,8 +28,7 @@ export async function PUT(
     const content: string = (body?.comment || '').toString().trim()
     if (!content) return NextResponse.json({ success: false, error: 'Comment is required' }, { status: 400 })
 
-    pool = new Pool(databaseConfig)
-    const client = await pool.connect()
+    const client = await getDatabaseClient()
     try {
       // Locate user id
       const userRes = await client.query('SELECT id FROM users WHERE email = $1 LIMIT 1', [user.email])
@@ -67,8 +60,6 @@ export async function PUT(
   } catch (e: any) {
     console.error('PUT /api/tickets/comments/:id error:', e?.message || e)
     return NextResponse.json({ success: false, error: 'Failed to update comment', details: e?.message || String(e) }, { status: 500 })
-  } finally {
-    if (pool) await pool.end()
   }
 }
 
@@ -77,13 +68,11 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ commentId: string }> }
 ) {
-  let pool: Pool | null = null
   try {
     const user = getUserFromRequest(request)
     if (!user?.email) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
 
-    pool = new Pool(databaseConfig)
-    const client = await pool.connect()
+    const client = await getDatabaseClient()
     try {
       const userRes = await client.query('SELECT id FROM users WHERE email = $1 LIMIT 1', [user.email])
       if (userRes.rows.length === 0) return NextResponse.json({ success: false, error: 'User not found' }, { status: 401 })
@@ -105,8 +94,6 @@ export async function DELETE(
   } catch (e: any) {
     console.error('DELETE /api/tickets/comments/:id error:', e?.message || e)
     return NextResponse.json({ success: false, error: 'Failed to delete comment', details: e?.message || String(e) }, { status: 500 })
-  } finally {
-    if (pool) await pool.end()
   }
 }
 

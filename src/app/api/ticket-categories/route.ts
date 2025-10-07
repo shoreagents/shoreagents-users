@@ -1,11 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { Pool } from 'pg'
-
-// Database configuration
-const databaseConfig = {
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-}
+import { executeQuery, getDatabaseClient } from '@/lib/database-server'
 
 // Helper function to get user from request
 function getUserFromRequest(request: NextRequest) {
@@ -40,8 +34,6 @@ function getUserFromRequest(request: NextRequest) {
 
 // GET: Retrieve all ticket categories
 export async function GET(request: NextRequest) {
-  let pool: Pool | null = null
-  
   try {
     // Get user from request
     const user = getUserFromRequest(request)
@@ -52,56 +44,47 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Create database connection
-    pool = new Pool(databaseConfig)
-    const client = await pool.connect()
+    // Get all ticket categories using shared connection
+    const categoriesQuery = `
+      SELECT 
+        id,
+        name,
+        created_at,
+        updated_at
+      FROM ticket_categories
+      ORDER BY name ASC
+    `
 
-    try {
-      // Get all ticket categories
-      const categoriesQuery = `
-        SELECT 
-          id,
-          name,
-          created_at,
-          updated_at
-        FROM ticket_categories
-        ORDER BY name ASC
-      `
+    const result = await executeQuery(categoriesQuery)
 
-      const result = await client.query(categoriesQuery)
+    const categories = result.map(row => ({
+      id: row.id,
+      name: row.name,
+      createdAt: row.created_at?.toLocaleString('en-US', { 
+        timeZone: 'Asia/Manila',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      }) || '',
+      updatedAt: row.updated_at?.toLocaleString('en-US', { 
+        timeZone: 'Asia/Manila',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      }) || ''
+    }))
 
-      const categories = result.rows.map(row => ({
-        id: row.id,
-        name: row.name,
-        createdAt: row.created_at?.toLocaleString('en-US', { 
-          timeZone: 'Asia/Manila',
-          year: 'numeric',
-          month: '2-digit',
-          day: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: true
-        }) || '',
-        updatedAt: row.updated_at?.toLocaleString('en-US', { 
-          timeZone: 'Asia/Manila',
-          year: 'numeric',
-          month: '2-digit',
-          day: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: true
-        }) || ''
-      }))
-
-      return NextResponse.json({
-        success: true,
-        categories,
-        total: categories.length
-      })
-
-    } finally {
-      client.release()
-    }
+    return NextResponse.json({
+      success: true,
+      categories,
+      total: categories.length
+    })
 
   } catch (error) {
     console.error('Error fetching ticket categories:', error)
@@ -112,17 +95,11 @@ export async function GET(request: NextRequest) {
       },
       { status: 500 }
     )
-  } finally {
-    if (pool) {
-      await pool.end()
-    }
   }
 }
 
 // POST: Create a new ticket category
 export async function POST(request: NextRequest) {
-  let pool: Pool | null = null
-  
   try {
     // Get user from request
     const user = getUserFromRequest(request)
@@ -145,61 +122,52 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Create database connection
-    pool = new Pool(databaseConfig)
-    const client = await pool.connect()
-
-    try {
-      // Check if category already exists
-      const existingCategoryQuery = 'SELECT id FROM ticket_categories WHERE name = $1'
-      const existingResult = await client.query(existingCategoryQuery, [name])
-      
-      if (existingResult.rows.length > 0) {
-        return NextResponse.json(
-          { error: 'Category already exists' },
-          { status: 409 }
-        )
-      }
-
-      // Create new category
-      const createCategoryQuery = `
-        INSERT INTO ticket_categories (name, created_at, updated_at)
-        VALUES ($1, NOW() AT TIME ZONE 'Asia/Manila', NOW() AT TIME ZONE 'Asia/Manila')
-        RETURNING id, name, created_at, updated_at
-      `
-
-      const result = await client.query(createCategoryQuery, [name])
-      const newCategory = result.rows[0]
-
-      return NextResponse.json({
-        success: true,
-        category: {
-          id: newCategory.id,
-          name: newCategory.name,
-          createdAt: newCategory.created_at?.toLocaleString('en-US', { 
-            timeZone: 'Asia/Manila',
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: true
-          }) || '',
-          updatedAt: newCategory.updated_at?.toLocaleString('en-US', { 
-            timeZone: 'Asia/Manila',
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: true
-          }) || ''
-        }
-      })
-
-    } finally {
-      client.release()
+    // Check if category already exists
+    const existingCategoryQuery = 'SELECT id FROM ticket_categories WHERE name = $1'
+    const existingResult = await executeQuery(existingCategoryQuery, [name])
+    
+    if (existingResult.length > 0) {
+      return NextResponse.json(
+        { error: 'Category already exists' },
+        { status: 409 }
+      )
     }
+
+    // Create new category
+    const createCategoryQuery = `
+      INSERT INTO ticket_categories (name, created_at, updated_at)
+      VALUES ($1, NOW() AT TIME ZONE 'Asia/Manila', NOW() AT TIME ZONE 'Asia/Manila')
+      RETURNING id, name, created_at, updated_at
+    `
+
+    const result = await executeQuery(createCategoryQuery, [name])
+    const newCategory = result[0]
+
+    return NextResponse.json({
+      success: true,
+      category: {
+        id: newCategory.id,
+        name: newCategory.name,
+        createdAt: newCategory.created_at?.toLocaleString('en-US', { 
+          timeZone: 'Asia/Manila',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: true
+        }) || '',
+        updatedAt: newCategory.updated_at?.toLocaleString('en-US', { 
+          timeZone: 'Asia/Manila',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: true
+        }) || ''
+      }
+    })
 
   } catch (error) {
     console.error('Error creating ticket category:', error)
@@ -210,9 +178,5 @@ export async function POST(request: NextRequest) {
       },
       { status: 500 }
     )
-  } finally {
-    if (pool) {
-      await pool.end()
-    }
   }
 }

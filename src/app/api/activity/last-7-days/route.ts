@@ -1,10 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Pool } from 'pg';
-
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-});
+import { executeQuery } from '@/lib/database-server';
 
 export async function GET(request: NextRequest) {
   try {
@@ -47,7 +42,7 @@ export async function GET(request: NextRequest) {
     const weekStartStr = weekStartUTC.toISOString().split('T')[0];
     const weekEndStr = weekEndUTC.toISOString().split('T')[0];
     
-    const result = await pool.query(`
+    const result = await executeQuery(`
       SELECT 
         id,
         user_id,
@@ -65,7 +60,7 @@ export async function GET(request: NextRequest) {
       ORDER BY today_date DESC, created_at DESC
     `, [userId, weekStartStr, weekEndStr]);
 
-    const activityData = result.rows;
+    const activityData = result;
 
     return NextResponse.json({
       success: true,

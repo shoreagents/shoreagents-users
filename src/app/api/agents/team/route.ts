@@ -1,11 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { Pool } from 'pg'
+import { executeQuery, getDatabaseClient } from '@/lib/database-server'
 import { redisCache, cacheKeys, cacheTTL } from '@/lib/redis-cache'
-
-const databaseConfig = {
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-}
 
 function getUserFromRequest(request: NextRequest) {
   const authCookie = request.cookies.get('shoreagents-auth')
@@ -41,7 +36,6 @@ function getUserFromRequest(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
-  let pool: Pool | null = null
   try {
     const user = getUserFromRequest(request)
     if (!user) {
@@ -69,93 +63,84 @@ export async function GET(request: NextRequest) {
       }
     } 
 
-    pool = new Pool(databaseConfig)
-    const client = await pool.connect()
-    try {
-      // First, get the current user's member_id using email instead of user_id
-      const currentUserQuery = `
-        SELECT a.member_id
-        FROM agents a
-        INNER JOIN users u ON a.user_id = u.id
-        WHERE u.email = $1
-      `
-      const currentUserResult = await client.query(currentUserQuery, [user.email])
-      
-      if (currentUserResult.rows.length === 0) {
-        return NextResponse.json({ success: false, error: 'User is not an agent' }, { status: 400 })
-      }
-      
-      const currentUserMemberId = currentUserResult.rows[0].member_id
-      
-      // Now fetch all agents from the same team/company
-      const parts: string[] = []
-      const params: any[] = []
-      let p = 1
-      
-      // Always filter by the same member_id (team/company)
-      parts.push(`a.member_id = $${p}`)
-      params.push(currentUserMemberId)
-      p++
-      
-      // Add search filter if provided
-      if (search) {
-        parts.push(`(LOWER(u.email) LIKE $${p} OR LOWER(COALESCE(pi.first_name,'') || ' ' || COALESCE(pi.last_name,'')) LIKE $${p})`)
-        params.push(`%${search.toLowerCase()}%`)
-        p++
-      }
-      
-      params.push(limit)
-
-      const query = `
-        SELECT 
-          u.id,
-          u.email,
-          TRIM(CONCAT(COALESCE(pi.first_name,''), ' ', COALESCE(pi.last_name,''))) as name,
-          COALESCE(pi.profile_picture, '') as avatar,
-          a.member_id,
-          m.company as team_name
-        FROM users u
-        INNER JOIN agents a ON u.id = a.user_id
-        INNER JOIN members m ON a.member_id = m.id
-        LEFT JOIN personal_info pi ON pi.user_id = u.id
-        WHERE ${parts.join(' AND ')}
-        ORDER BY (TRIM(CONCAT(COALESCE(pi.first_name,''), ' ', COALESCE(pi.last_name,'')))) NULLS LAST, u.email
-        LIMIT $${p}
-      `
-
-      const res = await client.query(query, params)
-      
-      // Get team info for the response
-      const teamQuery = `
-        SELECT company, badge_color
-        FROM members
-        WHERE id = $1
-      `
-      const teamResult = await client.query(teamQuery, [currentUserMemberId])
-      const teamInfo = teamResult.rows[0] || {}
-      
-      const responseData = { 
-        success: true, 
-        agents: res.rows,
-        team: {
-          member_id: currentUserMemberId,
-          company: teamInfo.company,
-          badge_color: teamInfo.badge_color
-        }
-      }
-
-      // Cache the result in Redis
-      await redisCache.set(cacheKey, responseData, cacheTTL.teamAgents)
-      
-
-      return NextResponse.json(responseData)
-    } finally {
-      client.release()
+    // First, get the current user's member_id using email instead of user_id
+    const currentUserQuery = `
+      SELECT a.member_id
+      FROM agents a
+      INNER JOIN users u ON a.user_id = u.id
+      WHERE u.email = $1
+    `
+    const currentUserResult = await executeQuery(currentUserQuery, [user.email])
+    
+    if (currentUserResult.length === 0) {
+      return NextResponse.json({ success: false, error: 'User is not an agent' }, { status: 400 })
     }
+    
+    const currentUserMemberId = currentUserResult[0].member_id
+    
+    // Now fetch all agents from the same team/company
+    const parts: string[] = []
+    const params: any[] = []
+    let p = 1
+    
+    // Always filter by the same member_id (team/company)
+    parts.push(`a.member_id = $${p}`)
+    params.push(currentUserMemberId)
+    p++
+    
+    // Add search filter if provided
+    if (search) {
+      parts.push(`(LOWER(u.email) LIKE $${p} OR LOWER(COALESCE(pi.first_name,'') || ' ' || COALESCE(pi.last_name,'')) LIKE $${p})`)
+      params.push(`%${search.toLowerCase()}%`)
+      p++
+    }
+    
+    params.push(limit)
+
+    const query = `
+      SELECT 
+        u.id,
+        u.email,
+        TRIM(CONCAT(COALESCE(pi.first_name,''), ' ', COALESCE(pi.last_name,''))) as name,
+        COALESCE(pi.profile_picture, '') as avatar,
+        a.member_id,
+        m.company as team_name
+      FROM users u
+      INNER JOIN agents a ON u.id = a.user_id
+      INNER JOIN members m ON a.member_id = m.id
+      LEFT JOIN personal_info pi ON pi.user_id = u.id
+      WHERE ${parts.join(' AND ')}
+      ORDER BY (TRIM(CONCAT(COALESCE(pi.first_name,''), ' ', COALESCE(pi.last_name,'')))) NULLS LAST, u.email
+      LIMIT $${p}
+    `
+
+    const res = await executeQuery(query, params)
+    
+    // Get team info for the response
+    const teamQuery = `
+      SELECT company, badge_color
+      FROM members
+      WHERE id = $1
+    `
+    const teamResult = await executeQuery(teamQuery, [currentUserMemberId])
+    const teamInfo = teamResult[0] || {}
+    
+    const responseData = { 
+      success: true, 
+      agents: res,
+      team: {
+        member_id: currentUserMemberId,
+        company: teamInfo.company,
+        badge_color: teamInfo.badge_color
+      }
+    }
+
+    // Cache the result in Redis
+    await redisCache.set(cacheKey, responseData, cacheTTL.teamAgents)
+    
+    return NextResponse.json(responseData)
   } catch (e) {
     console.error('Error fetching team agents:', e)
     return NextResponse.json({ success: false, error: 'Failed to load team agents' }, { status: 500 })
-  } finally {
-    if (pool) await pool.end()
   }
 }

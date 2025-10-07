@@ -1,12 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-
-function getPool() {
-  const { Pool } = require('pg')
-  return new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  })
-}
+import { executeQuery, getDatabaseClient } from '@/lib/database-server'
 
 export async function POST(request: NextRequest) {
   // Create a custom field
@@ -24,52 +17,47 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'task_id is required' }, { status: 400 })
     }
 
-    const pool = getPool()
     let actualUserId: number
     if (userIdParam) {
       actualUserId = parseInt(userIdParam)
     } else {
-      const userRes = await pool.query('SELECT id FROM users WHERE email = $1', [email])
-      if (userRes.rows.length === 0) {
-        await pool.end()
+      const userRes = await executeQuery('SELECT id FROM users WHERE email = $1', [email])
+      if (userRes.length === 0) {
         return NextResponse.json({ error: 'User not found' }, { status: 404 })
       }
-      actualUserId = userRes.rows[0].id
+      actualUserId = userRes[0].id
     }
 
     // Ensure the user has access to the task (creator OR assignee)
-    const taskRes = await pool.query(
+    const taskRes = await executeQuery(
       `SELECT t.id, t.user_id as creator_id,
               EXISTS(SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = $2) as is_assignee
        FROM tasks t WHERE t.id = $1`,
       [task_id, actualUserId]
     )
-    if (taskRes.rows.length === 0) {
-      await pool.end()
+    if (taskRes.length === 0) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 })
     }
     
-    const taskPermission = taskRes.rows[0]
+    const taskPermission = taskRes[0]
     const isCreator = Number(taskPermission.creator_id) === Number(actualUserId)
     const isAssignee = taskPermission.is_assignee
     
     if (!isCreator && !isAssignee) {
-      await pool.end()
       return NextResponse.json({ error: 'You do not have permission to modify this task' }, { status: 403 })
     }
 
-    const posRes = await pool.query('SELECT COALESCE(MAX(position), 0) + 1 AS next_pos FROM task_custom_fields WHERE task_id = $1', [task_id])
-    const nextPos = posRes.rows[0].next_pos
+    const posRes = await executeQuery('SELECT COALESCE(MAX(position), 0) + 1 AS next_pos FROM task_custom_fields WHERE task_id = $1', [task_id])
+    const nextPos = posRes[0].next_pos
 
-    const insertRes = await pool.query(
+    const insertRes = await executeQuery(
       `INSERT INTO task_custom_fields (task_id, title, description, position)
        VALUES ($1, $2, $3, $4)
        RETURNING id, task_id, title, description, position, created_at, updated_at`,
       [task_id, (title ?? ''), (description ?? ''), nextPos]
     )
 
-    await pool.end()
-    return NextResponse.json({ success: true, field: insertRes.rows[0] })
+    return NextResponse.json({ success: true, field: insertRes[0] })
   } catch (e) {
     console.error('Create custom field error:', e)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
@@ -88,41 +76,37 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'task_id and ordered_ids are required' }, { status: 400 })
     }
 
-    const pool = getPool()
     let actualUserId: number
     if (userIdParam) {
       actualUserId = parseInt(userIdParam)
     } else {
-      const userRes = await pool.query('SELECT id FROM users WHERE email = $1', [email])
-      if (userRes.rows.length === 0) {
-        await pool.end()
+      const userRes = await executeQuery('SELECT id FROM users WHERE email = $1', [email])
+      if (userRes.length === 0) {
         return NextResponse.json({ error: 'User not found' }, { status: 404 })
       }
-      actualUserId = userRes.rows[0].id
+      actualUserId = userRes[0].id
     }
 
     // Ensure the user has access to the task (creator OR assignee)
-    const taskRes = await pool.query(
+    const taskRes = await executeQuery(
       `SELECT t.id, t.user_id as creator_id,
               EXISTS(SELECT 1 FROM task_assignees ta WHERE ta.task_id = t.id AND ta.user_id = $2) as is_assignee
        FROM tasks t WHERE t.id = $1`,
       [task_id, actualUserId]
     )
-    if (taskRes.rows.length === 0) {
-      await pool.end()
+    if (taskRes.length === 0) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 })
     }
     
-    const taskPermission = taskRes.rows[0]
+    const taskPermission = taskRes[0]
     const isCreator = Number(taskPermission.creator_id) === Number(actualUserId)
     const isAssignee = taskPermission.is_assignee
     
     if (!isCreator && !isAssignee) {
-      await pool.end()
       return NextResponse.json({ error: 'You do not have permission to modify this task' }, { status: 403 })
     }
 
-    const client = await pool.connect()
+    const client = await getDatabaseClient()
     try {
       await client.query('BEGIN')
       for (let i = 0; i < ordered_ids.length; i++) {
@@ -139,7 +123,6 @@ export async function PATCH(request: NextRequest) {
       client.release()
     }
 
-    await pool.end()
     return NextResponse.json({ success: true })
   } catch (e) {
     console.error('Reorder custom fields error:', e)

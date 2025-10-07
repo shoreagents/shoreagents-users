@@ -1,12 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-
-function getPool() {
-  const { Pool } = require('pg')
-  return new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  })
-}
+import { executeQuery } from '@/lib/database-server'
 
 export async function GET(request: NextRequest) {
   try {
@@ -22,8 +15,6 @@ export async function GET(request: NextRequest) {
       }, { status: 400 })
     }
 
-    const pool = getPool()
-    
     try {
       const query = `
         SELECT hcr.*, 
@@ -43,15 +34,19 @@ export async function GET(request: NextRequest) {
         LIMIT $2 OFFSET $3
       `
       
-      const result = await pool.query(query, [user_id, limit, offset])
+      const result = await executeQuery(query, [user_id, limit, offset])
       
       return NextResponse.json({ 
         success: true, 
-        requests: result.rows
+        requests: result
       })
       
-    } finally {
-      await pool.end()
+    } catch (e) {
+      console.error('Error in database query:', e)
+      return NextResponse.json({ 
+        error: 'Database error',
+        details: e instanceof Error ? e.message : 'Unknown error'
+      }, { status: 500 })
     }
     
   } catch (e) {

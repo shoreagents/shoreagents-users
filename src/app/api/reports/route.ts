@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { Client } from 'pg'
+import { executeQuery, getDatabaseClient } from '@/lib/database-server'
 
 // Helper function to get user from request
 async function getUserFromRequest(request: NextRequest) {
@@ -68,23 +68,15 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const client = new Client({
-      connectionString: process.env.DATABASE_URL,
-    })
-
-    await client.connect()
-
     // Insert the report
-    const result = await client.query(
+    const result = await executeQuery(
       `INSERT INTO reports (user_id, report_type, title, description)
        VALUES ($1, $2, $3, $4)
        RETURNING id, report_type, title, created_at`,
       [user.id, reportType, title, description]
     )
 
-    await client.end()
-
-    const report = result.rows[0]
+    const report = result[0]
 
     return NextResponse.json({
       success: true,
@@ -117,14 +109,8 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const client = new Client({
-      connectionString: process.env.DATABASE_URL,
-    })
-
-    await client.connect()
-
     // Get user's reports
-    const result = await client.query(
+    const result = await executeQuery(
       `SELECT id, report_type, title, description, created_at
        FROM reports 
        WHERE user_id = $1 
@@ -132,9 +118,7 @@ export async function GET(request: NextRequest) {
       [user.id]
     )
 
-    await client.end()
-
-    const reports = result.rows.map(row => ({
+    const reports = result.map(row => ({
       id: row.id,
       reportType: row.report_type,
       title: row.title,

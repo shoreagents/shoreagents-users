@@ -15,10 +15,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate break_type enum
-    const validBreakTypes = ['Morning', 'Lunch', 'Afternoon'];
+    const validBreakTypes = ['Morning', 'Lunch', 'Afternoon', 'NightFirst', 'NightMeal', 'NightSecond'];
     if (!validBreakTypes.includes(break_type)) {
       return NextResponse.json(
-        { success: false, error: 'Invalid break_type. Must be Morning, Lunch, or Afternoon' },
+        { success: false, error: 'Invalid break_type. Must be one of: Morning, Lunch, Afternoon, NightFirst, NightMeal, NightSecond' },
         { status: 400 }
       );
     }
@@ -79,14 +79,33 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Insert new break session with Philippines timezone
+    // Get the active break configuration for this user and break type
+    const breakConfigQuery = `
+      SELECT id, start_time, end_time, duration_minutes
+      FROM breaks 
+      WHERE user_id = $1 AND break_type = $2::break_type_enum AND is_active = true
+      LIMIT 1
+    `;
+    
+    const breakConfigResult = await executeQuery(breakConfigQuery, [agent_user_id, break_type]);
+    
+    if (breakConfigResult.length === 0) {
+      return NextResponse.json(
+        { success: false, error: 'No active break configuration found for this break type' },
+        { status: 400 }
+      );
+    }
+    
+    const breakConfig = breakConfigResult[0];
+
+    // Insert new break session with Philippines timezone and break_config_id
     const insertQuery = `
-      INSERT INTO break_sessions (agent_user_id, break_type, start_time, break_date)
-      VALUES ($1, $2::break_type_enum, NOW(), (NOW() AT TIME ZONE 'Asia/Manila')::date)
-      RETURNING id, agent_user_id, break_type, start_time, break_date, created_at
+      INSERT INTO break_sessions (agent_user_id, break_type, start_time, break_date, break_config_id, duration_minutes)
+      VALUES ($1, $2::break_type_enum, NOW(), (NOW() AT TIME ZONE 'Asia/Manila')::date, $3, $4)
+      RETURNING id, agent_user_id, break_type, start_time, break_date, break_config_id, created_at
     `;
 
-    const result = await executeQuery(insertQuery, [agent_user_id, break_type]);
+    const result = await executeQuery(insertQuery, [agent_user_id, break_type, breakConfig.id, breakConfig.duration_minutes]);
     const breakSession = result[0];
 
     // Break started successfully;

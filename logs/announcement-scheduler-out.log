@@ -1,0 +1,10 @@
+2025-10-07T13:41:18: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: ⚙️  write to custom object with { processEnv: myObject }
+2025-10-07T13:41:21: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+2025-10-07T13:41:24: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+2025-10-07T13:41:28: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: ⚙️  suppress all logs with { quiet: true }
+2025-10-07T13:41:31: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: ⚙️  load multiple .env files with { path: ['.env.local', '.env'] }
+2025-10-07T13:41:35: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+2025-10-07T13:41:39: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: ⚙️  override existing env vars with { override: true }
+2025-10-07T13:41:43: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+2025-10-07T13:41:48: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+2025-10-07T13:41:53: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: ⚙️  load multiple .env files with { path: ['.env.local', '.env'] }

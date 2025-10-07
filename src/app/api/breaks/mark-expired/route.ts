@@ -5,7 +5,8 @@ export async function POST(request: NextRequest) {
     // Mark expired breaks for all users
     const result = await executeQuery('SELECT mark_expired_breaks() as count');
     
-    // Get all break sessions with their expiration status
+    // Get all break sessions with their expiration status from the last 7 days
+    // This includes sessions that might have been marked as expired on previous days
     const sessionsResult = await executeQuery(`
       SELECT 
         bs.id,
@@ -15,7 +16,7 @@ export async function POST(request: NextRequest) {
         bs.is_expired,
         is_break_session_expired(bs.id) as is_expired_check
       FROM break_sessions bs
-      WHERE bs.break_date = CURRENT_DATE
+      WHERE bs.break_date >= CURRENT_DATE - INTERVAL '7 days'
       ORDER BY bs.id DESC
     `);
     
@@ -26,6 +27,7 @@ export async function POST(request: NextRequest) {
         id: session.id,
         agent_user_id: session.agent_user_id,
         break_type: session.break_type,
+        break_date: session.break_date,
         is_expired: session.is_expired || session.is_expired_check
       }))
     });

@@ -10,39 +10,6 @@ interface LoginRequest {
   fallback?: boolean
 }
 
-interface User {
-  id: number
-  email: string
-  user_type: 'Agent' | 'Client' | 'Internal'
-  created_at: string
-  updated_at: string
-}
-
-interface Password {
-  id: number
-  user_id: number
-  password: string
-  created_at: string
-  updated_at: string
-}
-
-interface PersonalInfo {
-  id: number
-  user_id: number
-  first_name: string
-  middle_name?: string
-  last_name: string
-  nickname?: string
-  profile_picture?: string
-  phone?: string
-  birthday?: string
-  city?: string
-  address?: string
-  gender?: 'Male' | 'Female' | 'Other' | 'Prefer not to say'
-  created_at: string
-  updated_at: string
-}
-
 export async function POST(request: NextRequest) {
   try {
     // Parse request body

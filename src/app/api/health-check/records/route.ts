@@ -1,12 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-
-function getPool() {
-  const { Pool } = require('pg')
-  return new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  })
-}
+import { executeQuery } from '@/lib/database-server'
 
 function getUserFromRequest(request: NextRequest) {
   const authCookie = request.cookies.get('shoreagents-auth')
@@ -55,19 +48,17 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '50', 10)
     const offset = parseInt(searchParams.get('offset') || '0', 10)
 
-    const pool = getPool()
-    
     try {
       // Get total count
-      const countResult = await pool.query(
+      const countResult = await executeQuery(
         'SELECT COUNT(*) as total FROM health_check_records WHERE user_id = $1',
         [user.id]
       )
       
-      const total = parseInt(countResult.rows[0].total)
+      const total = parseInt(countResult[0].total)
 
       // Get health check records
-      const result = await pool.query(
+      const result = await executeQuery(
         `SELECT hcr.*, 
                u.email as user_email,
                n.email as nurse_email,
@@ -90,7 +81,7 @@ export async function GET(request: NextRequest) {
       
       return NextResponse.json({ 
         success: true, 
-        records: result.rows,
+        records: result,
         pagination: {
           total,
           limit,
@@ -99,12 +90,15 @@ export async function GET(request: NextRequest) {
         }
       })
       
-    } finally {
-      await pool.end()
+    } catch (e) {
+      console.error('Error fetching health check records:', e)
+      return NextResponse.json({ 
+        error: 'Internal server error',
+        details: e instanceof Error ? e.message : 'Unknown error'
+      }, { status: 500 })
     }
-    
   } catch (e) {
-    console.error('Error fetching health check records:', e)
+    console.error('Error in records request:', e)
     return NextResponse.json({ 
       error: 'Internal server error',
       details: e instanceof Error ? e.message : 'Unknown error'

@@ -1,12 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-
-function getPool() {
-  const { Pool } = require('pg')
-  return new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  })
-}
+import { executeQuery } from '@/lib/database-server'
 
 function getUserFromRequest(req: NextRequest) {
   try {
@@ -32,7 +25,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'taskId is required' }, { status: 400 })
     }
 
-    const pool = getPool()
     const q = `
       SELECT 
         c.id::text,
@@ -51,8 +43,7 @@ export async function GET(request: NextRequest) {
       WHERE c.task_id = $1
       ORDER BY c.created_at ASC
     `
-    const { rows } = await pool.query(q, [taskId])
-    await pool.end()
+    const rows = await executeQuery(q, [taskId])
     return NextResponse.json({ success: true, comments: rows })
   } catch (e) {
     console.error('GET task comments error:', e)
@@ -70,7 +61,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'taskId and content are required' }, { status: 400 })
     }
 
-    const pool = getPool()
     const insert = `
       INSERT INTO task_comments (task_id, user_id, content)
       VALUES ($1, $2, $3)
@@ -78,9 +68,8 @@ export async function POST(request: NextRequest) {
         (created_at AT TIME ZONE 'Asia/Manila') AS created_at,
         (updated_at AT TIME ZONE 'Asia/Manila') AS updated_at
     `
-    const { rows } = await pool.query(insert, [taskId, user.id, String(content).trim()])
+    const rows = await executeQuery(insert, [taskId, user.id, String(content).trim()])
     const row = rows[0]
-    await pool.end()
     return NextResponse.json({ success: true, comment: {
       ...row,
       author_name: null,

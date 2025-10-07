@@ -1,12 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-
-function getPool() {
-  const { Pool } = require('pg')
-  return new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  })
-}
+import { executeQuery, getDatabaseClient } from '@/lib/database-server'
 
 function getUserFromRequest(req: NextRequest) {
   try {
@@ -33,29 +26,25 @@ export async function PUT(request: NextRequest, context: { params: Promise<{ id:
     const content = (body?.content ?? body?.comment ?? '').trim()
     if (!content) return NextResponse.json({ error: 'content is required' }, { status: 400 })
 
-    const pool = getPool()
     // Only owner or admin can edit
-    const check = await pool.query('SELECT user_id FROM task_comments WHERE id::text = $1', [id])
-    if (check.rows.length === 0) {
-      await pool.end()
+    const check = await executeQuery('SELECT user_id FROM task_comments WHERE id::text = $1', [id])
+    if (check.length === 0) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 })
     }
-    const ownerId = Number(check.rows[0].user_id)
+    const ownerId = Number(check[0].user_id)
     const isAdmin = ['admin','superadmin'].includes(String(user.role||'').toLowerCase())
     if (ownerId !== Number(user.id) && !isAdmin) {
-      await pool.end()
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    const upd = await pool.query(
+    const upd = await executeQuery(
       `UPDATE task_comments SET content = $1, updated_at = NOW() AT TIME ZONE 'Asia/Manila' WHERE id::text = $2
        RETURNING id::text, task_id, user_id, content,
          (created_at AT TIME ZONE 'Asia/Manila') AS created_at,
          (updated_at AT TIME ZONE 'Asia/Manila') AS updated_at`,
       [content, id]
     )
-    await pool.end()
-    return NextResponse.json({ success: true, comment: upd.rows[0] })
+    return NextResponse.json({ success: true, comment: upd[0] })
   } catch (e) {
     console.error('PUT task comment error:', e)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
@@ -68,18 +57,15 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
     if (!user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     const { id } = await context.params
 
-    const pool = getPool()
-    const check = await pool.query('SELECT user_id FROM task_comments WHERE id::text = $1', [id])
-    if (check.rows.length === 0) { await pool.end(); return NextResponse.json({ success: true }) }
-    const ownerId = Number(check.rows[0].user_id)
+    const check = await executeQuery('SELECT user_id FROM task_comments WHERE id::text = $1', [id])
+    if (check.length === 0) { return NextResponse.json({ success: true }) }
+    const ownerId = Number(check[0].user_id)
     const isAdmin = ['admin','superadmin'].includes(String(user.role||'').toLowerCase())
     if (ownerId !== Number(user.id) && !isAdmin) {
-      await pool.end()
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    await pool.query('DELETE FROM task_comments WHERE id::text = $1', [id])
-    await pool.end()
+    await executeQuery('DELETE FROM task_comments WHERE id::text = $1', [id])
     return NextResponse.json({ success: true })
   } catch (e) {
     console.error('DELETE task comment error:', e)

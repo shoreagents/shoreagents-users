@@ -1,13 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { validateBreakSchedule } from '@/lib/break-validation'
-
-function getPool() {
-  const { Pool } = require('pg')
-  return new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  })
-}
+import { executeQuery, getDatabaseClient } from '@/lib/database-server'
 
 export async function GET(request: NextRequest) {
   try {
@@ -29,13 +22,11 @@ export async function GET(request: NextRequest) {
       ORDER BY break_type
     `
     
-    const pool = getPool()
-    const result = await pool.query(query, [userId])
-    await pool.end()
+    const result = await executeQuery(query, [userId])
     
     return NextResponse.json({
       success: true,
-      breaks: result.rows
+      breaks: result
     })
 
   } catch (error) {
@@ -73,8 +64,7 @@ export async function POST(request: NextRequest) {
     let shiftTime = ''
     
     try {
-      const pool1 = getPool()
-      const shiftResult = await pool1.query(`
+      const shiftResult = await executeQuery(`
         SELECT ji.shift_time 
         FROM job_info ji
         LEFT JOIN agents a ON ji.agent_user_id = a.user_id
@@ -82,10 +72,9 @@ export async function POST(request: NextRequest) {
         AND ji.shift_time IS NOT NULL
         LIMIT 1
       `, [user_id])
-      await pool1.end()
       
-      if (shiftResult.rows.length > 0) {
-        shiftTime = shiftResult.rows[0].shift_time || ''
+      if (shiftResult.length > 0) {
+        shiftTime = shiftResult[0].shift_time || ''
       }
     } catch (shiftError) {
       console.warn('Could not fetch shift time for validation:', shiftError)
@@ -94,15 +83,13 @@ export async function POST(request: NextRequest) {
     // Get existing breaks for overlap validation
     let existingBreaks = []
     try {
-      const pool2 = getPool()
-      const existingBreaksResult = await pool2.query(`
+      const existingBreaksResult = await executeQuery(`
         SELECT break_type, start_time, end_time, duration_minutes
         FROM public.breaks
         WHERE user_id = $1 AND is_active = true
       `, [user_id])
-      await pool2.end()
       
-      existingBreaks = existingBreaksResult.rows
+      existingBreaks = existingBreaksResult
     } catch (existingBreaksError) {
       console.warn('Could not fetch existing breaks for validation:', existingBreaksError)
     }
@@ -146,17 +133,14 @@ export async function POST(request: NextRequest) {
     try {
       for (const setting of break_settings) {
         // Check if a break of this type already exists for this user
-        const pool3 = getPool()
-        const existingBreak = await pool3.query(`
+        const existingBreak = await executeQuery(`
           SELECT id FROM public.breaks 
           WHERE user_id = $1 AND break_type = $2 AND is_active = true
         `, [user_id, setting.break_type])
-        await pool3.end()
         
-        if (existingBreak.rows.length > 0) {
+        if (existingBreak.length > 0) {
           // Update existing break
-          const pool4 = getPool()
-          await pool4.query(`
+          await executeQuery(`
             UPDATE public.breaks 
             SET start_time = $3, end_time = $4, duration_minutes = $5, updated_at = now()
             WHERE user_id = $1 AND break_type = $2 AND is_active = true
@@ -167,11 +151,9 @@ export async function POST(request: NextRequest) {
             setting.end_time,
             setting.duration_minutes
           ])
-          await pool4.end()
         } else {
           // Insert new break setting
-          const pool5 = getPool()
-          await pool5.query(`
+          await executeQuery(`
             INSERT INTO public.breaks (
               user_id,
               break_type,
@@ -187,7 +169,6 @@ export async function POST(request: NextRequest) {
             setting.end_time,
             setting.duration_minutes
           ])
-          await pool5.end()
         }
       }
       

@@ -1,10 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Pool } from 'pg';
-
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-});
+import { executeQuery } from '@/lib/database-server';
 
 export async function GET(request: NextRequest) {
   try {
@@ -19,7 +14,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Get the most recent activity data for the user
-    const result = await pool.query(`
+    const result = await executeQuery(`
       SELECT 
         id,
         user_id,
@@ -36,14 +31,14 @@ export async function GET(request: NextRequest) {
       LIMIT 1
     `, [userId]);
 
-    if (result.rows.length === 0) {
+    if (result.length === 0) {
       return NextResponse.json(
         { error: 'No activity data found for user' },
         { status: 404 }
       );
     }
 
-    const activityData = result.rows[0];
+    const activityData = result[0];
 
     return NextResponse.json(activityData);
 
