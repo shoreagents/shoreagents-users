@@ -112,12 +112,13 @@ BEGIN
             RETURN; -- Already sent today, don't send again
         END IF;
     ELSE
-        -- For other notification types, use the existing cooldown logic
+        -- For other notification types, check for the SAME notification type and break type
         SELECT MAX(created_at) INTO last_notification_time
         FROM notifications
         WHERE user_id = p_agent_user_id
         AND category = notif_category
-        AND title = title_text
+        AND payload->>'reminder_type' = p_notification_type
+        AND payload->>'break_type' = p_break_type::text
         AND created_at > (NOW() - INTERVAL '60 minutes');
 
         -- If a recent notification exists, check if enough time has passed

@@ -51,7 +51,7 @@ COMMENT ON FUNCTION public.calculate_break_windows(integer)
 -- =====================================================
 
 -- Update is_break_available_now to use custom break windows
-CREATE OR REPLACE FUNCTION public.is_break_available_now(p_agent_user_id integer, p_break_type break_type_enum, p_current_time timestamp without time zone DEFAULT NULL::timestamp without time zone)
+CREATE OR REPLACE FUNCTION public.is_break_available_now(p_agent_user_id integer, p_break_type break_type_enum, p_current_time timestamp with time zone DEFAULT NULL::timestamp with time zone)
 RETURNS boolean
 LANGUAGE plpgsql
 AS $function$
@@ -100,7 +100,7 @@ AS $function$
       $function$;
 
 -- Update is_break_available_soon to use custom break windows
-CREATE OR REPLACE FUNCTION public.is_break_available_soon(p_agent_user_id integer, p_break_type break_type_enum, p_current_time timestamp without time zone DEFAULT NULL::timestamp without time zone)
+CREATE OR REPLACE FUNCTION public.is_break_available_soon(p_agent_user_id integer, p_break_type break_type_enum, p_current_time timestamp with time zone DEFAULT NULL::timestamp with time zone)
 RETURNS boolean
 LANGUAGE plpgsql
 AS $function$
@@ -157,7 +157,7 @@ AS $function$
       $function$;
 
 -- Update is_break_missed to use custom break windows
-CREATE OR REPLACE FUNCTION public.is_break_missed(p_agent_user_id integer, p_break_type break_type_enum, p_current_time timestamp without time zone DEFAULT NULL::timestamp without time zone)
+CREATE OR REPLACE FUNCTION public.is_break_missed(p_agent_user_id integer, p_break_type break_type_enum, p_current_time timestamp with time zone DEFAULT NULL::timestamp with time zone)
 RETURNS boolean
 LANGUAGE plpgsql
 AS $function$
@@ -258,11 +258,11 @@ AS $function$
           BEGIN
               window_duration_minutes := EXTRACT(EPOCH FROM (break_end_time - break_start_time)) / 60;
               
-              -- Don't send missed notifications in the last 15 minutes of the window
-              -- This allows "ending soon" notifications to take precedence
-              IF minutes_since_break_start > (window_duration_minutes - 15) THEN
-                  RETURN FALSE; -- Too close to window end, let ending soon handle it
-              END IF;
+          -- Don't send missed notifications in the last 15 minutes of the window
+          -- This allows "ending soon" notifications to take precedence
+          IF minutes_since_break_start >= (window_duration_minutes - 15) THEN
+              RETURN FALSE; -- Too close to window end, let ending soon handle it
+          END IF;
           END;
           
           -- Check if we've sent a notification in the last 25 minutes
@@ -361,7 +361,7 @@ COMMENT ON FUNCTION public.is_break_window_ending_soon(int4, break_type_enum, ti
 DROP FUNCTION IF EXISTS public.is_break_available(integer, break_type_enum, timestamp);
 
 -- Update is_break_available_now_notification_sent to use custom break windows
-CREATE OR REPLACE FUNCTION public.is_break_available_now_notification_sent(p_agent_user_id integer, p_break_type break_type_enum, p_check_time timestamp without time zone)
+CREATE OR REPLACE FUNCTION public.is_break_available_now_notification_sent(p_agent_user_id integer, p_break_type break_type_enum, p_check_time timestamp with time zone)
 RETURNS boolean
 LANGUAGE plpgsql
 AS $function$
@@ -412,9 +412,9 @@ AS $function$
             DECLARE
                 agent_record RECORD;
                 notifications_sent INTEGER := 0;
-                check_time TIMESTAMP;
+                check_time TIMESTAMP WITH TIME ZONE;
             BEGIN
-                check_time := NOW() AT TIME ZONE 'Asia/Manila';
+                check_time := NOW();
 
                 -- NOTE: Task notifications are now handled by a separate scheduler
                 -- This function only handles break-related notifications
@@ -531,10 +531,8 @@ AS $function$
                         notifications_sent := notifications_sent + 1;
                     END IF;
 
-                    IF is_break_window_ending_soon(agent_record.user_id, 'Afternoon', check_time) THEN
-                        PERFORM create_break_reminder_notification(agent_record.user_id, 'ending_soon', 'Afternoon');
-                        notifications_sent := notifications_sent + 1;
-                    END IF;
+                    -- Afternoon break ending_soon is already handled in the ELSIF chain above
+                    -- No need for duplicate check here
 
                     -- Check for night shift break windows ending soon
                     IF is_break_window_ending_soon(agent_record.user_id, 'NightFirst', check_time) THEN
@@ -679,7 +677,7 @@ AS $function$
           -- Second, create missed break sessions for expired break windows
           -- BUT only if the user doesn't already have ANY session for that break type today
           FOR user_break IN
-              SELECT DISTINCT b.user_id, b.break_type, b.start_time, b.end_time, b.duration_minutes
+              SELECT DISTINCT b.id, b.user_id, b.break_type, b.start_time, b.end_time, b.duration_minutes
               FROM breaks b
               WHERE b.is_active = true
               AND (p_user_id IS NULL OR b.user_id = p_user_id)
@@ -702,6 +700,7 @@ AS $function$
                   duration_minutes, 
                   break_date, 
                   is_expired,
+                  break_config_id,
                   created_at
               ) VALUES (
                   user_break.user_id,
@@ -711,6 +710,7 @@ AS $function$
                   0, -- Duration is 0 because user didn't take the break
                   CURRENT_DATE,
                   TRUE, -- Mark as expired immediately
+                  user_break.id, -- Set break_config_id to the breaks table ID
                   NOW()
               );
               

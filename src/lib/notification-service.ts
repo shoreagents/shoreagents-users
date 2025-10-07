@@ -10,7 +10,7 @@ export interface Notification {
   icon: string
   actionUrl?: string
   actionData?: any
-  category: 'task' | 'ticket' | 'activity' | 'system' | 'event'
+  category: 'task' | 'ticket' | 'activity' | 'system' | 'event' | 'break'
   priority: 'low' | 'medium' | 'high' // New priority field
   eventType: 'creation' | 'status_change' | 'completion' | 'assignment' | 'system' // New event type
 }
@@ -173,7 +173,8 @@ export function addSmartNotification(notification: Omit<Notification, 'id' | 'ti
   saveNotifications(notifications)
 
   // Show system-wide notification if Electron is available
-  if (typeof window !== 'undefined' && window.electronAPI?.systemNotifications) {
+  // Skip system notifications for break category since they're handled by socket system
+  if (typeof window !== 'undefined' && window.electronAPI?.systemNotifications ) {
     try {
       const systemNotificationId = `system_${newNotification.id}`;
 
@@ -611,16 +612,6 @@ export function showNotification(notification: {
     category: 'system'
   })
 
-  // Also show system notification if available
-  if (typeof window !== 'undefined' && window.electronAPI?.systemNotifications) {
-    try {
-      window.electronAPI.systemNotifications.show({
-        title: notification.title,
-        message: notification.message,
-        id: `meeting_${Date.now()}`
-      })
-    } catch (error) {
-      console.error('Error showing system notification:', error)
-    }
-  }
+  // System notification is already handled by addNotification -> addSmartNotification
+  // No need to show it again here
 } 

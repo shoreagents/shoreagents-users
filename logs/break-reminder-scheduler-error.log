@@ -1,0 +1,27 @@
+2025-10-07T15:06:02: [3:06:02 PM] Break reminder check failed: read ECONNRESET
+2025-10-07T19:12:53: [7:12:53 PM] Break reminder check failed: connect ETIMEDOUT 66.33.22.251:41493
+2025-10-08T06:34:13: [6:34:13 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:34:43: [6:34:43 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:35:13: [6:35:13 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:35:43: [6:35:43 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:36:13: [6:36:13 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:36:43: [6:36:43 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:37:13: [6:37:13 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:37:43: [6:37:43 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:38:13: [6:38:13 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:38:43: [6:38:43 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:39:13: [6:39:13 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:39:43: [6:39:43 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:40:13: [6:40:13 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:40:43: [6:40:43 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:41:13: [6:41:13 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:41:43: [6:41:43 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:42:13: [6:42:13 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:42:43: [6:42:43 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:43:13: [6:43:13 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:43:43: [6:43:43 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:44:13: [6:44:13 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:44:43: [6:44:43 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:45:13: [6:45:13 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:45:43: [6:45:43 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:46:13: [6:46:13 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist

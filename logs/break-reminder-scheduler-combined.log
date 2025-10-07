@@ -9,3 +9,203 @@
 2025-10-07T13:43:48: [1:43:48 PM] Sent 1 break notifications
 2025-10-07T13:44:18: [1:44:18 PM] Sent 1 break notifications
 2025-10-07T13:45:18: [1:45:18 PM] Sent 1 break notifications
+2025-10-07T14:14:49: [2:14:49 PM] Sent 1 break notifications
+2025-10-07T14:15:19: [2:15:19 PM] Sent 1 break notifications
+2025-10-07T14:15:49: [2:15:49 PM] Sent 1 break notifications
+2025-10-07T14:16:19: [2:16:19 PM] Sent 1 break notifications
+2025-10-07T14:28:50: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: ⚙️  suppress all logs with { quiet: true }
+2025-10-07T14:28:50: Starting break reminder scheduler (checking every 30 seconds)
+2025-10-07T14:28:50: Break reminder scheduler is running. Press Ctrl+C to stop.
+2025-10-07T14:32:28: Starting break reminder scheduler (checking every 30 seconds)
+2025-10-07T14:32:28: Break reminder scheduler is running. Press Ctrl+C to stop.
+2025-10-07T14:43:28: [2:43:28 PM] Sent 1 break notifications
+2025-10-07T15:06:02: [3:06:02 PM] Break reminder check failed: read ECONNRESET
+2025-10-07T16:44:00: [4:44:00 PM] Sent 1 break notifications
+2025-10-07T16:44:30: [4:44:30 PM] Sent 1 break notifications
+2025-10-07T16:45:00: [4:45:00 PM] Sent 1 break notifications
+2025-10-07T16:45:30: [4:45:30 PM] Sent 1 break notifications
+2025-10-07T16:46:00: [4:46:00 PM] Sent 1 break notifications
+2025-10-07T16:46:30: [4:46:30 PM] Sent 1 break notifications
+2025-10-07T19:12:53: [7:12:53 PM] Break reminder check failed: connect ETIMEDOUT 66.33.22.251:41493
+2025-10-07T20:44:04: [8:44:04 PM] Sent 1 break notifications
+2025-10-07T20:44:34: [8:44:34 PM] Sent 1 break notifications
+2025-10-07T20:45:04: [8:45:04 PM] Sent 1 break notifications
+2025-10-07T20:45:34: [8:45:34 PM] Sent 1 break notifications
+2025-10-07T20:46:04: [8:46:04 PM] Sent 1 break notifications
+2025-10-07T20:46:34: [8:46:34 PM] Sent 1 break notifications
+2025-10-07T22:29:06: [10:29:06 PM] Sent 1 break notifications
+2025-10-07T22:29:36: [10:29:36 PM] Sent 1 break notifications
+2025-10-07T22:30:06: [10:30:06 PM] Sent 1 break notifications
+2025-10-07T22:30:36: [10:30:36 PM] Sent 1 break notifications
+2025-10-07T22:31:06: [10:31:06 PM] Sent 1 break notifications
+2025-10-07T22:31:36: [10:31:36 PM] Sent 1 break notifications
+2025-10-08T00:30:08: [12:30:08 AM] Sent 1 break notifications
+2025-10-08T00:30:38: [12:30:38 AM] Sent 1 break notifications
+2025-10-08T00:31:08: [12:31:08 AM] Sent 1 break notifications
+2025-10-08T00:31:38: [12:31:38 AM] Sent 1 break notifications
+2025-10-08T01:45:09: [1:45:09 AM] Sent 1 break notifications
+2025-10-08T01:45:39: [1:45:39 AM] Sent 1 break notifications
+2025-10-08T01:46:09: [1:46:09 AM] Sent 1 break notifications
+2025-10-08T01:46:39: [1:46:39 AM] Sent 1 break notifications
+2025-10-08T01:47:09: [1:47:09 AM] Sent 1 break notifications
+2025-10-08T01:47:39: [1:47:39 AM] Sent 1 break notifications
+2025-10-08T01:48:09: [1:48:09 AM] Sent 1 break notifications
+2025-10-08T01:48:39: [1:48:39 AM] Sent 1 break notifications
+2025-10-08T01:49:09: [1:49:09 AM] Sent 1 break notifications
+2025-10-08T01:49:39: [1:49:39 AM] Sent 1 break notifications
+2025-10-08T01:50:09: [1:50:09 AM] Sent 1 break notifications
+2025-10-08T01:50:39: [1:50:39 AM] Sent 1 break notifications
+2025-10-08T01:51:09: [1:51:09 AM] Sent 1 break notifications
+2025-10-08T01:51:39: [1:51:39 AM] Sent 1 break notifications
+2025-10-08T01:52:09: [1:52:09 AM] Sent 1 break notifications
+2025-10-08T01:52:39: [1:52:39 AM] Sent 1 break notifications
+2025-10-08T01:53:09: [1:53:09 AM] Sent 1 break notifications
+2025-10-08T01:53:39: [1:53:39 AM] Sent 1 break notifications
+2025-10-08T01:54:09: [1:54:09 AM] Sent 1 break notifications
+2025-10-08T01:54:39: [1:54:39 AM] Sent 1 break notifications
+2025-10-08T01:55:09: [1:55:09 AM] Sent 1 break notifications
+2025-10-08T01:55:39: [1:55:39 AM] Sent 1 break notifications
+2025-10-08T01:56:09: [1:56:09 AM] Sent 1 break notifications
+2025-10-08T01:56:39: [1:56:39 AM] Sent 1 break notifications
+2025-10-08T01:57:09: [1:57:09 AM] Sent 1 break notifications
+2025-10-08T01:57:39: [1:57:39 AM] Sent 1 break notifications
+2025-10-08T01:58:09: [1:58:09 AM] Sent 1 break notifications
+2025-10-08T01:58:39: [1:58:39 AM] Sent 1 break notifications
+2025-10-08T01:59:09: [1:59:09 AM] Sent 2 break notifications
+2025-10-08T01:59:39: [1:59:39 AM] Sent 2 break notifications
+2025-10-08T02:00:09: [2:00:09 AM] Sent 1 break notifications
+2025-10-08T02:00:39: [2:00:39 AM] Sent 1 break notifications
+2025-10-08T02:01:09: [2:01:09 AM] Sent 1 break notifications
+2025-10-08T02:01:39: [2:01:39 AM] Sent 1 break notifications
+2025-10-08T02:30:09: [2:30:09 AM] Sent 1 break notifications
+2025-10-08T02:30:40: [2:30:40 AM] Sent 1 break notifications
+2025-10-08T02:31:09: [2:31:09 AM] Sent 1 break notifications
+2025-10-08T02:31:39: [2:31:39 AM] Sent 1 break notifications
+2025-10-08T02:59:10: [2:59:10 AM] Sent 1 break notifications
+2025-10-08T02:59:40: [2:59:40 AM] Sent 1 break notifications
+2025-10-08T03:00:10: [3:00:10 AM] Sent 1 break notifications
+2025-10-08T03:00:40: [3:00:40 AM] Sent 1 break notifications
+2025-10-08T03:01:10: [3:01:10 AM] Sent 1 break notifications
+2025-10-08T03:01:40: [3:01:40 AM] Sent 1 break notifications
+2025-10-08T03:28:40: [3:28:40 AM] Sent 1 break notifications
+2025-10-08T03:29:10: [3:29:10 AM] Sent 1 break notifications
+2025-10-08T03:29:40: [3:29:40 AM] Sent 1 break notifications
+2025-10-08T03:30:10: [3:30:10 AM] Sent 1 break notifications
+2025-10-08T03:30:40: [3:30:40 AM] Sent 1 break notifications
+2025-10-08T03:31:10: [3:31:10 AM] Sent 1 break notifications
+2025-10-08T03:58:41: [3:58:41 AM] Sent 1 break notifications
+2025-10-08T03:59:11: [3:59:11 AM] Sent 1 break notifications
+2025-10-08T03:59:41: [3:59:41 AM] Sent 1 break notifications
+2025-10-08T04:00:11: [4:00:11 AM] Sent 1 break notifications
+2025-10-08T04:00:41: [4:00:41 AM] Sent 1 break notifications
+2025-10-08T04:01:11: [4:01:11 AM] Sent 1 break notifications
+2025-10-08T04:28:41: [4:28:41 AM] Sent 1 break notifications
+2025-10-08T04:29:11: [4:29:11 AM] Sent 1 break notifications
+2025-10-08T04:29:41: [4:29:41 AM] Sent 1 break notifications
+2025-10-08T04:30:11: [4:30:11 AM] Sent 1 break notifications
+2025-10-08T04:30:41: [4:30:41 AM] Sent 1 break notifications
+2025-10-08T04:31:11: [4:31:11 AM] Sent 1 break notifications
+2025-10-08T05:13:42: [5:13:42 AM] Sent 1 break notifications
+2025-10-08T05:14:12: [5:14:12 AM] Sent 1 break notifications
+2025-10-08T05:14:42: [5:14:42 AM] Sent 1 break notifications
+2025-10-08T05:15:12: [5:15:12 AM] Sent 1 break notifications
+2025-10-08T05:15:42: [5:15:42 AM] Sent 1 break notifications
+2025-10-08T05:16:12: [5:16:12 AM] Sent 1 break notifications
+2025-10-08T05:29:42: [5:29:42 AM] Sent 1 break notifications
+2025-10-08T05:30:12: [5:30:12 AM] Sent 1 break notifications
+2025-10-08T05:30:42: [5:30:42 AM] Sent 1 break notifications
+2025-10-08T05:31:12: [5:31:12 AM] Sent 1 break notifications
+2025-10-08T05:31:42: [5:31:42 AM] Sent 1 break notifications
+2025-10-08T05:32:12: [5:32:12 AM] Sent 1 break notifications
+2025-10-08T05:32:42: [5:32:42 AM] Sent 1 break notifications
+2025-10-08T05:33:12: [5:33:12 AM] Sent 1 break notifications
+2025-10-08T05:33:42: [5:33:42 AM] Sent 1 break notifications
+2025-10-08T05:34:12: [5:34:12 AM] Sent 1 break notifications
+2025-10-08T05:34:42: [5:34:42 AM] Sent 1 break notifications
+2025-10-08T05:35:12: [5:35:12 AM] Sent 1 break notifications
+2025-10-08T05:35:42: [5:35:42 AM] Sent 1 break notifications
+2025-10-08T05:36:12: [5:36:12 AM] Sent 1 break notifications
+2025-10-08T05:36:42: [5:36:42 AM] Sent 1 break notifications
+2025-10-08T05:37:12: [5:37:12 AM] Sent 1 break notifications
+2025-10-08T05:37:42: [5:37:42 AM] Sent 1 break notifications
+2025-10-08T05:38:12: [5:38:12 AM] Sent 1 break notifications
+2025-10-08T05:38:42: [5:38:42 AM] Sent 1 break notifications
+2025-10-08T05:39:12: [5:39:12 AM] Sent 1 break notifications
+2025-10-08T05:39:42: [5:39:42 AM] Sent 1 break notifications
+2025-10-08T05:40:12: [5:40:12 AM] Sent 1 break notifications
+2025-10-08T05:40:42: [5:40:42 AM] Sent 1 break notifications
+2025-10-08T05:41:12: [5:41:12 AM] Sent 1 break notifications
+2025-10-08T05:41:42: [5:41:42 AM] Sent 1 break notifications
+2025-10-08T05:42:12: [5:42:12 AM] Sent 1 break notifications
+2025-10-08T05:42:42: [5:42:42 AM] Sent 1 break notifications
+2025-10-08T05:43:12: [5:43:12 AM] Sent 1 break notifications
+2025-10-08T05:43:42: [5:43:42 AM] Sent 1 break notifications
+2025-10-08T05:44:12: [5:44:12 AM] Sent 1 break notifications
+2025-10-08T05:45:12: [5:45:12 AM] Sent 1 break notifications
+2025-10-08T06:14:43: [6:14:43 AM] Sent 1 break notifications
+2025-10-08T06:15:13: [6:15:13 AM] Sent 1 break notifications
+2025-10-08T06:15:43: [6:15:43 AM] Sent 1 break notifications
+2025-10-08T06:16:13: [6:16:13 AM] Sent 1 break notifications
+2025-10-08T06:17:43: [6:17:43 AM] Sent 1 break notifications
+2025-10-08T06:28:43: [6:28:43 AM] Sent 1 break notifications
+2025-10-08T06:29:13: [6:29:13 AM] Sent 1 break notifications
+2025-10-08T06:29:43: [6:29:43 AM] Sent 2 break notifications
+2025-10-08T06:30:13: [6:30:13 AM] Sent 2 break notifications
+2025-10-08T06:30:43: [6:30:43 AM] Sent 2 break notifications
+2025-10-08T06:31:13: [6:31:13 AM] Sent 2 break notifications
+2025-10-08T06:34:13: [6:34:13 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:34:43: [6:34:43 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:35:13: [6:35:13 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:35:43: [6:35:43 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:36:13: [6:36:13 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:36:43: [6:36:43 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:37:13: [6:37:13 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:37:43: [6:37:43 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:38:13: [6:38:13 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:38:43: [6:38:43 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:39:13: [6:39:13 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:39:43: [6:39:43 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:40:13: [6:40:13 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:40:43: [6:40:43 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:41:13: [6:41:13 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:41:43: [6:41:43 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:42:13: [6:42:13 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:42:43: [6:42:43 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:43:13: [6:43:13 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:43:43: [6:43:43 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:44:13: [6:44:13 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:44:43: [6:44:43 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:45:13: [6:45:13 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:45:43: [6:45:43 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:46:13: [6:46:13 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-08T06:54:43: [6:54:43 AM] Sent 1 break notifications
+2025-10-08T06:55:13: [6:55:13 AM] Sent 1 break notifications
+2025-10-08T06:55:43: [6:55:43 AM] Sent 1 break notifications
+2025-10-08T06:56:13: [6:56:13 AM] Sent 1 break notifications
+2025-10-08T06:56:43: [6:56:43 AM] Sent 1 break notifications
+2025-10-08T06:57:13: [6:57:13 AM] Sent 1 break notifications
+2025-10-08T06:57:43: [6:57:43 AM] Sent 1 break notifications
+2025-10-08T06:58:14: [6:58:14 AM] Sent 1 break notifications
+2025-10-08T06:58:44: [6:58:44 AM] Sent 1 break notifications
+2025-10-08T06:59:14: [6:59:14 AM] Sent 1 break notifications
+2025-10-08T06:59:44: [6:59:44 AM] Sent 1 break notifications
+2025-10-08T07:00:14: [7:00:14 AM] Sent 1 break notifications
+2025-10-08T07:00:44: [7:00:44 AM] Sent 1 break notifications
+2025-10-08T07:01:14: [7:01:14 AM] Sent 1 break notifications
+2025-10-08T07:01:44: [7:01:44 AM] Sent 1 break notifications
+2025-10-08T07:02:14: [7:02:14 AM] Sent 1 break notifications
+2025-10-08T07:02:44: [7:02:44 AM] Sent 1 break notifications
+2025-10-08T07:03:14: [7:03:14 AM] Sent 1 break notifications
+2025-10-08T07:03:44: [7:03:44 AM] Sent 1 break notifications
+2025-10-08T07:04:14: [7:04:14 AM] Sent 1 break notifications
+2025-10-08T07:04:44: [7:04:44 AM] Sent 1 break notifications
+2025-10-08T07:05:14: [7:05:14 AM] Sent 1 break notifications
+2025-10-08T07:05:44: [7:05:44 AM] Sent 1 break notifications
+2025-10-08T07:06:14: [7:06:14 AM] Sent 1 break notifications
+2025-10-08T07:06:44: [7:06:44 AM] Sent 1 break notifications
+2025-10-08T07:07:14: [7:07:14 AM] Sent 1 break notifications
+2025-10-08T07:07:44: [7:07:44 AM] Sent 1 break notifications
+2025-10-08T07:08:14: [7:08:14 AM] Sent 1 break notifications
+2025-10-08T07:08:44: [7:08:44 AM] Sent 1 break notifications
+2025-10-08T07:09:14: [7:09:14 AM] Sent 1 break notifications
+2025-10-08T07:10:14: [7:10:14 AM] Sent 1 break notifications

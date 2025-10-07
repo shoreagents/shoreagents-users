@@ -9,3 +9,26 @@
 2025-10-07T13:41:20: Scheduled meetings: 0
 2025-10-07T13:41:20: In-progress meetings: 0
 2025-10-07T13:41:20: Starting within 1 hour: 0
+2025-10-07T14:28:51: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: ⚙️  suppress all logs with { quiet: true }
+2025-10-07T14:28:51: Starting meeting scheduler (checking every 0.5 seconds)
+2025-10-07T14:28:51: Meeting scheduler is running. Press Ctrl+C to stop.
+2025-10-07T14:28:51: This scheduler handles:
+2025-10-07T14:28:51: Automatically starting scheduled meetings
+2025-10-07T14:28:51: Sending meeting reminders (1 hour before)
+2025-10-07T14:28:51: Checking every 0.5 seconds for starts, 60 seconds for reminders, 2 seconds for notifications
+2025-10-07T14:28:53: Initial meeting stats:
+2025-10-07T14:28:53: Scheduled meetings: 0
+2025-10-07T14:28:53: In-progress meetings: 0
+2025-10-07T14:28:53: Starting within 1 hour: 0
+2025-10-07T14:32:28: Starting meeting scheduler (checking every 0.5 seconds)
+2025-10-07T14:32:28: Meeting scheduler is running. Press Ctrl+C to stop.
+2025-10-07T14:32:28: This scheduler handles:
+2025-10-07T14:32:28: Automatically starting scheduled meetings
+2025-10-07T14:32:28: Sending meeting reminders (1 hour before)
+2025-10-07T14:32:28: Checking every 0.5 seconds for starts, 60 seconds for reminders, 2 seconds for notifications
+2025-10-07T14:32:30: Initial meeting stats:
+2025-10-07T14:32:30: Scheduled meetings: 0
+2025-10-07T14:32:30: In-progress meetings: 0
+2025-10-07T14:32:30: Starting within 1 hour: 0
+2025-10-08T06:58:11: [6:58:11 AM] Sent 1 meeting notifications (0 reminders, 1 starts)
+2025-10-08T07:03:12: [7:03:12 AM] Sent 1 meeting notifications (0 reminders, 1 starts)

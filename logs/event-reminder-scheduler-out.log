@@ -1,3 +1,8 @@
 2025-10-07T13:41:18: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 📡 observe env with Radar: https://dotenvx.com/radar
 2025-10-07T13:41:18: Starting event reminder scheduler (checking every 10 seconds)
 2025-10-07T13:41:18: Event reminder scheduler is running. Press Ctrl+C to stop.
+2025-10-07T14:28:50: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+2025-10-07T14:28:50: Starting event reminder scheduler (checking every 10 seconds)
+2025-10-07T14:28:50: Event reminder scheduler is running. Press Ctrl+C to stop.
+2025-10-07T14:32:28: Starting event reminder scheduler (checking every 10 seconds)
+2025-10-07T14:32:28: Event reminder scheduler is running. Press Ctrl+C to stop.
