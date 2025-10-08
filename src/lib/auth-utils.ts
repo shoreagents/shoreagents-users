@@ -276,6 +276,35 @@ function performLogoutCleanup() {
   } catch (error) {
     console.warn('Could not clear notifications on logout:', error);
   }
+
+  // Set activity_data is_currently_active to false on logout
+  try {
+    const currentUser = getCurrentUser();
+    const email = currentUser?.email;
+    
+    if (email) {
+      const requestBody = JSON.stringify({ isCurrentlyActive: false });
+      
+      fetch(`/api/activity/update-status?email=${encodeURIComponent(email)}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: requestBody,
+        credentials: 'include'
+      }).then(response => {
+        if (!response.ok) {
+          console.warn('Activity status update failed:', response.status, response.statusText);
+        }
+      }).catch(error => {
+        console.warn('Could not update activity status on logout:', error);
+      });
+    } else {
+      console.warn('No email found for current user, skipping activity status update');
+    }
+  } catch (error) {
+    console.warn('Could not update activity status on logout:', error);
+  }
   
   // Clear localStorage
   localStorage.removeItem('shoreagents-auth')

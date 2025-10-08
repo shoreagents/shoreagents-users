@@ -405,50 +405,7 @@ CREATE SEQUENCE public.weekly_activity_summary_id_seq
 	MAXVALUE 2147483647
 	START 1
 	CACHE 1
-	NO CYCLE;-- public.break_sessions definition
-
--- Drop table
-
--- DROP TABLE public.break_sessions;
-
-CREATE TABLE public.break_sessions (
-	id serial4 NOT NULL,
-	agent_user_id int4 NOT NULL,
-	start_time timestamptz NOT NULL,
-	end_time timestamptz NULL,
-	break_date date NOT NULL,
-	pause_time timestamptz NULL,
-	resume_time timestamptz NULL,
-	time_remaining_at_pause int4 NULL,
-	created_at timestamptz DEFAULT now() NULL,
-	updated_at timestamptz DEFAULT now() NULL,
-	break_type public."break_type_enum" NOT NULL,
-	duration_minutes int4 NULL,
-	pause_used bool DEFAULT false NULL,
-	CONSTRAINT break_sessions_break_type_check CHECK ((break_type = ANY (ARRAY['Morning'::break_type_enum, 'Lunch'::break_type_enum, 'Afternoon'::break_type_enum, 'NightFirst'::break_type_enum, 'NightMeal'::break_type_enum, 'NightSecond'::break_type_enum]))),
-	CONSTRAINT break_sessions_pkey PRIMARY KEY (id)
-);
-CREATE INDEX idx_break_sessions_agent_user_id ON public.break_sessions USING btree (agent_user_id);
-CREATE INDEX idx_break_sessions_break_date ON public.break_sessions USING btree (break_date);
-CREATE INDEX idx_break_sessions_break_type ON public.break_sessions USING btree (break_type);
-
--- Table Triggers
-
-create trigger update_break_sessions_updated_at before
-update
-    on
-    public.break_sessions for each row execute function update_updated_at_column();
-create trigger calculate_break_duration_trigger before
-insert
-    or
-update
-    on
-    public.break_sessions for each row execute function calculate_break_duration();
-
-COMMENT ON TRIGGER calculate_break_duration_trigger ON public.break_sessions IS 'Automatically calculates duration_minutes when end_time is set, handling paused breaks correctly';
-
-
--- public.members definition
+	NO CYCLE;-- public.members definition
 
 -- Drop table
 
@@ -1602,6 +1559,51 @@ CREATE INDEX idx_announcement_assignments_announcement_id ON public.announcement
 CREATE INDEX idx_announcement_assignments_user_id ON public.announcement_assignments USING btree (user_id);
 
 
+-- public.break_sessions definition
+
+-- Drop table
+
+-- DROP TABLE public.break_sessions;
+
+CREATE TABLE public.break_sessions (
+	id serial4 NOT NULL,
+	agent_user_id int4 NOT NULL,
+	start_time timestamptz NOT NULL,
+	end_time timestamptz NULL,
+	break_date date NOT NULL,
+	pause_time timestamptz NULL,
+	resume_time timestamptz NULL,
+	time_remaining_at_pause int4 NULL,
+	created_at timestamptz DEFAULT now() NULL,
+	updated_at timestamptz DEFAULT now() NULL,
+	break_type public."break_type_enum" NOT NULL,
+	duration_minutes int4 NULL,
+	pause_used bool DEFAULT false NULL,
+	is_expired bool DEFAULT false NULL,
+	break_config_id int4 NULL, -- References the specific break configuration (breaks.id) that was used to create this session
+	CONSTRAINT break_sessions_break_type_check CHECK ((break_type = ANY (ARRAY['Morning'::break_type_enum, 'Lunch'::break_type_enum, 'Afternoon'::break_type_enum, 'NightFirst'::break_type_enum, 'NightMeal'::break_type_enum, 'NightSecond'::break_type_enum]))),
+	CONSTRAINT break_sessions_pkey PRIMARY KEY (id),
+	CONSTRAINT break_sessions_break_config_id_fkey FOREIGN KEY (break_config_id) REFERENCES public.breaks(id) ON DELETE SET NULL
+);
+CREATE INDEX idx_break_sessions_agent_user_id ON public.break_sessions USING btree (agent_user_id);
+CREATE INDEX idx_break_sessions_break_config_id ON public.break_sessions USING btree (break_config_id);
+CREATE INDEX idx_break_sessions_break_date ON public.break_sessions USING btree (break_date);
+CREATE INDEX idx_break_sessions_break_type ON public.break_sessions USING btree (break_type);
+CREATE INDEX idx_break_sessions_expired ON public.break_sessions USING btree (agent_user_id, break_type, is_expired);
+COMMENT ON TABLE public.break_sessions IS 'Break sessions now use fixed durations from breaks table - no automatic calculation needed';
+
+-- Column comments
+
+COMMENT ON COLUMN public.break_sessions.break_config_id IS 'References the specific break configuration (breaks.id) that was used to create this session';
+
+-- Table Triggers
+
+create trigger update_break_sessions_updated_at before
+update
+    on
+    public.break_sessions for each row execute function update_updated_at_column();
+
+
 -- public.event_attendance definition
 
 -- Drop table
@@ -2225,41 +2227,6 @@ END;
 $function$
 ;
 
--- DROP FUNCTION public.calculate_break_duration();
-
-CREATE OR REPLACE FUNCTION public.calculate_break_duration()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-BEGIN
-    -- If end_time is being set and start_time exists, calculate duration
-    IF NEW.end_time IS NOT NULL AND NEW.start_time IS NOT NULL THEN
-        -- If break was paused, calculate based on pause state
-        IF NEW.pause_time IS NOT NULL THEN
-            -- If break was resumed, use normal pause calculation
-            IF NEW.resume_time IS NOT NULL THEN
-                -- Total duration = (pause_time - start_time) + (end_time - resume_time)
-                NEW.duration_minutes = EXTRACT(EPOCH FROM (
-                    (NEW.pause_time - NEW.start_time) + 
-                    (NEW.end_time - NEW.resume_time)
-                )) / 60;
-            ELSE
-                -- Break was paused but never resumed (auto-ended)
-                -- Use the time from start to pause as the actual break duration
-                NEW.duration_minutes = EXTRACT(EPOCH FROM (NEW.pause_time - NEW.start_time)) / 60;
-            END IF;
-        ELSE
-            -- Normal calculation for non-paused breaks
-            NEW.duration_minutes = EXTRACT(EPOCH FROM (NEW.end_time - NEW.start_time)) / 60;
-        END IF;
-    END IF;
-    RETURN NEW;
-END;
-$function$
-;
-
-COMMENT ON FUNCTION public.calculate_break_duration() IS 'Calculates break duration in minutes. For paused breaks that are auto-ended, uses time from start to pause as the actual break duration.';
-
 -- DROP FUNCTION public.calculate_break_windows(int4);
 
 CREATE OR REPLACE FUNCTION public.calculate_break_windows(p_user_id integer)
@@ -2267,74 +2234,27 @@ CREATE OR REPLACE FUNCTION public.calculate_break_windows(p_user_id integer)
  LANGUAGE plpgsql
 AS $function$
       DECLARE
-          shift_info RECORD;
-          shift_start_time TIME;
-          shift_end_time TIME;
-          is_night_shift BOOLEAN;
+          custom_break RECORD;
       BEGIN
-          -- Get agent's actual shift information
-          SELECT * INTO shift_info FROM get_agent_shift_info(p_user_id) LIMIT 1;
-          
-          IF NOT FOUND OR shift_info.shift_time IS NULL THEN
-              RETURN; -- No shift configured
-          END IF;
-          
-          -- Parse shift time (e.g., "7:00 AM - 4:00 PM" or "10:00 PM - 7:00 AM")
-          shift_start_time := CASE 
-              WHEN split_part(shift_info.shift_time, ' - ', 1) LIKE '%PM' AND 
-                   NOT split_part(shift_info.shift_time, ' - ', 1) LIKE '12:%PM' THEN
-                  (split_part(split_part(shift_info.shift_time, ' - ', 1), ' ', 1)::TIME + INTERVAL '12 hours')::TIME
-              WHEN split_part(shift_info.shift_time, ' - ', 1) LIKE '12:%AM' THEN
-                  replace(split_part(shift_info.shift_time, ' - ', 1), '12:', '00:')::TIME
-              ELSE
-                  split_part(split_part(shift_info.shift_time, ' - ', 1), ' ', 1)::TIME
-          END;
-          
-          shift_end_time := CASE 
-              WHEN split_part(shift_info.shift_time, ' - ', 2) LIKE '%PM' AND 
-                   NOT split_part(shift_info.shift_time, ' - ', 2) LIKE '12:%PM' THEN
-                  (split_part(split_part(shift_info.shift_time, ' - ', 2), ' ', 1)::TIME + INTERVAL '12 hours')::TIME
-              WHEN split_part(shift_info.shift_time, ' - ', 2) LIKE '12:%PM' THEN
-                  (split_part(split_part(shift_info.shift_time, ' - ', 2), ' ', 1)::TIME + INTERVAL '12 hours')::TIME
-              ELSE
-                  split_part(split_part(shift_info.shift_time, ' - ', 2), ' ', 1)::TIME
-          END;
-          
-          -- Determine if it's a night shift (crosses midnight)
-          is_night_shift := shift_start_time > shift_end_time;
-          
-          -- Return break windows based on shift start time
-          -- Morning/First Night break: 2 hours after shift start
-          RETURN QUERY SELECT 
-              CASE 
-                  WHEN shift_info.shift_period = 'Day Shift' THEN 'Morning'::break_type_enum
-                  ELSE 'NightFirst'::break_type_enum
-              END,
-              shift_start_time + INTERVAL '2 hours',
-              shift_start_time + INTERVAL '3 hours';
-          
-          -- Lunch/Night Meal break: 4 hours after shift start
-          RETURN QUERY SELECT 
-              CASE 
-                  WHEN shift_info.shift_period = 'Day Shift' THEN 'Lunch'::break_type_enum
-                  ELSE 'NightMeal'::break_type_enum
-              END,
-              shift_start_time + INTERVAL '4 hours',
-              shift_start_time + INTERVAL '7 hours';
-          
-          -- Afternoon/Second Night break: 7 hours 45 minutes after shift start
-          RETURN QUERY SELECT 
-              CASE 
-                  WHEN shift_info.shift_period = 'Day Shift' THEN 'Afternoon'::break_type_enum
-                  ELSE 'NightSecond'::break_type_enum
-              END,
-              shift_start_time + INTERVAL '7 hours 45 minutes',
-              shift_start_time + INTERVAL '8 hours 45 minutes';
+          -- Return only custom break windows from the breaks table
+          -- Users must set their own break schedules
+          FOR custom_break IN
+              SELECT b.break_type, b.start_time, b.end_time
+              FROM public.breaks b
+              WHERE b.user_id = p_user_id 
+              AND b.is_active = true
+              ORDER BY b.break_type
+          LOOP
+              RETURN QUERY SELECT 
+                  custom_break.break_type,
+                  custom_break.start_time,
+                  custom_break.end_time;
+          END LOOP;
       END;
-      $function$
+$function$
 ;
 
-COMMENT ON FUNCTION public.calculate_break_windows(int4) IS 'Calculates break windows based on agent shift times (force cleaned)';
+COMMENT ON FUNCTION public.calculate_break_windows(int4) IS 'Returns only custom break windows from breaks table - users must configure their own break schedules';
 
 -- DROP FUNCTION public.calculate_monthly_productivity_score(int4, varchar);
 
@@ -2851,163 +2771,151 @@ CREATE OR REPLACE FUNCTION public.check_break_reminders()
  RETURNS integer
  LANGUAGE plpgsql
 AS $function$
-            DECLARE
-                agent_record RECORD;
-                notifications_sent INTEGER := 0;
-                check_time TIMESTAMP;
-            BEGIN
-                check_time := NOW() AT TIME ZONE 'Asia/Manila';
-
-                -- NOTE: Task notifications are now handled by a separate scheduler
-                -- This function only handles break-related notifications
-
-                -- Loop through all active agents
-                FOR agent_record IN
-                    SELECT DISTINCT u.id as user_id
-                    FROM users u
-                    INNER JOIN agents a ON u.id = a.user_id
-                    WHERE u.user_type = 'Agent'
-                LOOP
-                    -- Check for breaks available soon (15 minutes before)
-                    IF is_break_available_soon(agent_record.user_id, 'Morning', check_time) THEN
-                        PERFORM create_break_reminder_notification(agent_record.user_id, 'available_soon', 'Morning');
-                        notifications_sent := notifications_sent + 1;
-                    END IF;
-
-                    IF is_break_available_soon(agent_record.user_id, 'Lunch', check_time) THEN
-                        PERFORM create_break_reminder_notification(agent_record.user_id, 'available_soon', 'Lunch');
-                        notifications_sent := notifications_sent + 1;
-                    END IF;
-
-                    IF is_break_available_soon(agent_record.user_id, 'Afternoon', check_time) THEN
-                        PERFORM create_break_reminder_notification(agent_record.user_id, 'available_soon', 'Afternoon');
-                        notifications_sent := notifications_sent + 1;
-                    END IF;
-
-                    -- Check for night shift breaks available soon
-                    IF is_break_available_soon(agent_record.user_id, 'NightFirst', check_time) THEN
-                        PERFORM create_break_reminder_notification(agent_record.user_id, 'available_soon', 'NightFirst');
-                        notifications_sent := notifications_sent + 1;
-                    END IF;
-
-                    IF is_break_available_soon(agent_record.user_id, 'NightMeal', check_time) THEN
-                        PERFORM create_break_reminder_notification(agent_record.user_id, 'available_soon', 'NightMeal');
-                        notifications_sent := notifications_sent + 1;
-                    END IF;
-
-                    IF is_break_available_soon(agent_record.user_id, 'NightSecond', check_time) THEN
-                        PERFORM create_break_reminder_notification(agent_record.user_id, 'available_soon', 'NightSecond');
-                        notifications_sent := notifications_sent + 1;
-                    END IF;
-
-                    -- Check for breaks that are currently available/active (ONLY if notification not already sent)
-                    IF is_break_available_now(agent_record.user_id, 'Morning', check_time)
-                       AND NOT is_break_available_now_notification_sent(agent_record.user_id, 'Morning', check_time) THEN
-                        PERFORM create_break_reminder_notification(agent_record.user_id, 'available_now', 'Morning');
-                        notifications_sent := notifications_sent + 1;
-                    END IF;
-
-                    IF is_break_available_now(agent_record.user_id, 'Lunch', check_time)
-                       AND NOT is_break_available_now_notification_sent(agent_record.user_id, 'Lunch', check_time) THEN
-                        PERFORM create_break_reminder_notification(agent_record.user_id, 'available_now', 'Lunch');
-                        notifications_sent := notifications_sent + 1;
-                    END IF;
-
-                    IF is_break_available_now(agent_record.user_id, 'Afternoon', check_time)
-                       AND NOT is_break_available_now_notification_sent(agent_record.user_id, 'Afternoon', check_time) THEN
-                        PERFORM create_break_reminder_notification(agent_record.user_id, 'available_now', 'Afternoon');
-                        notifications_sent := notifications_sent + 1;
-                    END IF;
-
-                    -- Check for night shift breaks currently available (ONLY if notification not already sent)
-                    IF is_break_available_now(agent_record.user_id, 'NightFirst', check_time)
-                       AND NOT is_break_available_now_notification_sent(agent_record.user_id, 'NightFirst', check_time) THEN
-                        PERFORM create_break_reminder_notification(agent_record.user_id, 'available_now', 'NightFirst');
-                        notifications_sent := notifications_sent + 1;
-                    END IF;
-
-                    IF is_break_available_now(agent_record.user_id, 'NightMeal', check_time)
-                       AND NOT is_break_available_now_notification_sent(agent_record.user_id, 'NightMeal', check_time) THEN
-                        PERFORM create_break_reminder_notification(agent_record.user_id, 'available_now', 'NightMeal');
-                        notifications_sent := notifications_sent + 1;
-                    END IF;
-
-                    IF is_break_available_now(agent_record.user_id, 'NightSecond', check_time)
-                       AND NOT is_break_available_now_notification_sent(agent_record.user_id, 'NightSecond', check_time) THEN
-                        PERFORM create_break_reminder_notification(agent_record.user_id, 'available_now', 'NightSecond');
-                        notifications_sent := notifications_sent + 1;
-                    END IF;
-
-                    -- Check for missed breaks (30 minutes after break becomes available)
-                    -- This will send "You have not taken your [Break] yet!" notifications
-                    IF is_break_missed(agent_record.user_id, 'Morning', check_time) THEN
-                        PERFORM create_break_reminder_notification(agent_record.user_id, 'missed_break', 'Morning');
-                        notifications_sent := notifications_sent + 1;
-                    END IF;
-
-                    IF is_break_missed(agent_record.user_id, 'Lunch', check_time) THEN
-                        PERFORM create_break_reminder_notification(agent_record.user_id, 'missed_break', 'Lunch');
-                        notifications_sent := notifications_sent + 1;
-                    END IF;
-
-                    IF is_break_missed(agent_record.user_id, 'Afternoon', check_time) THEN
-                        PERFORM create_break_reminder_notification(agent_record.user_id, 'missed_break', 'Afternoon');
-                        notifications_sent := notifications_sent + 1;
-                    END IF;
-
-                    -- Check for night shift missed breaks
-                    IF is_break_missed(agent_record.user_id, 'NightFirst', check_time) THEN
-                        PERFORM create_break_reminder_notification(agent_record.user_id, 'missed_break', 'NightFirst');
-                        notifications_sent := notifications_sent + 1;
-                    END IF;
-
-                    IF is_break_missed(agent_record.user_id, 'NightMeal', check_time) THEN
-                        PERFORM create_break_reminder_notification(agent_record.user_id, 'missed_break', 'NightMeal');
-                        notifications_sent := notifications_sent + 1;
-                    END IF;
-
-                    IF is_break_missed(agent_record.user_id, 'NightSecond', check_time) THEN
-                        PERFORM create_break_reminder_notification(agent_record.user_id, 'missed_break', 'NightSecond');
-                        notifications_sent := notifications_sent + 1;
-                    END IF;
-
-                    -- Check for break window ending soon (15 minutes before break window expires)
-                    -- This prevents generic "Break ending soon" notifications
-                    IF is_break_window_ending_soon(agent_record.user_id, 'Morning', check_time) THEN
-                        PERFORM create_break_reminder_notification(agent_record.user_id, 'ending_soon', 'Morning');
-                        notifications_sent := notifications_sent + 1;
-                    END IF;
-
-                    IF is_break_window_ending_soon(agent_record.user_id, 'Lunch', check_time) THEN
-                        PERFORM create_break_reminder_notification(agent_record.user_id, 'ending_soon', 'Lunch');
-                        notifications_sent := notifications_sent + 1;
-                    END IF;
-
-                    IF is_break_window_ending_soon(agent_record.user_id, 'Afternoon', check_time) THEN
-                        PERFORM create_break_reminder_notification(agent_record.user_id, 'ending_soon', 'Afternoon');
-                        notifications_sent := notifications_sent + 1;
-                    END IF;
-
-                    -- Check for night shift break windows ending soon
-                    IF is_break_window_ending_soon(agent_record.user_id, 'NightFirst', check_time) THEN
-                        PERFORM create_break_reminder_notification(agent_record.user_id, 'ending_soon', 'NightFirst');
-                        notifications_sent := notifications_sent + 1;
-                    END IF;
-
-                    IF is_break_window_ending_soon(agent_record.user_id, 'NightMeal', check_time) THEN
-                        PERFORM create_break_reminder_notification(agent_record.user_id, 'ending_soon', 'NightMeal');
-                        notifications_sent := notifications_sent + 1;
-                    END IF;
-
-                    IF is_break_window_ending_soon(agent_record.user_id, 'NightSecond', check_time) THEN
-                        PERFORM create_break_reminder_notification(agent_record.user_id, 'ending_soon', 'NightSecond');
-                        notifications_sent := notifications_sent + 1;
-                    END IF;
-                END LOOP;
-
-                RETURN notifications_sent;
-            END;
-            $function$
+                  DECLARE
+                      agent_record RECORD;
+                      notifications_sent INTEGER := 0;
+                      check_time TIMESTAMP WITH TIME ZONE;
+                  BEGIN
+                      check_time := NOW();
+      
+                      -- NOTE: Task notifications are now handled by a separate scheduler
+                      -- This function only handles break-related notifications
+      
+                      -- Loop through all active agents
+                      FOR agent_record IN
+                          SELECT DISTINCT u.id as user_id
+                          FROM users u
+                          INNER JOIN agents a ON u.id = a.user_id
+                          WHERE u.user_type = 'Agent'
+                      LOOP
+                          -- Check for breaks available soon (15 minutes before)
+                          IF is_break_available_soon(agent_record.user_id, 'Morning', check_time) THEN
+                              PERFORM create_break_reminder_notification(agent_record.user_id, 'available_soon', 'Morning');
+                              notifications_sent := notifications_sent + 1;
+                          END IF;
+      
+                          IF is_break_available_soon(agent_record.user_id, 'Lunch', check_time) THEN
+                              PERFORM create_break_reminder_notification(agent_record.user_id, 'available_soon', 'Lunch');
+                              notifications_sent := notifications_sent + 1;
+                          END IF;
+      
+                          IF is_break_available_soon(agent_record.user_id, 'Afternoon', check_time) THEN
+                              PERFORM create_break_reminder_notification(agent_record.user_id, 'available_soon', 'Afternoon');
+                              notifications_sent := notifications_sent + 1;
+                          END IF;
+      
+                          -- Check for night shift breaks available soon
+                          IF is_break_available_soon(agent_record.user_id, 'NightFirst', check_time) THEN
+                              PERFORM create_break_reminder_notification(agent_record.user_id, 'available_soon', 'NightFirst');
+                              notifications_sent := notifications_sent + 1;
+                          END IF;
+      
+                          IF is_break_available_soon(agent_record.user_id, 'NightMeal', check_time) THEN
+                              PERFORM create_break_reminder_notification(agent_record.user_id, 'available_soon', 'NightMeal');
+                              notifications_sent := notifications_sent + 1;
+                          END IF;
+      
+                          IF is_break_available_soon(agent_record.user_id, 'NightSecond', check_time) THEN
+                              PERFORM create_break_reminder_notification(agent_record.user_id, 'available_soon', 'NightSecond');
+                              notifications_sent := notifications_sent + 1;
+                          END IF;
+      
+                          -- Check for missed breaks FIRST (30 minutes after break becomes available)
+                          -- This will send "You have not taken your [Break] yet!" notifications
+                          -- Priority: Missed Break > Available Now
+                          IF is_break_missed(agent_record.user_id, 'Morning', check_time) THEN
+                              PERFORM create_break_reminder_notification(agent_record.user_id, 'missed_break', 'Morning');
+                              notifications_sent := notifications_sent + 1;
+                          ELSIF is_break_available_now(agent_record.user_id, 'Morning', check_time)
+                             AND NOT is_break_available_now_notification_sent(agent_record.user_id, 'Morning', check_time) THEN
+                              PERFORM create_break_reminder_notification(agent_record.user_id, 'available_now', 'Morning');
+                              notifications_sent := notifications_sent + 1;
+                          END IF;
+      
+                          IF is_break_missed(agent_record.user_id, 'Lunch', check_time) THEN
+                              PERFORM create_break_reminder_notification(agent_record.user_id, 'missed_break', 'Lunch');
+                              notifications_sent := notifications_sent + 1;
+                          ELSIF is_break_available_now(agent_record.user_id, 'Lunch', check_time)
+                             AND NOT is_break_available_now_notification_sent(agent_record.user_id, 'Lunch', check_time) THEN
+                              PERFORM create_break_reminder_notification(agent_record.user_id, 'available_now', 'Lunch');
+                              notifications_sent := notifications_sent + 1;
+                          END IF;
+      
+                          IF is_break_missed(agent_record.user_id, 'Afternoon', check_time) THEN
+                              PERFORM create_break_reminder_notification(agent_record.user_id, 'missed_break', 'Afternoon');
+                              notifications_sent := notifications_sent + 1;
+                          ELSIF is_break_window_ending_soon(agent_record.user_id, 'Afternoon', check_time) THEN
+                              PERFORM create_break_reminder_notification(agent_record.user_id, 'ending_soon', 'Afternoon');
+                              notifications_sent := notifications_sent + 1;
+                          ELSIF is_break_available_now(agent_record.user_id, 'Afternoon', check_time)
+                             AND NOT is_break_available_now_notification_sent(agent_record.user_id, 'Afternoon', check_time) THEN
+                              PERFORM create_break_reminder_notification(agent_record.user_id, 'available_now', 'Afternoon');
+                              notifications_sent := notifications_sent + 1;
+                          END IF;
+      
+                          -- Check for night shift breaks with priority: Missed Break > Available Now
+                          IF is_break_missed(agent_record.user_id, 'NightFirst', check_time) THEN
+                              PERFORM create_break_reminder_notification(agent_record.user_id, 'missed_break', 'NightFirst');
+                              notifications_sent := notifications_sent + 1;
+                          ELSIF is_break_available_now(agent_record.user_id, 'NightFirst', check_time)
+                             AND NOT is_break_available_now_notification_sent(agent_record.user_id, 'NightFirst', check_time) THEN
+                              PERFORM create_break_reminder_notification(agent_record.user_id, 'available_now', 'NightFirst');
+                              notifications_sent := notifications_sent + 1;
+                          END IF;
+      
+                          IF is_break_missed(agent_record.user_id, 'NightMeal', check_time) THEN
+                              PERFORM create_break_reminder_notification(agent_record.user_id, 'missed_break', 'NightMeal');
+                              notifications_sent := notifications_sent + 1;
+                          ELSIF is_break_available_now(agent_record.user_id, 'NightMeal', check_time)
+                             AND NOT is_break_available_now_notification_sent(agent_record.user_id, 'NightMeal', check_time) THEN
+                              PERFORM create_break_reminder_notification(agent_record.user_id, 'available_now', 'NightMeal');
+                              notifications_sent := notifications_sent + 1;
+                          END IF;
+      
+                          IF is_break_missed(agent_record.user_id, 'NightSecond', check_time) THEN
+                              PERFORM create_break_reminder_notification(agent_record.user_id, 'missed_break', 'NightSecond');
+                              notifications_sent := notifications_sent + 1;
+                          ELSIF is_break_available_now(agent_record.user_id, 'NightSecond', check_time)
+                             AND NOT is_break_available_now_notification_sent(agent_record.user_id, 'NightSecond', check_time) THEN
+                              PERFORM create_break_reminder_notification(agent_record.user_id, 'available_now', 'NightSecond');
+                              notifications_sent := notifications_sent + 1;
+                          END IF;
+      
+                          -- Check for break window ending soon (15 minutes before break window expires)
+                          -- This prevents generic "Break ending soon" notifications
+                          IF is_break_window_ending_soon(agent_record.user_id, 'Morning', check_time) THEN
+                              PERFORM create_break_reminder_notification(agent_record.user_id, 'ending_soon', 'Morning');
+                              notifications_sent := notifications_sent + 1;
+                          END IF;
+      
+                          IF is_break_window_ending_soon(agent_record.user_id, 'Lunch', check_time) THEN
+                              PERFORM create_break_reminder_notification(agent_record.user_id, 'ending_soon', 'Lunch');
+                              notifications_sent := notifications_sent + 1;
+                          END IF;
+      
+                          -- Afternoon break ending_soon is already handled in the ELSIF chain above
+                          -- No need for duplicate check here
+      
+                          -- Check for night shift break windows ending soon
+                          IF is_break_window_ending_soon(agent_record.user_id, 'NightFirst', check_time) THEN
+                              PERFORM create_break_reminder_notification(agent_record.user_id, 'ending_soon', 'NightFirst');
+                              notifications_sent := notifications_sent + 1;
+                          END IF;
+      
+                          IF is_break_window_ending_soon(agent_record.user_id, 'NightMeal', check_time) THEN
+                              PERFORM create_break_reminder_notification(agent_record.user_id, 'ending_soon', 'NightMeal');
+                              notifications_sent := notifications_sent + 1;
+                          END IF;
+      
+                          IF is_break_window_ending_soon(agent_record.user_id, 'NightSecond', check_time) THEN
+                              PERFORM create_break_reminder_notification(agent_record.user_id, 'ending_soon', 'NightSecond');
+                              notifications_sent := notifications_sent + 1;
+                          END IF;
+                      END LOOP;
+      
+                      RETURN notifications_sent;
+                  END;
+                  $function$
 ;
 
 -- DROP FUNCTION public.check_meeting_notifications();
@@ -3739,12 +3647,13 @@ BEGIN
             RETURN; -- Already sent today, don't send again
         END IF;
     ELSE
-        -- For other notification types, use the existing cooldown logic
+        -- For other notification types, check for the SAME notification type and break type
         SELECT MAX(created_at) INTO last_notification_time
         FROM notifications
         WHERE user_id = p_agent_user_id
         AND category = notif_category
-        AND title = title_text
+        AND payload->>'reminder_type' = p_notification_type
+        AND payload->>'break_type' = p_break_type::text
         AND created_at > (NOW() - INTERVAL '60 minutes');
 
         -- If a recent notification exists, check if enough time has passed
@@ -4188,18 +4097,18 @@ END;
 $function$
 ;
 
--- DROP FUNCTION public.digest(bytea, text);
+-- DROP FUNCTION public.digest(text, text);
 
-CREATE OR REPLACE FUNCTION public.digest(bytea, text)
+CREATE OR REPLACE FUNCTION public.digest(text, text)
  RETURNS bytea
  LANGUAGE c
  IMMUTABLE PARALLEL SAFE STRICT
 AS '$libdir/pgcrypto', $function$pg_digest$function$
 ;
 
--- DROP FUNCTION public.digest(text, text);
+-- DROP FUNCTION public.digest(bytea, text);
 
-CREATE OR REPLACE FUNCTION public.digest(text, text)
+CREATE OR REPLACE FUNCTION public.digest(bytea, text)
  RETURNS bytea
  LANGUAGE c
  IMMUTABLE PARALLEL SAFE STRICT
@@ -4262,6 +4171,50 @@ CREATE OR REPLACE FUNCTION public.encrypt_iv(bytea, bytea, bytea, text)
 AS '$libdir/pgcrypto', $function$pg_encrypt_iv$function$
 ;
 
+-- DROP FUNCTION public.end_meeting(int4);
+
+CREATE OR REPLACE FUNCTION public.end_meeting(p_meeting_id integer)
+ RETURNS boolean
+ LANGUAGE plpgsql
+AS $function$
+DECLARE
+    meeting_record meetings%ROWTYPE;
+    actual_duration_minutes INTEGER;
+BEGIN
+    -- Get the meeting
+    SELECT * INTO meeting_record
+    FROM meetings
+    WHERE id = p_meeting_id;
+    
+    -- Check if meeting exists and is in-progress
+    IF NOT FOUND THEN
+        RETURN FALSE;
+    END IF;
+    
+    IF meeting_record.status != 'in-progress' THEN
+        RETURN FALSE;
+    END IF;
+    
+    -- Calculate actual duration in minutes based on start_time
+    actual_duration_minutes := EXTRACT(EPOCH FROM (NOW() - meeting_record.start_time)) / 60;
+    
+    -- Update meeting status to completed, set is_in_meeting to false, 
+    -- set end_time to current time, and update duration_minutes
+    UPDATE meetings
+    SET status = 'completed',
+        is_in_meeting = FALSE,
+        end_time = NOW(),
+        duration_minutes = actual_duration_minutes,
+        updated_at = now()
+    WHERE id = p_meeting_id;
+    
+    RETURN TRUE;
+END;
+$function$
+;
+
+COMMENT ON FUNCTION public.end_meeting(int4) IS 'Ends a meeting and calculates actual duration based on start_time';
+
 -- DROP FUNCTION public.end_meeting(int4, int4);
 
 CREATE OR REPLACE FUNCTION public.end_meeting(meeting_id_param integer, agent_user_id_param integer)
@@ -4315,50 +4268,6 @@ BEGIN
 END;
 $function$
 ;
-
--- DROP FUNCTION public.end_meeting(int4);
-
-CREATE OR REPLACE FUNCTION public.end_meeting(p_meeting_id integer)
- RETURNS boolean
- LANGUAGE plpgsql
-AS $function$
-DECLARE
-    meeting_record meetings%ROWTYPE;
-    actual_duration_minutes INTEGER;
-BEGIN
-    -- Get the meeting
-    SELECT * INTO meeting_record
-    FROM meetings
-    WHERE id = p_meeting_id;
-    
-    -- Check if meeting exists and is in-progress
-    IF NOT FOUND THEN
-        RETURN FALSE;
-    END IF;
-    
-    IF meeting_record.status != 'in-progress' THEN
-        RETURN FALSE;
-    END IF;
-    
-    -- Calculate actual duration in minutes based on start_time
-    actual_duration_minutes := EXTRACT(EPOCH FROM (NOW() - meeting_record.start_time)) / 60;
-    
-    -- Update meeting status to completed, set is_in_meeting to false, 
-    -- set end_time to current time, and update duration_minutes
-    UPDATE meetings
-    SET status = 'completed',
-        is_in_meeting = FALSE,
-        end_time = NOW(),
-        duration_minutes = actual_duration_minutes,
-        updated_at = now()
-    WHERE id = p_meeting_id;
-    
-    RETURN TRUE;
-END;
-$function$
-;
-
-COMMENT ON FUNCTION public.end_meeting(int4) IS 'Ends a meeting and calculates actual duration based on start_time';
 
 -- DROP FUNCTION public.fixed_comprehensive_activity_reset(timestamp);
 
@@ -4561,15 +4470,6 @@ CREATE OR REPLACE FUNCTION public.gen_random_uuid()
 AS '$libdir/pgcrypto', $function$pg_random_uuid$function$
 ;
 
--- DROP FUNCTION public.gen_salt(text);
-
-CREATE OR REPLACE FUNCTION public.gen_salt(text)
- RETURNS text
- LANGUAGE c
- PARALLEL SAFE STRICT
-AS '$libdir/pgcrypto', $function$pg_gen_salt$function$
-;
-
 -- DROP FUNCTION public.gen_salt(text, int4);
 
 CREATE OR REPLACE FUNCTION public.gen_salt(text, integer)
@@ -4577,6 +4477,15 @@ CREATE OR REPLACE FUNCTION public.gen_salt(text, integer)
  LANGUAGE c
  PARALLEL SAFE STRICT
 AS '$libdir/pgcrypto', $function$pg_gen_salt_rounds$function$
+;
+
+-- DROP FUNCTION public.gen_salt(text);
+
+CREATE OR REPLACE FUNCTION public.gen_salt(text)
+ RETURNS text
+ LANGUAGE c
+ PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pg_gen_salt$function$
 ;
 
 -- DROP FUNCTION public.generate_ticket_id();
@@ -4776,33 +4685,36 @@ CREATE OR REPLACE FUNCTION public.get_agent_daily_breaks(p_agent_user_id integer
  RETURNS TABLE(break_type break_type_enum, break_count integer, total_minutes integer, can_take_break boolean)
  LANGUAGE plpgsql
 AS $function$
-			BEGIN
-				RETURN QUERY
-				WITH break_types AS (
-					SELECT unnest(enum_range(NULL::break_type_enum)) AS bt
-				),
-				today_breaks AS (
-					SELECT 
-						bs.break_type,
-						COUNT(*) as break_count,
-						COALESCE(SUM(bs.duration_minutes), 0) as total_minutes
-					FROM public.break_sessions bs
-					WHERE bs.agent_user_id = p_agent_user_id
-					AND bs.break_date = (NOW() AT TIME ZONE 'Asia/Manila')::date
-					AND bs.end_time IS NOT NULL
-					GROUP BY bs.break_type
-				)
-				SELECT 
-					bt.bt as break_type,
-					COALESCE(tb.break_count, 0)::INTEGER as break_count,
-					COALESCE(tb.total_minutes, 0)::INTEGER as total_minutes,
-					(COALESCE(tb.break_count, 0) = 0) as can_take_break
-				FROM break_types bt
-				LEFT JOIN today_breaks tb ON bt.bt = tb.break_type
-				ORDER BY bt.bt;
-			END;
-			$function$
+      BEGIN
+          RETURN QUERY
+          WITH break_types AS (
+              SELECT unnest(enum_range(NULL::break_type_enum)) AS bt
+          ),
+          today_breaks AS (
+              SELECT 
+                  bs.break_type,
+                  COUNT(*) as break_count,
+                  COALESCE(SUM(bs.duration_minutes), 0) as total_minutes
+              FROM public.break_sessions bs
+              WHERE bs.agent_user_id = p_agent_user_id
+              AND bs.break_date = (NOW() AT TIME ZONE 'Asia/Manila')::date
+              AND bs.end_time IS NOT NULL
+              AND bs.is_expired = FALSE  -- Only count actually used breaks, not missed ones
+              GROUP BY bs.break_type
+          )
+          SELECT 
+              bt.bt as break_type,
+              COALESCE(tb.break_count, 0)::INTEGER as break_count,
+              COALESCE(tb.total_minutes, 0)::INTEGER as total_minutes,
+              (COALESCE(tb.break_count, 0) = 0) as can_take_break
+          FROM break_types bt
+          LEFT JOIN today_breaks tb ON bt.bt = tb.break_type
+          ORDER BY bt.bt;
+      END;
+$function$
 ;
+
+COMMENT ON FUNCTION public.get_agent_daily_breaks(int4) IS 'UPDATED: Only counts actually used breaks (is_expired = FALSE), not missed break sessions';
 
 -- DROP FUNCTION public.get_agent_shift_info(int4);
 
@@ -5805,381 +5717,328 @@ CREATE OR REPLACE FUNCTION public.hmac(bytea, bytea, text)
 AS '$libdir/pgcrypto', $function$pg_hmac$function$
 ;
 
--- DROP FUNCTION public.is_break_available(int4, break_type_enum, timestamp);
+-- DROP FUNCTION public.is_break_available_now(int4, break_type_enum, timestamptz);
 
-CREATE OR REPLACE FUNCTION public.is_break_available(p_agent_user_id integer, p_break_type break_type_enum, p_current_time timestamp without time zone DEFAULT (now() AT TIME ZONE 'Asia/Manila'::text))
+CREATE OR REPLACE FUNCTION public.is_break_available_now(p_agent_user_id integer, p_break_type break_type_enum, p_current_time timestamp with time zone DEFAULT NULL::timestamp with time zone)
+ RETURNS boolean
+ LANGUAGE plpgsql
+AS $function$
+            DECLARE
+                current_time_manila TIMESTAMP;
+                current_time_only TIME;
+                break_start_time TIME;
+                break_end_time TIME;
+                break_already_taken BOOLEAN;
+            BEGIN
+                -- Get current Manila time
+                IF p_current_time IS NULL THEN
+                    current_time_manila := (NOW() AT TIME ZONE 'Asia/Manila');
+                ELSE
+                    current_time_manila := (p_current_time AT TIME ZONE 'Asia/Manila');
+                END IF;
+                
+                current_time_only := current_time_manila::TIME;
+                
+                -- Check if break was already taken today
+                SELECT EXISTS(
+                    SELECT 1 FROM break_sessions
+                    WHERE agent_user_id = p_agent_user_id
+                    AND break_type = p_break_type
+                    AND break_date = current_time_manila::DATE
+                    AND end_time IS NOT NULL
+                ) INTO break_already_taken;
+                
+                IF break_already_taken THEN
+                    RETURN FALSE; -- Break already taken
+                END IF;
+                
+                -- Get break window from calculate_break_windows (only returns custom breaks)
+                SELECT start_time, end_time INTO break_start_time, break_end_time
+                FROM calculate_break_windows(p_agent_user_id)
+                WHERE break_type = p_break_type
+                LIMIT 1;
+                
+                IF NOT FOUND THEN
+                    RETURN FALSE; -- No custom break configured for this type
+                END IF;
+                
+                -- Check if current time is within the break window
+                RETURN current_time_only >= break_start_time AND current_time_only < break_end_time;
+            END;
+            $function$
+;
+
+-- DROP FUNCTION public.is_break_available_now_notification_sent(int4, break_type_enum, timestamptz);
+
+CREATE OR REPLACE FUNCTION public.is_break_available_now_notification_sent(p_agent_user_id integer, p_break_type break_type_enum, p_check_time timestamp with time zone)
+ RETURNS boolean
+ LANGUAGE plpgsql
+AS $function$
+            DECLARE
+                current_time_manila TIMESTAMP;
+                break_start_time TIME;
+                break_end_time TIME;
+                notification_exists BOOLEAN;
+            BEGIN
+                -- Get current Manila time
+                current_time_manila := (p_check_time AT TIME ZONE 'Asia/Manila');
+                
+                -- Get break window from calculate_break_windows (only returns custom breaks)
+                SELECT start_time, end_time INTO break_start_time, break_end_time
+                FROM calculate_break_windows(p_agent_user_id)
+                WHERE break_type = p_break_type
+                LIMIT 1;
+                
+                IF NOT FOUND THEN
+                    RETURN FALSE; -- No custom break configured for this type
+                END IF;
+                
+                -- Check if "available_now" notification was already sent for this break period today
+                -- We check for notifications sent today, not just within the current break window
+                SELECT EXISTS(
+                    SELECT 1 FROM notifications 
+                    WHERE user_id = p_agent_user_id 
+                    AND category = 'break'
+                    AND payload->>'reminder_type' = 'available_now'
+                    AND payload->>'break_type' = p_break_type::text
+                    AND DATE(created_at AT TIME ZONE 'Asia/Manila') = current_time_manila::DATE
+                ) INTO notification_exists;
+                
+                RETURN notification_exists;
+            END;
+      $function$
+;
+
+-- DROP FUNCTION public.is_break_available_soon(int4, break_type_enum, timestamptz);
+
+CREATE OR REPLACE FUNCTION public.is_break_available_soon(p_agent_user_id integer, p_break_type break_type_enum, p_current_time timestamp with time zone DEFAULT NULL::timestamp with time zone)
+ RETURNS boolean
+ LANGUAGE plpgsql
+AS $function$
+            DECLARE
+                current_time_manila TIMESTAMP;
+                current_time_only TIME;
+                break_start_time TIME;
+                minutes_until_break INTEGER;
+                break_already_taken BOOLEAN;
+            BEGIN
+                -- Get current Manila time
+                IF p_current_time IS NULL THEN
+                    current_time_manila := (NOW() AT TIME ZONE 'Asia/Manila');
+                ELSE
+                    current_time_manila := (p_current_time AT TIME ZONE 'Asia/Manila');
+                END IF;
+                
+                current_time_only := current_time_manila::TIME;
+                
+                -- Check if break was already taken today
+                SELECT EXISTS(
+                    SELECT 1 FROM break_sessions
+                    WHERE agent_user_id = p_agent_user_id
+                    AND break_type = p_break_type
+                    AND break_date = current_time_manila::DATE
+                    AND end_time IS NOT NULL
+                ) INTO break_already_taken;
+                
+                IF break_already_taken THEN
+                    RETURN FALSE; -- Break already taken
+                END IF;
+                
+                -- Get break start time from calculate_break_windows (only returns custom breaks)
+                SELECT start_time INTO break_start_time
+                FROM calculate_break_windows(p_agent_user_id)
+                WHERE break_type = p_break_type
+                LIMIT 1;
+                
+                IF NOT FOUND THEN
+                    RETURN FALSE; -- No custom break configured for this type
+                END IF;
+                
+                -- Calculate minutes until break starts
+                minutes_until_break := EXTRACT(EPOCH FROM (break_start_time - current_time_only)) / 60;
+                
+                -- Handle day rollover for night shifts
+                IF minutes_until_break < -720 THEN -- More than 12 hours in the past
+                    minutes_until_break := minutes_until_break + 1440; -- Add 24 hours
+                END IF;
+                
+                -- Return true if break starts within the next 15 minutes
+                RETURN minutes_until_break > 0 AND minutes_until_break <= 15;
+            END;
+            $function$
+;
+
+-- DROP FUNCTION public.is_break_missed(int4, break_type_enum, timestamptz);
+
+CREATE OR REPLACE FUNCTION public.is_break_missed(p_agent_user_id integer, p_break_type break_type_enum, p_current_time timestamp with time zone DEFAULT NULL::timestamp with time zone)
+ RETURNS boolean
+ LANGUAGE plpgsql
+AS $function$
+            DECLARE
+                current_time_manila TIMESTAMP;
+                current_time_only TIME;
+                break_start_time TIME;
+                break_end_time TIME;
+                minutes_since_break_start INTEGER;
+                break_already_taken BOOLEAN;
+                break_currently_active BOOLEAN;
+                current_date_manila DATE;
+                last_notification_time TIMESTAMP;
+                minutes_since_last_notification INTEGER;
+            BEGIN
+                -- Get current Manila time
+                IF p_current_time IS NULL THEN
+                    current_time_manila := (NOW() AT TIME ZONE 'Asia/Manila');
+                ELSE
+                    current_time_manila := (p_current_time AT TIME ZONE 'Asia/Manila');
+                END IF;
+                
+                current_time_only := current_time_manila::TIME;
+                current_date_manila := current_time_manila::DATE;
+                
+                -- Check if break is currently active
+                SELECT EXISTS(
+                    SELECT 1 FROM break_sessions
+                    WHERE agent_user_id = p_agent_user_id
+                    AND break_type = p_break_type
+                    AND break_date = current_date_manila
+                    AND end_time IS NULL
+                ) INTO break_currently_active;
+                
+                IF break_currently_active THEN
+                    RETURN FALSE; -- Break is currently active, don't send reminder
+                END IF;
+                
+                -- Check if break was already taken today
+                SELECT EXISTS(
+                    SELECT 1 FROM break_sessions
+                    WHERE agent_user_id = p_agent_user_id
+                    AND break_type = p_break_type
+                    AND break_date = current_date_manila
+                    AND end_time IS NOT NULL
+                ) INTO break_already_taken;
+                
+                IF break_already_taken THEN
+                    RETURN FALSE; -- Break already taken
+                END IF;
+                
+                -- Get break window from calculate_break_windows (only returns custom breaks)
+                SELECT start_time, end_time INTO break_start_time, break_end_time
+                FROM calculate_break_windows(p_agent_user_id)
+                WHERE break_type = p_break_type
+                LIMIT 1;
+                
+                IF NOT FOUND THEN
+                    RETURN FALSE; -- No custom break configured for this type
+                END IF;
+                
+                -- Check if we're within the break window (missed break should be sent WHILE in window)
+                IF current_time_only < break_start_time OR current_time_only >= break_end_time THEN
+                    RETURN FALSE; -- Outside break window, don't send missed notification
+                END IF;
+                
+                -- Calculate minutes since break window started
+                minutes_since_break_start := EXTRACT(EPOCH FROM (current_time_only - break_start_time)) / 60;
+                
+                -- Check if it's been at least 30 minutes since break window started
+                -- This ensures we don't send "you haven't taken" too early
+                IF minutes_since_break_start < 30 THEN
+                    RETURN FALSE; -- Too early to send missed break notification
+                END IF;
+                
+                -- Calculate total break window duration to determine notification frequency
+                DECLARE
+                    window_duration_minutes INTEGER;
+                    notification_interval INTEGER;
+                BEGIN
+                    window_duration_minutes := EXTRACT(EPOCH FROM (break_end_time - break_start_time)) / 60;
+                    
+                    -- For all breaks, send missed break notifications every 30 minutes
+                    -- This ensures consistent reminder frequency regardless of break duration
+                    notification_interval := 30;
+                    
+                    -- Check if we're at the appropriate interval
+                    -- Use a small tolerance for floating-point calculations
+                    IF ABS(minutes_since_break_start % notification_interval) > 1 AND 
+                       ABS(minutes_since_break_start % notification_interval - notification_interval) > 1 THEN
+                        RETURN FALSE; -- Not at the correct interval (within 1-minute tolerance)
+                    END IF;
+                END;
+                
+                -- Calculate total break window duration and check if we're in the last 15 minutes
+                DECLARE
+                    window_duration_minutes INTEGER;
+                BEGIN
+                    window_duration_minutes := EXTRACT(EPOCH FROM (break_end_time - break_start_time)) / 60;
+                    
+                -- Don't send missed notifications in the last 15 minutes of the window
+                -- This allows "ending soon" notifications to take precedence
+                IF minutes_since_break_start >= (window_duration_minutes - 15) THEN
+                    RETURN FALSE; -- Too close to window end, let ending soon handle it
+                END IF;
+                END;
+                
+                -- Check if we've sent a notification in the last 25 minutes
+                -- This prevents duplicate notifications within the same 30-minute interval
+                SELECT MAX(created_at) INTO last_notification_time
+                FROM notifications
+                WHERE user_id = p_agent_user_id
+                AND category = 'break'
+                AND payload->>'break_type' = p_break_type::text
+                AND payload->>'notification_type' = 'missed_break'
+                AND created_at >= current_time_manila - INTERVAL '1 hour';
+                
+                IF last_notification_time IS NOT NULL THEN
+                    minutes_since_last_notification := EXTRACT(EPOCH FROM (current_time_manila - last_notification_time)) / 60;
+                    IF minutes_since_last_notification < 25 THEN
+                        RETURN FALSE; -- Too soon since last notification
+                    END IF;
+                END IF;
+                
+                RETURN TRUE; -- Break is missed and notification should be sent
+            END;
+            $function$
+;
+
+-- DROP FUNCTION public.is_break_session_expired(int4);
+
+CREATE OR REPLACE FUNCTION public.is_break_session_expired(p_session_id integer)
  RETURNS boolean
  LANGUAGE plpgsql
 AS $function$
       DECLARE
-        shift_info RECORD;
-        break_windows RECORD;
-        current_time_only TIME;
-        break_start_time TIME;
-        break_end_time TIME;
-        break_already_taken BOOLEAN;
-        minutes_since_start INTEGER;
+          session_record RECORD;
       BEGIN
-        -- Get agent shift information
-        SELECT * INTO shift_info FROM get_agent_shift_info(p_agent_user_id) LIMIT 1;
-
-        IF NOT FOUND THEN
+          -- Get the break session
+          SELECT bs.is_expired, bs.agent_user_id, bs.break_type, bs.break_date, bs.end_time
+          INTO session_record
+          FROM break_sessions bs
+          WHERE bs.id = p_session_id;
+          
+          IF NOT FOUND THEN
+              RETURN FALSE;
+          END IF;
+          
+          -- If already marked as expired, return true
+          IF session_record.is_expired THEN
+              RETURN TRUE;
+          END IF;
+          
+          -- Only check window expiration for incomplete sessions (no end_time)
+          -- Completed sessions should not be marked as expired just because the window passed
+          IF session_record.end_time IS NULL THEN
+              -- Check if the break window expired on the session's date, not today
+              RETURN is_break_window_expired(session_record.agent_user_id, session_record.break_type, 
+                  (session_record.break_date + INTERVAL '23:59:59') AT TIME ZONE 'Asia/Manila');
+          END IF;
+          
+          -- Completed sessions are not expired
           RETURN FALSE;
-        END IF;
-
-        -- Check if break was already taken today
-        SELECT EXISTS(
-          SELECT 1 FROM break_sessions
-          WHERE agent_user_id = p_agent_user_id
-          AND break_type = p_break_type
-          AND break_date = p_current_time::DATE
-        ) INTO break_already_taken;
-
-        IF break_already_taken THEN
-          RETURN FALSE; -- Break already taken
-        END IF;
-
-        -- Get break windows for this shift
-        SELECT * INTO break_windows FROM calculate_break_windows(shift_info.shift_time) LIMIT 1;
-
-        current_time_only := p_current_time::TIME;
-
-        -- Determine break start and end times based on break type
-        CASE p_break_type
-          WHEN 'Morning' THEN
-            break_start_time := break_windows.morning_start;
-            break_end_time := break_windows.morning_end;
-          WHEN 'Lunch' THEN
-            break_start_time := break_windows.lunch_start;
-            break_end_time := break_windows.lunch_end;
-          WHEN 'Afternoon' THEN
-            break_start_time := break_windows.afternoon_start;
-            break_end_time := break_windows.afternoon_end;
-          WHEN 'NightFirst' THEN
-            break_start_time := break_windows.morning_start;
-            break_end_time := break_windows.morning_end;
-          WHEN 'NightMeal' THEN
-            break_start_time := break_windows.lunch_start;
-            break_end_time := break_windows.lunch_end;
-          WHEN 'NightSecond' THEN
-            break_start_time := break_windows.afternoon_start;
-            break_end_time := break_windows.afternoon_end;
-          ELSE
-            RETURN FALSE;
-        END CASE;
-
-        IF break_start_time IS NULL OR break_end_time IS NULL THEN
-          RETURN FALSE;
-        END IF;
-
-        -- Break is available ONLY at the exact start time
-        -- This prevents the function from returning true for the entire break window
-        
-        IF current_time_only = break_start_time THEN
-          RETURN TRUE; -- Break is available only at start time
-        END IF;
-
-        RETURN FALSE;
       END;
 $function$
 ;
 
-COMMENT ON FUNCTION public.is_break_available(int4, break_type_enum, timestamp) IS 'Fixed: Returns false for users without shift times';
-
--- DROP FUNCTION public.is_break_available_now(int4, break_type_enum, timestamp);
-
-CREATE OR REPLACE FUNCTION public.is_break_available_now(p_agent_user_id integer, p_break_type break_type_enum, p_current_time timestamp without time zone DEFAULT NULL::timestamp without time zone)
- RETURNS boolean
- LANGUAGE plpgsql
-AS $function$
-      DECLARE
-          shift_info RECORD;
-          current_time_manila TIMESTAMP;
-          current_time_only TIME;
-          break_start_time TIME;
-          break_end_time TIME;
-          break_already_taken BOOLEAN;
-      BEGIN
-          -- Get agent's actual shift information
-          SELECT * INTO shift_info FROM get_agent_shift_info(p_agent_user_id) LIMIT 1;
-          
-          IF NOT FOUND OR shift_info.shift_time IS NULL THEN
-              RETURN FALSE; -- No shift configured
-          END IF;
-          
-          -- Get current Manila time
-          IF p_current_time IS NULL THEN
-              current_time_manila := CURRENT_TIMESTAMP + INTERVAL '8 hours';
-          ELSE
-              current_time_manila := p_current_time;
-          END IF;
-          
-          current_time_only := current_time_manila::TIME;
-          
-          -- Check if break was already taken today
-          SELECT EXISTS(
-              SELECT 1 FROM break_sessions
-              WHERE agent_user_id = p_agent_user_id
-              AND break_type = p_break_type
-              AND break_date = current_time_manila::DATE
-              AND end_time IS NOT NULL
-          ) INTO break_already_taken;
-          
-          IF break_already_taken THEN
-              RETURN FALSE; -- Break already taken
-          END IF;
-          
-          -- Get break window from calculate_break_windows
-          SELECT start_time, end_time INTO break_start_time, break_end_time
-          FROM calculate_break_windows(p_agent_user_id)
-          WHERE break_type = p_break_type
-          LIMIT 1;
-          
-          IF NOT FOUND THEN
-              RETURN FALSE; -- No break window for this type
-          END IF;
-          
-          -- Check if current time is within the break window
-          RETURN current_time_only >= break_start_time AND current_time_only < break_end_time;
-      END;
-      $function$
-;
-
--- DROP FUNCTION public.is_break_available_now_notification_sent(int4, break_type_enum, timestamp);
-
-CREATE OR REPLACE FUNCTION public.is_break_available_now_notification_sent(p_agent_user_id integer, p_break_type break_type_enum, p_check_time timestamp without time zone)
- RETURNS boolean
- LANGUAGE plpgsql
-AS $function$
-DECLARE
-    break_start_time TIMESTAMP;
-    break_end_time TIMESTAMP;
-    notification_exists BOOLEAN;
-BEGIN
-    -- Get the break window for the current day
-    SELECT 
-        (CURRENT_DATE + (SPLIT_PART(ji.shift_time, ' - ', 1))::time) AT TIME ZONE 'Asia/Manila' INTO break_start_time
-    FROM job_info ji 
-    WHERE ji.agent_user_id = p_agent_user_id;
-    
-    IF break_start_time IS NULL THEN
-        RETURN FALSE; -- No shift configured
-    END IF;
-    
-    -- Calculate break start time based on break type
-    CASE p_break_type
-        WHEN 'Lunch' THEN
-            break_start_time := break_start_time + INTERVAL '4 hours'; -- 4 hours after shift start
-            break_end_time := break_start_time + INTERVAL '1 hour'; -- 1 hour break
-        WHEN 'Morning' THEN
-            break_start_time := break_start_time + INTERVAL '2 hours'; -- 2 hours after shift start
-            break_end_time := break_start_time + INTERVAL '15 minutes'; -- 15 minute break
-        WHEN 'Afternoon' THEN
-            break_start_time := break_start_time + INTERVAL '6 hours'; -- 6 hours after shift start
-            break_end_time := break_start_time + INTERVAL '15 minutes'; -- 15 minute break
-        ELSE
-            RETURN FALSE; -- Unknown break type
-    END CASE;
-    
-    -- Check if "available_now" notification was already sent for this break period today
-    -- We check for notifications sent today, not just within the current break window
-    SELECT EXISTS(
-        SELECT 1 FROM notifications 
-        WHERE user_id = p_agent_user_id 
-        AND category = 'break'
-        AND payload->>'reminder_type' = 'available_now'
-        AND payload->>'break_type' = p_break_type::text
-        AND DATE(created_at AT TIME ZONE 'Asia/Manila') = CURRENT_DATE
-    ) INTO notification_exists;
-    
-    RETURN notification_exists;
-END;
-$function$
-;
-
-COMMENT ON FUNCTION public.is_break_available_now_notification_sent(int4, break_type_enum, timestamp) IS 'Checks if "available_now" notification was already sent for current break period';
-
--- DROP FUNCTION public.is_break_available_soon(int4, break_type_enum, timestamp);
-
-CREATE OR REPLACE FUNCTION public.is_break_available_soon(p_agent_user_id integer, p_break_type break_type_enum, p_current_time timestamp without time zone DEFAULT NULL::timestamp without time zone)
- RETURNS boolean
- LANGUAGE plpgsql
-AS $function$
-      DECLARE
-          shift_info RECORD;
-          current_time_manila TIMESTAMP;
-          current_time_only TIME;
-          break_start_time TIME;
-          minutes_until_break INTEGER;
-          break_already_taken BOOLEAN;
-      BEGIN
-          -- Get agent's actual shift information
-          SELECT * INTO shift_info FROM get_agent_shift_info(p_agent_user_id) LIMIT 1;
-          
-          IF NOT FOUND OR shift_info.shift_time IS NULL THEN
-              RETURN FALSE; -- No shift configured
-          END IF;
-          
-          -- Get current Manila time
-          IF p_current_time IS NULL THEN
-              current_time_manila := CURRENT_TIMESTAMP + INTERVAL '8 hours';
-          ELSE
-              current_time_manila := p_current_time;
-          END IF;
-          
-          current_time_only := current_time_manila::TIME;
-          
-          -- Check if break was already taken today
-          SELECT EXISTS(
-              SELECT 1 FROM break_sessions
-              WHERE agent_user_id = p_agent_user_id
-              AND break_type = p_break_type
-              AND break_date = current_time_manila::DATE
-              AND end_time IS NOT NULL
-          ) INTO break_already_taken;
-          
-          IF break_already_taken THEN
-              RETURN FALSE; -- Break already taken
-          END IF;
-          
-          -- Get break start time from calculate_break_windows
-          SELECT start_time INTO break_start_time
-          FROM calculate_break_windows(p_agent_user_id)
-          WHERE break_type = p_break_type
-          LIMIT 1;
-          
-          IF NOT FOUND THEN
-              RETURN FALSE; -- No break window for this type
-          END IF;
-          
-          -- Calculate minutes until break starts
-          minutes_until_break := EXTRACT(EPOCH FROM (break_start_time - current_time_only)) / 60;
-          
-          -- Handle day rollover for night shifts
-          IF minutes_until_break < -720 THEN -- More than 12 hours in the past
-              minutes_until_break := minutes_until_break + 1440; -- Add 24 hours
-          END IF;
-          
-          -- Return true if break starts within the next 15 minutes
-          RETURN minutes_until_break > 0 AND minutes_until_break <= 15;
-      END;
-      $function$
-;
-
--- DROP FUNCTION public.is_break_missed(int4, break_type_enum, timestamp);
-
-CREATE OR REPLACE FUNCTION public.is_break_missed(p_agent_user_id integer, p_break_type break_type_enum, p_current_time timestamp without time zone DEFAULT NULL::timestamp without time zone)
- RETURNS boolean
- LANGUAGE plpgsql
-AS $function$
-      DECLARE
-          shift_info RECORD;
-          current_time_manila TIMESTAMP;
-          current_time_only TIME;
-          break_start_time TIME;
-          break_end_time TIME;
-          minutes_since_break_start INTEGER;
-          break_already_taken BOOLEAN;
-          break_currently_active BOOLEAN;  -- NEW: Check for currently active breaks
-          current_date_manila DATE;
-          last_notification_time TIMESTAMP;
-          minutes_since_last_notification INTEGER;
-      BEGIN
-          -- Get agent's actual shift information
-          SELECT * INTO shift_info FROM get_agent_shift_info(p_agent_user_id) LIMIT 1;
-          
-          IF NOT FOUND OR shift_info.shift_time IS NULL THEN
-              RETURN FALSE; -- No shift configured
-          END IF;
-          
-          -- Get current Manila time
-          IF p_current_time IS NULL THEN
-              current_time_manila := CURRENT_TIMESTAMP + INTERVAL '8 hours';
-          ELSE
-              current_time_manila := p_current_time;
-          END IF;
-          
-          current_time_only := current_time_manila::TIME;
-          current_date_manila := current_time_manila::DATE;
-          
-          -- NEW: Check if break is currently active (being used right now)
-          SELECT EXISTS(
-              SELECT 1 FROM break_sessions
-              WHERE agent_user_id = p_agent_user_id
-              AND break_type = p_break_type
-              AND break_date = current_date_manila
-              AND end_time IS NULL  -- Currently active break
-          ) INTO break_currently_active;
-          
-          IF break_currently_active THEN
-              RETURN FALSE; -- Break is currently active, don't send reminder
-          END IF;
-          
-          -- Check if break was already taken today
-          SELECT EXISTS(
-              SELECT 1 FROM break_sessions
-              WHERE agent_user_id = p_agent_user_id
-              AND break_type = p_break_type
-              AND break_date = current_date_manila
-              AND end_time IS NOT NULL
-          ) INTO break_already_taken;
-          
-          IF break_already_taken THEN
-              RETURN FALSE; -- Break already taken
-          END IF;
-          
-          -- Get break window from calculate_break_windows
-          SELECT start_time, end_time INTO break_start_time, break_end_time
-          FROM calculate_break_windows(p_agent_user_id)
-          WHERE break_type = p_break_type
-          LIMIT 1;
-          
-          IF NOT FOUND THEN
-              RETURN FALSE; -- No break window for this type
-          END IF;
-          
-          -- Check if we're within the break window
-          IF current_time_only < break_start_time OR current_time_only >= break_end_time THEN
-              RETURN FALSE; -- Outside break window
-          END IF;
-          
-          -- Calculate minutes since break start
-          minutes_since_break_start := EXTRACT(EPOCH FROM (current_time_only - break_start_time)) / 60;
-          
-          -- Check if it's been at least 30 minutes since break start
-          IF minutes_since_break_start < 30 THEN
-              RETURN FALSE; -- Too early to send reminder
-          END IF;
-          
-          -- Check if we're too close to break end (within last 15 minutes)
-          IF EXTRACT(EPOCH FROM (break_end_time - current_time_only)) / 60 < 15 THEN
-              RETURN FALSE; -- Too close to break end
-          END IF;
-          
-          -- Check if we've sent a notification in the last 25 minutes (prevent spam)
-          SELECT MAX(created_at) INTO last_notification_time
-          FROM notifications 
-          WHERE user_id = p_agent_user_id 
-          AND category = 'break' 
-          AND payload->>'break_type' = p_break_type::TEXT
-          AND payload->>'reminder_type' = 'missed_break'
-          AND created_at > current_time_manila - INTERVAL '1 hour';
-          
-          IF last_notification_time IS NOT NULL THEN
-              minutes_since_last_notification := EXTRACT(EPOCH FROM (current_time_manila - last_notification_time)) / 60;
-              IF minutes_since_last_notification < 25 THEN
-                  RETURN FALSE; -- Too soon since last notification
-              END IF;
-          END IF;
-          
-          -- Send reminder every 30 minutes during the break window
-          -- This ensures reminders at :00 and :30 of each hour
-          RETURN (minutes_since_break_start % 30) < 5;
-      END;
-      $function$
-;
-
-COMMENT ON FUNCTION public.is_break_missed(int4, break_type_enum, timestamp) IS 'FIXED: Now excludes currently active breaks from missed break notifications. Users will not receive "you have not taken" notifications while they are currently on break.';
+COMMENT ON FUNCTION public.is_break_session_expired(int4) IS 'Checks if a specific break session is expired';
 
 -- DROP FUNCTION public.is_break_window_ending_soon(int4, break_type_enum, timestamptz);
 
@@ -6188,28 +6047,20 @@ CREATE OR REPLACE FUNCTION public.is_break_window_ending_soon(p_agent_user_id in
  LANGUAGE plpgsql
 AS $function$
       DECLARE
-          shift_info RECORD;
           break_windows RECORD;
           current_time_only TIME;
           break_end_time TIME;
           minutes_until_expiry INTEGER;
           break_already_taken BOOLEAN;
-          break_currently_active BOOLEAN;  -- NEW: Check for currently active breaks
+          break_currently_active BOOLEAN;
       BEGIN
-          -- Get agent shift information
-          SELECT * INTO shift_info FROM get_agent_shift_info(p_agent_user_id) LIMIT 1;
-          
-          IF NOT FOUND OR shift_info.shift_time IS NULL THEN
-              RETURN FALSE;
-          END IF;
-          
-          -- NEW: Check if break is currently active (being used right now)
+          -- Check if break is currently active
           SELECT EXISTS(
               SELECT 1 FROM break_sessions
               WHERE agent_user_id = p_agent_user_id
               AND break_type = p_break_type
               AND break_date = (p_check_time AT TIME ZONE 'Asia/Manila')::DATE
-              AND end_time IS NULL  -- Currently active break
+              AND end_time IS NULL
           ) INTO break_currently_active;
           
           IF break_currently_active THEN
@@ -6229,36 +6080,70 @@ AS $function$
               RETURN FALSE; -- Break already taken, no need for ending soon notification
           END IF;
           
-          -- Get break windows using user_id
+          -- Get break windows using calculate_break_windows (only returns custom breaks)
           SELECT * INTO break_windows FROM calculate_break_windows(p_agent_user_id)
           WHERE break_type = p_break_type LIMIT 1;
           
           IF NOT FOUND THEN
-              RETURN FALSE;
+              RETURN FALSE; -- No custom break configured for this type
           END IF;
           
-          -- SIMPLE APPROACH: Extract time part directly from input timestamp
-          -- Treat the input as local time (Manila time)
-          current_time_only := p_check_time::TIME;
+          current_time_only := (p_check_time AT TIME ZONE 'Asia/Manila')::TIME;
           break_end_time := break_windows.end_time;
           
           -- Calculate minutes until break window expires
           IF current_time_only > break_end_time THEN
-              -- Current time is after break end time, so it's already ended
               minutes_until_expiry := 0;
           ELSE
-              -- Calculate minutes until end
               minutes_until_expiry := EXTRACT(EPOCH FROM (break_end_time - current_time_only)) / 60;
           END IF;
           
           -- Return true if break window is ending in 15 minutes (with 1-minute tolerance)
-          -- This means between 14-16 minutes before the end (narrower, more precise window)
+          -- This means between 14-16 minutes before the end time
+          -- Example: Break ends at 8:30 AM, notification sent at 8:14-8:16 AM
           RETURN (minutes_until_expiry >= 14 AND minutes_until_expiry <= 16);
       END;
       $function$
 ;
 
-COMMENT ON FUNCTION public.is_break_window_ending_soon(int4, break_type_enum, timestamptz) IS 'FIXED: Now excludes currently active breaks from break window ending soon notifications. Users will not receive "break ending soon" notifications while they are currently on break.';
+COMMENT ON FUNCTION public.is_break_window_ending_soon(int4, break_type_enum, timestamptz) IS 'UPDATED: Only uses custom break windows from breaks table - users must configure their own break schedules. Triggers 14-16 minutes before break window ends.';
+
+-- DROP FUNCTION public.is_break_window_expired(int4, break_type_enum, timestamptz);
+
+CREATE OR REPLACE FUNCTION public.is_break_window_expired(p_user_id integer, p_break_type break_type_enum, p_check_time timestamp with time zone DEFAULT now())
+ RETURNS boolean
+ LANGUAGE plpgsql
+AS $function$
+      DECLARE
+          break_config RECORD;
+          current_server_time TIMESTAMP WITH TIME ZONE;
+          break_end_time TIMESTAMP WITH TIME ZONE;
+      BEGIN
+          -- Always use server time for validation
+          current_server_time := p_check_time;
+          
+          -- Get break configuration
+          SELECT * INTO break_config
+          FROM breaks
+          WHERE user_id = p_user_id 
+          AND break_type = p_break_type
+          AND is_active = true
+          LIMIT 1;
+          
+          IF NOT FOUND THEN
+              RETURN FALSE; -- No break configured
+          END IF;
+          
+          -- Calculate break end time for the check date (Manila timezone)
+          break_end_time := ((current_server_time AT TIME ZONE 'Asia/Manila')::DATE + break_config.end_time) AT TIME ZONE 'Asia/Manila';
+          
+          -- Check if current server time is past the break window
+          RETURN current_server_time > break_end_time;
+      END;
+$function$
+;
+
+COMMENT ON FUNCTION public.is_break_window_expired(int4, break_type_enum, timestamptz) IS 'Checks if a break window has expired based on server time';
 
 -- DROP FUNCTION public.is_user_assigned_to_event(int4, int4);
 
@@ -6302,6 +6187,85 @@ $function$
 ;
 
 COMMENT ON FUNCTION public.is_user_in_meeting(int4) IS 'Checks if user is currently in a meeting based on is_in_meeting flag';
+
+-- DROP FUNCTION public.mark_expired_breaks(int4);
+
+CREATE OR REPLACE FUNCTION public.mark_expired_breaks(p_user_id integer DEFAULT NULL::integer)
+ RETURNS integer
+ LANGUAGE plpgsql
+AS $function$
+            DECLARE
+                break_record RECORD;
+                user_break RECORD;
+                expired_count INTEGER := 0;
+                missed_count INTEGER := 0;
+            BEGIN
+                -- First, mark existing break sessions as expired
+                FOR break_record IN
+                    SELECT bs.id, bs.agent_user_id, bs.break_type, bs.break_date
+                    FROM break_sessions bs
+                    WHERE bs.is_expired = FALSE
+                    AND (p_user_id IS NULL OR bs.agent_user_id = p_user_id)
+                    AND bs.break_date = CURRENT_DATE
+                    AND is_break_window_expired(bs.agent_user_id, bs.break_type)
+                LOOP
+                    -- Mark the break session as expired
+                    UPDATE break_sessions 
+                    SET is_expired = TRUE
+                    WHERE id = break_record.id;
+                    
+                    expired_count := expired_count + 1;
+                END LOOP;
+                
+                -- Second, create missed break sessions for expired break windows
+                -- BUT only if the user doesn't already have ANY session for that break type today
+                FOR user_break IN
+                    SELECT DISTINCT b.id, b.user_id, b.break_type, b.start_time, b.end_time, b.duration_minutes
+                    FROM breaks b
+                    WHERE b.is_active = true
+                    AND (p_user_id IS NULL OR b.user_id = p_user_id)
+                    AND is_break_window_expired(b.user_id, b.break_type)
+                    AND NOT EXISTS (
+                        -- Check if user already has ANY session for this break type today
+                        -- (expired or not - we only want one missed session per break type per day)
+                        SELECT 1 FROM break_sessions bs2 
+                        WHERE bs2.agent_user_id = b.user_id 
+                        AND bs2.break_type = b.break_type 
+                        AND bs2.break_date = CURRENT_DATE
+                    )
+                LOOP
+                    -- Create a missed break session
+                    INSERT INTO break_sessions (
+                        agent_user_id, 
+                        break_type, 
+                        start_time, 
+                        end_time, 
+                        duration_minutes, 
+                        break_date, 
+                        is_expired,
+                        break_config_id,
+                        created_at
+                    ) VALUES (
+                        user_break.user_id,
+                        user_break.break_type,
+                        (CURRENT_DATE + user_break.start_time)::timestamp, -- Start time for today
+                        (CURRENT_DATE + user_break.start_time)::timestamp, -- End time = start time (no duration used)
+                        0, -- Duration is 0 because user didn't take the break
+                        CURRENT_DATE,
+                        TRUE, -- Mark as expired immediately
+                        user_break.id, -- Set break_config_id to the breaks table ID
+                        NOW()
+                    );
+                    
+                    missed_count := missed_count + 1;
+                END LOOP;
+                
+                RETURN expired_count + missed_count;
+            END;
+            $function$
+;
+
+COMMENT ON FUNCTION public.mark_expired_breaks(int4) IS 'FIXED: Now prevents duplicate missed break sessions. Only creates one missed session per break type per day.';
 
 -- DROP FUNCTION public.mark_user_back(int4, varchar);
 
@@ -7906,15 +7870,6 @@ CREATE OR REPLACE FUNCTION public.pgp_pub_decrypt_bytea(bytea, bytea, text, text
 AS '$libdir/pgcrypto', $function$pgp_pub_decrypt_bytea$function$
 ;
 
--- DROP FUNCTION public.pgp_pub_decrypt_bytea(bytea, bytea, text);
-
-CREATE OR REPLACE FUNCTION public.pgp_pub_decrypt_bytea(bytea, bytea, text)
- RETURNS bytea
- LANGUAGE c
- IMMUTABLE PARALLEL SAFE STRICT
-AS '$libdir/pgcrypto', $function$pgp_pub_decrypt_bytea$function$
-;
-
 -- DROP FUNCTION public.pgp_pub_decrypt_bytea(bytea, bytea);
 
 CREATE OR REPLACE FUNCTION public.pgp_pub_decrypt_bytea(bytea, bytea)
@@ -7924,18 +7879,27 @@ CREATE OR REPLACE FUNCTION public.pgp_pub_decrypt_bytea(bytea, bytea)
 AS '$libdir/pgcrypto', $function$pgp_pub_decrypt_bytea$function$
 ;
 
--- DROP FUNCTION public.pgp_pub_encrypt(text, bytea);
+-- DROP FUNCTION public.pgp_pub_decrypt_bytea(bytea, bytea, text);
 
-CREATE OR REPLACE FUNCTION public.pgp_pub_encrypt(text, bytea)
+CREATE OR REPLACE FUNCTION public.pgp_pub_decrypt_bytea(bytea, bytea, text)
+ RETURNS bytea
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS '$libdir/pgcrypto', $function$pgp_pub_decrypt_bytea$function$
+;
+
+-- DROP FUNCTION public.pgp_pub_encrypt(text, bytea, text);
+
+CREATE OR REPLACE FUNCTION public.pgp_pub_encrypt(text, bytea, text)
  RETURNS bytea
  LANGUAGE c
  PARALLEL SAFE STRICT
 AS '$libdir/pgcrypto', $function$pgp_pub_encrypt_text$function$
 ;
 
--- DROP FUNCTION public.pgp_pub_encrypt(text, bytea, text);
+-- DROP FUNCTION public.pgp_pub_encrypt(text, bytea);
 
-CREATE OR REPLACE FUNCTION public.pgp_pub_encrypt(text, bytea, text)
+CREATE OR REPLACE FUNCTION public.pgp_pub_encrypt(text, bytea)
  RETURNS bytea
  LANGUAGE c
  PARALLEL SAFE STRICT
@@ -8014,18 +7978,18 @@ CREATE OR REPLACE FUNCTION public.pgp_sym_encrypt(text, text, text)
 AS '$libdir/pgcrypto', $function$pgp_sym_encrypt_text$function$
 ;
 
--- DROP FUNCTION public.pgp_sym_encrypt_bytea(bytea, text, text);
+-- DROP FUNCTION public.pgp_sym_encrypt_bytea(bytea, text);
 
-CREATE OR REPLACE FUNCTION public.pgp_sym_encrypt_bytea(bytea, text, text)
+CREATE OR REPLACE FUNCTION public.pgp_sym_encrypt_bytea(bytea, text)
  RETURNS bytea
  LANGUAGE c
  PARALLEL SAFE STRICT
 AS '$libdir/pgcrypto', $function$pgp_sym_encrypt_bytea$function$
 ;
 
--- DROP FUNCTION public.pgp_sym_encrypt_bytea(bytea, text);
+-- DROP FUNCTION public.pgp_sym_encrypt_bytea(bytea, text, text);
 
-CREATE OR REPLACE FUNCTION public.pgp_sym_encrypt_bytea(bytea, text)
+CREATE OR REPLACE FUNCTION public.pgp_sym_encrypt_bytea(bytea, text, text)
  RETURNS bytea
  LANGUAGE c
  PARALLEL SAFE STRICT

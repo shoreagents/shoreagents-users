@@ -239,6 +239,92 @@ export function initializeSocketServer(httpServer: HTTPServer) {
       }
     });
 
+    // Handle logout events
+    socket.on('logout', async () => {
+      try {
+        const session = clientSessions.get(socket.id);
+        if (session) {
+          const pool = getPool();
+          
+          // Set is_currently_active to false on logout
+          await pool.query(
+            `UPDATE activity_data 
+             SET is_currently_active = false, 
+                 updated_at = NOW() 
+             WHERE user_id = $1 
+             AND today_date = (NOW() AT TIME ZONE 'Asia/Manila')::date`,
+            [session.userId]
+          );
+
+          console.log(`User ${session.userId} logged out - activity status set to inactive`);
+        }
+      } catch (error) {
+        console.error('Logout error:', error);
+      }
+    });
+
+    // Handle user logout events (with email)
+    socket.on('user-logout', async (data: { email: string }) => {
+      try {
+        const pool = getPool();
+        
+        // Find user by email and set is_currently_active to false
+        const userResult = await pool.query(
+          'SELECT id FROM users WHERE email = $1',
+          [data.email]
+        );
+
+        if (userResult.rows.length > 0) {
+          const userId = userResult.rows[0].id;
+          
+          await pool.query(
+            `UPDATE activity_data 
+             SET is_currently_active = false, 
+                 updated_at = NOW() 
+             WHERE user_id = $1 
+             AND today_date = (NOW() AT TIME ZONE 'Asia/Manila')::date`,
+            [userId]
+          );
+
+          console.log(`User ${data.email} (ID: ${userId}) logged out - activity status set to inactive`);
+        }
+      } catch (error) {
+        console.error('User logout error:', error);
+      }
+    });
+
+    // Handle break expiration check requests
+    socket.on('check-break-expiration', async (data: { userId: number }) => {
+      try {
+        const pool = getPool();
+        
+        // Mark expired breaks for this user
+        const result = await pool.query('SELECT mark_expired_breaks() as count');
+        const expiredCount = result.rows[0].count;
+        
+        if (expiredCount > 0) {
+          // Get updated break sessions for this user
+          const sessionsResult = await pool.query(`
+            SELECT bs.id, bs.break_type, bs.start_time, bs.end_time, bs.status,
+                   is_break_session_expired(bs.id) as is_expired
+            FROM break_sessions bs
+            WHERE bs.agent_user_id = $1
+            AND bs.break_date = (NOW() AT TIME ZONE 'Asia/Manila')::date
+            ORDER BY bs.start_time DESC
+          `, [data.userId]);
+          
+          // Emit break expiration update to this specific socket
+          socket.emit('break-expiration-updated', {
+            expiredCount,
+            sessions: sessionsResult.rows
+          });
+        }
+      } catch (error) {
+        console.error('Break expiration check error:', error);
+        socket.emit('break-expiration-error', { message: 'Failed to check break expiration' });
+      }
+    });
+
     // Handle disconnection
     socket.on('disconnect', async () => {
       try {
@@ -277,8 +363,18 @@ export function initializeSocketServer(httpServer: HTTPServer) {
             }
           }
 
+          // Set is_currently_active to false on disconnect
+          await pool.query(
+            `UPDATE activity_data 
+             SET is_currently_active = false, 
+                 updated_at = NOW() 
+             WHERE user_id = $1 
+             AND today_date = (NOW() AT TIME ZONE 'Asia/Manila')::date`,
+            [session.userId]
+          );
+
           clientSessions.delete(socket.id);
-          console.log(`User ${session.userId} disconnected from socket ${socket.id}`);
+          console.log(`User ${session.userId} disconnected from socket ${socket.id} - activity status set to inactive`);
         }
       } catch (error) {
         console.error('Disconnect error:', error);

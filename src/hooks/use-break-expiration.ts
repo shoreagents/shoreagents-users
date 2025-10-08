@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useSocket } from '@/contexts/socket-context';
+import { getCurrentUser } from '@/lib/auth-utils';
 
 interface BreakExpirationState {
   expiredSessions: Set<number>;
@@ -12,6 +14,8 @@ export function useBreakExpiration() {
     isLoading: false,
     error: null
   });
+  
+  const { socket } = useSocket();
 
   // Check if a specific break session is expired
   const checkSessionExpiration = useCallback(async (sessionId: number): Promise<boolean> => {
@@ -83,24 +87,78 @@ export function useBreakExpiration() {
     return state.expiredSessions.has(sessionId);
   }, [state.expiredSessions]);
 
-  // Auto-refresh expired breaks every 5 minutes
+  // Socket event listeners for real-time break expiration updates
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleBreakExpirationUpdate = (data: { expiredCount: number; sessions: any[] }) => {
+      const expiredSessions = new Set<number>(
+        data.sessions.filter((session: any) => session.is_expired).map((session: any) => session.id)
+      );
+      
+      setState(prev => ({ 
+        ...prev, 
+        expiredSessions,
+        isLoading: false,
+        error: null
+      }));
+    };
+
+    const handleBreakExpirationError = (data: { message: string }) => {
+      setState(prev => ({ 
+        ...prev, 
+        error: data.message,
+        isLoading: false
+      }));
+    };
+
+    socket.on('break-expiration-updated', handleBreakExpirationUpdate);
+    socket.on('break-expiration-error', handleBreakExpirationError);
+
+    return () => {
+      socket.off('break-expiration-updated', handleBreakExpirationUpdate);
+      socket.off('break-expiration-error', handleBreakExpirationError);
+    };
+  }, [socket]);
+
+  // Request break expiration check via socket
+  const requestBreakExpirationCheck = useCallback(() => {
+    if (!socket) return;
+    
+    const currentUser = getCurrentUser();
+    if (currentUser?.id) {
+      socket.emit('check-break-expiration', { userId: currentUser.id });
+    }
+  }, [socket]);
+
+  // Auto-refresh expired breaks every 2 minutes (more frequent for real-time updates)
   useEffect(() => {
     const interval = setInterval(() => {
-      markExpiredBreaks();
-    }, 5 * 60 * 1000); // 5 minutes
+      // Use socket for real-time updates if available, fallback to API
+      if (socket) {
+        requestBreakExpirationCheck();
+      } else {
+        markExpiredBreaks();
+      }
+    }, 2 * 60 * 1000); // 2 minutes
 
     return () => clearInterval(interval);
-  }, [markExpiredBreaks]);
+  }, [socket, requestBreakExpirationCheck, markExpiredBreaks]);
 
   // Mark expired breaks on mount
   useEffect(() => {
-    markExpiredBreaks();
-  }, [markExpiredBreaks]);
+    if (socket) {
+      requestBreakExpirationCheck();
+    } else {
+      markExpiredBreaks();
+    }
+  }, [socket, requestBreakExpirationCheck, markExpiredBreaks]);
 
   return {
     isSessionExpired,
     checkSessionExpiration,
     markExpiredBreaks,
+    requestBreakExpirationCheck,
     expiredSessions: state.expiredSessions,
     isLoading: state.isLoading,
     error: state.error
