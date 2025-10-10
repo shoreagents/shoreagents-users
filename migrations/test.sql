@@ -3280,7 +3280,7 @@ BEGIN
         );
     ELSIF p_notification_type = 'ending_soon' THEN
         title_text := break_name || ' ending soon';
-        message_text := 'Your ' || break_name || ' will end soon';
+        message_text := 'Your ' || break_name || ' will end in 15 minutes';
         notif_type := 'warning';
         payload_data := jsonb_build_object(
             'reminder_type', 'ending_soon',

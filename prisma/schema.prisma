@@ -1,0 +1,839 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                                                          Int                         @id @default(autoincrement())
+  email                                                       String                      @unique
+  userType                                                    user_type_enum              @map("user_type")
+  createdAt                                                   DateTime?                   @default(dbgenerated("((CURRENT_TIMESTAMP AT TIME ZONE 'UTC'::text) AT TIME ZONE 'Asia/Manila'::text)")) @map("created_at") @db.Timestamp(6)
+  updatedAt                                                   DateTime?                   @default(dbgenerated("((CURRENT_TIMESTAMP AT TIME ZONE 'UTC'::text) AT TIME ZONE 'Asia/Manila'::text)")) @updatedAt @map("updated_at") @db.Timestamp(6)
+  activityData                                                ActivityData[]
+  agentRestroomStatus                                         AgentRestroomStatus?
+  agent                                                       Agent?
+  announcement_assignments                                    announcement_assignments[]
+  announcements                                               announcements[]
+  breaks                                                      breaks[]
+  clients                                                     clients?
+  event_attendance                                            event_attendance[]
+  events                                                      events[]
+  health_check_availability                                   health_check_availability[]
+  health_check_records_health_check_records_nurse_idTousers   health_check_records[]      @relation("health_check_records_nurse_idTousers")
+  health_check_records_health_check_records_user_idTousers    health_check_records[]      @relation("health_check_records_user_idTousers")
+  health_check_requests_health_check_requests_nurse_idTousers health_check_requests[]     @relation("health_check_requests_nurse_idTousers")
+  health_check_requests_health_check_requests_user_idTousers  health_check_requests[]     @relation("health_check_requests_user_idTousers")
+  internal                                                    internal?
+  meetings                                                    meetings[]
+  monthly_activity_summary                                    monthly_activity_summary[]
+  notifications                                               notifications[]
+  passwords                                                   passwords[]
+  personal_info                                               personal_info?
+  productivity_scores                                         productivity_scores[]
+  reports                                                     reports[]
+  socket_connections                                          socket_connections[]
+  system_events                                               system_events[]
+  task_activity_events                                        task_activity_events[]
+  task_assignees                                              task_assignees[]
+  task_comments                                               task_comments[]
+  task_groups                                                 task_groups[]
+  tasks                                                       tasks[]
+  ticket_comments                                             ticket_comments[]
+  tickets_tickets_resolved_byTousers                          tickets[]                   @relation("tickets_resolved_byTousers")
+  tickets_tickets_user_idTousers                              tickets[]                   @relation("tickets_user_idTousers")
+  weekly_activity_summary                                     weekly_activity_summary[]
+
+  @@map("users")
+}
+
+model Agent {
+  userId       Int       @id @map("user_id")
+  expPoints    Int?      @default(0) @map("exp_points")
+  companyId    Int       @map("company_id")
+  departmentId Int?      @map("department_id")
+  createdAt    DateTime? @default(dbgenerated("((CURRENT_TIMESTAMP AT TIME ZONE 'UTC'::text) AT TIME ZONE 'Asia/Manila'::text)")) @map("created_at") @db.Timestamp(6)
+  updatedAt    DateTime? @default(dbgenerated("((CURRENT_TIMESTAMP AT TIME ZONE 'UTC'::text) AT TIME ZONE 'Asia/Manila'::text)")) @updatedAt @map("updated_at") @db.Timestamp(6)
+  company      Company   @relation(fields: [companyId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  jobInfo      JobInfo[]
+
+  @@map("agents")
+}
+
+model Company {
+  id          Int                 @id @default(autoincrement())
+  company     String
+  address     String?
+  phone       String?
+  logo        String?
+  service     String?
+  status      company_status_enum?
+  createdAt   DateTime?           @default(dbgenerated("((CURRENT_TIMESTAMP AT TIME ZONE 'UTC'::text) AT TIME ZONE 'Asia/Manila'::text)")) @map("created_at") @db.Timestamp(6)
+  updatedAt   DateTime?           @default(dbgenerated("((CURRENT_TIMESTAMP AT TIME ZONE 'UTC'::text) AT TIME ZONE 'Asia/Manila'::text)")) @updatedAt @map("updated_at") @db.Timestamp(6)
+  badge_color String?
+  country     String?
+  website     String[]
+  company_id  String              @unique @db.Uuid
+  agents      Agent[]
+  clients     clients[]
+
+  @@map("companies")
+}
+
+model AgentRestroomStatus {
+  id                 Int       @id @default(autoincrement())
+  agentUserId        Int       @unique(map: "idx_agent_restroom_status_unique_agent") @map("agent_user_id")
+  isInRestroom       Boolean   @default(false) @map("is_in_restroom")
+  createdAt          DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime? @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  restroomCount      Int       @default(0) @map("restroom_count")
+  dailyRestroomCount Int       @default(0) @map("daily_restroom_count")
+  lastDailyReset     DateTime? @default(dbgenerated("CURRENT_DATE")) @map("last_daily_reset") @db.Date
+  user               User      @relation(fields: [agentUserId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([agentUserId], map: "idx_agent_restroom_status_agent_user_id")
+  @@index([isInRestroom], map: "idx_agent_restroom_status_is_in_restroom")
+  @@index([lastDailyReset], map: "idx_agent_restroom_status_last_daily_reset")
+  @@map("agent_restroom_status")
+}
+
+model ActivityData {
+  id                   Int       @id @default(autoincrement())
+  userId               Int       @map("user_id")
+  isCurrentlyActive    Boolean?  @default(false) @map("is_currently_active")
+  createdAt            DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime? @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  todayActiveSeconds   Int?      @default(0) @map("today_active_seconds")
+  todayInactiveSeconds Int?      @default(0) @map("today_inactive_seconds")
+  lastSessionStart     DateTime? @map("last_session_start") @db.Timestamptz(6)
+  todayDate            DateTime  @default(dbgenerated("CURRENT_DATE")) @map("today_date") @db.Date
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([userId, todayDate], map: "activity_data_user_date_unique")
+  @@index([todayDate], map: "idx_activity_data_today_date")
+  @@index([userId, todayDate], map: "idx_activity_data_user_date")
+  @@map("activity_data")
+}
+
+model JobInfo {
+  id               Int       @id @default(autoincrement())
+  employeeId       String    @unique @map("employee_id") @db.VarChar(20)
+  agentUserId      Int?      @map("agent_user_id")
+  internalUserId   Int?      @map("internal_user_id")
+  jobTitle         String?   @map("job_title")
+  shiftPeriod      String?   @map("shift_period")
+  shiftSchedule    String?   @map("shift_schedule")
+  shiftTime        String?   @map("shift_time")
+  workSetup        String?   @map("work_setup")
+  employmentStatus String?   @map("employment_status")
+  hireType         String?   @map("hire_type")
+  staffSource      String?   @map("staff_source")
+  startDate        DateTime? @map("start_date") @db.Date
+  exitDate         DateTime? @map("exit_date") @db.Date
+  createdAt        DateTime? @default(dbgenerated("((CURRENT_TIMESTAMP AT TIME ZONE 'UTC'::text) AT TIME ZONE 'Asia/Manila'::text)")) @map("created_at") @db.Timestamp(6)
+  updatedAt        DateTime? @default(dbgenerated("((CURRENT_TIMESTAMP AT TIME ZONE 'UTC'::text) AT TIME ZONE 'Asia/Manila'::text)")) @updatedAt @map("updated_at") @db.Timestamp(6)
+  agent            Agent?    @relation(fields: [agentUserId], references: [userId], onDelete: Cascade, onUpdate: NoAction)
+
+  @@map("job_info")
+}
+
+model announcement_assignments {
+  id              Int           @id @default(autoincrement())
+  announcement_id Int
+  user_id         Int
+  dismissed_at    DateTime?     @db.Timestamptz(6)
+  announcements   announcements @relation(fields: [announcement_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users           User          @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([announcement_id, user_id], map: "announcement_assignments_unique")
+  @@index([announcement_id], map: "idx_announcement_assignments_announcement_id")
+  @@index([user_id], map: "idx_announcement_assignments_user_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model announcements {
+  id                       Int                        @id @default(autoincrement())
+  title                    String                     @db.VarChar(255)
+  message                  String
+  priority                 announcement_priority_enum @default(medium)
+  status                   announcement_status_enum   @default(draft)
+  scheduled_at             DateTime?                  @db.Timestamptz(6)
+  expires_at               DateTime?                  @db.Timestamptz(6)
+  sent_at                  DateTime?                  @db.Timestamptz(6)
+  assigned_user_ids        Int[]
+  allow_dismiss            Boolean?                   @default(true)
+  created_by               Int
+  created_at               DateTime?                  @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime?                  @default(now()) @db.Timestamptz(6)
+  announcement_assignments announcement_assignments[]
+  users                    User                       @relation(fields: [created_by], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([assigned_user_ids], map: "idx_announcements_assigned_user_ids", type: Gin)
+  @@index([created_by], map: "idx_announcements_created_by")
+  @@index([expires_at], map: "idx_announcements_expires_at")
+  @@index([scheduled_at], map: "idx_announcements_scheduled_at")
+  @@index([status], map: "idx_announcements_status")
+  @@index([status, scheduled_at], map: "idx_announcements_status_scheduled")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model break_sessions {
+  id                      Int             @id @default(autoincrement())
+  agent_user_id           Int
+  start_time              DateTime        @db.Timestamptz(6)
+  end_time                DateTime?       @db.Timestamptz(6)
+  break_date              DateTime        @db.Date
+  pause_time              DateTime?       @db.Timestamptz(6)
+  resume_time             DateTime?       @db.Timestamptz(6)
+  time_remaining_at_pause Int?
+  created_at              DateTime?       @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime?       @default(now()) @db.Timestamptz(6)
+  break_type              break_type_enum
+  duration_minutes        Int?
+  pause_used              Boolean?        @default(false)
+  is_expired              Boolean?        @default(false)
+  break_config_id         Int?
+  breaks                  breaks?         @relation(fields: [break_config_id], references: [id], onUpdate: NoAction)
+
+  @@index([agent_user_id], map: "idx_break_sessions_agent_user_id")
+  @@index([break_config_id], map: "idx_break_sessions_break_config_id")
+  @@index([break_date], map: "idx_break_sessions_break_date")
+  @@index([break_type], map: "idx_break_sessions_break_type")
+  @@index([agent_user_id, break_type, is_expired], map: "idx_break_sessions_expired")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model breaks {
+  id               Int              @id @default(autoincrement())
+  user_id          Int
+  break_type       break_type_enum
+  start_time       DateTime         @db.Time(6)
+  end_time         DateTime         @db.Time(6)
+  duration_minutes Int
+  is_active        Boolean          @default(true)
+  created_at       DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime         @default(now()) @db.Timestamptz(6)
+  break_sessions   break_sessions[]
+  users            User             @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([break_type], map: "idx_breaks_break_type")
+  @@index([is_active], map: "idx_breaks_is_active")
+  @@index([user_id, break_type], map: "idx_breaks_user_break_type")
+  @@index([user_id], map: "idx_breaks_user_id")
+}
+
+model clients {
+  user_id       Int       @id
+  company_id    Int
+  department_id Int?
+  created_at    DateTime? @default(dbgenerated("((CURRENT_TIMESTAMP AT TIME ZONE 'UTC'::text) AT TIME ZONE 'Asia/Manila'::text)")) @db.Timestamp(6)
+  updated_at    DateTime? @default(dbgenerated("((CURRENT_TIMESTAMP AT TIME ZONE 'UTC'::text) AT TIME ZONE 'Asia/Manila'::text)")) @db.Timestamp(6)
+  companies     Company   @relation(fields: [company_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users         User      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model event_attendance {
+  id         Int       @id @default(autoincrement())
+  event_id   Int
+  user_id    Int
+  is_going   Boolean?  @default(false)
+  is_back    Boolean?  @default(false)
+  going_at   DateTime? @db.Timestamp(6)
+  back_at    DateTime? @db.Timestamp(6)
+  created_at DateTime? @default(now()) @db.Timestamp(6)
+  updated_at DateTime? @default(now()) @db.Timestamp(6)
+  events     events    @relation(fields: [event_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users      User      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([event_id, user_id])
+  @@index([event_id], map: "idx_event_attendance_event_id")
+  @@index([user_id, event_id], map: "idx_event_attendance_user_event")
+  @@index([user_id], map: "idx_event_attendance_user_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model events {
+  id                Int                @id @default(autoincrement())
+  title             String             @db.VarChar(255)
+  description       String?
+  event_date        DateTime           @db.Date
+  start_time        DateTime           @db.Time(6)
+  end_time          DateTime           @db.Time(6)
+  location          String?            @db.VarChar(255)
+  status            String?            @default("upcoming") @db.VarChar(20)
+  created_by        Int
+  created_at        DateTime?          @default(now()) @db.Timestamp(6)
+  updated_at        DateTime?          @default(now()) @db.Timestamp(6)
+  event_type        String             @default("event") @db.VarChar(20)
+  assigned_user_ids Int[]
+  event_attendance  event_attendance[]
+  users             User               @relation(fields: [created_by], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([assigned_user_ids], map: "idx_events_assigned_user_ids", type: Gin)
+  @@index([created_by], map: "idx_events_created_by")
+  @@index([event_date], map: "idx_events_date")
+  @@index([status], map: "idx_events_status")
+  @@index([status, event_date], map: "idx_events_status_date")
+  @@index([event_type, status], map: "idx_events_type_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model health_check_availability {
+  id           Int       @id @default(autoincrement())
+  nurse_id     Int
+  day_of_week  Int
+  shift_start  DateTime  @db.Time(6)
+  shift_end    DateTime  @db.Time(6)
+  is_available Boolean?  @default(true)
+  break_start  DateTime? @db.Time(6)
+  break_end    DateTime? @db.Time(6)
+  created_at   DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime? @default(now()) @db.Timestamptz(6)
+  users        User      @relation(fields: [nurse_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([nurse_id, day_of_week], map: "idx_health_check_availability_unique")
+  @@index([day_of_week], map: "idx_health_check_availability_day_of_week")
+  @@index([nurse_id], map: "idx_health_check_availability_nurse_id")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model health_check_records {
+  id                                         Int                    @id @default(autoincrement())
+  request_id                                 Int?
+  user_id                                    Int
+  nurse_id                                   Int
+  visit_date                                 DateTime               @db.Date
+  visit_time                                 DateTime               @db.Time(6)
+  chief_complaint                            String
+  diagnosis                                  String?
+  treatment_plan                             String?
+  medicines_issued                           String?
+  supplies_issued                            String?
+  follow_up_required                         Boolean?               @default(false)
+  follow_up_date                             DateTime?              @db.Date
+  follow_up_notes                            String?
+  created_at                                 DateTime?              @default(now()) @db.Timestamptz(6)
+  updated_at                                 DateTime?              @default(now()) @db.Timestamptz(6)
+  users_health_check_records_nurse_idTousers User                   @relation("health_check_records_nurse_idTousers", fields: [nurse_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  health_check_requests                      health_check_requests? @relation(fields: [request_id], references: [id], onUpdate: NoAction)
+  users_health_check_records_user_idTousers  User                   @relation("health_check_records_user_idTousers", fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([user_id, nurse_id, visit_date, visit_time], map: "idx_health_check_records_unique")
+  @@index([nurse_id], map: "idx_health_check_records_nurse_id")
+  @@index([request_id], map: "idx_health_check_records_request_id")
+  @@index([user_id], map: "idx_health_check_records_user_id")
+  @@index([visit_date], map: "idx_health_check_records_visit_date")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model health_check_requests {
+  id                                          Int                    @id @default(autoincrement())
+  user_id                                     Int
+  nurse_id                                    Int?
+  status                                      String                 @default("pending") @db.VarChar(50)
+  priority                                    String                 @default("normal") @db.VarChar(20)
+  complaint                                   String?
+  symptoms                                    String?
+  request_time                                DateTime?              @default(now()) @db.Timestamptz(6)
+  approved_time                               DateTime?              @db.Timestamptz(6)
+  completed_time                              DateTime?              @db.Timestamptz(6)
+  notes                                       String?
+  created_at                                  DateTime?              @default(now()) @db.Timestamptz(6)
+  updated_at                                  DateTime?              @default(now()) @db.Timestamptz(6)
+  done                                        Boolean                @default(false)
+  going_to_clinic                             Boolean                @default(false)
+  in_clinic                                   Boolean                @default(false)
+  going_to_clinic_at                          DateTime?              @db.Timestamptz(6)
+  in_clinic_at                                DateTime?              @db.Timestamptz(6)
+  health_check_records                        health_check_records[]
+  users_health_check_requests_nurse_idTousers User?                  @relation("health_check_requests_nurse_idTousers", fields: [nurse_id], references: [id], onUpdate: NoAction)
+  users_health_check_requests_user_idTousers  User                   @relation("health_check_requests_user_idTousers", fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([done], map: "idx_health_check_requests_done")
+  @@index([going_to_clinic], map: "idx_health_check_requests_going_to_clinic")
+  @@index([going_to_clinic_at], map: "idx_health_check_requests_going_to_clinic_at")
+  @@index([in_clinic], map: "idx_health_check_requests_in_clinic")
+  @@index([in_clinic_at], map: "idx_health_check_requests_in_clinic_at")
+  @@index([nurse_id], map: "idx_health_check_requests_nurse_id")
+  @@index([request_time], map: "idx_health_check_requests_request_time")
+  @@index([status], map: "idx_health_check_requests_status")
+  @@index([user_id], map: "idx_health_check_requests_user_id")
+}
+
+model internal {
+  user_id        Int              @id
+  created_at     DateTime?        @default(now()) @db.Timestamp(6)
+  updated_at     DateTime?        @default(now()) @db.Timestamp(6)
+  users          User             @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  internal_roles internal_roles[]
+}
+
+model internal_roles {
+  id               Int       @id @default(autoincrement())
+  internal_user_id Int
+  role_id          Int
+  created_at       DateTime? @default(now()) @db.Timestamp(6)
+  updated_at       DateTime? @default(now()) @db.Timestamp(6)
+  internal         internal  @relation(fields: [internal_user_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction)
+  roles            roles     @relation(fields: [role_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([internal_user_id, role_id], map: "unique_internal_role_assignment")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model meetings {
+  id                    Int       @id @default(autoincrement())
+  agent_user_id         Int
+  title                 String    @db.VarChar(255)
+  description           String?
+  start_time            DateTime? @default(now()) @db.Timestamptz(6)
+  end_time              DateTime? @default(now()) @db.Timestamptz(6)
+  duration_minutes      Int
+  meeting_type          String    @db.VarChar(50)
+  status                String    @default("scheduled") @db.VarChar(50)
+  is_in_meeting         Boolean   @default(false)
+  created_at            DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime? @default(now()) @db.Timestamptz(6)
+  started_automatically Boolean?  @default(false)
+  users                 User      @relation(fields: [agent_user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([agent_user_id], map: "idx_meetings_agent_user_id")
+  @@index([created_at], map: "idx_meetings_created_at")
+  @@index([start_time], map: "idx_meetings_start_time")
+  @@index([started_automatically], map: "idx_meetings_started_automatically")
+  @@index([status], map: "idx_meetings_status")
+}
+
+model monthly_activity_summary {
+  id                     Int       @id @default(autoincrement())
+  user_id                Int
+  month_start_date       DateTime  @db.Date
+  month_end_date         DateTime  @db.Date
+  total_active_seconds   Int?      @default(0)
+  total_inactive_seconds Int?      @default(0)
+  total_days_active      Int?      @default(0)
+  created_at             DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime? @default(now()) @db.Timestamptz(6)
+  users                  User      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([user_id, month_start_date])
+  @@index([created_at], map: "idx_monthly_activity_created_at")
+  @@index([month_start_date, month_end_date], map: "idx_monthly_activity_month_dates")
+  @@index([user_id], map: "idx_monthly_activity_user_id")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model notifications {
+  id         Int       @id @default(autoincrement())
+  user_id    Int
+  category   String
+  type       String
+  title      String
+  message    String
+  payload    Json?
+  is_read    Boolean?  @default(false)
+  created_at DateTime? @default(now()) @db.Timestamptz(6)
+  clear      Boolean?  @default(false)
+  users      User      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([clear], map: "idx_notifications_clear")
+  @@index([user_id, created_at(sort: Desc)], map: "idx_notifications_user_created")
+}
+
+model passwords {
+  id         Int       @id @default(autoincrement())
+  user_id    Int
+  password   String
+  created_at DateTime? @default(dbgenerated("((CURRENT_TIMESTAMP AT TIME ZONE 'UTC'::text) AT TIME ZONE 'Asia/Manila'::text)")) @db.Timestamp(6)
+  updated_at DateTime? @default(dbgenerated("((CURRENT_TIMESTAMP AT TIME ZONE 'UTC'::text) AT TIME ZONE 'Asia/Manila'::text)")) @db.Timestamp(6)
+  users      User      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_user")
+}
+
+model personal_info {
+  id              Int          @id @default(autoincrement())
+  user_id         Int          @unique
+  first_name      String
+  middle_name     String?
+  last_name       String
+  nickname        String?
+  profile_picture String?
+  phone           String?
+  birthday        DateTime?    @db.Date
+  city            String?
+  address         String?
+  gender          gender_enum?
+  created_at      DateTime?    @default(dbgenerated("((CURRENT_TIMESTAMP AT TIME ZONE 'UTC'::text) AT TIME ZONE 'Asia/Manila'::text)")) @db.Timestamp(6)
+  updated_at      DateTime?    @default(dbgenerated("((CURRENT_TIMESTAMP AT TIME ZONE 'UTC'::text) AT TIME ZONE 'Asia/Manila'::text)")) @db.Timestamp(6)
+  users           User         @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model productivity_scores {
+  id                     Int       @id @default(autoincrement())
+  user_id                Int
+  month_year             String    @db.VarChar(7)
+  productivity_score     Decimal   @db.Decimal(5, 2)
+  total_active_seconds   Int?      @default(0)
+  total_inactive_seconds Int?      @default(0)
+  total_seconds          Int?      @default(0)
+  active_percentage      Decimal?  @default(0.00) @db.Decimal(5, 2)
+  created_at             DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime? @default(now()) @db.Timestamptz(6)
+  users                  User      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([user_id, month_year])
+  @@index([created_at], map: "idx_productivity_created_at")
+  @@index([month_year], map: "idx_productivity_month_year")
+  @@index([productivity_score], map: "idx_productivity_score")
+  @@index([user_id], map: "idx_productivity_user_id")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model reports {
+  id          Int              @id @default(autoincrement())
+  user_id     Int
+  report_type report_type_enum
+  title       String           @db.VarChar(255)
+  description String
+  created_at  DateTime?        @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime?        @default(now()) @db.Timestamptz(6)
+  users       User             @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_reports_user_id")
+
+  @@index([created_at], map: "idx_reports_created_at")
+  @@index([user_id], map: "idx_reports_user_id")
+}
+
+model roles {
+  id             Int              @id @default(autoincrement())
+  name           String           @unique
+  description    String?
+  created_at     DateTime?        @default(now()) @db.Timestamp(6)
+  updated_at     DateTime?        @default(now()) @db.Timestamp(6)
+  internal_roles internal_roles[]
+  tickets        tickets[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model socket_connections {
+  id                Int       @id @default(autoincrement())
+  user_id           Int
+  socket_id         String    @unique @db.VarChar(255)
+  email             String    @db.VarChar(255)
+  connected_at      DateTime? @default(now()) @db.Timestamptz(6)
+  last_heartbeat    DateTime? @default(now()) @db.Timestamptz(6)
+  disconnected_at   DateTime? @db.Timestamptz(6)
+  connection_status String?   @default("active") @db.VarChar(50)
+  user_agent        String?
+  ip_address        String?   @db.Inet
+  transport         String?   @default("websocket") @db.VarChar(50)
+  created_at        DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime? @default(now()) @db.Timestamptz(6)
+  users             User      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([connected_at], map: "idx_socket_connections_connected_at")
+  @@index([email], map: "idx_socket_connections_email")
+  @@index([socket_id], map: "idx_socket_connections_socket_id")
+  @@index([connection_status], map: "idx_socket_connections_status")
+  @@index([user_id], map: "idx_socket_connections_user_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model system_events {
+  id              Int       @id @default(autoincrement())
+  user_id         Int
+  event_type      String    @db.VarChar(50)
+  event_timestamp DateTime? @default(now()) @db.Timestamptz(6)
+  session_id      String?   @db.VarChar(255)
+  metadata        Json?
+  created_at      DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime? @default(now()) @db.Timestamptz(6)
+  users           User      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([session_id], map: "idx_system_events_session_id")
+  @@index([event_timestamp], map: "idx_system_events_timestamp")
+  @@index([event_type], map: "idx_system_events_type")
+  @@index([user_id], map: "idx_system_events_user_id")
+  @@index([user_id, event_type, event_timestamp], map: "idx_system_events_user_type_timestamp")
+}
+
+model task_activity_events {
+  id            Int                  @id @default(autoincrement())
+  task_id       Int
+  actor_user_id Int?
+  action        task_activity_action
+  details       Json                 @default("{}")
+  created_at    DateTime             @default(now()) @db.Timestamptz(6)
+  users         User?                @relation(fields: [actor_user_id], references: [id], onUpdate: NoAction)
+  tasks         tasks                @relation(fields: [task_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([created_at(sort: Desc)], map: "idx_task_activity_events_created_at")
+  @@index([task_id], map: "idx_task_activity_events_task_id")
+}
+
+model task_assignees {
+  task_id Int
+  user_id Int
+  tasks   tasks @relation(fields: [task_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users   User  @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([task_id, user_id])
+}
+
+model task_attachments {
+  id         Int       @id @default(autoincrement())
+  task_id    Int
+  name       String?
+  url        String
+  type       String?
+  size       BigInt?
+  position   Int?      @default(0)
+  created_at DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at DateTime? @default(now()) @db.Timestamptz(6)
+  path       String?
+  tasks      tasks     @relation(fields: [task_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([task_id], map: "idx_task_attachments_task_id")
+}
+
+model task_comments {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  task_id    Int
+  user_id    Int
+  content    String
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @db.Timestamptz(6)
+  tasks      tasks    @relation(fields: [task_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users      User     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([created_at], map: "idx_task_comments_created_at")
+  @@index([task_id], map: "idx_task_comments_task_id")
+  @@index([user_id], map: "idx_task_comments_user_id")
+}
+
+model task_custom_fields {
+  id          Int       @id @default(autoincrement())
+  task_id     Int
+  title       String
+  description String    @default("")
+  position    Int       @default(0)
+  created_at  DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime? @default(now()) @db.Timestamptz(6)
+  tasks       tasks     @relation(fields: [task_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([task_id, position], map: "idx_task_custom_fields_position")
+  @@index([task_id], map: "idx_task_custom_fields_task_id")
+}
+
+model task_groups {
+  id         Int       @id @default(autoincrement())
+  title      String    @db.VarChar(255)
+  color      String?   @default("bg-gray-100 dark:bg-gray-800") @db.VarChar(100)
+  position   Int       @default(0)
+  is_default Boolean?  @default(false)
+  created_at DateTime? @default(dbgenerated("(now() AT TIME ZONE 'Asia/Manila'::text)")) @db.Timestamptz(6)
+  updated_at DateTime? @default(dbgenerated("(now() AT TIME ZONE 'Asia/Manila'::text)")) @db.Timestamptz(6)
+  created_by Int?
+  users      User?     @relation(fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tasks      tasks[]
+
+  @@index([created_by], map: "idx_task_groups_created_by")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model task_relations {
+  id                                          Int       @id @default(autoincrement())
+  task_id                                     Int
+  related_task_id                             Int
+  type                                        String    @default("related_to")
+  created_at                                  DateTime? @default(dbgenerated("(now() AT TIME ZONE 'Asia/Manila'::text)")) @db.Timestamptz(6)
+  tasks_task_relations_related_task_idTotasks tasks     @relation("task_relations_related_task_idTotasks", fields: [related_task_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tasks_task_relations_task_idTotasks         tasks     @relation("task_relations_task_idTotasks", fields: [task_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([task_id, related_task_id, type], map: "uniq_task_relation")
+  @@index([related_task_id], map: "idx_task_relations_related_task_id")
+  @@index([task_id], map: "idx_task_relations_task_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model tasks {
+  id                                                   Int                    @id @default(autoincrement())
+  user_id                                              Int
+  group_id                                             Int
+  title                                                String                 @db.VarChar(255)
+  description                                          String?
+  priority                                             String?                @default("normal") @db.VarChar(50)
+  tags                                                 String[]
+  position                                             Int                    @default(0)
+  status                                               String?                @default("active") @db.VarChar(50)
+  created_at                                           DateTime?              @default(dbgenerated("(now() AT TIME ZONE 'Asia/Manila'::text)")) @db.Timestamptz(6)
+  updated_at                                           DateTime?              @default(dbgenerated("(now() AT TIME ZONE 'Asia/Manila'::text)")) @db.Timestamptz(6)
+  start_date                                           DateTime?              @db.Timestamptz(6)
+  due_date                                             DateTime?              @db.Timestamptz(6)
+  task_activity_events                                 task_activity_events[]
+  task_assignees                                       task_assignees[]
+  task_attachments                                     task_attachments[]
+  task_comments                                        task_comments[]
+  task_custom_fields                                   task_custom_fields[]
+  task_relations_task_relations_related_task_idTotasks task_relations[]       @relation("task_relations_related_task_idTotasks")
+  task_relations_task_relations_task_idTotasks         task_relations[]       @relation("task_relations_task_idTotasks")
+  task_groups                                          task_groups            @relation(fields: [group_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users                                                User                   @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([group_id], map: "idx_tasks_group_id")
+  @@index([group_id, position], map: "idx_tasks_position")
+  @@index([user_id], map: "idx_tasks_user_id")
+}
+
+model ticket_categories {
+  id         Int       @id @default(autoincrement())
+  name       String    @unique @db.VarChar(100)
+  created_at DateTime? @default(now()) @db.Timestamp(6)
+  updated_at DateTime? @default(now()) @db.Timestamp(6)
+  tickets    tickets[]
+
+  @@index([name], map: "idx_ticket_categories_name")
+}
+
+model ticket_comments {
+  id         Int       @id @default(autoincrement())
+  ticket_id  Int
+  user_id    Int
+  comment    String
+  created_at DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at DateTime? @default(now()) @db.Timestamptz(6)
+  tickets    tickets   @relation(fields: [ticket_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users      User      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([ticket_id], map: "idx_ticket_comments_ticket_id")
+  @@index([user_id], map: "idx_ticket_comments_user_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model tickets {
+  id                               Int                @id @default(autoincrement())
+  ticket_id                        String             @unique @db.VarChar(50)
+  user_id                          Int
+  concern                          String
+  details                          String?
+  status                           ticket_status_enum @default(For_Approval)
+  resolved_by                      Int?
+  resolved_at                      DateTime?          @db.Timestamptz(6)
+  created_at                       DateTime?          @default(now()) @db.Timestamptz(6)
+  updated_at                       DateTime?          @default(now()) @db.Timestamptz(6)
+  position                         Int                @default(0)
+  category_id                      Int?
+  supporting_files                 String[]           @default([])
+  file_count                       Int?               @default(0)
+  role_id                          Int?
+  ticket_comments                  ticket_comments[]
+  ticket_categories                ticket_categories? @relation(fields: [category_id], references: [id], onUpdate: NoAction)
+  users_tickets_resolved_byTousers User?              @relation("tickets_resolved_byTousers", fields: [resolved_by], references: [id], onUpdate: NoAction)
+  roles                            roles?             @relation(fields: [role_id], references: [id], onUpdate: NoAction)
+  users_tickets_user_idTousers     User               @relation("tickets_user_idTousers", fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([category_id], map: "idx_tickets_category_id")
+  @@index([created_at], map: "idx_tickets_created_at")
+  @@index([resolved_by], map: "idx_tickets_resolved_by")
+  @@index([role_id], map: "idx_tickets_role_id")
+  @@index([status], map: "idx_tickets_status")
+  @@index([ticket_id], map: "idx_tickets_ticket_id")
+  @@index([user_id], map: "idx_tickets_user_id")
+  @@index([user_id, created_at(sort: Desc)], map: "idx_tickets_user_id_created_at")
+}
+
+model weekly_activity_summary {
+  id                     Int       @id @default(autoincrement())
+  user_id                Int
+  week_start_date        DateTime  @db.Date
+  week_end_date          DateTime  @db.Date
+  total_active_seconds   Int?      @default(0)
+  total_inactive_seconds Int?      @default(0)
+  total_days_active      Int?      @default(0)
+  created_at             DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime? @default(now()) @db.Timestamptz(6)
+  users                  User      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([user_id, week_start_date])
+  @@index([created_at], map: "idx_weekly_activity_created_at")
+  @@index([user_id], map: "idx_weekly_activity_user_id")
+  @@index([week_start_date, week_end_date], map: "idx_weekly_activity_week_dates")
+}
+
+enum announcement_priority_enum {
+  low
+  medium
+  high
+  urgent
+}
+
+enum announcement_status_enum {
+  draft
+  scheduled
+  active
+  expired
+  cancelled
+}
+
+enum break_type_enum {
+  Morning
+  Lunch
+  Afternoon
+  NightFirst
+  NightMeal
+  NightSecond
+}
+
+enum gender_enum {
+  Male
+  Female
+  Other
+  Prefer_not_to_say @map("Prefer not to say")
+}
+
+enum company_status_enum {
+  Current_Client @map("Current Client")
+  Lost_Client    @map("Lost Client")
+}
+
+enum report_type_enum {
+  bug
+  feature
+  ui
+  performance
+  account
+  other
+}
+
+enum task_activity_action {
+  task_created
+  task_updated
+  attachments_added
+  attachment_deleted
+}
+
+enum ticket_status_enum {
+  For_Approval @map("For Approval")
+  On_Hold      @map("On Hold")
+  In_Progress  @map("In Progress")
+  Approved
+  Stuck
+  Actioned
+  Closed
+}
+
+enum user_type_enum {
+  Agent
+  Client
+  Internal
+}

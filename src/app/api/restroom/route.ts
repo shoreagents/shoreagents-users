@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { executeQuery, initializeDatabase } from '@/lib/database-server';
+import { prisma } from '@/lib/prisma';
 import { parseShiftTime } from '@/lib/shift-utils';
 
 // Helper function to get user from request (matches pattern from other APIs)
@@ -74,40 +74,40 @@ function shouldResetBasedOnUpdatedAt(updatedAt: string | null, currentTime: Date
 // GET - Get restroom status for a user
 export async function GET(request: NextRequest) {
   try {
-    await initializeDatabase()
-    
     const currentUser = getUserFromRequest(request)
     if (!currentUser) {
       return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
     }
 
-    // Get user ID and shift information from database using email
-    const userResult = await executeQuery<any>(
-      `SELECT u.id, ji.shift_time 
-       FROM users u
-       LEFT JOIN job_info ji ON u.id = ji.agent_user_id
-       WHERE u.email = $1`,
-      [currentUser.email]
-    )
+    // Get user with agent and job info using Prisma
+    const user = await prisma.user.findUnique({
+      where: { email: currentUser.email },
+      include: {
+        agent: {
+          include: {
+            jobInfo: true
+          }
+        }
+      }
+    })
 
-    if (userResult.length === 0) {
+    if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    const userId = userResult[0].id
-    const shiftTime = userResult[0].shift_time
+    const userId = user.id
+    const shiftTime = user.agent?.jobInfo?.[0]?.shiftTime
 
     // Get current time in Philippines timezone
     const now = new Date()
 
-    // Get restroom status
-    const restroomResult = await executeQuery<any>(
-      `SELECT * FROM agent_restroom_status WHERE agent_user_id = $1`,
-      [userId]
-    )
+    // Get restroom status using Prisma
+    let restroomStatus = await prisma.agentRestroomStatus.findUnique({
+      where: { agentUserId: userId }
+    })
 
     // If no record exists, return default status
-    if (restroomResult.length === 0) {
+    if (!restroomStatus) {
       return NextResponse.json({
         id: null,
         agent_user_id: userId,
@@ -118,29 +118,32 @@ export async function GET(request: NextRequest) {
         updated_at: null
       })
     }
-
-    const restroomStatus = restroomResult[0]
     
     // Check if we need to reset based on shift schedule using updated_at field
     // This automatically resets the count when user loads the page if it's a new shift period
-    const shouldReset = shouldResetBasedOnUpdatedAt(restroomStatus.updated_at, now, shiftTime)
+    const shouldReset = shouldResetBasedOnUpdatedAt(restroomStatus.updatedAt.toISOString(), now, shiftTime || '')
     
     // If it's a new shift period, automatically reset the daily count but preserve total count
     if (shouldReset) {
-      const resetResult = await executeQuery<any>(
-        `UPDATE agent_restroom_status 
-         SET daily_restroom_count = 0, 
-             updated_at = NOW()
-         WHERE agent_user_id = $1
-         RETURNING *`,
-        [userId]
-      )
-      
-      return NextResponse.json(resetResult[0])
+      restroomStatus = await prisma.agentRestroomStatus.update({
+        where: { agentUserId: userId },
+        data: {
+          dailyRestroomCount: 0,
+          updatedAt: new Date()
+        }
+      })
     }
-    
 
-    return NextResponse.json(restroomStatus)
+    // Convert Prisma result to match expected API format
+    return NextResponse.json({
+      id: restroomStatus.id,
+      agent_user_id: restroomStatus.agentUserId,
+      is_in_restroom: restroomStatus.isInRestroom,
+      restroom_count: restroomStatus.restroomCount,
+      daily_restroom_count: restroomStatus.dailyRestroomCount,
+      created_at: restroomStatus.createdAt,
+      updated_at: restroomStatus.updatedAt
+    })
   } catch (error) {
     console.error('Error in GET /api/restroom:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
@@ -150,8 +153,6 @@ export async function GET(request: NextRequest) {
 // POST - Create or update restroom status (optimized)
 export async function POST(request: NextRequest) {
   try {
-    await initializeDatabase()
-    
     const currentUser = getUserFromRequest(request)
     if (!currentUser) {
       return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
@@ -169,49 +170,51 @@ export async function POST(request: NextRequest) {
     // Get current date in Philippines timezone using Intl.DateTimeFormat
     const now = new Date()
 
-    // Get user ID and shift information from database
-    const userResult = await executeQuery<any>(
-      `SELECT u.id, ji.shift_time 
-       FROM users u
-       LEFT JOIN job_info ji ON u.id = ji.agent_user_id
-       WHERE u.email = $1`,
-      [currentUser.email]
-    )
+    // Get user with agent and job info using Prisma
+    const user = await prisma.user.findUnique({
+      where: { email: currentUser.email },
+      include: {
+        agent: {
+          include: {
+            jobInfo: true
+          }
+        }
+      }
+    })
 
-    if (userResult.length === 0) {
+    if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    const userId = userResult[0].id
-    const shiftTime = userResult[0].shift_time
+    const userId = user.id
+    const shiftTime = user.agent?.jobInfo?.[0]?.shiftTime
 
-    // Get existing restroom status
-    const existingResult = await executeQuery<any>(
-      `SELECT * FROM agent_restroom_status WHERE agent_user_id = $1`,
-      [userId]
-    )
+    // Get existing restroom status using Prisma
+    const existing = await prisma.agentRestroomStatus.findUnique({
+      where: { agentUserId: userId }
+    })
 
     let result
 
-    if (existingResult.length === 0) {
-      // Create new record
-      result = await executeQuery<any>(
-        `INSERT INTO agent_restroom_status (agent_user_id, is_in_restroom, restroom_count, daily_restroom_count, created_at, updated_at)
-         VALUES ($1, $2, 0, 0, NOW(), NOW())
-         RETURNING *`,
-        [userId, is_in_restroom]
-      )
+    if (!existing) {
+      // Create new record using Prisma
+      result = await prisma.agentRestroomStatus.create({
+        data: {
+          agentUserId: userId,
+          isInRestroom: is_in_restroom,
+          restroomCount: 0,
+          dailyRestroomCount: 0
+        }
+      })
     } else {
       // Update existing record
-      const existing = existingResult[0]
-      
       // Check if we need to reset based on shift schedule using updated_at field
-      const shouldReset = shouldResetBasedOnUpdatedAt(existing.updated_at, now, shiftTime)
+      const shouldReset = shouldResetBasedOnUpdatedAt(existing.updatedAt.toISOString(), now, shiftTime || '')
       
       // Only increment counts when transitioning from false to true (entering restroom)
-      const shouldIncrement = is_in_restroom && !existing.is_in_restroom
+      const shouldIncrement = is_in_restroom && !existing.isInRestroom
       
-      const newRestroomCount = shouldIncrement ? existing.restroom_count + 1 : existing.restroom_count
+      const newRestroomCount = shouldIncrement ? existing.restroomCount + 1 : existing.restroomCount
       
       let newDailyCount
       if (shouldReset) {
@@ -219,27 +222,30 @@ export async function POST(request: NextRequest) {
         newDailyCount = shouldIncrement ? 1 : 0
       } else {
         // If no reset needed, increment if entering restroom
-        newDailyCount = shouldIncrement ? existing.daily_restroom_count + 1 : existing.daily_restroom_count
+        newDailyCount = shouldIncrement ? existing.dailyRestroomCount + 1 : existing.dailyRestroomCount
       }
       
-      result = await executeQuery<any>(
-        `UPDATE agent_restroom_status 
-         SET is_in_restroom = $2,
-             restroom_count = $3,
-             daily_restroom_count = $4,
-             updated_at = NOW()
-         WHERE agent_user_id = $1
-         RETURNING *`,
-        [userId, is_in_restroom, newRestroomCount, newDailyCount]
-      )
+      result = await prisma.agentRestroomStatus.update({
+        where: { agentUserId: userId },
+        data: {
+          isInRestroom: is_in_restroom,
+          restroomCount: newRestroomCount,
+          dailyRestroomCount: newDailyCount,
+          updatedAt: new Date()
+        }
+      })
     }
 
-    if (result.length === 0) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 })
-    }
-
-
-    return NextResponse.json(result[0])
+    // Convert Prisma result to match expected API format
+    return NextResponse.json({
+      id: result.id,
+      agent_user_id: result.agentUserId,
+      is_in_restroom: result.isInRestroom,
+      restroom_count: result.restroomCount,
+      daily_restroom_count: result.dailyRestroomCount,
+      created_at: result.createdAt,
+      updated_at: result.updatedAt
+    })
   } catch (error) {
     console.error('Error in POST /api/restroom:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
@@ -249,8 +255,6 @@ export async function POST(request: NextRequest) {
 // PUT - Update restroom status
 export async function PUT(request: NextRequest) {
   try {
-    await initializeDatabase()
-    
     const currentUser = getUserFromRequest(request)
     if (!currentUser) {
       return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
@@ -265,31 +269,35 @@ export async function PUT(request: NextRequest) {
       }, { status: 400 })
     }
 
-    // Get user ID from database using email
-    const userResult = await executeQuery<any>(
-      `SELECT id FROM users WHERE email = $1`,
-      [currentUser.email]
-    )
+    // Get user ID using Prisma
+    const user = await prisma.user.findUnique({
+      where: { email: currentUser.email }
+    })
 
-    if (userResult.length === 0) {
+    if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    const userId = userResult[0].id
+    const userId = user.id
 
-    const updateResult = await executeQuery<any>(
-      `UPDATE agent_restroom_status 
-       SET is_in_restroom = $1, updated_at = NOW()
-       WHERE agent_user_id = $2
-       RETURNING *`,
-      [is_in_restroom, userId]
-    )
+    const updateResult = await prisma.agentRestroomStatus.update({
+      where: { agentUserId: userId },
+      data: {
+        isInRestroom: is_in_restroom,
+        updatedAt: new Date()
+      }
+    })
 
-    if (updateResult.length === 0) {
-      return NextResponse.json({ error: 'Restroom status not found' }, { status: 404 })
-    }
-
-    return NextResponse.json(updateResult[0])
+    // Convert Prisma result to match expected API format
+    return NextResponse.json({
+      id: updateResult.id,
+      agent_user_id: updateResult.agentUserId,
+      is_in_restroom: updateResult.isInRestroom,
+      restroom_count: updateResult.restroomCount,
+      daily_restroom_count: updateResult.dailyRestroomCount,
+      created_at: updateResult.createdAt,
+      updated_at: updateResult.updatedAt
+    })
   } catch (error) {
     console.error('Error in PUT /api/restroom:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
@@ -299,29 +307,25 @@ export async function PUT(request: NextRequest) {
 // DELETE - Remove restroom status record
 export async function DELETE(request: NextRequest) {
   try {
-    await initializeDatabase()
-    
     const currentUser = getUserFromRequest(request)
     if (!currentUser) {
       return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
     }
 
-    // Get user ID from database using email
-    const userResult = await executeQuery<any>(
-      `SELECT id FROM users WHERE email = $1`,
-      [currentUser.email]
-    )
+    // Get user ID using Prisma
+    const user = await prisma.user.findUnique({
+      where: { email: currentUser.email }
+    })
 
-    if (userResult.length === 0) {
+    if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    const userId = userResult[0].id
+    const userId = user.id
 
-    await executeQuery<any>(
-      `DELETE FROM agent_restroom_status WHERE agent_user_id = $1`,
-      [userId]
-    )
+    await prisma.agentRestroomStatus.delete({
+      where: { agentUserId: userId }
+    })
 
     return NextResponse.json({ message: 'Restroom status deleted successfully' })
   } catch (error) {

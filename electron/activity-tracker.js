@@ -217,14 +217,76 @@ class ActivityTracker {
   }
 
   checkInactivity() {
-    if (!this.isTracking || this.isSystemSuspended) return;
+    if (!this.isTracking || this.isSystemSuspended) {
+      console.log('Skipping inactivity check - tracking paused or system suspended');
+      return;
+    }
     
     const currentTime = Date.now();
     const timeSinceLastActivity = currentTime - this.lastActivityTime;
     
+    // Check if break is active using break context state (more reliable than localStorage)
+    if (this.mainWindow && !this.mainWindow.isDestroyed() && this.mainWindow.webContents) {
+      this.mainWindow.webContents.executeJavaScript(`
+        (() => {
+          try {
+            // Get break context state from the main process
+            return window.electronAPI?.breakMonitoring?.getBreakState?.() || { isBreakActive: false, activeBreakId: null };
+          } catch (error) {
+            return { isBreakActive: false, activeBreakId: null };
+          }
+        })()
+      `).then((breakState) => {
+        // Don't show inactivity alerts if break is active
+        if (breakState.isBreakActive) {
+          console.log('Skipping inactivity check - break is active (from context)');
+          return;
+        }
+        
+        // If screen is locked, immediately trigger inactivity alert
+        if (this.isScreenLocked) {
+          this.showInactivityWindow();
+          try {
+            if (this.mainWindow && !this.mainWindow.isDestroyed() && this.mainWindow.webContents) {
+              this.mainWindow.webContents.send('inactivity-alert', {
+                inactiveTime: timeSinceLastActivity,
+                threshold: this.inactivityThreshold,
+              });
+            }
+          } catch (error) {
+            console.error('Error sending inactivity alert:', error);
+          }
+          return; // Exit early when screen is locked
+        }
+        
+        if (timeSinceLastActivity >= this.inactivityThreshold) {
+          this.showInactivityWindow();
+          try {
+            if (this.mainWindow && !this.mainWindow.isDestroyed() && this.mainWindow.webContents) {
+              this.mainWindow.webContents.send('inactivity-alert', {
+                inactiveTime: timeSinceLastActivity,
+                threshold: this.inactivityThreshold,
+              });
+            }
+          } catch (error) {
+            console.error('Error sending inactivity alert:', error);
+          }
+        }
+      }).catch((error) => {
+        console.error('Error checking break status in checkInactivity:', error);
+        // Fallback: proceed with normal inactivity check if we can't check break status
+        this.checkInactivityFallback(timeSinceLastActivity);
+      });
+    } else {
+      // Fallback if we can't check break status
+      this.checkInactivityFallback(timeSinceLastActivity);
+    }
+  }
+  
+  checkInactivityFallback(timeSinceLastActivity) {
     // If screen is locked, immediately trigger inactivity alert
     if (this.isScreenLocked) {
-      this.showInactivityWindow();
+      this.showInactivityWindowFallback();
       try {
         if (this.mainWindow && !this.mainWindow.isDestroyed() && this.mainWindow.webContents) {
           this.mainWindow.webContents.send('inactivity-alert', {
@@ -239,7 +301,7 @@ class ActivityTracker {
     }
     
     if (timeSinceLastActivity >= this.inactivityThreshold) {
-      this.showInactivityWindow();
+      this.showInactivityWindowFallback();
       try {
         if (this.mainWindow && !this.mainWindow.isDestroyed() && this.mainWindow.webContents) {
           this.mainWindow.webContents.send('inactivity-alert', {
@@ -277,6 +339,101 @@ class ActivityTracker {
 
   showInactivityWindow() {
     try {
+      // Don't show inactivity window if tracking is paused
+      if (!this.isTracking) {
+        console.log('Skipping inactivity window - tracking is paused');
+        return;
+      }
+      
+      // Additional safety check: if we can't access the main window, don't show anything
+      if (!this.mainWindow || this.mainWindow.isDestroyed()) {
+        console.log('Skipping inactivity window - main window not available');
+        return;
+      }
+      
+      // Check global flag to prevent inactivity windows during breaks
+      if (this.mainWindow && !this.mainWindow.isDestroyed() && this.mainWindow.webContents) {
+        this.mainWindow.webContents.executeJavaScript(`
+          (() => {
+            try {
+              return window.electronAPI?.breakMonitoring?.shouldPreventInactivityWindows?.() || { success: false, prevent: false };
+            } catch (error) {
+              return { success: false, prevent: false };
+            }
+          })()
+        `).then((result) => {
+          if (result.success && result.prevent) {
+            console.log('Skipping inactivity window - prevented by global flag (break active)');
+            return;
+          }
+          
+          // Continue with break context check
+          this.checkBreakContextAndShowWindow();
+        }).catch((error) => {
+          console.error('Error checking inactivity window prevention flag:', error);
+          // Fallback: check break context anyway
+          this.checkBreakContextAndShowWindow();
+        });
+      }
+    } catch (error) {
+      console.error('Error showing inactivity window:', error);
+    }
+  }
+  
+  checkBreakContextAndShowWindow() {
+    try {
+      // Check if break is active before showing inactivity window using break context state
+      if (this.mainWindow && !this.mainWindow.isDestroyed() && this.mainWindow.webContents) {
+        // Get break status from break context state
+        this.mainWindow.webContents.executeJavaScript(`
+          (() => {
+            try {
+              // Get break context state from the main process
+              return window.electronAPI?.breakMonitoring?.getBreakState?.() || { isBreakActive: false, activeBreakId: null };
+            } catch (error) {
+              return { isBreakActive: false, activeBreakId: null };
+            }
+          })()
+        `).then((breakState) => {
+          // Don't show inactivity window if break is active
+          if (breakState.isBreakActive) {
+            console.log('Skipping inactivity window - break is active (from context)');
+            return;
+          }
+          
+          // Show the window if it's hidden
+          if (!this.mainWindow.isVisible()) {
+            this.mainWindow.show();
+          }
+          
+          // Restore the window if it's minimized
+          if (this.mainWindow.isMinimized()) {
+            this.mainWindow.restore();
+          }
+          
+          // Bring the window to the front and focus it
+          this.mainWindow.focus();
+          this.mainWindow.setAlwaysOnTop(true);
+          
+          // Remove always on top after a short delay to avoid being too intrusive
+          setTimeout(() => {
+            if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+              this.mainWindow.setAlwaysOnTop(false);
+            }
+          }, 3000); // Remove always on top after 3 seconds
+        }).catch((error) => {
+          console.error('Error checking break status:', error);
+          // Fallback: show window anyway if we can't check break status
+          this.showInactivityWindowFallback();
+        });
+      }
+    } catch (error) {
+      console.error('Error showing inactivity window:', error);
+    }
+  }
+  
+  showInactivityWindowFallback() {
+    try {
       if (this.mainWindow && !this.mainWindow.isDestroyed()) {
         // Show the window if it's hidden
         if (!this.mainWindow.isVisible()) {
@@ -298,10 +455,9 @@ class ActivityTracker {
             this.mainWindow.setAlwaysOnTop(false);
           }
         }, 3000); // Remove always on top after 3 seconds
-        
       }
     } catch (error) {
-      console.error('Error showing inactivity window:', error);
+      console.error('Error showing inactivity window fallback:', error);
     }
   }
 
@@ -312,16 +468,19 @@ class ActivityTracker {
   pauseTracking() {
     if (!this.isTracking) return;
     
+    console.log('Pausing activity tracking completely');
     this.isTracking = false;
     
+    // Clear activity check interval
     if (this.activityCheckInterval) {
       clearInterval(this.activityCheckInterval);
       this.activityCheckInterval = null;
     }
     
-    
+    // Pause mouse tracking
     this.pauseMouseTracking();
     
+    console.log('Activity tracking paused successfully');
   }
 
   resumeTracking() {

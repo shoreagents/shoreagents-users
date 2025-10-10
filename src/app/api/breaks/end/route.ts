@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { executeQuery } from '@/lib/database-server';
+import { redisCache, cacheKeys } from '@/lib/redis-cache';
 
 export async function POST(request: NextRequest) {
   try {
@@ -21,7 +22,15 @@ export async function POST(request: NextRequest) {
       // End specific break by ID
       updateQuery = `
         UPDATE break_sessions 
-        SET end_time = NOW()
+        SET end_time = NOW(),
+            duration_minutes = CASE 
+              WHEN pause_time IS NOT NULL AND resume_time IS NOT NULL THEN 
+                EXTRACT(EPOCH FROM (pause_time - start_time)) / 60 + EXTRACT(EPOCH FROM (NOW() - resume_time)) / 60
+              WHEN pause_time IS NOT NULL AND resume_time IS NULL THEN 
+                EXTRACT(EPOCH FROM (pause_time - start_time)) / 60
+              ELSE 
+                EXTRACT(EPOCH FROM (NOW() - start_time)) / 60
+            END
         WHERE id = $1 AND end_time IS NULL
         RETURNING id, agent_user_id, break_type, start_time, end_time, duration_minutes
       `;
@@ -30,7 +39,15 @@ export async function POST(request: NextRequest) {
       // End active break for specific agent
       updateQuery = `
         UPDATE break_sessions 
-        SET end_time = NOW()
+        SET end_time = NOW(),
+            duration_minutes = CASE 
+              WHEN pause_time IS NOT NULL AND resume_time IS NOT NULL THEN 
+                EXTRACT(EPOCH FROM (pause_time - start_time)) / 60 + EXTRACT(EPOCH FROM (NOW() - resume_time)) / 60
+              WHEN pause_time IS NOT NULL AND resume_time IS NULL THEN 
+                EXTRACT(EPOCH FROM (pause_time - start_time)) / 60
+              ELSE 
+                EXTRACT(EPOCH FROM (NOW() - start_time)) / 60
+            END
         WHERE agent_user_id = $1 AND end_time IS NULL
         RETURNING id, agent_user_id, break_type, start_time, end_time, duration_minutes
       `;
@@ -63,6 +80,13 @@ export async function POST(request: NextRequest) {
     `;
     
     const agentResult = await executeQuery(agentQuery, [completedBreak.agent_user_id]);
+
+    // Invalidate break history cache for this user
+    try {
+      await redisCache.invalidatePattern(`breaks-history:${completedBreak.agent_user_id}:*`);
+    } catch (cacheError) {
+      console.warn('Failed to invalidate break history cache:', cacheError);
+    }
 
     // Break ended successfully;
 

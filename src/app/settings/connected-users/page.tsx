@@ -40,7 +40,7 @@ interface UserStatus {
 }
 
 interface TeamInfo {
-  member_id: number
+  company_id: number
   company: string
   badge_color?: string
 }

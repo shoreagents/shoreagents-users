@@ -52,7 +52,7 @@ const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: 'quick-actions',
     title: 'Quick Actions',
-    description: 'Quick access to common tasks like creating new tickets, taking breaks, and managing meetings.',
+    description: 'Quick access to common tasks like creating new tickets, taking restroom and breaks.',
     target: '[data-quick-actions]',
     position: 'top',
     action: 'none',

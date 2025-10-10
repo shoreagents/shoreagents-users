@@ -63,9 +63,9 @@ export async function GET(request: NextRequest) {
       }
     } 
 
-    // First, get the current user's member_id using email instead of user_id
+    // First, get the current user's company_id using email instead of user_id
     const currentUserQuery = `
-      SELECT a.member_id
+      SELECT a.company_id
       FROM agents a
       INNER JOIN users u ON a.user_id = u.id
       WHERE u.email = $1
@@ -76,16 +76,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'User is not an agent' }, { status: 400 })
     }
     
-    const currentUserMemberId = currentUserResult[0].member_id
+    const currentUserCompanyId = currentUserResult[0].company_id
     
     // Now fetch all agents from the same team/company
     const parts: string[] = []
     const params: any[] = []
     let p = 1
     
-    // Always filter by the same member_id (team/company)
-    parts.push(`a.member_id = $${p}`)
-    params.push(currentUserMemberId)
+    // Always filter by the same company_id (team/company)
+    parts.push(`a.company_id = $${p}`)
+    params.push(currentUserCompanyId)
     p++
     
     // Add search filter if provided
@@ -103,13 +103,13 @@ export async function GET(request: NextRequest) {
         u.email,
         TRIM(CONCAT(COALESCE(pi.first_name,''), ' ', COALESCE(pi.last_name,''))) as name,
         COALESCE(pi.profile_picture, '') as avatar,
-        a.member_id,
-        m.company as team_name
+        a.company_id,
+        c.company as team_name
       FROM users u
       INNER JOIN agents a ON u.id = a.user_id
-      INNER JOIN members m ON a.member_id = m.id
+      INNER JOIN companies c ON a.company_id = c.id
       LEFT JOIN personal_info pi ON pi.user_id = u.id
-      WHERE ${parts.join(' AND ')}
+      WHERE u.user_type = 'Agent' AND ${parts.join(' AND ')}
       ORDER BY (TRIM(CONCAT(COALESCE(pi.first_name,''), ' ', COALESCE(pi.last_name,'')))) NULLS LAST, u.email
       LIMIT $${p}
     `
@@ -119,17 +119,17 @@ export async function GET(request: NextRequest) {
     // Get team info for the response
     const teamQuery = `
       SELECT company, badge_color
-      FROM members
+      FROM companies
       WHERE id = $1
     `
-    const teamResult = await executeQuery(teamQuery, [currentUserMemberId])
+    const teamResult = await executeQuery(teamQuery, [currentUserCompanyId])
     const teamInfo = teamResult[0] || {}
     
     const responseData = { 
       success: true, 
       agents: res,
       team: {
-        member_id: currentUserMemberId,
+        company_id: currentUserCompanyId,
         company: teamInfo.company,
         badge_color: teamInfo.badge_color
       }

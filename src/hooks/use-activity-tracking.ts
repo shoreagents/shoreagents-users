@@ -108,8 +108,8 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean, isSys
     
     // If any status becomes active and dialog is open, close it immediately
     if (shouldPreventInactivity && showInactivityDialog) {
-      setShowInactivityDialog(false);
-      setInactivityData(null);
+      // REMOVED: setShowInactivityDialog(false); - Dialog should only close when user clicks button
+      // REMOVED: setInactivityData(null); - Keep inactivity data until dialog is manually closed
     }
     
     // If any status becomes active, cancel any pending inactivity alerts
@@ -317,8 +317,8 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean, isSys
     }
     
     setLastActivity(activityData);
-    setShowInactivityDialog(false);
-    setInactivityData(null);
+    // REMOVED: setShowInactivityDialog(false); - Dialog should only close when user clicks button
+    // REMOVED: setInactivityData(null); - Keep inactivity data until dialog is manually closed
     
     // CRITICAL: Set activity state to active when activity is detected
     if (setActivityState) {
@@ -409,8 +409,8 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean, isSys
     
     const resetData = data as { timestamp: number };
     setLastActivity({ timestamp: resetData.timestamp, position: { x: 0, y: 0 } });
-    setShowInactivityDialog(false);
-    setInactivityData(null);
+    // REMOVED: setShowInactivityDialog(false); - Dialog should only close when user clicks button
+    // REMOVED: setInactivityData(null); - Keep inactivity data until dialog is manually closed
     
     // CRITICAL: Set activity state to active when activity is reset
     if (setActivityState) {
@@ -443,7 +443,7 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean, isSys
       setActivityState(false, true); // true = isSystemEvent  
     }
     
-    setShowInactivityDialog(false); // Close any inactivity dialogs
+    // REMOVED: setShowInactivityDialog(false); - Dialog should only close when user clicks button
   }, [setActivityState]);
 
   // Handle system resume events
@@ -575,9 +575,9 @@ export const useActivityTracking = (setActivityState?: (isActive: boolean, isSys
       
       console.log('Shift reset detected in activity tracking hook:', { shouldBeActive })
       
-      // Reset inactivity dialog state when shift resets
-      setShowInactivityDialog(false)
-      setInactivityData(null)
+      // REMOVED: Reset inactivity dialog state when shift resets - Dialog should only close when user clicks button
+      // REMOVED: setShowInactivityDialog(false)
+      // REMOVED: setInactivityData(null)
       
       // Clear any pending inactivity alerts
       if (inactivityAlertTimeoutRef.current) {

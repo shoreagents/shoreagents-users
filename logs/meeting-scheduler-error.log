@@ -30,3 +30,11 @@
 2025-10-07T20:29:19: [8:29:19 PM] Meeting notification check failed: read ECONNRESET
 2025-10-07T20:29:22: [8:29:22 PM] Meeting notification check failed: read ECONNRESET
 2025-10-07T22:48:57: [10:48:57 PM] Meeting notification check failed: read ECONNRESET
+2025-10-09T14:41:57: [2:41:57 PM] Meeting notification check failed: sorry, too many clients already
+2025-10-09T14:41:59: [2:41:59 PM] Meeting notification check failed: sorry, too many clients already
+2025-10-09T14:42:01: [2:42:01 PM] Meeting start check failed: sorry, too many clients already
+2025-10-09T14:42:03: [2:42:03 PM] Meeting start check failed: sorry, too many clients already
+2025-10-09T14:42:35: [2:42:35 PM] Meeting notification check failed: sorry, too many clients already
+2025-10-09T14:42:37: [2:42:37 PM] Meeting start check failed: sorry, too many clients already
+2025-10-09T14:42:39: [2:42:39 PM] Meeting start check failed: sorry, too many clients already
+2025-10-09T14:42:41: [2:42:41 PM] Meeting start check failed: sorry, too many clients already

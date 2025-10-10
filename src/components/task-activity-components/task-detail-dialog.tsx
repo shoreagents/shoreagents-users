@@ -189,7 +189,7 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
 
   // Load assignee candidates from database users (only same team/company)
   const [peopleList, setPeopleList] = React.useState<Array<{id: string, name: string, email: string, avatar: string, verified?: boolean, team_name?: string}>>([])
-  const [teamInfo, setTeamInfo] = React.useState<{member_id: number, company: string, badge_color?: string} | null>(null)
+  const [teamInfo, setTeamInfo] = React.useState<{company_id: number, company: string, badge_color?: string} | null>(null)
   
   React.useEffect(() => {
     const loadTeamAgents = async () => {
@@ -1615,6 +1615,7 @@ export function TaskDetailDialog({ task, tasks, columns, isOpen, onClose, onTask
                                           >
                                             <div className="flex items-center gap-3 w-full">
                                               <Avatar className="h-6 w-6">
+                                                <AvatarImage src={person.avatar} alt={person.name} />
                                                 <AvatarFallback className="text-xs">
                                                   {person.name.split(' ').map(n => n[0]).join('').toUpperCase()}
                                                 </AvatarFallback>

@@ -32,3 +32,53 @@
 2025-10-07T14:32:30: Starting within 1 hour: 0
 2025-10-08T06:58:11: [6:58:11 AM] Sent 1 meeting notifications (0 reminders, 1 starts)
 2025-10-08T07:03:12: [7:03:12 AM] Sent 1 meeting notifications (0 reminders, 1 starts)
+2025-10-09T07:46:22: Starting meeting scheduler (checking every 0.5 seconds)
+2025-10-09T07:46:22: Meeting scheduler is running. Press Ctrl+C to stop.
+2025-10-09T07:46:22: This scheduler handles:
+2025-10-09T07:46:22: Automatically starting scheduled meetings
+2025-10-09T07:46:22: Sending meeting reminders (1 hour before)
+2025-10-09T07:46:22: Checking every 0.5 seconds for starts, 60 seconds for reminders, 2 seconds for notifications
+2025-10-09T07:46:24: Initial meeting stats:
+2025-10-09T07:46:24: Scheduled meetings: 0
+2025-10-09T07:46:24: In-progress meetings: 0
+2025-10-09T07:46:24: Starting within 1 hour: 0
+2025-10-09T09:54:29: Starting meeting scheduler (checking every 0.5 seconds)
+2025-10-09T09:54:29: Meeting scheduler is running. Press Ctrl+C to stop.
+2025-10-09T09:54:29: This scheduler handles:
+2025-10-09T09:54:29: Automatically starting scheduled meetings
+2025-10-09T09:54:29: Sending meeting reminders (1 hour before)
+2025-10-09T09:54:29: Checking every 0.5 seconds for starts, 60 seconds for reminders, 2 seconds for notifications
+2025-10-09T09:54:31: Initial meeting stats:
+2025-10-09T09:54:31: Scheduled meetings: 0
+2025-10-09T09:54:31: In-progress meetings: 0
+2025-10-09T09:54:31: Starting within 1 hour: 0
+2025-10-09T14:06:35: Starting meeting scheduler (checking every 0.5 seconds)
+2025-10-09T14:06:35: Meeting scheduler is running. Press Ctrl+C to stop.
+2025-10-09T14:06:35: This scheduler handles:
+2025-10-09T14:06:35: Automatically starting scheduled meetings
+2025-10-09T14:06:35: Sending meeting reminders (1 hour before)
+2025-10-09T14:06:35: Checking every 0.5 seconds for starts, 60 seconds for reminders, 2 seconds for notifications
+2025-10-09T14:06:37: Initial meeting stats:
+2025-10-09T14:06:37: Scheduled meetings: 0
+2025-10-09T14:06:37: In-progress meetings: 0
+2025-10-09T14:06:37: Starting within 1 hour: 0
+2025-10-09T14:44:25: Starting meeting scheduler (checking every 0.5 seconds)
+2025-10-09T14:44:25: Meeting scheduler is running. Press Ctrl+C to stop.
+2025-10-09T14:44:25: This scheduler handles:
+2025-10-09T14:44:25: Automatically starting scheduled meetings
+2025-10-09T14:44:25: Sending meeting reminders (1 hour before)
+2025-10-09T14:44:25: Checking every 0.5 seconds for starts, 60 seconds for reminders, 2 seconds for notifications
+2025-10-09T14:44:28: Initial meeting stats:
+2025-10-09T14:44:28: Scheduled meetings: 0
+2025-10-09T14:44:28: In-progress meetings: 0
+2025-10-09T14:44:28: Starting within 1 hour: 0
+2025-10-10T08:10:17: Starting meeting scheduler (checking every 0.5 seconds)
+2025-10-10T08:10:17: Meeting scheduler is running. Press Ctrl+C to stop.
+2025-10-10T08:10:17: This scheduler handles:
+2025-10-10T08:10:17: Automatically starting scheduled meetings
+2025-10-10T08:10:17: Sending meeting reminders (1 hour before)
+2025-10-10T08:10:17: Checking every 0.5 seconds for starts, 60 seconds for reminders, 2 seconds for notifications
+2025-10-10T08:10:19: Initial meeting stats:
+2025-10-10T08:10:19: Scheduled meetings: 0
+2025-10-10T08:10:19: In-progress meetings: 0
+2025-10-10T08:10:19: Starting within 1 hour: 0

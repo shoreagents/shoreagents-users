@@ -215,8 +215,8 @@ export const AppSidebar = React.memo(function AppSidebar({ ...props }: React.Com
             url: "/dashboard",
           },
           {
-            title: "Analytics",
-            url: "/dashboard/analytics",
+            title: "Leaderboard",
+            url: "/dashboard/leaderboard",
           },
           {
             title: "Activity",

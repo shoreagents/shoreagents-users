@@ -66,18 +66,18 @@ export async function GET(request: NextRequest) {
           ji.employee_id, ji.job_title, ji.shift_period, ji.shift_schedule, ji.shift_time,
           ji.work_setup, ji.employment_status, ji.hire_type, ji.staff_source,
           ji.start_date as job_start_date, ji.exit_date,
-          -- Member/Company information
-          m.company, m.address as company_address, m.phone as company_phone,
-          m.logo as company_logo, m.service, m.status as member_status,
-          m.badge_color, m.country, m.website,
+          -- Company information
+          c.company, c.address as company_address, c.phone as company_phone,
+          c.logo as company_logo, c.service, c.status as company_status,
+          c.badge_color, c.country, c.website,
           -- Agent/Client specific info
           a.exp_points, a.department_id as agent_department_id,
-          c.department_id as client_department_id
+          cl.department_id as client_department_id
         FROM users u
         LEFT JOIN personal_info pi ON u.id = pi.user_id
         LEFT JOIN agents a ON u.id = a.user_id
-        LEFT JOIN clients c ON u.id = c.user_id
-        LEFT JOIN members m ON (a.member_id = m.id OR c.member_id = m.id)
+        LEFT JOIN clients cl ON u.id = cl.user_id
+        LEFT JOIN companies c ON (a.company_id = c.id OR cl.company_id = c.id)
         LEFT JOIN job_info ji ON (ji.agent_user_id = a.user_id OR ji.internal_user_id = u.id)
         WHERE u.id = $1
         LIMIT 1
@@ -94,18 +94,18 @@ export async function GET(request: NextRequest) {
           ji.employee_id, ji.job_title, ji.shift_period, ji.shift_schedule, ji.shift_time,
           ji.work_setup, ji.employment_status, ji.hire_type, ji.staff_source,
           ji.start_date as job_start_date, ji.exit_date,
-          -- Member/Company information
-          m.company, m.address as company_address, m.phone as company_phone,
-          m.logo as company_logo, m.service, m.status as member_status,
-          m.badge_color, m.country, m.website,
+          -- Company information
+          c.company, c.address as company_address, c.phone as company_phone,
+          c.logo as company_logo, c.service, c.status as company_status,
+          c.badge_color, c.country, c.website,
           -- Agent/Client specific info
           a.exp_points, a.department_id as agent_department_id,
-          c.department_id as client_department_id
+          cl.department_id as client_department_id
         FROM users u
         LEFT JOIN personal_info pi ON u.id = pi.user_id
         LEFT JOIN agents a ON u.id = a.user_id
-        LEFT JOIN clients c ON u.id = c.user_id
-        LEFT JOIN members m ON (a.member_id = m.id OR c.member_id = m.id)
+        LEFT JOIN clients cl ON u.id = cl.user_id
+        LEFT JOIN companies c ON (a.company_id = c.id OR cl.company_id = c.id)
         LEFT JOIN job_info ji ON (ji.agent_user_id = a.user_id OR ji.internal_user_id = u.id)
         WHERE u.email = $1
         LIMIT 1
@@ -164,13 +164,13 @@ export async function GET(request: NextRequest) {
         month: 'short',
         year: '2-digit'
       }) : '',
-      // Company information from members table
+      // Company information from companies table
       company: userRecord.company || 'SHOREAGENTS',
       company_address: userRecord.company_address || '',
       company_phone: userRecord.company_phone || '',
       company_logo: userRecord.company_logo || '',
       service: userRecord.service || '',
-      member_status: userRecord.member_status || '',
+      company_status: userRecord.company_status || '',
       badge_color: userRecord.badge_color || '',
       country: userRecord.country || '',
       website: userRecord.website || '',

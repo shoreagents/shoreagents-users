@@ -9,12 +9,12 @@ export interface TeamAgent {
   email: string
   name: string
   avatar?: string
-  member_id: number
+  company_id: number
   team_name: string
 }
 
 export interface TeamInfo {
-  member_id: number
+  company_id: number
   company: string
   badge_color?: string
 }

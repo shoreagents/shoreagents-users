@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { executeQuery } from '@/lib/database-server';
+import { redisCache, cacheKeys } from '@/lib/redis-cache';
 
 export async function POST(request: NextRequest) {
   try {
@@ -56,7 +57,12 @@ export async function POST(request: NextRequest) {
 
     const resumedBreak = result[0];
 
-;
+    // Invalidate break history cache for this user
+    try {
+      await redisCache.invalidatePattern(`breaks-history:${agent_user_id}:*`);
+    } catch (cacheError) {
+      console.warn('Failed to invalidate break history cache:', cacheError);
+    }
 
     return NextResponse.json({
       success: true,

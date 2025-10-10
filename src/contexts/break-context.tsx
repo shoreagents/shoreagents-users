@@ -57,6 +57,18 @@ export function BreakProvider({ children }: { children: React.ReactNode }) {
     socket.emit('updateBreakStatus', isBreakActive, activeBreakId)
   }, [socket, isConnected, isBreakActive, activeBreakId])
 
+  // Send break state to Electron main process for activity tracking
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.electronAPI?.breakMonitoring?.updateBreakState) {
+      window.electronAPI.breakMonitoring.updateBreakState({
+        isBreakActive,
+        activeBreakId
+      }).catch((error: any) => {
+        console.error('Failed to update break state in main process:', error)
+      })
+    }
+  }, [isBreakActive, activeBreakId])
+
   // Determine if break can be started
   const canStartBreak = !isInEvent
   const breakBlockedReason = isInEvent ? `Cannot start break while in event: ${currentEvent?.title || 'Unknown Event'}` : null

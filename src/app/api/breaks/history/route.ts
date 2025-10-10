@@ -8,6 +8,7 @@ export async function GET(request: NextRequest) {
     const agent_user_id = searchParams.get('agent_user_id');
     const days = parseInt(searchParams.get('days') || '7');
     const include_active = searchParams.get('include_active') === 'true';
+    const use_date_filter = searchParams.get('use_date_filter') === 'true';
 
     // Validate required fields
     if (!agent_user_id) {
@@ -43,22 +44,50 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Get break history using break_date column
-    const historyQuery = `
+    // Get break history - for recent sessions, get last 5 regardless of date
+    // For full history, use date filtering
+    const historyQuery = use_date_filter ? `
       SELECT 
         id,
         agent_user_id,
         break_type,
         start_time,
         end_time,
+        pause_time,
+        resume_time,
+        pause_used,
+        time_remaining_at_pause,
         duration_minutes,
         break_date,
-        created_at
+        created_at,
+        is_expired,
+        is_break_session_expired(id) as is_expired_check
       FROM break_sessions 
       WHERE agent_user_id = $1 
-      AND break_date >= (NOW() AT TIME ZONE 'Asia/Manila')::date - INTERVAL '${days} days'
+      AND start_time >= (NOW() AT TIME ZONE 'Asia/Manila')::date - INTERVAL '${days} days'
       ${!include_active ? 'AND end_time IS NOT NULL' : ''}
       ORDER BY start_time DESC
+    ` : `
+      SELECT 
+        id,
+        agent_user_id,
+        break_type,
+        start_time,
+        end_time,
+        pause_time,
+        resume_time,
+        pause_used,
+        time_remaining_at_pause,
+        duration_minutes,
+        break_date,
+        created_at,
+        is_expired,
+        is_break_session_expired(id) as is_expired_check
+      FROM break_sessions 
+      WHERE agent_user_id = $1 
+      ${!include_active ? 'AND end_time IS NOT NULL' : ''}
+      ORDER BY start_time DESC
+      LIMIT 10
     `;
 
     const historyResult = await executeQuery(historyQuery, [agent_user_id]);

@@ -337,7 +337,7 @@ export async function getBreakStatus(): Promise<{ success: boolean; status?: Bre
 /**
  * Get break history for the agent
  */
-export async function getBreakHistory(days: number = 7, includeActive: boolean = true): Promise<{ success: boolean; data?: any; message?: string }> {
+export async function getBreakHistory(days: number = 7, includeActive: boolean = true, useDateFilter: boolean = true): Promise<{ success: boolean; data?: any; message?: string }> {
   try {
     const currentUser = getCurrentUserInfo();
     
@@ -345,7 +345,7 @@ export async function getBreakHistory(days: number = 7, includeActive: boolean =
       return { success: false, message: 'User not authenticated' };
     }
 
-    const response = await fetch(`/api/breaks/history?agent_user_id=${currentUser.id}&days=${days}&include_active=${includeActive}`, {
+    const response = await fetch(`/api/breaks/history?agent_user_id=${currentUser.id}&days=${days}&include_active=${includeActive}&use_date_filter=${useDateFilter}`, {
       credentials: 'include' // Include authentication cookies for Electron
     });
     const result = await response.json();

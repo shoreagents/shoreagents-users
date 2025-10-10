@@ -4,6 +4,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { getCurrentUser } from '@/lib/ticket-utils'
 import { useActivityTracking } from '@/hooks/use-activity-tracking'
 import { InactivityDialog } from '@/components/inactivity-dialog'
+import { InactivityDialog60s } from '@/components/inactivity-dialog-60s'
 import { useRouter } from 'next/navigation'
 import { useBreak } from './break-context'
 import { useMeeting } from './meeting-context'
@@ -33,8 +34,13 @@ const ActivityContext = createContext<ActivityContextType | undefined>(undefined
 export function ActivityProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const [notificationShown, setNotificationShown] = useState(false)
+  const [isDialogPaused, setIsDialogPaused] = useState(false)
+  const [show60sDialog, setShow60sDialog] = useState(false)
+  const [hasShown60sDialog, setHasShown60sDialog] = useState(false)
   const notificationTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const notificationUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const isDialogPausedRef = useRef(false)
+  
   const { isBreakActive } = useBreak()
   const { isInMeeting } = useMeeting()
   const { shiftInfo, setActivityState } = useTimer()
@@ -54,6 +60,13 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
     getActivityStatus,
     setShowInactivityDialog
   } = useActivityTracking(setActivityState)
+  
+  const setShowInactivityDialogRef = useRef(setShowInactivityDialog)
+  
+  // Update ref when setShowInactivityDialog changes
+  useEffect(() => {
+    setShowInactivityDialogRef.current = setShowInactivityDialog
+  }, [setShowInactivityDialog])
 
   // Helper function to check if shift has ended - always re-parse to use updated logic
   const checkIfShiftEnded = useCallback((shiftInfo: any) => {
@@ -332,13 +345,15 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
       // Show system notification
       if (window.electronAPI?.inactivityNotifications) {
         window.electronAPI.inactivityNotifications.show({
-          inactiveTime: 0 // Start with 0 seconds
+          inactiveTime: 30000 // Start with 30 seconds
         }).then((result) => {
           if (result.success) {
             setNotificationShown(true)
             
             // Start updating notification every 3 seconds with dynamic time
-            let currentInactiveTime = 0; // Start from 0 seconds
+            let currentInactiveTime = 30000; // Start from 30 seconds (30 * 1000ms)
+            let lastPausedState = false; // Track previous paused state
+            
             notificationUpdateIntervalRef.current = setInterval(() => {
               // Check if still in any status that should pause inactivity - if so, stop updating and close notification
               if (isInMeeting || isInEvent || isBreakActive || isInRestroom || isGoingToClinic || isInClinic) {
@@ -354,12 +369,24 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
                 return
               }
               
+              // Check if dialog timer is paused (user is active) - if so, skip update
+              if (isDialogPausedRef.current) {
+                lastPausedState = true; // Remember we were paused
+                return // Skip notification update when dialog timer is paused
+              }
+              
+              // If we were paused and now we're not paused, reset the timer
+              if (lastPausedState && !isDialogPausedRef.current) {
+                currentInactiveTime = 30000; // Reset to 30 seconds when resuming from pause
+                lastPausedState = false;
+              }
+              
               // Increment the inactive time by 3 seconds
               currentInactiveTime += 3000;
               if (window.electronAPI?.inactivityNotifications) {
                 window.electronAPI.inactivityNotifications.update({
                   inactiveTime: currentInactiveTime,
-                  skipUpdate: isInMeeting || isInEvent || isBreakActive || isInRestroom || isGoingToClinic || isInClinic // Skip update if in any status
+                  skipUpdate: isInMeeting || isInEvent || isBreakActive || isInRestroom || isGoingToClinic || isInClinic || isDialogPausedRef.current // Skip update if in any status or dialog is paused
                 })
               }
             }, 3000) // Update every 3 seconds
@@ -369,7 +396,7 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
         })
       }
     }
-  }, [showInactivityDialog, notificationShown, inactivityData, isInMeeting, isInEvent, isBreakActive, isInRestroom, isGoingToClinic, isInClinic, checkIfShiftEnded, checkIfShiftNotStarted, shiftInfo])
+  }, [showInactivityDialog, notificationShown, inactivityData, isInMeeting, isInEvent, isBreakActive, isInRestroom, isGoingToClinic, isInClinic, checkIfShiftEnded, checkIfShiftNotStarted, shiftInfo, isDialogPaused])
 
   // Close inactivity dialog and notification when any status starts
   useEffect(() => {
@@ -430,10 +457,32 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
     setShowInactivityDialog(false)
   }, [setShowInactivityDialog])
 
+  const handleDialogPausedStateChange = useCallback((isPaused: boolean) => {
+    setIsDialogPaused(isPaused)
+    isDialogPausedRef.current = isPaused
+  }, [])
+
+  const handleShow60sDialog = useCallback(() => {
+    setShow60sDialog(true)
+    setHasShown60sDialog(true) // Mark that we've shown the 60s dialog
+    setShowInactivityDialogRef.current(false) // Close the first dialog
+  }, [])
+
+  const handleClose60sDialog = useCallback(() => {
+    setShow60sDialog(false)
+  }, [])
+
+  const handleResetFrom60sDialog = useCallback(() => {
+    setShow60sDialog(false)
+    setHasShown60sDialog(false) // Reset the flag when user responds
+    setShowInactivityDialogRef.current(false)
+  }, [])
+
   const handleResetActivity = useCallback(async () => {
     // Instead of allowing manual reset, just close the dialog
     // Activity will naturally reset when user actually becomes active
     setShowInactivityDialog(false)
+    setHasShown60sDialog(false) // Reset the flag when user becomes active
     
     // Reset notification flag
     if (notificationTimeoutRef.current) {
@@ -502,10 +551,21 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
     <ActivityContext.Provider value={value}>
       {children}
       <InactivityDialog
-        open={showInactivityDialog && !isInMeeting && !isInEvent && !isBreakActive && !isInRestroom && !isGoingToClinic && !isInClinic && isWithinShiftHours(shiftInfo) && !checkIfShiftEnded(shiftInfo) && !checkIfShiftNotStarted(shiftInfo)}
+        open={showInactivityDialog && !hasShown60sDialog && !isInMeeting && !isInEvent && !isBreakActive && !isInRestroom && !isGoingToClinic && !isInClinic && isWithinShiftHours(shiftInfo) && !checkIfShiftEnded(shiftInfo) && !checkIfShiftNotStarted(shiftInfo)}
         onClose={handleCloseDialog}
         onReset={handleResetActivity}
         onAutoLogout={handleInactivityTimeout}
+        inactiveTime={inactivityData?.inactiveTime || 0}
+        threshold={inactivityData?.threshold || (process.env.NEXT_PUBLIC_INACTIVITY_THRESHOLD ? parseInt(process.env.NEXT_PUBLIC_INACTIVITY_THRESHOLD, 10) : 30000)}
+        onPausedStateChange={handleDialogPausedStateChange}
+        onShow60sDialog={handleShow60sDialog}
+      />
+      <InactivityDialog60s
+        open={show60sDialog && !isInMeeting && !isInEvent && !isBreakActive && !isInRestroom && !isGoingToClinic && !isInClinic && isWithinShiftHours(shiftInfo) && !checkIfShiftEnded(shiftInfo) && !checkIfShiftNotStarted(shiftInfo)}
+        onClose={handleClose60sDialog}
+        onReset={handleResetFrom60sDialog}
+        onAutoLogout={handleInactivityTimeout}
+        onPausedStateChange={handleDialogPausedStateChange}
         inactiveTime={inactivityData?.inactiveTime || 0}
         threshold={inactivityData?.threshold || (process.env.NEXT_PUBLIC_INACTIVITY_THRESHOLD ? parseInt(process.env.NEXT_PUBLIC_INACTIVITY_THRESHOLD, 10) : 30000)}
       />

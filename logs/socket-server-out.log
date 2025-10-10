@@ -1,0 +1,97 @@
+2025-10-10T07:57:22: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+2025-10-10T07:57:22: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+2025-10-10T07:57:23: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 📡 auto-backup env with Radar: https://dotenvx.com/radar
+2025-10-10T07:57:24: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+2025-10-10T07:57:25: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+2025-10-10T07:57:26: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+2025-10-10T07:57:27: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+2025-10-10T07:57:29: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+2025-10-10T07:57:31: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 📡 auto-backup env with Radar: https://dotenvx.com/radar
+2025-10-10T07:57:35: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: ⚙️  enable debug logging with { debug: true }
+2025-10-10T08:52:52: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 📡 observe env with Radar: https://dotenvx.com/radar
+2025-10-10T08:52:53: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: ⚙️  enable debug logging with { debug: true }
+2025-10-10T08:52:53: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: ⚙️  override existing env vars with { override: true }
+2025-10-10T08:52:54: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: ⚙️  enable debug logging with { debug: true }
+2025-10-10T08:52:55: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 📡 version env with Radar: https://dotenvx.com/radar
+2025-10-10T08:52:56: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 📡 observe env with Radar: https://dotenvx.com/radar
+2025-10-10T08:52:58: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: ⚙️  enable debug logging with { debug: true }
+2025-10-10T08:53:00: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 📡 auto-backup env with Radar: https://dotenvx.com/radar
+2025-10-10T08:53:02: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 📡 auto-backup env with Radar: https://dotenvx.com/radar
+2025-10-10T08:53:05: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 📡 auto-backup env with Radar: https://dotenvx.com/radar
+2025-10-10T08:53:06: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+2025-10-10T08:53:07: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+2025-10-10T08:53:08: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: ⚙️  override existing env vars with { override: true }
+2025-10-10T08:53:08: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 📡 version env with Radar: https://dotenvx.com/radar
+2025-10-10T08:53:09: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+2025-10-10T08:53:10: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 📡 observe env with Radar: https://dotenvx.com/radar
+2025-10-10T08:53:12: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: ⚙️  enable debug logging with { debug: true }
+2025-10-10T08:53:14: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 📡 version env with Radar: https://dotenvx.com/radar
+2025-10-10T08:53:16: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 📡 observe env with Radar: https://dotenvx.com/radar
+2025-10-10T08:53:19: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: ⚙️  override existing env vars with { override: true }
+2025-10-10T08:54:22: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+2025-10-10T08:54:22: 🚀 Socket.IO server running on port 3004
+2025-10-10T08:54:22: 🌐 Server accessible at http://0.0.0.0:3004
+2025-10-10T08:54:22: 📊 Status endpoint: http://0.0.0.0:3004/status
+2025-10-10T08:54:22: 📋 Schedulers run independently via PM2 - check 'pm2 list' for status
+2025-10-10T08:54:22: ✅ Server is ready and accepting connections!
+2025-10-10T08:54:23: Redis client connected
+2025-10-10T08:54:23: Database connected successfully
+2025-10-10T08:54:24: Global notification listener initialized
+2025-10-10T08:54:44: 🔌 New socket connection: Eiarl8b9X86_ACiHAAAB (transport: websocket)
+2025-10-10T08:54:44: 🔌 Global task activity listener connected
+2025-10-10T08:54:44: AUTHENTICATE EVENT RECEIVED from socket Eiarl8b9X86_ACiHAAAB: { email: 'kyle.p@shoreagents.com' }
+2025-10-10T08:54:44: Authenticating user with email: kyle.p@shoreagents.com
+2025-10-10T08:54:44: Looking up user data for: kyle.p@shoreagents.com
+2025-10-10T08:54:44: Creating new user data for: kyle.p@shoreagents.com
+2025-10-10T08:54:44: Fetching connected users list...
+2025-10-10T08:54:44: No reference user found, returning empty list
+2025-10-10T08:54:45: Getting shift info for user ID: 2
+2025-10-10T08:54:45: User kyle.p@shoreagents.com has Day Shift schedule: 6:00 AM - 3:00 PM
+2025-10-10T08:54:45: Loading activity data for user kyle.p@shoreagents.com (ID: 2)
+2025-10-10T08:54:45: Found current day (2025-10-10) data for kyle.p@shoreagents.com
+2025-10-10T08:54:45: Activity query for user kyle.p@shoreagents.com (ID: 2) returned 1 rows
+2025-10-10T08:54:45: User kyle.p@shoreagents.com (ID: 2) - Last Activity: 2025-10-10T00:52:26.247Z, Current: 2025-10-10T00:54:45.413Z
+2025-10-10T08:54:45: Same shift period detected for kyle.p@shoreagents.com (Day Shift) - loading existing timer data
+2025-10-10T08:54:45: Initializing reset tracking for kyle.p@shoreagents.com with shift ID: 2025-10-10-day
+2025-10-10T08:54:45: Initializing reset timestamp for kyle.p@shoreagents.com to prevent immediate reset
+2025-10-10T08:54:45: Stored new user data for: kyle.p@shoreagents.com
+2025-10-10T08:54:45: 🧹 Cleaned up 1 existing disconnected connections for user kyle.p@shoreagents.com
+2025-10-10T08:54:45: ✅ Stored socket connection Eiarl8b9X86_ACiHAAAB for user kyle.p@shoreagents.com (ID: 2)
+2025-10-10T08:54:45: AUTHENTICATION COMPLETED: Socket Eiarl8b9X86_ACiHAAAB now associated with user kyle.p@shoreagents.com
+2025-10-10T08:54:45: Connected users map now contains: [ 'Eiarl8b9X86_ACiHAAAB -> kyle.p@shoreagents.com' ]
+2025-10-10T08:54:45: Getting meeting status for user: kyle.p@shoreagents.com
+2025-10-10T08:54:45: Meeting status retrieved: false
+2025-10-10T08:54:45: Preparing timer data for: kyle.p@shoreagents.com
+2025-10-10T08:54:45: Shift reset info for kyle.p@shoreagents.com: 21h 5m until next reset
+2025-10-10T08:54:45: Sending meeting status for: kyle.p@shoreagents.com - false
+2025-10-10T08:54:45: Meeting status sent for: kyle.p@shoreagents.com
+2025-10-10T08:54:45: Joining rooms for: kyle.p@shoreagents.com
+2025-10-10T08:54:45: Rooms joined for: kyle.p@shoreagents.com
+2025-10-10T08:54:45: Using existing loaded data for kyle.p@shoreagents.com: 5531s active, 2266s inactive, isActive: true
+2025-10-10T08:54:45: Timer data initialized for kyle.p@shoreagents.com: 5531s active, 2266s inactive
+2025-10-10T08:54:45: Sending authenticated event for: kyle.p@shoreagents.com
+2025-10-10T08:54:45: Authenticated event sent for: kyle.p@shoreagents.com
+2025-10-10T08:54:45: Sending timerUpdated event for: kyle.p@shoreagents.com
+2025-10-10T08:54:45: TimerUpdated event sent for: kyle.p@shoreagents.com
+2025-10-10T08:54:45: Authentication completed for kyle.p@shoreagents.com in 998ms
+2025-10-10T08:54:45: Activity update sent to 1 connections for kyle.p@shoreagents.com
+2025-10-10T08:54:46: Fetching connected users list...
+2025-10-10T08:54:46: Found reference company_id: 1
+2025-10-10T08:54:46: Found 4 team members to initialize
+2025-10-10T08:54:46: Initialized offline status for: justin.f@shoreagents.com
+2025-10-10T08:54:46: Initialized offline status for: kevin.m@shoreagents.com
+2025-10-10T08:54:46: Initialized offline status for: kylepantig@gmail.com
+2025-10-10T08:54:46: Team user status initialization completed for 4 members
+2025-10-10T08:54:46: User justin.f@shoreagents.com has socket status: offline
+2025-10-10T08:54:46: User kevin.m@shoreagents.com has socket status: offline
+2025-10-10T08:54:46: User kylepantig@gmail.com has socket status: offline
+2025-10-10T08:54:46: User kyle.p@shoreagents.com has socket status: online
+2025-10-10T08:54:48: Updating database for kyle.p@shoreagents.com - within shift window (date: 2025-10-10)
+2025-10-10T08:54:48: Database updated successfully for kyle.p@shoreagents.com
+2025-10-10T08:54:48: Updated timer for kyle.p@shoreagents.com: Active=5533s, Inactive=2266s
+2025-10-10T08:54:48: Broadcasting activity-data-updated to 1 connections for user 2 (kyle.p@shoreagents.com)
+2025-10-10T08:54:48: Found user 2 with email kyle.p@shoreagents.com
+2025-10-10T08:54:48: Broadcasting weekly-activity-update to 1 connections for user 2 (kyle.p@shoreagents.com)
+2025-10-10T08:54:48: Found user 2 with email kyle.p@shoreagents.com
+2025-10-10T08:54:48: Broadcasting monthly-activity-update to 1 connections for user 2 (kyle.p@shoreagents.com)
+2025-10-10T08:54:53: 📊 Connection Health: 1 active, 0 stale

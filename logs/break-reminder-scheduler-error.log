@@ -25,3 +25,4 @@
 2025-10-08T06:45:13: [6:45:13 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
 2025-10-08T06:45:43: [6:45:43 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
 2025-10-08T06:46:13: [6:46:13 AM] Break reminder check failed: function is_break_available_soon(integer, unknown, timestamp with time zone) does not exist
+2025-10-09T14:42:36: [2:42:36 PM] Break reminder check failed: sorry, too many clients already

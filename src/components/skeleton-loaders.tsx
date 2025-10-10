@@ -1,5 +1,6 @@
 import { Skeleton } from "@/components/ui/skeleton"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 
 export function DashboardSkeleton() {
   return (
@@ -86,6 +87,194 @@ export function DashboardSkeleton() {
   )
 }
 
+export function LeaderboardSkeleton() {
+  return (
+    <div className="flex flex-1 flex-col gap-6 p-6 pt-2">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="space-y-2">
+          <Skeleton className="h-8 w-48" />
+          <Skeleton className="h-4 w-80" />
+        </div>
+      </div>
+
+      {/* Top Performers Card */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div className="space-y-2">
+              <Skeleton className="h-6 w-32" />
+              <Skeleton className="h-4 w-96" />
+            </div>
+            <Skeleton className="h-10 w-80" />
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-6">
+            {/* Team Members Table Skeleton */}
+            <div className="flex-1">
+              <div className="space-y-4">
+                {/* Table Header */}
+                <div className="flex items-center gap-4 p-2 border-b">
+                  <Skeleton className="h-4 w-12" />
+                  <Skeleton className="h-4 w-20" />
+                  <Skeleton className="h-4 w-16 ml-auto" />
+                </div>
+                {/* Table Rows */}
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i} className="flex items-center gap-4 p-2">
+                    <div className="flex items-center gap-2">
+                      <Skeleton className="h-4 w-4" />
+                      <Skeleton className="h-4 w-4" />
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <Skeleton className="h-8 w-8 rounded-full" />
+                      <div className="space-y-1">
+                        <Skeleton className="h-4 w-24" />
+                        <Skeleton className="h-3 w-16" />
+                      </div>
+                    </div>
+                    <Skeleton className="h-4 w-12 ml-auto" />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Vertical Separator */}
+            <div className="hidden lg:flex items-center">
+              <Skeleton className="h-80 w-px" />
+            </div>
+
+            {/* Podium Skeleton - Reordered to match actual layout: [2nd, 1st, 3rd] */}
+            <div className="flex-1">
+              <div className="flex justify-center">
+                <div className="flex items-end gap-10 py-4">
+                  {/* 2nd Place (Left) */}
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="relative">
+                      <Skeleton className="w-14 h-14 rounded-full" />
+                      <Skeleton className="absolute -top-1 -right-1 w-5 h-5 rounded-full" />
+                    </div>
+                    <Skeleton className="w-24 rounded-t-md" style={{ height: '80px' }} />
+                    <div className="text-center space-y-1">
+                      <Skeleton className="h-4 w-20" />
+                      <Skeleton className="h-3 w-16" />
+                    </div>
+                  </div>
+                  
+                  {/* 1st Place (Center - Tallest) */}
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="relative">
+                      <Skeleton className="w-14 h-14 rounded-full" />
+                      <Skeleton className="absolute -top-1 -right-1 w-5 h-5 rounded-full" />
+                    </div>
+                    <Skeleton className="w-24 rounded-t-md" style={{ height: '120px' }} />
+                    <div className="text-center space-y-1">
+                      <Skeleton className="h-4 w-20" />
+                      <Skeleton className="h-3 w-16" />
+                    </div>
+                  </div>
+                  
+                  {/* 3rd Place (Right) */}
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="relative">
+                      <Skeleton className="w-14 h-14 rounded-full" />
+                      <Skeleton className="absolute -top-1 -right-1 w-5 h-5 rounded-full" />
+                    </div>
+                    <Skeleton className="w-24 rounded-t-md" style={{ height: '60px' }} />
+                    <div className="text-center space-y-1">
+                      <Skeleton className="h-4 w-20" />
+                      <Skeleton className="h-3 w-16" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Productivity Scores Grid */}
+      <div className="grid gap-4 md:grid-cols-3">
+        {/* Pie Chart Skeleton */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div className="space-y-2">
+                <Skeleton className="h-5 w-32" />
+                <Skeleton className="h-4 w-40" />
+              </div>
+              <Skeleton className="h-7 w-32" />
+            </div>
+          </CardHeader>
+          <CardContent className="flex flex-1 justify-center pb-0">
+            <div className="mx-auto aspect-square w-full max-w-[300px] flex items-center justify-center">
+              <div className="relative">
+                {/* Outer circle skeleton */}
+                <Skeleton className="w-64 h-64 rounded-full" />
+                {/* Inner circle skeleton */}
+                <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
+                  <Skeleton className="w-32 h-32 rounded-full" />
+                </div>
+                {/* Center text skeleton */}
+                <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center">
+                  <Skeleton className="h-8 w-12 mx-auto mb-2" />
+                  <Skeleton className="h-4 w-16 mx-auto" />
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Productivity History Chart Skeleton */}
+        <Card className="md:col-span-2">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div className="space-y-2">
+                <Skeleton className="h-5 w-40" />
+                <Skeleton className="h-4 w-48" />
+              </div>
+              <Skeleton className="h-8 w-20" />
+            </div>
+          </CardHeader>
+          <CardContent className="h-48">
+            <Skeleton className="h-full w-full" />
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Weekly and Monthly Activity Grid */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        {/* Weekly Activity Skeleton */}
+        <Card>
+          <CardHeader>
+            <div className="space-y-2">
+              <Skeleton className="h-5 w-32" />
+              <Skeleton className="h-4 w-48" />
+            </div>
+          </CardHeader>
+          <CardContent className="h-56">
+            <Skeleton className="h-full w-full" />
+          </CardContent>
+        </Card>
+
+        {/* Monthly Activity Skeleton */}
+        <Card>
+          <CardHeader>
+            <div className="space-y-2">
+              <Skeleton className="h-5 w-32" />
+              <Skeleton className="h-4 w-48" />
+            </div>
+          </CardHeader>
+          <CardContent className="h-56">
+            <Skeleton className="h-full w-full" />
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  )
+}
+
 export function MyTicketsSkeleton() {
   return (
     <div className="flex flex-1 flex-col gap-6 p-6 pt-2">
@@ -117,26 +306,99 @@ export function MyTicketsSkeleton() {
           <Skeleton className="h-10 w-36" />
         </div>
 
-        <div className="grid gap-2">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="p-3 rounded-lg border border-border/50">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
+        {/* Table Skeleton */}
+        <Card>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[100px]">
                     <Skeleton className="h-4 w-16" />
-                    <Skeleton className="h-5 w-20 rounded-full" />
-                    <Skeleton className="h-5 w-16 rounded-full" />
-                  </div>
-                  <Skeleton className="h-4 w-3/4 mb-1" />
-                  <div className="flex items-center gap-3">
-                    <Skeleton className="h-3 w-24" />
-                    <Skeleton className="h-3 w-16" />
-                  </div>
-                </div>
-                <Skeleton className="h-8 w-8 rounded-md" />
-              </div>
-            </div>
-          ))}
+                  </TableHead>
+                  <TableHead className="w-[150px] hidden lg:table-cell">
+                    <Skeleton className="h-4 w-20" />
+                  </TableHead>
+                  <TableHead className="w-[120px]">
+                    <Skeleton className="h-4 w-12" />
+                  </TableHead>
+                  <TableHead className="w-[140px] hidden md:table-cell">
+                    <Skeleton className="h-4 w-16" />
+                  </TableHead>
+                  <TableHead className="w-[150px] hidden lg:table-cell">
+                    <Skeleton className="h-4 w-16" />
+                  </TableHead>
+                  <TableHead className="w-[80px] hidden sm:table-cell">
+                    <Skeleton className="h-4 w-12" />
+                  </TableHead>
+                  <TableHead className="w-[60px]">
+                    <Skeleton className="h-4 w-16" />
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {Array.from({ length: 10 }).map((_, i) => (
+                  <TableRow key={i} className="hover:bg-muted/50">
+                    {/* Ticket ID */}
+                    <TableCell className="font-mono text-sm">
+                      <Skeleton className="h-4 w-20" />
+                    </TableCell>
+                    
+                    {/* Concern */}
+                    <TableCell>
+                      <div className="max-w-[300px] space-y-1">
+                        <Skeleton className="h-4 w-3/4" />
+                        <Skeleton className="h-3 w-1/2" />
+                      </div>
+                    </TableCell>
+                    
+                    {/* Status */}
+                    <TableCell>
+                      <Skeleton className="h-6 w-24 rounded-full" />
+                    </TableCell>
+                    
+                    {/* Category */}
+                    <TableCell className="hidden md:table-cell">
+                      <Skeleton className="h-5 w-20 rounded-full" />
+                    </TableCell>
+                    
+                    {/* Created */}
+                    <TableCell className="hidden lg:table-cell">
+                      <div className="flex items-center gap-1">
+                        <Skeleton className="h-3 w-3 rounded-full" />
+                        <Skeleton className="h-4 w-20" />
+                      </div>
+                    </TableCell>
+                    
+                    {/* Files */}
+                    <TableCell className="hidden sm:table-cell">
+                      <div className="flex items-center gap-1">
+                        <Skeleton className="h-3 w-3 rounded-full" />
+                        <Skeleton className="h-4 w-4" />
+                      </div>
+                    </TableCell>
+                    
+                    {/* Actions */}
+                    <TableCell>
+                      <Skeleton className="h-8 w-8 rounded-md" />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </Card>
+
+        {/* Pagination Skeleton */}
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-4 w-32" />
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-8 w-8 rounded-md" />
+            <Skeleton className="h-8 w-8 rounded-md" />
+            <Skeleton className="h-8 w-8 rounded-md" />
+            <Skeleton className="h-8 w-8 rounded-md" />
+            <Skeleton className="h-8 w-8 rounded-md" />
+            <Skeleton className="h-8 w-8 rounded-md" />
+          </div>
         </div>
       </div>
     </div>

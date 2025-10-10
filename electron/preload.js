@@ -105,6 +105,9 @@ try {
   breakMonitoring: {
     setActive: (active) => ipcRenderer.invoke('set-break-active', active),
     getActive: () => ipcRenderer.invoke('get-break-active'),
+    getBreakState: () => ipcRenderer.invoke('get-break-context-state'),
+    updateBreakState: (state) => ipcRenderer.invoke('update-break-context-state', state),
+    shouldPreventInactivityWindows: () => ipcRenderer.invoke('should-prevent-inactivity-windows'),
     confirmEndDueToFocusLoss: () => ipcRenderer.invoke('confirm-break-end-due-to-focus-loss'),
     returnToBreak: () => ipcRenderer.invoke('return-to-break'),
     emergencyEscape: () => ipcRenderer.invoke('emergency-escape'),

@@ -408,12 +408,10 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
     const handleDetailedStatusUpdate = (data: any) => {
       // Check if this update is for the current user
       if (data.email === currentUser.email) {
-        console.log('Received detailed status update:', data)
         
         // Update break status if included in the update
         if (data.detailedStatus?.isInBreak !== undefined) {
           const newBreakStatus = data.detailedStatus.isInBreak
-          console.log(`Break status changed: ${isBreakActive} -> ${newBreakStatus}`)
           
           setIsBreakActive(newBreakStatus)
           

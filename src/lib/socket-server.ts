@@ -302,23 +302,21 @@ export function initializeSocketServer(httpServer: HTTPServer) {
         const result = await pool.query('SELECT mark_expired_breaks() as count');
         const expiredCount = result.rows[0].count;
         
-        if (expiredCount > 0) {
-          // Get updated break sessions for this user
-          const sessionsResult = await pool.query(`
-            SELECT bs.id, bs.break_type, bs.start_time, bs.end_time, bs.status,
-                   is_break_session_expired(bs.id) as is_expired
-            FROM break_sessions bs
-            WHERE bs.agent_user_id = $1
-            AND bs.break_date = (NOW() AT TIME ZONE 'Asia/Manila')::date
-            ORDER BY bs.start_time DESC
-          `, [data.userId]);
-          
-          // Emit break expiration update to this specific socket
-          socket.emit('break-expiration-updated', {
-            expiredCount,
-            sessions: sessionsResult.rows
-          });
-        }
+        // Always get current break sessions for this user (regardless of new expirations)
+        const sessionsResult = await pool.query(`
+          SELECT bs.id, bs.break_type, bs.start_time, bs.end_time, bs.status,
+                 is_break_session_expired(bs.id) as is_expired
+          FROM break_sessions bs
+          WHERE bs.agent_user_id = $1
+          AND bs.break_date = (NOW() AT TIME ZONE 'Asia/Manila')::date
+          ORDER BY bs.start_time DESC
+        `, [data.userId]);
+        
+        // Always emit break expiration update to keep frontend in sync
+        socket.emit('break-expiration-updated', {
+          expiredCount,
+          sessions: sessionsResult.rows
+        });
       } catch (error) {
         console.error('Break expiration check error:', error);
         socket.emit('break-expiration-error', { message: 'Failed to check break expiration' });

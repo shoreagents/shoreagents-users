@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { AppSidebar } from "@/components/app-sidebar"
 import { AppHeader } from "@/components/app-header"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -50,6 +50,7 @@ import { useMeeting } from "@/contexts/meeting-context"
 import { useEventsContext } from "@/contexts/events-context"
 import { useRestroom } from "@/contexts/restroom-context"
 import { useBreakExpiration } from "@/hooks/use-break-expiration"
+import { useSocket } from "@/contexts/socket-context"
 
 import { endMeeting } from "@/lib/meeting-utils"
 
@@ -93,6 +94,7 @@ export default function BreaksPage() {
   
   // Break expiration hook
   const { isSessionExpired, checkSessionExpiration, markExpiredBreaks, expiredSessions } = useBreakExpiration()
+  const { socket } = useSocket()
   const [breakLoadingStates, setBreakLoadingStates] = useState<Record<BreakType, boolean>>({
     Morning: false,
     Lunch: false,
@@ -166,11 +168,9 @@ export default function BreaksPage() {
           
           // Get custom breaks to check which ones have settings
           const customBreaks = await getUserCustomBreaks(currentUser.id)
-          console.log('Loaded custom breaks from database:', customBreaks)
           
           // Track which breaks have custom settings
           const customBreakIds = new Set(customBreaks.map(cb => cb.break_type))
-          console.log('Custom break IDs from database:', Array.from(customBreakIds))
           setCustomBreakSettings(customBreakIds)
           
           // Update breakInfo objects with custom times from database
@@ -197,9 +197,9 @@ export default function BreaksPage() {
           })
           setBreakSchedule(initialSchedule)
           
-          // Load break history immediately after profile is loaded
+          // Load break history immediately after profile is loaded (get recent sessions without date filter)
           try {
-            const { success: historySuccess, data: historyData } = await getBreakHistory(30, true)
+            const { success: historySuccess, data: historyData } = await getBreakHistory(7, true, false)
             if (historySuccess && historyData) {
               setBreakHistory(historyData)
             }
@@ -361,6 +361,22 @@ export default function BreaksPage() {
     checkLocalStorage()
   }, [activeBreak, setBreakActive])
 
+  const refreshBreakHistory = useCallback(async () => {
+    try {
+      setLoadingHistory(true)
+      const days = showAllHistory ? 90 : 7
+      const useDateFilter = showAllHistory
+      const { success, data } = await getBreakHistory(days, true, useDateFilter)
+      if (success && data) {
+        setBreakHistory(data)
+      }
+    } catch (error) {
+      console.error('Error refreshing break history:', error)
+    } finally {
+      setLoadingHistory(false)
+    }
+  }, [showAllHistory])
+
   // Update current time every second (break ending is handled by timer context)
   useEffect(() => {
     const interval = setInterval(() => {
@@ -370,6 +386,28 @@ export default function BreaksPage() {
 
     return () => clearInterval(interval)
   }, [])
+
+  // Listen for real-time break expiration updates via socket
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleBreakExpirationUpdate = (data: { expiredCount: number; sessions: any[] }) => {
+      // Refresh break history to show updated expiration status
+      refreshBreakHistory();
+    };
+
+    const handleBreakExpirationError = (data: { message: string }) => {
+      console.error('Break expiration error:', data.message);
+    };
+
+    socket.on('break-expiration-updated', handleBreakExpirationUpdate);
+    socket.on('break-expiration-error', handleBreakExpirationError);
+
+    return () => {
+      socket.off('break-expiration-updated', handleBreakExpirationUpdate);
+      socket.off('break-expiration-error', handleBreakExpirationError);
+    };
+  }, [socket, refreshBreakHistory]);
 
   // Cleanup black screens when component unmounts or user navigates away
   useEffect(() => {
@@ -461,6 +499,9 @@ export default function BreaksPage() {
         // Refresh timer context break status
         await refreshBreakStatus()
 
+        // Refresh break history to show the new break session
+        await refreshBreakHistory()
+
 
       } else {
         setError(result.message || 'Failed to start break')
@@ -544,6 +585,9 @@ export default function BreaksPage() {
         
         // Refresh timer context break status
         await refreshBreakStatus()
+
+        // Refresh break history to show the new break session
+        await refreshBreakHistory()
       } else {
         setError(result.message || `Failed to ${isResuming ? 'resume' : 'start'} break`)
       }
@@ -630,6 +674,9 @@ export default function BreaksPage() {
         
         // Refresh timer context break status
         await refreshBreakStatus()
+
+        // Refresh break history to show the new break session
+        await refreshBreakHistory()
       } else {
         setError(result.message || `Failed to ${isResumeOperation ? 'resume' : 'start'} break`)
       }
@@ -719,6 +766,9 @@ export default function BreaksPage() {
         
         // Refresh timer context break status
         await refreshBreakStatus()
+
+        // Refresh break history to show the new break session
+        await refreshBreakHistory()
       } else {
         setError(result.message || `Failed to ${isResuming ? 'resume' : 'start'} break`)
       }
@@ -771,6 +821,9 @@ export default function BreaksPage() {
         
         // Refresh timer context break status
         await refreshBreakStatus()
+
+        // Refresh break history to show the completed break session
+        await refreshBreakHistory()
 
       } else {
         // If end break fails, check if it's because break is already ended
@@ -830,6 +883,9 @@ export default function BreaksPage() {
         
         // Refresh timer context break status
         await refreshBreakStatus()
+
+        // Refresh break history to show the paused break session
+        await refreshBreakHistory()
 
 
       } else {
@@ -1099,6 +1155,9 @@ export default function BreaksPage() {
         
         // Refresh timer context break status
         await refreshBreakStatus()
+
+        // Refresh break history to show the resumed break session
+        await refreshBreakHistory()
         
       } else {
 
@@ -1109,21 +1168,6 @@ export default function BreaksPage() {
       setError('Failed to resume break session')
     } finally {
       setBreakLoadingStates(prev => ({ ...prev, [breakId]: false }))
-    }
-  }
-
-  const refreshBreakHistory = async () => {
-    try {
-      setLoadingHistory(true)
-      const days = showAllHistory ? 90 : 7
-      const { success, data } = await getBreakHistory(days, true)
-      if (success && data) {
-        setBreakHistory(data)
-      }
-    } catch (error) {
-      console.error('Error refreshing break history:', error)
-    } finally {
-      setLoadingHistory(false)
     }
   }
 
@@ -1314,13 +1358,16 @@ export default function BreaksPage() {
               const hasCustomSettings = customBreakSettings.has(breakInfo.id)
               
               // Break is disabled if:
-              // 1. Has custom settings AND (not valid time OR not available AND not currently on this break)
-              // 2. OR if loading
-              // 3. OR if there are expired sessions (user missed the break window)
-              const isDisabled = hasCustomSettings && (
-                (!isValid || (!isAvailable && !isOnThisBreak && !isPausedThisBreak)) || 
-                hasExpiredSessions
-              ) || loading
+              // 1. Not available (already used today or other restrictions)
+              // 2. Has custom settings AND (not valid time OR not available AND not currently on this break)
+              // 3. OR if loading
+              // 4. OR if there are expired sessions (user missed the break window)
+              const isDisabled = !isAvailable || 
+                (hasCustomSettings && (
+                  (!isValid || (!isAvailable && !isOnThisBreak && !isPausedThisBreak)) || 
+                  hasExpiredSessions
+                )) || 
+                loading
               const Icon = breakInfo.icon
 
               return (
@@ -1362,10 +1409,10 @@ export default function BreaksPage() {
                             <Lock className="h-4 w-4" />
                           </Button>
                         )}
-                        {!isAvailable && (
+                        {!isAvailable && !hasExpiredSessions && todayCount > 0 && (
                           <Badge variant="secondary" className="flex items-center gap-1">
                             <CheckCircle className="h-3 w-3" />
-                            Used ({todayCount})
+                            Used 
                           </Badge>
                         )}
                         {isOnThisBreak && !isPausedThisBreak && (
@@ -1425,7 +1472,7 @@ export default function BreaksPage() {
                         </div>
                       )}
                       
-                      {!isAvailable && !isOnThisBreak && (
+                      {!hasExpiredSessions && !isAvailable && !isOnThisBreak && (
                         <div className="flex items-center gap-2 text-sm text-muted-foreground">
                           <X className="h-4 w-4" />
                           <span>Break already used today</span>
@@ -1600,14 +1647,18 @@ export default function BreaksPage() {
                         {(() => {
                           if (!breakHistory) return null
                           const sessions = [...(breakHistory.completed_breaks || []), ...(breakHistory.active_breaks || [])]
-                            .sort((a: any, b: any) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime())
+                            .sort((a: any, b: any) => {
+                              const aTime = a.start_time ? new Date(a.start_time).getTime() : new Date(a.break_date).getTime()
+                              const bTime = b.start_time ? new Date(b.start_time).getTime() : new Date(b.break_date).getTime()
+                              return bTime - aTime
+                            })
                           const display = showAllHistory ? sessions : sessions.slice(0, 5)
                           return display.map((breakSession: any) => {
                             const breakInfo = availableBreaks.find(b => b.id === breakSession.break_type)
                             const Icon = breakInfo?.icon || Clock
-                            const sessionDate = new Date(breakSession.start_time)
+                            const sessionDate = breakSession.start_time ? new Date(breakSession.start_time) : new Date(breakSession.break_date)
                             const isToday = sessionDate.toDateString() === new Date().toDateString()
-                            const isExpired = isSessionExpired(breakSession.id)
+                            const isExpired = breakSession.is_expired || breakSession.is_expired_check || isSessionExpired(breakSession.id)
                             
                             return (
                               <tr key={breakSession.id} className={`hover:bg-muted/30 ${isExpired ? 'opacity-60' : ''}`}>
@@ -1621,10 +1672,12 @@ export default function BreaksPage() {
                                   {isToday ? 'Today' : sessionDate.toLocaleDateString()}
                                 </td>
                                 <td className="p-3 text-sm text-muted-foreground">
-                                  {formatTime(breakSession.start_time)}
+                                  {breakSession.start_time ? formatTime(breakSession.start_time) : '-'}
                                 </td>
                                 <td className="p-3 text-sm text-muted-foreground">
-                                  {breakSession.end_time ? formatTime(breakSession.end_time) : 'Active'}
+                                  {breakSession.end_time ? formatTime(breakSession.end_time) : 
+                                   breakSession.pause_time ? 'Paused' : 
+                                   (breakSession.start_time ? 'Active' : '-')}
                                 </td>
                                 <td className="p-3 text-sm text-muted-foreground">
                                   {breakSession.duration_minutes ? `${breakSession.duration_minutes}m` : '-'}
@@ -1640,10 +1693,20 @@ export default function BreaksPage() {
                                     ) : (
                                       // Show normal status for non-expired breaks
                                       <Badge 
-                                        variant={breakSession.end_time ? 'default' : 'secondary'}
-                                        className={breakSession.end_time ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'}
+                                        variant={
+                                          breakSession.end_time ? 'default' : 
+                                          breakSession.pause_time ? 'secondary' : 
+                                          'secondary'
+                                        }
+                                        className={
+                                          breakSession.end_time ? 'bg-green-100 text-green-800' : 
+                                          breakSession.pause_time ? 'bg-orange-100 text-orange-800' : 
+                                          'bg-blue-100 text-blue-800'
+                                        }
                                       >
-                                        {breakSession.end_time ? 'Completed' : 'Active'}
+                                        {breakSession.end_time ? 'Completed' : 
+                                         breakSession.pause_time ? 'Paused' : 
+                                         'Active'}
                                       </Badge>
                                     )}
                                   </div>
@@ -1778,7 +1841,6 @@ export default function BreaksPage() {
               
               // Safety check - if settings is undefined, use default values
               if (!settings) {
-                console.warn(`No settings found for break type: ${breakType}`)
                 return (
                   <div className="text-center py-4">
                     <p className="text-muted-foreground">Break configuration not found for {breakType}</p>

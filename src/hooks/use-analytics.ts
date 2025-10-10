@@ -123,7 +123,7 @@ export function useAnalyticsMonthly() {
 }
 
 // Hook to fetch leaderboard data
-export function useAnalyticsLeaderboard() {
+export function useAnalyticsLeaderboard(period: 'daily' | 'weekly' | 'monthly' = 'monthly') {
   const [isClient, setIsClient] = useState(false)
   
   useEffect(() => {
@@ -131,8 +131,8 @@ export function useAnalyticsLeaderboard() {
   }, [])
 
   return useQuery({
-    queryKey: ['analytics-leaderboard'],
-    queryFn: async (): Promise<{ leaderboard: LeaderboardRow[], monthYear: string }> => {
+    queryKey: ['analytics-leaderboard', period],
+    queryFn: async (): Promise<{ leaderboard: LeaderboardRow[], monthYear: string, todayDate: string }> => {
       // First, get team agents to filter by team
       const teamAgentsResponse = await fetch('/api/agents/team/')
       if (!teamAgentsResponse.ok) {
@@ -143,16 +143,23 @@ export function useAnalyticsLeaderboard() {
       const teamAgentEmails = teamData.agents?.map((agent: any) => agent.email) || []
       
       if (teamAgentEmails.length === 0) {
-        return { leaderboard: [], monthYear: '' }
+        return { leaderboard: [], monthYear: '', todayDate: '' }
       }
       
-      // Get all leaderboard data
-      const response = await fetch('/api/leaderboard/?limit=100', {
+      // Get leaderboard data based on period
+      let apiUrl = '/api/leaderboard/?limit=100'
+      if (period === 'daily') {
+        apiUrl = '/api/leaderboard/daily/?limit=100'
+      } else if (period === 'weekly') {
+        apiUrl = '/api/leaderboard/weekly/?limit=100'
+      }
+      
+      const response = await fetch(apiUrl, {
         credentials: 'include'
       })
       
       if (!response.ok) {
-        throw new Error(`Failed to fetch leaderboard: ${response.statusText}`)
+        throw new Error(`Failed to fetch ${period} leaderboard: ${response.statusText}`)
       }
       
       const data = await response.json()
@@ -162,7 +169,8 @@ export function useAnalyticsLeaderboard() {
       const teamLeaderboard = allLeaderboard
         .filter((entry: any) => teamAgentEmails.includes(entry.userId))
         .slice(0, 10) // Limit to top 10
-        .map((entry: any) => ({
+      
+      const finalLeaderboard = teamLeaderboard.map((entry: any) => ({
           rank: entry.rank,
           userId: entry.userId,
           name: entry.name,
@@ -171,12 +179,13 @@ export function useAnalyticsLeaderboard() {
         }))
       
       return {
-        leaderboard: teamLeaderboard,
-        monthYear: data.monthYear || ''
+        leaderboard: finalLeaderboard,
+        monthYear: data.monthYear || data.date || data.weekStart || '',
+        todayDate: data.todayDate || data.date || ''
       }
     },
     enabled: isClient,
-    staleTime: 15 * 60 * 1000, // 15 minutes (leaderboard changes less frequently)
+    staleTime: period === 'daily' ? 5 * 60 * 1000 : period === 'weekly' ? 10 * 60 * 1000 : 15 * 60 * 1000, // Different cache times
     gcTime: 60 * 60 * 1000, // 1 hour
     refetchOnMount: false,
     refetchOnWindowFocus: false,
@@ -228,10 +237,10 @@ export function useAnalyticsProductivity() {
 }
 
 // Combined hook for all analytics data
-export function useAnalyticsData() {
+export function useAnalyticsData(leaderboardPeriod: 'daily' | 'weekly' | 'monthly' = 'monthly') {
   const weeklyQuery = useAnalyticsWeekly()
   const monthlyQuery = useAnalyticsMonthly()
-  const leaderboardQuery = useAnalyticsLeaderboard()
+  const leaderboardQuery = useAnalyticsLeaderboard(leaderboardPeriod)
   const productivityQuery = useAnalyticsProductivity()
 
   // Check if any query is still loading or if we're in the initial state
@@ -252,6 +261,7 @@ export function useAnalyticsData() {
   // Process leaderboard data
   const leaderboard = leaderboardQuery.data?.leaderboard || []
   const leaderboardMonth = leaderboardQuery.data?.monthYear || ''
+  const todayDate = leaderboardQuery.data?.todayDate || ''
 
   // Process productivity data
   const prodScores = productivityQuery.data?.productivityScores || []
@@ -264,6 +274,7 @@ export function useAnalyticsData() {
     monthlySummaries,
     leaderboard,
     leaderboardMonth,
+    todayDate,
     prodScores,
     prodAverage,
     

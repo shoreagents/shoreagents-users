@@ -1,0 +1,427 @@
+2025-10-10T07:57:22: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+2025-10-10T07:57:22: Server error: Error: listen EADDRINUSE: address already in use 0.0.0.0:3004
+2025-10-10T07:57:22:     at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+2025-10-10T07:57:22:     at listenInCluster (node:net:1997:12)
+2025-10-10T07:57:22:     at node:net:2206:7
+2025-10-10T07:57:22:     at processTicksAndRejections (node:internal/process/task_queues:90:21) {
+2025-10-10T07:57:22:   code: 'EADDRINUSE',
+2025-10-10T07:57:22:   errno: -4091,
+2025-10-10T07:57:22:   syscall: 'listen',
+2025-10-10T07:57:22:   address: '0.0.0.0',
+2025-10-10T07:57:22:   port: 3004
+2025-10-10T07:57:22: }
+2025-10-10T07:57:22: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+2025-10-10T07:57:23: Server error: Error: listen EADDRINUSE: address already in use 0.0.0.0:3004
+2025-10-10T07:57:23:     at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+2025-10-10T07:57:23:     at listenInCluster (node:net:1997:12)
+2025-10-10T07:57:23:     at node:net:2206:7
+2025-10-10T07:57:23:     at processTicksAndRejections (node:internal/process/task_queues:90:21) {
+2025-10-10T07:57:23:   code: 'EADDRINUSE',
+2025-10-10T07:57:23:   errno: -4091,
+2025-10-10T07:57:23:   syscall: 'listen',
+2025-10-10T07:57:23:   address: '0.0.0.0',
+2025-10-10T07:57:23:   port: 3004
+2025-10-10T07:57:23: }
+2025-10-10T07:57:23: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 📡 auto-backup env with Radar: https://dotenvx.com/radar
+2025-10-10T07:57:24: Server error: Error: listen EADDRINUSE: address already in use 0.0.0.0:3004
+2025-10-10T07:57:24:     at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+2025-10-10T07:57:24:     at listenInCluster (node:net:1997:12)
+2025-10-10T07:57:24:     at node:net:2206:7
+2025-10-10T07:57:24:     at processTicksAndRejections (node:internal/process/task_queues:90:21) {
+2025-10-10T07:57:24:   code: 'EADDRINUSE',
+2025-10-10T07:57:24:   errno: -4091,
+2025-10-10T07:57:24:   syscall: 'listen',
+2025-10-10T07:57:24:   address: '0.0.0.0',
+2025-10-10T07:57:24:   port: 3004
+2025-10-10T07:57:24: }
+2025-10-10T07:57:24: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+2025-10-10T07:57:24: Server error: Error: listen EADDRINUSE: address already in use 0.0.0.0:3004
+2025-10-10T07:57:24:     at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+2025-10-10T07:57:24:     at listenInCluster (node:net:1997:12)
+2025-10-10T07:57:24:     at node:net:2206:7
+2025-10-10T07:57:24:     at processTicksAndRejections (node:internal/process/task_queues:90:21) {
+2025-10-10T07:57:24:   code: 'EADDRINUSE',
+2025-10-10T07:57:24:   errno: -4091,
+2025-10-10T07:57:24:   syscall: 'listen',
+2025-10-10T07:57:24:   address: '0.0.0.0',
+2025-10-10T07:57:24:   port: 3004
+2025-10-10T07:57:24: }
+2025-10-10T07:57:25: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+2025-10-10T07:57:25: Server error: Error: listen EADDRINUSE: address already in use 0.0.0.0:3004
+2025-10-10T07:57:25:     at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+2025-10-10T07:57:25:     at listenInCluster (node:net:1997:12)
+2025-10-10T07:57:25:     at node:net:2206:7
+2025-10-10T07:57:25:     at processTicksAndRejections (node:internal/process/task_queues:90:21) {
+2025-10-10T07:57:25:   code: 'EADDRINUSE',
+2025-10-10T07:57:25:   errno: -4091,
+2025-10-10T07:57:25:   syscall: 'listen',
+2025-10-10T07:57:25:   address: '0.0.0.0',
+2025-10-10T07:57:25:   port: 3004
+2025-10-10T07:57:25: }
+2025-10-10T07:57:26: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+2025-10-10T07:57:26: Server error: Error: listen EADDRINUSE: address already in use 0.0.0.0:3004
+2025-10-10T07:57:26:     at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+2025-10-10T07:57:26:     at listenInCluster (node:net:1997:12)
+2025-10-10T07:57:26:     at node:net:2206:7
+2025-10-10T07:57:26:     at processTicksAndRejections (node:internal/process/task_queues:90:21) {
+2025-10-10T07:57:26:   code: 'EADDRINUSE',
+2025-10-10T07:57:26:   errno: -4091,
+2025-10-10T07:57:26:   syscall: 'listen',
+2025-10-10T07:57:26:   address: '0.0.0.0',
+2025-10-10T07:57:26:   port: 3004
+2025-10-10T07:57:26: }
+2025-10-10T07:57:27: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+2025-10-10T07:57:28: Server error: Error: listen EADDRINUSE: address already in use 0.0.0.0:3004
+2025-10-10T07:57:28:     at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+2025-10-10T07:57:28:     at listenInCluster (node:net:1997:12)
+2025-10-10T07:57:28:     at node:net:2206:7
+2025-10-10T07:57:28:     at processTicksAndRejections (node:internal/process/task_queues:90:21) {
+2025-10-10T07:57:28:   code: 'EADDRINUSE',
+2025-10-10T07:57:28:   errno: -4091,
+2025-10-10T07:57:28:   syscall: 'listen',
+2025-10-10T07:57:28:   address: '0.0.0.0',
+2025-10-10T07:57:28:   port: 3004
+2025-10-10T07:57:28: }
+2025-10-10T07:57:29: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+2025-10-10T07:57:30: Server error: Error: listen EADDRINUSE: address already in use 0.0.0.0:3004
+2025-10-10T07:57:30:     at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+2025-10-10T07:57:30:     at listenInCluster (node:net:1997:12)
+2025-10-10T07:57:30:     at node:net:2206:7
+2025-10-10T07:57:30:     at processTicksAndRejections (node:internal/process/task_queues:90:21) {
+2025-10-10T07:57:30:   code: 'EADDRINUSE',
+2025-10-10T07:57:30:   errno: -4091,
+2025-10-10T07:57:30:   syscall: 'listen',
+2025-10-10T07:57:30:   address: '0.0.0.0',
+2025-10-10T07:57:30:   port: 3004
+2025-10-10T07:57:30: }
+2025-10-10T07:57:31: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 📡 auto-backup env with Radar: https://dotenvx.com/radar
+2025-10-10T07:57:32: Server error: Error: listen EADDRINUSE: address already in use 0.0.0.0:3004
+2025-10-10T07:57:32:     at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+2025-10-10T07:57:32:     at listenInCluster (node:net:1997:12)
+2025-10-10T07:57:32:     at node:net:2206:7
+2025-10-10T07:57:32:     at processTicksAndRejections (node:internal/process/task_queues:90:21) {
+2025-10-10T07:57:32:   code: 'EADDRINUSE',
+2025-10-10T07:57:32:   errno: -4091,
+2025-10-10T07:57:32:   syscall: 'listen',
+2025-10-10T07:57:32:   address: '0.0.0.0',
+2025-10-10T07:57:32:   port: 3004
+2025-10-10T07:57:32: }
+2025-10-10T07:57:35: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: ⚙️  enable debug logging with { debug: true }
+2025-10-10T07:57:35: Server error: Error: listen EADDRINUSE: address already in use 0.0.0.0:3004
+2025-10-10T07:57:35:     at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+2025-10-10T07:57:35:     at listenInCluster (node:net:1997:12)
+2025-10-10T07:57:35:     at node:net:2206:7
+2025-10-10T07:57:35:     at processTicksAndRejections (node:internal/process/task_queues:90:21) {
+2025-10-10T07:57:35:   code: 'EADDRINUSE',
+2025-10-10T07:57:35:   errno: -4091,
+2025-10-10T07:57:35:   syscall: 'listen',
+2025-10-10T07:57:35:   address: '0.0.0.0',
+2025-10-10T07:57:35:   port: 3004
+2025-10-10T07:57:35: }
+2025-10-10T08:52:52: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 📡 observe env with Radar: https://dotenvx.com/radar
+2025-10-10T08:52:52: Server error: Error: listen EADDRINUSE: address already in use 0.0.0.0:3004
+2025-10-10T08:52:52:     at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+2025-10-10T08:52:52:     at listenInCluster (node:net:1997:12)
+2025-10-10T08:52:52:     at node:net:2206:7
+2025-10-10T08:52:52:     at processTicksAndRejections (node:internal/process/task_queues:90:21) {
+2025-10-10T08:52:52:   code: 'EADDRINUSE',
+2025-10-10T08:52:52:   errno: -4091,
+2025-10-10T08:52:52:   syscall: 'listen',
+2025-10-10T08:52:52:   address: '0.0.0.0',
+2025-10-10T08:52:52:   port: 3004
+2025-10-10T08:52:52: }
+2025-10-10T08:52:53: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: ⚙️  enable debug logging with { debug: true }
+2025-10-10T08:52:53: Server error: Error: listen EADDRINUSE: address already in use 0.0.0.0:3004
+2025-10-10T08:52:53:     at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+2025-10-10T08:52:53:     at listenInCluster (node:net:1997:12)
+2025-10-10T08:52:53:     at node:net:2206:7
+2025-10-10T08:52:53:     at processTicksAndRejections (node:internal/process/task_queues:90:21) {
+2025-10-10T08:52:53:   code: 'EADDRINUSE',
+2025-10-10T08:52:53:   errno: -4091,
+2025-10-10T08:52:53:   syscall: 'listen',
+2025-10-10T08:52:53:   address: '0.0.0.0',
+2025-10-10T08:52:53:   port: 3004
+2025-10-10T08:52:53: }
+2025-10-10T08:52:53: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: ⚙️  override existing env vars with { override: true }
+2025-10-10T08:52:54: Server error: Error: listen EADDRINUSE: address already in use 0.0.0.0:3004
+2025-10-10T08:52:54:     at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+2025-10-10T08:52:54:     at listenInCluster (node:net:1997:12)
+2025-10-10T08:52:54:     at node:net:2206:7
+2025-10-10T08:52:54:     at processTicksAndRejections (node:internal/process/task_queues:90:21) {
+2025-10-10T08:52:54:   code: 'EADDRINUSE',
+2025-10-10T08:52:54:   errno: -4091,
+2025-10-10T08:52:54:   syscall: 'listen',
+2025-10-10T08:52:54:   address: '0.0.0.0',
+2025-10-10T08:52:54:   port: 3004
+2025-10-10T08:52:54: }
+2025-10-10T08:52:54: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: ⚙️  enable debug logging with { debug: true }
+2025-10-10T08:52:55: Server error: Error: listen EADDRINUSE: address already in use 0.0.0.0:3004
+2025-10-10T08:52:55:     at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+2025-10-10T08:52:55:     at listenInCluster (node:net:1997:12)
+2025-10-10T08:52:55:     at node:net:2206:7
+2025-10-10T08:52:55:     at processTicksAndRejections (node:internal/process/task_queues:90:21) {
+2025-10-10T08:52:55:   code: 'EADDRINUSE',
+2025-10-10T08:52:55:   errno: -4091,
+2025-10-10T08:52:55:   syscall: 'listen',
+2025-10-10T08:52:55:   address: '0.0.0.0',
+2025-10-10T08:52:55:   port: 3004
+2025-10-10T08:52:55: }
+2025-10-10T08:52:55: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 📡 version env with Radar: https://dotenvx.com/radar
+2025-10-10T08:52:56: Server error: Error: listen EADDRINUSE: address already in use 0.0.0.0:3004
+2025-10-10T08:52:56:     at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+2025-10-10T08:52:56:     at listenInCluster (node:net:1997:12)
+2025-10-10T08:52:56:     at node:net:2206:7
+2025-10-10T08:52:56:     at processTicksAndRejections (node:internal/process/task_queues:90:21) {
+2025-10-10T08:52:56:   code: 'EADDRINUSE',
+2025-10-10T08:52:56:   errno: -4091,
+2025-10-10T08:52:56:   syscall: 'listen',
+2025-10-10T08:52:56:   address: '0.0.0.0',
+2025-10-10T08:52:56:   port: 3004
+2025-10-10T08:52:56: }
+2025-10-10T08:52:56: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 📡 observe env with Radar: https://dotenvx.com/radar
+2025-10-10T08:52:57: Server error: Error: listen EADDRINUSE: address already in use 0.0.0.0:3004
+2025-10-10T08:52:57:     at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+2025-10-10T08:52:57:     at listenInCluster (node:net:1997:12)
+2025-10-10T08:52:57:     at node:net:2206:7
+2025-10-10T08:52:57:     at processTicksAndRejections (node:internal/process/task_queues:90:21) {
+2025-10-10T08:52:57:   code: 'EADDRINUSE',
+2025-10-10T08:52:57:   errno: -4091,
+2025-10-10T08:52:57:   syscall: 'listen',
+2025-10-10T08:52:57:   address: '0.0.0.0',
+2025-10-10T08:52:57:   port: 3004
+2025-10-10T08:52:57: }
+2025-10-10T08:52:58: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: ⚙️  enable debug logging with { debug: true }
+2025-10-10T08:52:58: Server error: Error: listen EADDRINUSE: address already in use 0.0.0.0:3004
+2025-10-10T08:52:58:     at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+2025-10-10T08:52:58:     at listenInCluster (node:net:1997:12)
+2025-10-10T08:52:58:     at node:net:2206:7
+2025-10-10T08:52:58:     at processTicksAndRejections (node:internal/process/task_queues:90:21) {
+2025-10-10T08:52:58:   code: 'EADDRINUSE',
+2025-10-10T08:52:58:   errno: -4091,
+2025-10-10T08:52:58:   syscall: 'listen',
+2025-10-10T08:52:58:   address: '0.0.0.0',
+2025-10-10T08:52:58:   port: 3004
+2025-10-10T08:52:58: }
+2025-10-10T08:53:00: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 📡 auto-backup env with Radar: https://dotenvx.com/radar
+2025-10-10T08:53:00: Server error: Error: listen EADDRINUSE: address already in use 0.0.0.0:3004
+2025-10-10T08:53:00:     at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+2025-10-10T08:53:00:     at listenInCluster (node:net:1997:12)
+2025-10-10T08:53:00:     at node:net:2206:7
+2025-10-10T08:53:00:     at processTicksAndRejections (node:internal/process/task_queues:90:21) {
+2025-10-10T08:53:00:   code: 'EADDRINUSE',
+2025-10-10T08:53:00:   errno: -4091,
+2025-10-10T08:53:00:   syscall: 'listen',
+2025-10-10T08:53:00:   address: '0.0.0.0',
+2025-10-10T08:53:00:   port: 3004
+2025-10-10T08:53:00: }
+2025-10-10T08:53:02: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 📡 auto-backup env with Radar: https://dotenvx.com/radar
+2025-10-10T08:53:02: Server error: Error: listen EADDRINUSE: address already in use 0.0.0.0:3004
+2025-10-10T08:53:02:     at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+2025-10-10T08:53:02:     at listenInCluster (node:net:1997:12)
+2025-10-10T08:53:02:     at node:net:2206:7
+2025-10-10T08:53:02:     at processTicksAndRejections (node:internal/process/task_queues:90:21) {
+2025-10-10T08:53:02:   code: 'EADDRINUSE',
+2025-10-10T08:53:02:   errno: -4091,
+2025-10-10T08:53:02:   syscall: 'listen',
+2025-10-10T08:53:02:   address: '0.0.0.0',
+2025-10-10T08:53:02:   port: 3004
+2025-10-10T08:53:02: }
+2025-10-10T08:53:05: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 📡 auto-backup env with Radar: https://dotenvx.com/radar
+2025-10-10T08:53:06: Server error: Error: listen EADDRINUSE: address already in use 0.0.0.0:3004
+2025-10-10T08:53:06:     at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+2025-10-10T08:53:06:     at listenInCluster (node:net:1997:12)
+2025-10-10T08:53:06:     at node:net:2206:7
+2025-10-10T08:53:06:     at processTicksAndRejections (node:internal/process/task_queues:90:21) {
+2025-10-10T08:53:06:   code: 'EADDRINUSE',
+2025-10-10T08:53:06:   errno: -4091,
+2025-10-10T08:53:06:   syscall: 'listen',
+2025-10-10T08:53:06:   address: '0.0.0.0',
+2025-10-10T08:53:06:   port: 3004
+2025-10-10T08:53:06: }
+2025-10-10T08:53:06: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+2025-10-10T08:53:07: Server error: Error: listen EADDRINUSE: address already in use 0.0.0.0:3004
+2025-10-10T08:53:07:     at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+2025-10-10T08:53:07:     at listenInCluster (node:net:1997:12)
+2025-10-10T08:53:07:     at node:net:2206:7
+2025-10-10T08:53:07:     at processTicksAndRejections (node:internal/process/task_queues:90:21) {
+2025-10-10T08:53:07:   code: 'EADDRINUSE',
+2025-10-10T08:53:07:   errno: -4091,
+2025-10-10T08:53:07:   syscall: 'listen',
+2025-10-10T08:53:07:   address: '0.0.0.0',
+2025-10-10T08:53:07:   port: 3004
+2025-10-10T08:53:07: }
+2025-10-10T08:53:07: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+2025-10-10T08:53:07: Server error: Error: listen EADDRINUSE: address already in use 0.0.0.0:3004
+2025-10-10T08:53:07:     at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+2025-10-10T08:53:07:     at listenInCluster (node:net:1997:12)
+2025-10-10T08:53:07:     at node:net:2206:7
+2025-10-10T08:53:07:     at processTicksAndRejections (node:internal/process/task_queues:90:21) {
+2025-10-10T08:53:07:   code: 'EADDRINUSE',
+2025-10-10T08:53:07:   errno: -4091,
+2025-10-10T08:53:07:   syscall: 'listen',
+2025-10-10T08:53:07:   address: '0.0.0.0',
+2025-10-10T08:53:07:   port: 3004
+2025-10-10T08:53:07: }
+2025-10-10T08:53:08: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: ⚙️  override existing env vars with { override: true }
+2025-10-10T08:53:08: Server error: Error: listen EADDRINUSE: address already in use 0.0.0.0:3004
+2025-10-10T08:53:08:     at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+2025-10-10T08:53:08:     at listenInCluster (node:net:1997:12)
+2025-10-10T08:53:08:     at node:net:2206:7
+2025-10-10T08:53:08:     at processTicksAndRejections (node:internal/process/task_queues:90:21) {
+2025-10-10T08:53:08:   code: 'EADDRINUSE',
+2025-10-10T08:53:08:   errno: -4091,
+2025-10-10T08:53:08:   syscall: 'listen',
+2025-10-10T08:53:08:   address: '0.0.0.0',
+2025-10-10T08:53:08:   port: 3004
+2025-10-10T08:53:08: }
+2025-10-10T08:53:08: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 📡 version env with Radar: https://dotenvx.com/radar
+2025-10-10T08:53:09: Server error: Error: listen EADDRINUSE: address already in use 0.0.0.0:3004
+2025-10-10T08:53:09:     at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+2025-10-10T08:53:09:     at listenInCluster (node:net:1997:12)
+2025-10-10T08:53:09:     at node:net:2206:7
+2025-10-10T08:53:09:     at processTicksAndRejections (node:internal/process/task_queues:90:21) {
+2025-10-10T08:53:09:   code: 'EADDRINUSE',
+2025-10-10T08:53:09:   errno: -4091,
+2025-10-10T08:53:09:   syscall: 'listen',
+2025-10-10T08:53:09:   address: '0.0.0.0',
+2025-10-10T08:53:09:   port: 3004
+2025-10-10T08:53:09: }
+2025-10-10T08:53:09: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+2025-10-10T08:53:10: Server error: Error: listen EADDRINUSE: address already in use 0.0.0.0:3004
+2025-10-10T08:53:10:     at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+2025-10-10T08:53:10:     at listenInCluster (node:net:1997:12)
+2025-10-10T08:53:10:     at node:net:2206:7
+2025-10-10T08:53:10:     at processTicksAndRejections (node:internal/process/task_queues:90:21) {
+2025-10-10T08:53:10:   code: 'EADDRINUSE',
+2025-10-10T08:53:10:   errno: -4091,
+2025-10-10T08:53:10:   syscall: 'listen',
+2025-10-10T08:53:10:   address: '0.0.0.0',
+2025-10-10T08:53:10:   port: 3004
+2025-10-10T08:53:10: }
+2025-10-10T08:53:10: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 📡 observe env with Radar: https://dotenvx.com/radar
+2025-10-10T08:53:11: Server error: Error: listen EADDRINUSE: address already in use 0.0.0.0:3004
+2025-10-10T08:53:11:     at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+2025-10-10T08:53:11:     at listenInCluster (node:net:1997:12)
+2025-10-10T08:53:11:     at node:net:2206:7
+2025-10-10T08:53:11:     at processTicksAndRejections (node:internal/process/task_queues:90:21) {
+2025-10-10T08:53:11:   code: 'EADDRINUSE',
+2025-10-10T08:53:11:   errno: -4091,
+2025-10-10T08:53:11:   syscall: 'listen',
+2025-10-10T08:53:11:   address: '0.0.0.0',
+2025-10-10T08:53:11:   port: 3004
+2025-10-10T08:53:11: }
+2025-10-10T08:53:12: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: ⚙️  enable debug logging with { debug: true }
+2025-10-10T08:53:12: Server error: Error: listen EADDRINUSE: address already in use 0.0.0.0:3004
+2025-10-10T08:53:12:     at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+2025-10-10T08:53:12:     at listenInCluster (node:net:1997:12)
+2025-10-10T08:53:12:     at node:net:2206:7
+2025-10-10T08:53:12:     at processTicksAndRejections (node:internal/process/task_queues:90:21) {
+2025-10-10T08:53:12:   code: 'EADDRINUSE',
+2025-10-10T08:53:12:   errno: -4091,
+2025-10-10T08:53:12:   syscall: 'listen',
+2025-10-10T08:53:12:   address: '0.0.0.0',
+2025-10-10T08:53:12:   port: 3004
+2025-10-10T08:53:12: }
+2025-10-10T08:53:14: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 📡 version env with Radar: https://dotenvx.com/radar
+2025-10-10T08:53:14: Server error: Error: listen EADDRINUSE: address already in use 0.0.0.0:3004
+2025-10-10T08:53:14:     at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+2025-10-10T08:53:14:     at listenInCluster (node:net:1997:12)
+2025-10-10T08:53:14:     at node:net:2206:7
+2025-10-10T08:53:14:     at processTicksAndRejections (node:internal/process/task_queues:90:21) {
+2025-10-10T08:53:14:   code: 'EADDRINUSE',
+2025-10-10T08:53:14:   errno: -4091,
+2025-10-10T08:53:14:   syscall: 'listen',
+2025-10-10T08:53:14:   address: '0.0.0.0',
+2025-10-10T08:53:14:   port: 3004
+2025-10-10T08:53:14: }
+2025-10-10T08:53:16: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 📡 observe env with Radar: https://dotenvx.com/radar
+2025-10-10T08:53:16: Server error: Error: listen EADDRINUSE: address already in use 0.0.0.0:3004
+2025-10-10T08:53:16:     at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+2025-10-10T08:53:16:     at listenInCluster (node:net:1997:12)
+2025-10-10T08:53:16:     at node:net:2206:7
+2025-10-10T08:53:16:     at processTicksAndRejections (node:internal/process/task_queues:90:21) {
+2025-10-10T08:53:16:   code: 'EADDRINUSE',
+2025-10-10T08:53:16:   errno: -4091,
+2025-10-10T08:53:16:   syscall: 'listen',
+2025-10-10T08:53:16:   address: '0.0.0.0',
+2025-10-10T08:53:16:   port: 3004
+2025-10-10T08:53:16: }
+2025-10-10T08:53:19: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: ⚙️  override existing env vars with { override: true }
+2025-10-10T08:53:20: Server error: Error: listen EADDRINUSE: address already in use 0.0.0.0:3004
+2025-10-10T08:53:20:     at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+2025-10-10T08:53:20:     at listenInCluster (node:net:1997:12)
+2025-10-10T08:53:20:     at node:net:2206:7
+2025-10-10T08:53:20:     at processTicksAndRejections (node:internal/process/task_queues:90:21) {
+2025-10-10T08:53:20:   code: 'EADDRINUSE',
+2025-10-10T08:53:20:   errno: -4091,
+2025-10-10T08:53:20:   syscall: 'listen',
+2025-10-10T08:53:20:   address: '0.0.0.0',
+2025-10-10T08:53:20:   port: 3004
+2025-10-10T08:53:20: }
+2025-10-10T08:54:22: [dotenv@17.2.2] injecting env (13) from .env.local -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+2025-10-10T08:54:22: 🚀 Socket.IO server running on port 3004
+2025-10-10T08:54:22: 🌐 Server accessible at http://0.0.0.0:3004
+2025-10-10T08:54:22: 📊 Status endpoint: http://0.0.0.0:3004/status
+2025-10-10T08:54:22: 📋 Schedulers run independently via PM2 - check 'pm2 list' for status
+2025-10-10T08:54:22: ✅ Server is ready and accepting connections!
+2025-10-10T08:54:23: Redis client connected
+2025-10-10T08:54:23: Database connected successfully
+2025-10-10T08:54:24: Global notification listener initialized
+2025-10-10T08:54:44: 🔌 New socket connection: Eiarl8b9X86_ACiHAAAB (transport: websocket)
+2025-10-10T08:54:44: 🔌 Global task activity listener connected
+2025-10-10T08:54:44: AUTHENTICATE EVENT RECEIVED from socket Eiarl8b9X86_ACiHAAAB: { email: 'kyle.p@shoreagents.com' }
+2025-10-10T08:54:44: Authenticating user with email: kyle.p@shoreagents.com
+2025-10-10T08:54:44: Looking up user data for: kyle.p@shoreagents.com
+2025-10-10T08:54:44: Creating new user data for: kyle.p@shoreagents.com
+2025-10-10T08:54:44: Fetching connected users list...
+2025-10-10T08:54:44: No reference user found, returning empty list
+2025-10-10T08:54:45: Getting shift info for user ID: 2
+2025-10-10T08:54:45: User kyle.p@shoreagents.com has Day Shift schedule: 6:00 AM - 3:00 PM
+2025-10-10T08:54:45: Loading activity data for user kyle.p@shoreagents.com (ID: 2)
+2025-10-10T08:54:45: Found current day (2025-10-10) data for kyle.p@shoreagents.com
+2025-10-10T08:54:45: Activity query for user kyle.p@shoreagents.com (ID: 2) returned 1 rows
+2025-10-10T08:54:45: User kyle.p@shoreagents.com (ID: 2) - Last Activity: 2025-10-10T00:52:26.247Z, Current: 2025-10-10T00:54:45.413Z
+2025-10-10T08:54:45: Same shift period detected for kyle.p@shoreagents.com (Day Shift) - loading existing timer data
+2025-10-10T08:54:45: Initializing reset tracking for kyle.p@shoreagents.com with shift ID: 2025-10-10-day
+2025-10-10T08:54:45: Initializing reset timestamp for kyle.p@shoreagents.com to prevent immediate reset
+2025-10-10T08:54:45: Stored new user data for: kyle.p@shoreagents.com
+2025-10-10T08:54:45: 🧹 Cleaned up 1 existing disconnected connections for user kyle.p@shoreagents.com
+2025-10-10T08:54:45: ✅ Stored socket connection Eiarl8b9X86_ACiHAAAB for user kyle.p@shoreagents.com (ID: 2)
+2025-10-10T08:54:45: AUTHENTICATION COMPLETED: Socket Eiarl8b9X86_ACiHAAAB now associated with user kyle.p@shoreagents.com
+2025-10-10T08:54:45: Connected users map now contains: [ 'Eiarl8b9X86_ACiHAAAB -> kyle.p@shoreagents.com' ]
+2025-10-10T08:54:45: Getting meeting status for user: kyle.p@shoreagents.com
+2025-10-10T08:54:45: Meeting status retrieved: false
+2025-10-10T08:54:45: Preparing timer data for: kyle.p@shoreagents.com
+2025-10-10T08:54:45: Shift reset info for kyle.p@shoreagents.com: 21h 5m until next reset
+2025-10-10T08:54:45: Sending meeting status for: kyle.p@shoreagents.com - false
+2025-10-10T08:54:45: Meeting status sent for: kyle.p@shoreagents.com
+2025-10-10T08:54:45: Joining rooms for: kyle.p@shoreagents.com
+2025-10-10T08:54:45: Rooms joined for: kyle.p@shoreagents.com
+2025-10-10T08:54:45: Using existing loaded data for kyle.p@shoreagents.com: 5531s active, 2266s inactive, isActive: true
+2025-10-10T08:54:45: Timer data initialized for kyle.p@shoreagents.com: 5531s active, 2266s inactive
+2025-10-10T08:54:45: Sending authenticated event for: kyle.p@shoreagents.com
+2025-10-10T08:54:45: Authenticated event sent for: kyle.p@shoreagents.com
+2025-10-10T08:54:45: Sending timerUpdated event for: kyle.p@shoreagents.com
+2025-10-10T08:54:45: TimerUpdated event sent for: kyle.p@shoreagents.com
+2025-10-10T08:54:45: Authentication completed for kyle.p@shoreagents.com in 998ms
+2025-10-10T08:54:45: Activity update sent to 1 connections for kyle.p@shoreagents.com
+2025-10-10T08:54:46: Fetching connected users list...
+2025-10-10T08:54:46: Found reference company_id: 1
+2025-10-10T08:54:46: Found 4 team members to initialize
+2025-10-10T08:54:46: Initialized offline status for: justin.f@shoreagents.com
+2025-10-10T08:54:46: Initialized offline status for: kevin.m@shoreagents.com
+2025-10-10T08:54:46: Initialized offline status for: kylepantig@gmail.com
+2025-10-10T08:54:46: Team user status initialization completed for 4 members
+2025-10-10T08:54:46: User justin.f@shoreagents.com has socket status: offline
+2025-10-10T08:54:46: User kevin.m@shoreagents.com has socket status: offline
+2025-10-10T08:54:46: User kylepantig@gmail.com has socket status: offline
+2025-10-10T08:54:46: User kyle.p@shoreagents.com has socket status: online
+2025-10-10T08:54:48: Updating database for kyle.p@shoreagents.com - within shift window (date: 2025-10-10)
+2025-10-10T08:54:48: Database updated successfully for kyle.p@shoreagents.com
+2025-10-10T08:54:48: Updated timer for kyle.p@shoreagents.com: Active=5533s, Inactive=2266s
+2025-10-10T08:54:48: Broadcasting activity-data-updated to 1 connections for user 2 (kyle.p@shoreagents.com)
+2025-10-10T08:54:48: Found user 2 with email kyle.p@shoreagents.com
+2025-10-10T08:54:48: Broadcasting weekly-activity-update to 1 connections for user 2 (kyle.p@shoreagents.com)
+2025-10-10T08:54:48: Found user 2 with email kyle.p@shoreagents.com
+2025-10-10T08:54:48: Broadcasting monthly-activity-update to 1 connections for user 2 (kyle.p@shoreagents.com)
+2025-10-10T08:54:53: 📊 Connection Health: 1 active, 0 stale

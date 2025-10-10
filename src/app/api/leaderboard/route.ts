@@ -197,7 +197,8 @@ export async function GET(request: NextRequest) {
       leaderboard,
       currentUserRank,
       monthYear,
-      currentMonthYear
+      currentMonthYear,
+      type: 'monthly'
     }
 
     // Cache the result in Redis

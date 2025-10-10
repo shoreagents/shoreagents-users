@@ -309,10 +309,10 @@ export const AppHeader = React.memo(function AppHeader({ breadcrumbs, showUser =
           title: 'Activity',
           href: '/dashboard/activity'
         })
-      } else if (pathSegments[1] === 'analytics') {
+      } else if (pathSegments[1] === 'leaderboard') {
         generatedBreadcrumbs.push({
-          title: 'Analytics',
-          href: '/dashboard/analytics'
+          title: 'Leaderboard',
+          href: '/dashboard/leaderboard'
         })
       } else if (pathSegments.length === 1) {
         // Dashboard home page - make it clickable

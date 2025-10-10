@@ -53,7 +53,9 @@ export function useBreakExpiration() {
       });
       
       if (!response.ok) {
-        throw new Error('Failed to mark expired breaks');
+        const errorData = await response.json().catch(() => ({}));
+        const errorMessage = errorData.error || errorData.details || `HTTP ${response.status}: ${response.statusText}`;
+        throw new Error(`Failed to mark expired breaks: ${errorMessage}`);
       }
       
       const { expiredCount, sessions } = await response.json();
@@ -73,10 +75,11 @@ export function useBreakExpiration() {
       return { expiredCount, sessions };
     } catch (error) {
       console.error('Error marking expired breaks:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to mark expired breaks';
       setState(prev => ({ 
         ...prev, 
         isLoading: false, 
-        error: 'Failed to mark expired breaks' 
+        error: errorMessage
       }));
       return { expiredCount: 0, sessions: [] };
     }
@@ -131,19 +134,22 @@ export function useBreakExpiration() {
     }
   }, [socket]);
 
-  // Auto-refresh expired breaks every 2 minutes (more frequent for real-time updates)
+  // Auto-refresh expired breaks only when socket is not available
+  // When socket is available, updates are event-driven and don't need polling
   useEffect(() => {
+    if (socket) {
+      // Socket is available - no need for interval polling
+      // Updates will be handled by socket events
+      return;
+    }
+
+    // Fallback: Use interval only when socket is not available
     const interval = setInterval(() => {
-      // Use socket for real-time updates if available, fallback to API
-      if (socket) {
-        requestBreakExpirationCheck();
-      } else {
-        markExpiredBreaks();
-      }
+      markExpiredBreaks();
     }, 2 * 60 * 1000); // 2 minutes
 
     return () => clearInterval(interval);
-  }, [socket, requestBreakExpirationCheck, markExpiredBreaks]);
+  }, [socket, markExpiredBreaks]);
 
   // Mark expired breaks on mount
   useEffect(() => {
@@ -152,7 +158,8 @@ export function useBreakExpiration() {
     } else {
       markExpiredBreaks();
     }
-  }, [socket, requestBreakExpirationCheck, markExpiredBreaks]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestBreakExpirationCheck, markExpiredBreaks]);
 
   return {
     isSessionExpired,

@@ -65,9 +65,13 @@ declare global {
       breakMonitoring: {
         setActive: (active: boolean) => Promise<{ success: boolean; breakActive?: boolean; error?: string }>;
         getActive: () => Promise<{ success: boolean; breakActive?: boolean; error?: string }>;
+        getBreakState: () => Promise<{ success: boolean; state?: { isBreakActive: boolean; activeBreakId: string | null }; error?: string }>;
+        updateBreakState: (state: { isBreakActive: boolean; activeBreakId: string | null }) => Promise<{ success: boolean; state?: { isBreakActive: boolean; activeBreakId: string | null }; error?: string }>;
+        shouldPreventInactivityWindows: () => Promise<{ success: boolean; prevent?: boolean; error?: string }>;
         confirmEndDueToFocusLoss: () => Promise<{ success: boolean; blackScreens?: { success: boolean; error?: string }; error?: string }>;
         returnToBreak: () => Promise<{ success: boolean; error?: string }>;
         emergencyEscape: () => Promise<{ success: boolean; blackScreens?: { success: boolean; error?: string }; error?: string }>;
+        cleanupKeyboardShortcuts: () => Promise<{ success: boolean; error?: string }>;
       };
       kioskMode: {
         enable: () => Promise<{ success: boolean; kioskMode?: boolean; error?: string }>;

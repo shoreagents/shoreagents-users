@@ -35,6 +35,7 @@ export default function MyTicketsPage() {
   const [isNewTicketDialogOpen, setIsNewTicketDialogOpen] = useState(false)
   const [hoveredTicketId, setHoveredTicketId] = useState<string | null>(null)
   const [ticketAttachments, setTicketAttachments] = useState<Record<string, string[]>>({})
+  const [loadingAttachments, setLoadingAttachments] = useState<Record<string, boolean>>({})
   const ticketsPerPage = 12
 
   // Use React Query to fetch tickets
@@ -42,7 +43,13 @@ export default function MyTicketsPage() {
 
   // Function to fetch ticket attachments
   const fetchTicketAttachments = async (ticketId: string) => {
-    if (ticketAttachments[ticketId]) return // Already fetched
+    if (ticketAttachments[ticketId] || loadingAttachments[ticketId]) return // Already fetched or loading
+    
+    // Set loading state
+    setLoadingAttachments(prev => ({
+      ...prev,
+      [ticketId]: true
+    }))
     
     try {
       const response = await fetch(`/api/tickets/${ticketId}`, {
@@ -59,6 +66,12 @@ export default function MyTicketsPage() {
       }
     } catch (error) {
       console.error('Error fetching ticket attachments:', error)
+    } finally {
+      // Clear loading state
+      setLoadingAttachments(prev => ({
+        ...prev,
+        [ticketId]: false
+      }))
     }
   }
 
@@ -75,6 +88,19 @@ export default function MyTicketsPage() {
 
   // Attachment preview component
   const AttachmentPreview = ({ ticketId, attachments }: { ticketId: string, attachments: string[] }) => {
+    const isLoading = loadingAttachments[ticketId]
+    
+    if (isLoading) {
+      return (
+        <div className="p-4 text-center">
+          <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+            <div className="h-3 w-3 border-2 border-muted-foreground border-t-transparent rounded-full animate-spin" />
+            <p className="text-xs text-muted-foreground">Loading attachments ...</p>
+          </div>
+        </div>
+      )
+    }
+    
     if (!attachments || attachments.length === 0) {
       return (
         <div className="p-2 text-sm text-muted-foreground">
@@ -672,7 +698,11 @@ export default function MyTicketsPage() {
                                   }}
                                   onMouseLeave={() => setHoveredTicketId(null)}
                                 >
-                                  <FileText className="h-3 w-3" />
+                                  {loadingAttachments[ticket.id] ? (
+                                    <div className="h-3 w-3 border border-muted-foreground border-t-transparent rounded-full animate-spin" />
+                                  ) : (
+                                    <FileText className="h-3 w-3" />
+                                  )}
                                   <span>{ticket.fileCount}</span>
                                 </div>
                               </TooltipTrigger>

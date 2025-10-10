@@ -50,7 +50,7 @@ export function GlobalSearch({ className }: GlobalSearchProps) {
   // Create flattened list of all selectable items
   const quickActions: SearchResult[] = [
     { id: 'dashboard', title: 'Dashboard', type: 'page', url: '/dashboard' },
-    { id: 'analytics', title: 'Analytics', type: 'page', url: '/dashboard/analytics' },
+    { id: 'analytics', title: 'Leaderboard', type: 'page', url: '/dashboard/leaderboard' },
     { id: 'activity', title: 'Activity', type: 'page', url: '/dashboard/activity' },
     { id: 'my-tickets', title: 'My Tickets', type: 'page', url: '/forms/my-tickets' },
     { id: 'task', title: 'Task', type: 'page', url: '/productivity/task-activity' },

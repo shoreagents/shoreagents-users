@@ -337,7 +337,7 @@ export default function ProfilePage() {
                     Company Information
                   </CardTitle>
                   <CardDescription>
-                    Your company and member details
+                    Your company details
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -364,8 +364,8 @@ export default function ProfilePage() {
                             <p className="text-sm font-semibold">{profile.country || 'Not specified'}</p>
                           </div>
                           <div className="space-y-1">
-                            <p className="text-sm font-medium text-muted-foreground">Member Status</p>
-                            <p className="text-sm font-semibold">{profile.member_status || 'Not specified'}</p>
+                            <p className="text-sm font-medium text-muted-foreground">Company Status</p>
+                            <p className="text-sm font-semibold">{profile.company_status || 'Not specified'}</p>
                           </div>
                         </div>
                       </AccordionContent>
@@ -465,21 +465,21 @@ export default function ProfilePage() {
                     </div>
                     <span className="text-sm text-muted-foreground">{profile.start_date}</span>
                   </div>
-                  {profile.member_status && (
+                  {profile.company_status && (
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <Building className="h-4 w-4 text-indigo-600" />
-                        <span className="text-sm">Member Status</span>
+                        <span className="text-sm">Company Status</span>
                       </div>
                       <Badge 
                         variant="outline" 
                         className={`text-xs ${
-                          profile.member_status === 'Current Client' 
+                          profile.company_status === 'Current Client' 
                             ? 'border-green-500 text-green-700' 
                             : 'border-red-500 text-red-700'
                         }`}
                       >
-                        {profile.member_status}
+                        {profile.company_status}
                       </Badge>
                     </div>
                   )}

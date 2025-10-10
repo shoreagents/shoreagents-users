@@ -61,6 +61,15 @@ let focusLossCooldown = false;
 let focusLossCooldownTimeout = null;
 let focusMonitoringSetup = false; // Flag to prevent multiple setup calls
 
+// Break state from React context (more reliable than localStorage)
+let breakContextState = {
+  isBreakActive: false,
+  activeBreakId: null
+};
+
+// Global flag to prevent any inactivity windows during breaks
+let preventInactivityWindows = false;
+
 // Function to create black screen windows on secondary monitors
 function createBlackScreenWindows() {
   try {
@@ -679,6 +688,40 @@ function setupBreakFocusMonitoring() {
         return true;
       });
       
+      // Block Ctrl+Alt+Tab (alternative Alt+Tab)
+      globalShortcut.register('Ctrl+Alt+Tab', () => {
+        if (breakActive) {
+          if (mainWindow) {
+            mainWindow.focus();
+            if (!mainWindow.isFullScreen()) {
+              mainWindow.setFullScreen(true);
+            }
+            if (!mainWindow.isKiosk()) {
+              mainWindow.setKiosk(true);
+            }
+          }
+          return false;
+        }
+        return true;
+      });
+      
+      // Block Alt+Shift+Tab (reverse Alt+Tab)
+      globalShortcut.register('Alt+Shift+Tab', () => {
+        if (breakActive) {
+          if (mainWindow) {
+            mainWindow.focus();
+            if (!mainWindow.isFullScreen()) {
+              mainWindow.setFullScreen(true);
+            }
+            if (!mainWindow.isKiosk()) {
+              mainWindow.setKiosk(true);
+            }
+          }
+          return false;
+        }
+        return true;
+      });
+      
       // Block F11 (fullscreen toggle)
       globalShortcut.register('F11', () => {
         if (breakActive) {
@@ -725,6 +768,70 @@ function setupBreakFocusMonitoring() {
       
       // Block Windows+D (show desktop)
       globalShortcut.register('Meta+D', () => {
+        if (breakActive) {
+          return false;
+        }
+        return true;
+      });
+      
+      // Block Ctrl+Alt+Delete (Task Manager)
+      globalShortcut.register('Ctrl+Alt+Delete', () => {
+        if (breakActive) {
+          return false;
+        }
+        return true;
+      });
+      
+      // Block Alt+F4 (close window)
+      globalShortcut.register('Alt+F4', () => {
+        if (breakActive) {
+          return false;
+        }
+        return true;
+      });
+      
+      // Block Ctrl+Shift+Esc (Task Manager)
+      globalShortcut.register('Ctrl+Shift+Esc', () => {
+        if (breakActive) {
+          return false;
+        }
+        return true;
+      });
+      
+      // Block Windows+R (Run dialog)
+      globalShortcut.register('Meta+R', () => {
+        if (breakActive) {
+          return false;
+        }
+        return true;
+      });
+      
+      // Block Windows+X (Power User Menu)
+      globalShortcut.register('Meta+X', () => {
+        if (breakActive) {
+          return false;
+        }
+        return true;
+      });
+      
+      // Block Windows+E (File Explorer)
+      globalShortcut.register('Meta+E', () => {
+        if (breakActive) {
+          return false;
+        }
+        return true;
+      });
+      
+      // Block Windows+I (Settings)
+      globalShortcut.register('Meta+I', () => {
+        if (breakActive) {
+          return false;
+        }
+        return true;
+      });
+      
+      // Block Windows+L (Lock screen)
+      globalShortcut.register('Meta+L', () => {
         if (breakActive) {
           return false;
         }
@@ -828,7 +935,7 @@ function setupBreakFocusMonitoring() {
           // DON'T close black screens here - just show dialog
         }
         
-        // Ensure kiosk mode and fullscreen are still active
+        // Aggressively enforce kiosk mode and fullscreen
         if (mainWindow) {
           if (!mainWindow.isKiosk()) {
             mainWindow.setKiosk(true);
@@ -838,6 +945,14 @@ function setupBreakFocusMonitoring() {
           }
           if (!mainWindow.isFocused()) {
             mainWindow.focus();
+          }
+          // Ensure window stays on top
+          if (!mainWindow.isAlwaysOnTop()) {
+            mainWindow.setAlwaysOnTop(true, 'screen-saver');
+          }
+          // Ensure menu bar stays hidden
+          if (mainWindow.isMenuBarVisible()) {
+            mainWindow.setMenuBarVisibility(false);
           }
         }
         
@@ -879,7 +994,7 @@ function setupBreakFocusMonitoring() {
             }
           }
         });
-      }, 1000); // Check every 1 second (more aggressive)
+      }, 500); // Check every 500ms for more aggressive monitoring
       
       // Store the interval for cleanup
       mainWindow._focusCheckInterval = focusCheckInterval;
@@ -897,6 +1012,24 @@ function setBreakActiveState(active) {
   breakActive = active; 
   
   if (active) {
+    // Pause activity tracking during breaks to prevent conflicts
+    if (activityTracker) {
+      console.log('Pausing activity tracking during break');
+      activityTracker.pauseTracking();
+      
+      // Double-check that tracking is actually paused
+      setTimeout(() => {
+        if (activityTracker && activityTracker.isTracking) {
+          console.warn('Activity tracking was not properly paused, forcing pause');
+          activityTracker.pauseTracking();
+        }
+      }, 100);
+    }
+    
+    // Set global flag to prevent any inactivity windows
+    preventInactivityWindows = true;
+    console.log('Set preventInactivityWindows = true');
+    
     // Add a delay to prevent focus monitoring from triggering during fullscreen transition
     setTimeout(() => {
       if (breakActive) { // Double-check that break is still active
@@ -1029,6 +1162,16 @@ function setBreakActiveState(active) {
     } catch (error) {
       console.warn('Error restoring window to normal state:', error.message);
     }
+    
+    // Resume activity tracking after break ends
+    if (activityTracker) {
+      console.log('Resuming activity tracking after break ended');
+      activityTracker.resumeTracking();
+    }
+    
+    // Reset global flag to allow inactivity windows again
+    preventInactivityWindows = false;
+    console.log('Set preventInactivityWindows = false');
   }
   
   return { success: true, breakActive: active };
@@ -1324,7 +1467,7 @@ function createNotificationWithSound(title, body, icon, type = 'main') {
       body: body,
       icon: icon,
       silent: useCustom, // Mute OS sound if we play our own
-      timeoutType: 'never'
+      timeoutType: type === 'inactivity' ? 'default' : 'never' // Auto-close inactivity notifications after 3 seconds
     });
 
     // Show notification
@@ -1333,6 +1476,16 @@ function createNotificationWithSound(title, body, icon, type = 'main') {
     if (useCustom) {
       playCustomNotificationSound(type);
     }
+    
+    // For inactivity notifications, auto-close after 3 seconds
+    if (type === 'inactivity') {
+      setTimeout(() => {
+        if (notification) {
+          notification.close();
+        }
+      }, 3000); // 3 seconds
+    }
+    
     resolve(notification);
   });
 }
@@ -1512,13 +1665,10 @@ ipcMain.handle('show-inactivity-notification', async (event, data) => {
       inactivityNotification = null;
     }
 
-    // Start counting from 0 seconds when dialog appears
-    const timeText = "0s";
-
     // Create new notification with reliable sound
     inactivityNotification = await createNotificationWithSound(
       'Inactivity Detected',
-      `You've been inactive for ${timeText}. Move your mouse to resume.`,
+      'You have been inactive. Move your mouse to resume.',
       getAppResourcePath('public/warning.png'),
       'inactivity'
     );
@@ -1544,18 +1694,10 @@ ipcMain.handle('update-inactivity-notification', async (event, data) => {
       
       // Small delay to ensure proper cleanup
       setTimeout(async () => {
-        // Format time properly - start from 0 seconds and count up
-        const seconds = Math.floor(data.inactiveTime / 1000);
-        const minutes = Math.floor(seconds / 60);
-        const remainingSeconds = seconds % 60;
-        const timeText = minutes > 0 
-          ? `${minutes}m ${remainingSeconds}s` 
-          : `${seconds}s`;
-
         // Create a new notification with reliable sound
         inactivityNotification = await createNotificationWithSound(
           'Inactivity Detected',
-          `You've been inactive for ${timeText}. Move your mouse to resume.`,
+          'You have been inactive. Move your mouse to resume.',
           getAppResourcePath('public/warning.png'),
           'inactivity'
         );
@@ -1752,8 +1894,14 @@ function createWindow() {
     mainWindow = null;
   });
 
-  // Handle external links
+  // Handle external links - prevent opening during breaks
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    // If break is active, prevent external app opening
+    if (breakActive) {
+      console.log('Blocked external link during break:', url);
+      return { action: 'deny' };
+    }
+    // Only allow external links when not on break
     shell.openExternal(url);
     return { action: 'deny' };
   });
@@ -2740,10 +2888,16 @@ app.on('quit', () => {
   }
 });
 
-// Security: Prevent new window creation
+// Security: Prevent new window creation - enhanced for break mode
 app.on('web-contents-created', (event, contents) => {
   contents.on('new-window', (event, navigationUrl) => {
     event.preventDefault();
+    // If break is active, completely block new window creation
+    if (breakActive) {
+      console.log('Blocked new window creation during break:', navigationUrl);
+      return;
+    }
+    // Only allow external navigation when not on break
     shell.openExternal(navigationUrl);
   });
 });
@@ -3067,6 +3221,46 @@ ipcMain.handle('set-break-active', (event, active) => {
   }
 });
 
+// IPC handler to receive break state from React context
+ipcMain.handle('update-break-context-state', (event, state) => {
+  try {
+    breakContextState = {
+      isBreakActive: state.isBreakActive || false,
+      activeBreakId: state.activeBreakId || null
+    };
+    
+    console.log('Break context state updated:', breakContextState);
+    
+    // Also update the global breakActive variable for backward compatibility
+    breakActive = breakContextState.isBreakActive;
+    
+    return { success: true, state: breakContextState };
+  } catch (error) {
+    console.error('Error updating break context state:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// IPC handler to get current break state
+ipcMain.handle('get-break-context-state', () => {
+  try {
+    return { success: true, state: breakContextState };
+  } catch (error) {
+    console.error('Error getting break context state:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// IPC handler to check if inactivity windows should be prevented
+ipcMain.handle('should-prevent-inactivity-windows', () => {
+  try {
+    return { success: true, prevent: preventInactivityWindows };
+  } catch (error) {
+    console.error('Error checking inactivity window prevention:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 // IPC handler to enable/disable kiosk mode
 ipcMain.handle('set-kiosk-mode', (event, enabled) => {
   try {
@@ -3144,10 +3338,10 @@ ipcMain.handle('return-to-break', () => {
         clearTimeout(focusLossCooldownTimeout);
       }
       
-      // Set cooldown for 3 seconds
+      // Set cooldown for 1 second (reduced for more responsive monitoring)
       focusLossCooldownTimeout = setTimeout(() => {
         focusLossCooldown = false;
-      }, 3000);
+      }, 1000);
       
       // Force focus back to main window without changing window state
       if (mainWindow) {

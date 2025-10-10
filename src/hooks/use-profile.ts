@@ -36,12 +36,12 @@ export interface UserProfile {
   hire_type?: string
   staff_source?: string
   exit_date?: string
-  // Company information from members table
+  // Company information from companies table
   company_address?: string
   company_phone?: string
   company_logo?: string
   service?: string
-  member_status?: string
+  company_status?: string
   badge_color?: string
   country?: string
   website?: string

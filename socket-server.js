@@ -1739,7 +1739,7 @@ async function getUserInfo(userId) {
 }
 
 // Function to initialize user status for all team members
-async function initializeTeamUserStatus(referenceMemberId) {
+async function initializeTeamUserStatus(referenceCompanyId) {
   try {
     // Fetch all team members from database
     const teamQuery = `
@@ -1750,11 +1750,11 @@ async function initializeTeamUserStatus(referenceMemberId) {
       FROM users u
       INNER JOIN agents a ON u.id = a.user_id
       LEFT JOIN personal_info pi ON pi.user_id = u.id
-      WHERE a.member_id = $1
+      WHERE a.company_id = $1
       ORDER BY u.email
     `;
     
-    const teamResult = await pool.query(teamQuery, [referenceMemberId]);
+    const teamResult = await pool.query(teamQuery, [referenceCompanyId]);
     console.log(`Found ${teamResult.rows.length} team members to initialize`);
     
     // Initialize userStatus for all team members (default to offline)
@@ -1784,9 +1784,9 @@ async function getConnectedUsersList() {
     // Get all users from the database who are part of the same team
     // First, we need to get a reference user to determine the team
     let referenceUser = null;
-    let referenceMemberId = null;
+    let referenceCompanyId = null;
     
-    // Find any authenticated user to get their member_id
+    // Find any authenticated user to get their company_id
     for (const [email, status] of userStatus.entries()) {
       if (status.status === 'online') {
         const userDataEntry = userData.get(email);
@@ -1802,28 +1802,28 @@ async function getConnectedUsersList() {
       return [];
     }
     
-    // Get the member_id for the reference user
+    // Get the company_id for the reference user
     try {
-      const memberQuery = `
-        SELECT a.member_id
+      const companyQuery = `
+        SELECT a.company_id
         FROM agents a
         WHERE a.user_id = $1
         LIMIT 1
       `;
-      const memberResult = await pool.query(memberQuery, [referenceUser.userId]);
+      const companyResult = await pool.query(companyQuery, [referenceUser.userId]);
       
-      if (memberResult.rows.length === 0) {
+      if (companyResult.rows.length === 0) {
         console.log('Reference user is not an agent, returning empty list');
         return [];
       }
       
-             referenceMemberId = memberResult.rows[0].member_id;
-       console.log(`Found reference member_id: ${referenceMemberId}`);
+             referenceCompanyId = companyResult.rows[0].company_id;
+       console.log(`Found reference company_id: ${referenceCompanyId}`);
        
        // Initialize user status for all team members
-       await initializeTeamUserStatus(referenceMemberId);
+       await initializeTeamUserStatus(referenceCompanyId);
      } catch (error) {
-       console.error('Error getting reference member_id:', error);
+       console.error('Error getting reference company_id:', error);
        return [];
      }
     
@@ -1833,15 +1833,15 @@ async function getConnectedUsersList() {
         u.id,
         u.email,
         TRIM(CONCAT(COALESCE(pi.first_name,''), ' ', COALESCE(pi.last_name,''))) as full_name,
-        a.member_id
+        a.company_id
       FROM users u
       INNER JOIN agents a ON u.id = a.user_id
       LEFT JOIN personal_info pi ON pi.user_id = u.id
-      WHERE a.member_id = $1
+      WHERE a.company_id = $1
       ORDER BY u.email
     `;
     
-    const teamResult = await pool.query(teamQuery, [referenceMemberId]);
+    const teamResult = await pool.query(teamQuery, [referenceCompanyId]);
     
     const users = [];
     
@@ -4456,6 +4456,50 @@ io.on('connection', (socket) => {
       
     } catch (error) {
       console.error('Restroom status update error:', error);
+    }
+  });
+
+  // Handle break expiration check requests
+  socket.on('check-break-expiration', async (data) => {
+    try {
+      const { userId } = data;
+      if (!userId) return;
+
+      console.log(`Break expiration check requested for user: ${userId}`);
+
+      // Call the break expiration API
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3005'}/api/breaks/mark-expired`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        console.log(`Break expiration check completed: ${result.expiredCount} expired sessions`);
+        
+        // Emit the result back to the client
+        socket.emit('break-expiration-updated', {
+          expiredCount: result.expiredCount,
+          sessions: result.sessions || []
+        });
+      } else {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('Break expiration check failed:', errorData);
+        
+        // Emit error back to the client
+        socket.emit('break-expiration-error', {
+          message: errorData.error || 'Failed to check break expiration'
+        });
+      }
+    } catch (error) {
+      console.error('Break expiration check error:', error);
+      
+      // Emit error back to the client
+      socket.emit('break-expiration-error', {
+        message: 'Failed to check break expiration'
+      });
     }
   });
 

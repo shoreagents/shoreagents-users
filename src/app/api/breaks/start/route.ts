@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { executeQuery } from '@/lib/database-server';
+import { redisCache, cacheKeys } from '@/lib/redis-cache';
 
 export async function POST(request: NextRequest) {
   try {
@@ -100,13 +101,20 @@ export async function POST(request: NextRequest) {
 
     // Insert new break session with Philippines timezone and break_config_id
     const insertQuery = `
-      INSERT INTO break_sessions (agent_user_id, break_type, start_time, break_date, break_config_id, duration_minutes)
-      VALUES ($1, $2::break_type_enum, NOW(), (NOW() AT TIME ZONE 'Asia/Manila')::date, $3, $4)
+      INSERT INTO break_sessions (agent_user_id, break_type, start_time, break_date, break_config_id)
+      VALUES ($1, $2::break_type_enum, NOW(), (NOW() AT TIME ZONE 'Asia/Manila')::date, $3)
       RETURNING id, agent_user_id, break_type, start_time, break_date, break_config_id, created_at
     `;
 
-    const result = await executeQuery(insertQuery, [agent_user_id, break_type, breakConfig.id, breakConfig.duration_minutes]);
+    const result = await executeQuery(insertQuery, [agent_user_id, break_type, breakConfig.id]);
     const breakSession = result[0];
+
+    // Invalidate break history cache for this user
+    try {
+      await redisCache.invalidatePattern(`breaks-history:${agent_user_id}:*`);
+    } catch (cacheError) {
+      console.warn('Failed to invalidate break history cache:', cacheError);
+    }
 
     // Break started successfully;
 

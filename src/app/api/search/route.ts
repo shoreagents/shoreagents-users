@@ -357,7 +357,7 @@ export async function GET(request: NextRequest) {
        const staticPages = [
          { title: 'Dashboard', description: 'Main dashboard overview', url: '/dashboard', type: 'page' as const },
          { title: 'Activity', description: 'View activity analytics', url: '/dashboard/activity', type: 'page' as const },
-         { title: 'Analytics', description: 'View detailed analytics', url: '/dashboard/analytics', type: 'page' as const },
+         { title: 'Leaderboard', description: 'View detailed analytics', url: '/dashboard/leaderboard', type: 'page' as const },
          { title: 'My Tickets', description: 'View your tickets', url: '/forms/my-tickets', type: 'page' as const },
          { title: 'Task', description: 'Manage tasks and activities', url: '/productivity/task-activity', type: 'page' as const },
          { title: 'Breaks', description: 'Manage breaks and time off', url: '/status/breaks', type: 'page' as const },
